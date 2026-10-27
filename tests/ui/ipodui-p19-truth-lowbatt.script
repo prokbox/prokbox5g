@@ -1,0 +1,29 @@
+# P19 19-2 screen truth (phase19-brief.md 3.6), row: the low-battery screen (sysscreen.c low_frame).
+# The drift runs as jobs the device's way (bcm_drift on): the BCM owns
+# the panel and the framebuffer's copy is poisoned (drift_jobs.c), so a
+# reader or writer that skips ui_fb_settle() shows: "shot POISONED" (the
+# framebuffer's panel reached a shot) or "glass owned STALE" (a write
+# into the owned rect that never reached the glass).  The settled shots
+# must equal the same script's run with bcm_drift off (the CPU path):
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p19-truth-lowbatt.script
+# needs: library
+# needs: video
+# golden: skip
+# nolog: shot POISONED
+# nolog: glass owned STALE
+
+bcm_drift on
+wait 4000
+wait_db 30000
+sim_clock 15:04
+clock_format 24
+battery 100
+drift_phase 0
+wait 3000            # live: the fade, then pan steps as jobs (owned)
+shot drift_owned
+battery 5
+charger off
+hold PLAY 1500       # a power-off with the battery low: its screen
+wait 600
+shot connect_to_power
+quit

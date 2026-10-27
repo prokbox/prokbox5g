@@ -1,0 +1,71 @@
+# P15 (docs/phase15-brief.md 2.4, 6 item 12, 7): Settings > EQ walks the
+# presets, hardware and software ones and Off, and every apply logs which
+# engine runs it ("eq engine=hw|sw preset= maxerr= precut=", after the
+# unchanged "eq preset= enabled= precut=" line). check_trace.py's p15eq
+# rule checks each pair against the generated table
+# (apps/ipodui/eq_hw_presets.c: every preset on hw since the owner's
+# 2026-10-11 call, EQ_HW_MAXERR 255) and that exactly one engine is on: hw -> software EQ flat
+# (enabled=0 precut=0), sw -> software EQ enabled, Off -> neither.
+# Order of presets, the list is Off then 1..22:
+#   0 Off -> 1 Acoustic (hw) -> 5 Dance (hw, worst fits) -> 2 Bass Booster (hw)
+#   -> 20 Treble Booster (hw) -> 8 Flat (hw) -> 16 R&B (hw) -> 0 Off
+# so hw -> sw -> Off and sw -> hw are both walked.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p15-eq-engine.script
+# trace: p15eq
+# eq-engines: 0=sw 1=hw 5=hw 2=hw 20=hw 8=hw 16=hw
+# log: eq engine=hw preset=1 maxerr=13 precut=8
+# log: eq engine=hw preset=5 maxerr=22 precut=
+# log: eq engine=sw preset=0 maxerr=0 precut=0
+# golden: skip end_off
+
+wait 4000
+wheel +3             # Settings
+wait 400
+key SELECT
+wait 1500
+wheel +9             # EQ
+wait 400
+key SELECT
+wait 1500
+wheel +1 300         # Acoustic (hw)
+wait 500
+key SELECT
+wait 800
+key SELECT           # reopen: the applied preset is highlighted
+wait 1200
+wheel +4 300         # Dance (hw)
+wait 500
+key SELECT
+wait 800
+key SELECT
+wait 1200
+wheel -3 300         # Bass Booster (hw)
+wait 500
+key SELECT
+wait 800
+key SELECT
+wait 1200
+wheel +18 120        # Treble Booster (hw)
+wait 800
+key SELECT
+wait 800
+key SELECT
+wait 1200
+wheel -12 120        # Flat (hw)
+wait 800
+key SELECT
+wait 800
+key SELECT
+wait 1200
+wheel +8 150         # R&B (hw)
+wait 800
+key SELECT
+wait 800
+key SELECT
+wait 1200
+wheel -16 100        # Off
+wait 800
+key SELECT
+wait 1200
+shot end_off
+quit

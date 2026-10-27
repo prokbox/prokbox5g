@@ -1,0 +1,101 @@
+session build=p19-a1b2c3d date=2026-10-25 14:02 steps=56 image=218660 fnv=cd8e5d96 kind=merged
+step=s05 result=start
+step=s05 log=stage 5 PASS
+step=s05 result=pass answer=Yes ms=301000 note=stage 5 PASS
+step=s4b result=start
+step=s4b log=stage 4b PASS
+step=s4b result=pass answer=- ms=92000 note=stage 4b PASS
+step=c1 result=start
+step=c1 log=c1: PASS
+step=c1 result=pass answer=- ms=4000 note=c1: PASS
+step=c2 result=start
+step=c2 log=c2: PASS
+step=c2 result=pass answer=- ms=4000 note=c2: PASS
+step=c3 result=start
+step=c3 log=c3: PASS
+step=c3 result=pass answer=- ms=4000 note=c3: PASS
+step=pb1 result=start
+step=pb1 log=pb1: PASS
+step=pb1 result=pass answer=- ms=4000 note=pb1: PASS
+step=pb4 result=start
+step=pb4 log=pb4: PASS
+step=pb4 result=pass answer=- ms=4000 note=pb4: PASS
+step=pw1 result=start
+step=pw1 log=pw1: PASS
+step=pw1 result=pass answer=- ms=4000 note=pw1: PASS
+step=pw2 result=start
+step=pw2 log=pw2: PASS
+step=pw2 result=pass answer=- ms=4000 note=pw2: PASS
+step=pw7 result=start
+step=pw7 log=pw7: PASS
+step=pw7 result=pass answer=- ms=4000 note=pw7: PASS
+step=pw8 result=start
+step=pw8 log=pw8: PASS
+step=pw8 result=pass answer=- ms=4000 note=pw8: PASS
+step=jobs result=start
+step=jobs log=jobs: self-test rc 1
+step=jobs result=skip answer=- ms=10 note=jobs: self-test rc 1
+step=jvpu result=start
+step=jvpu log=jvpu: no job block: the resident image isn't running (block 00000000)
+step=jvpu result=skip answer=- ms=300 note=jvpu: no job block: the resident image isn't running (block 00000000)
+step=port result=start
+step=port result=skip answer=- ms=0 note=port: measured by stage 6's play (part B): it needs eyes on the clip
+step=pb2 result=start
+step=pb2 result=pass answer=- ms=30000 note=pb2: PASS
+step=pb3 result=start
+step=pb3 result=pass answer=- ms=30000 note=pb3: PASS
+step=s6 result=start
+step=s6 log=video image (merged) 218660 bytes fnv cd8e5d96
+step=s6 log=stage 6: 2 clips, 0 late, A/V within 12 ms
+step=s6 result=pass answer=Smooth,_in_sync ms=26000 note=stage 6 PASS
+step=s7 result=start
+step=s7 result=pass answer=Yes ms=60000 note=stage 7 PASS
+step=b13 result=start
+step=b13 result=pass answer=No ms=9000 note=Warm swap: PASS
+step=b5 result=start
+step=b5 log=lab5: J_VPU 7 (display-only image)
+step=b5 log=lab5: PASS (91 pushes by DMA of 91, 0 timed out)
+step=b5 result=fail answer=Sheared ms=15000 note=Window push: PASS
+step=cr1 result=start
+step=cr1 log=cr1: PASS (control 0 wrong, pools 0 of 7 wrong; slots 8 pass, 0 write, 0 sum, 0 other)
+step=cr1 result=pass answer=- ms=21000 note=cr1: PASS (control 0 wrong, pools 0 of 7 wrong; slots 8 pass, 0 write, 0 sum, 0 other)
+step=boot result=start
+step=boot result=done answer=- ms=0 note=
+resume after=boot
+step=rstat result=start
+step=rstat result=pass answer=- ms=200 note=Driver status: active bcmvideo
+step=jobs2 result=start
+step=jobs2 log=jobs: self-test rc 0
+step=jobs2 result=pass answer=- ms=40 note=jobs: self-test rc 0
+step=jvpu2 result=start
+step=jvpu2 log=jvpu: J_VPU 3, expected 3 (merged image; checked 1, shift 1, MAC 0) at block 000de000
+step=jvpu2 result=pass answer=- ms=400 note=jvpu: J_VPU 3, expected 3 (merged image; checked 1, shift 1, MAC 0) at block 000de000
+step=b3 result=start
+step=b3 result=pass answer=Yes ms=0 note=
+resume after=b3
+step=b3ab result=start
+step=b3ab result=pass answer=Yes ms=0 note=
+resume after=b3ab
+step=drill1 result=start
+step=drill1 result=pass answer=Yes ms=0 note=
+resume after=drill1
+step=drill2 result=start
+step=drill2 log=drill2: inject op=0x26 n=2 rc=0
+step=drill2 result=pass answer=Drift_or_still_cover ms=60000 note=drill2: inject op=0x26 n=2 rc=0
+step=drill3 result=start
+step=drill3 result=pass answer=Yes ms=0 note=
+resume after=drill3
+step=scroll result=start
+step=scroll result=fail answer=Stale_pixels ms=0 note=
+resume after=scroll
+step=wave2 result=start
+step=wave2 result=done answer=Not_now ms=0 note=
+step=pb6 result=skip answer=- ms=0 note=not chosen
+step=pb7 result=skip answer=- ms=0 note=not chosen
+step=pb8 result=skip answer=- ms=0 note=not chosen
+step=pb9 result=skip answer=- ms=0 note=not chosen
+step=pw3 result=skip answer=- ms=0 note=not chosen
+step=pw4 result=skip answer=- ms=0 note=not chosen
+step=pw5 result=skip answer=- ms=0 note=not chosen
+step=pw6 result=skip answer=- ms=0 note=not chosen
+end passed=27 failed=2 skipped=11

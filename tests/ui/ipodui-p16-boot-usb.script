@@ -1,0 +1,36 @@
+# #89 (docs/phase16-brief.md 3.2): a USB session marks RAM only (no disk
+# write at USB entry) and forces a walk: in a boot that trusted the stamp
+# (no scan), the post-USB walk runs; the stamp then written counts from
+# that walk (skipped=0, never 1), so the next boot trusts it ("no USB
+# session since the last completed walk"). Off while connected and a walk
+# cut by the power-off leave no stamp ("usb"/"nowalk"); the sim cannot
+# quit during a USB session and its walk is too quick to cut: device list.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-boot-usb.script
+# needs: music
+# timeout: 240
+# golden: skip
+# log: expect_walks_ge ok
+# nolog: boot stamp write=1 skipped=1
+
+wait 3000
+wait_db 30000
+boot_nostamp
+reboot
+
+expect_boot_walk 1 15000 nostamp
+wait_db 30000
+wait 3000
+reboot
+
+expect_boot_walk 0 15000 trust
+wait 2000
+usb_connect
+wait 1500
+usb_disconnect
+expect_walks_ge 1 15000
+wait 5000
+reboot
+
+expect_boot_walk 0 15000 trust
+shot after_usb
+boot_nostamp        # no stamp from this part (the nolog line)

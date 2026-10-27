@@ -1,0 +1,38 @@
+# #114: writes while the adapter is powered off. Each must power it up
+# (reason=access) and let it power off again after the hold.
+# 1. A settings save. Since cfgsafe (a9f9b19ad4, owner's lost-Clicker
+#    report) settings_save() arms a debounced deadline, 2 s after the last
+#    change and at most 8 s after the first, and the back end's pass writes
+#    config.cfg then, so a reset a few seconds later keeps the setting. It
+#    no longer waits for the next wake's idle notice: the save costs one
+#    power cycle of its own, by design (crash safety over the wake), and
+#    exactly one: it must come within the debounce window and nothing else
+#    may wake the drive with it.
+# 2. A screenshot's file write through the sim: one more cycle.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p18-stor-write.script
+# needs: music
+# golden: skip
+# timeout: 120
+# log: stor pwr on ms=
+# log: reason=access
+# log: sim stor on by=sim_script
+# log: Writing system_status to disk
+# nolog: splash-pass
+# nolog: cfg save failed
+
+wait 3000
+mkdir /StorPwr
+stor_tune 6000 1000
+stor_expect off 20000
+stor_mark
+stor_save                   # armed: written 2 s on (cfgsafe)
+stor_expect on 3000         # the debounced save powers the drive up
+stor_expect off 20000       # and the hold ends
+stor_expect_cycles_le 1     # the save's one cycle, no other
+shot wake                   # a file write through the sim: powers it up
+stor_expect on 2000
+stor_expect off 20000
+stor_expect_cycles_le 2     # the save's cycle and the write's
+stor_status
+shot after-write
+quit

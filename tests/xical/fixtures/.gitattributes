@@ -1,0 +1,2 @@
+# CRLF line ends and folded lines are what the parser is tested on
+*.ics -text

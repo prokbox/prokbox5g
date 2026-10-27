@@ -1,0 +1,69 @@
+# Phase 16-4 (#92, Q5): several covers per set while paused. At shell
+# start the 64 MB unit keeps 3 covers per set (the slot and a bank of 2);
+# the bank is read in one read at a natural disk wake while audio plays
+# or is paused (never while stopped, #92 review: there the drift reads
+# covers directly, and on a hard drive a bank read would spin it up). Paused with storage asleep, each cycle end swaps the
+# next banked cover into the slot (no I/O, "why=bank") instead of 8b's
+# held cover: the drift cycles through all 3, never the same twice in a
+# row ("driftrepeat"). 8b's Music <-> Audiobooks slot swap still works.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-bank-drift.script
+# trace: panelset driftrepeat
+# needs: library
+# golden: skip
+# log: panel bank covers=3 music=1 books=1
+# log: art panel run set=0
+# logbetween: start s1 no art panel run
+# logbetween: p0 p1 why=bank
+# logbetween: p0 p1 how=bank
+# nolog: why=empty
+# timeout: 300
+wait 4000
+wait_db 30000
+art_wait 120000
+sim_clock 15:04
+clock_format 24
+battery 100
+drift_phase 0
+key SELECT          # Music menu (stopped: no bank read)
+wait 3000
+shot st_music0
+ab_mark s1
+key MENU
+wait 1000
+wheel +4            # Shuffle Songs
+wait 400
+key SELECT
+wait 2000
+key MENU
+wait 700
+wheel -4
+wait 800
+key SELECT          # Music menu, playing
+wait 2000
+drift_phase 350     # mid-dwell
+disk_active 2500    # a natural wake (a refill): the bank is read
+wait 3000
+key PLAY            # pause
+wait 7000           # storage asleep (the disk's idle hold is over)
+ab_mark p0
+shot pa0
+drift_phase 700
+wait 2000
+shot pa1
+drift_phase 1400
+wait 2000
+shot pa2
+drift_phase 2100
+wait 2000
+shot pa3
+drift_phase 2800
+wait 2000
+shot pa4
+ab_mark p1
+wheel +6            # Audiobooks rows: 8b's slot swap
+wait 3000
+shot pa_books
+wheel -6
+wait 3000
+shot pa_music
+quit

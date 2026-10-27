@@ -1,0 +1,71 @@
+# Phase 14a (#64): a video the player refuses at open fails entirely
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p14a-fallback.script
+# (ipodui-p14a-* default to build/sim-ui-video; the gate runs them there)
+# needs: video
+#
+# Owner, 2026-10-13 (overrides rule 1's "logged, not shown" here): a video
+# that can't play no longer falls back to its audio in Now Playing. Nothing
+# plays, the video screen shows the light failure prompt (the New Software
+# / Reset Settings look) with the message for the reason and one OK, and
+# SELECT or MENU goes back to the list. The raw reason is still logged.
+#
+# Disk: tests/fixtures/videos/mkvideos.sh (installed by the gate's prime
+# step, or by shots.sh for a standalone run):
+#   Movies/        Audio First  High Profile  Late Chapter  Short Film
+# Main menu with Videos on (T1 default): Music, Videos, Podcasts, Extras,
+# Settings, Shuffle Songs. Videos: Movies, TV Shows, Settings.
+#
+# Open-time refusals (vplayer_start() false) are classified by the shell's
+# probe: High Profile (B-frames, not Baseline) -> "Format not supported";
+# a file that is not an MP4 at all -> "File damaged".
+
+# trace: video
+# expect-file: /.rockbox/ipodui.log video failed why=open
+# log: video error page=format audio=0
+# log: video error page=damaged audio=0
+# log: video error dismiss key=select
+# log: video error dismiss key=menu
+# logafter: home np row visible=0
+# nolog: video error page=other
+# nolog: splash
+wait 4000
+wait_db 45000
+art_wait 60000
+wheel +1 300
+wait 600
+key SELECT
+wait 900
+key SELECT          # Movies
+wait 1200
+wheel +1 300        # High Profile (second of 4)
+wait 400
+key SELECT
+wait 1500
+shot error_format   # the prompt: Format not supported, OK
+expect_video 0 none
+key SELECT          # OK
+wait 1200
+shot list_after_select   # Movies, High Profile still selected
+key SELECT          # again, then MENU
+wait 1500
+key MENU
+wait 1200
+shot list_after_menu
+
+# not an MP4 at all: refused at open, the probe finds no boxes
+copy fixtures/refresh.mp3 /.rockbox/broken.m4v
+video_screen /.rockbox/broken.m4v
+wait 1500
+shot error_damaged_open
+expect_video 0 none
+key MENU
+wait 1200
+rm_file /.rockbox/broken.m4v
+
+# no Now Playing row for the dead video
+ab_mark home
+key MENU            # Videos
+wait 1000
+key MENU            # main menu
+wait 1200
+shot main_menu

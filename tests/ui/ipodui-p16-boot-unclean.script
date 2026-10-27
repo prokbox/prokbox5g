@@ -1,0 +1,38 @@
+# #89 (Q3): an unclean end (a crash, a power cut) writes no stamp of its
+# own. Since npfix the stamp is also written once the library settles, so
+# a crash after that keeps it and the next boot trusts it, as after a
+# clean shutdown; a cut before anything settled ("boot_nostamp": no stamp)
+# forces a walk, and a clean end after it lets the following boot skip.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-boot-unclean.script
+# needs: music
+# timeout: 240
+# golden: skip
+# log: boot_unclean
+# log: boot stamp write=0 why=sim_unclean
+# log: boot stamp settle=1
+# log: boot stamp walk=1 why=nostamp
+# log: boot stamp walk=0 why=trust
+# nolog: unavailable
+
+wait 3000
+wait_db 30000
+wait 3000
+reboot              # clean
+
+expect_boot_walk 0 15000
+wait 5000           # settled: the trusted boot's stamp is back on disk
+boot_unclean        # a crash from here on: that stamp stays
+reboot
+
+expect_boot_walk 0 15000 trust
+wait 2000
+boot_nostamp        # a cut before anything settled: no stamp
+reboot              # unclean
+
+expect_boot_walk 1 15000 nostamp
+wait_db 30000
+wait 3000
+reboot
+
+expect_boot_walk 0 15000 trust
+shot after_unclean

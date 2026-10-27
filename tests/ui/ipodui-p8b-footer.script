@@ -1,0 +1,97 @@
+# Phase 8b-1 (docs/phase8b-brief.md Goal 6, owner answer 2026-10-11):
+# the "Updating Library..." footer. A rebuild while music plays holds the
+# library in LIB_UPDATING (the new database's commit waits for the stop),
+# so the footer can be looked at for as long as the script likes:
+#   main menu: no strip, nothing (main_updating)
+#   Music: the footer fading in (music_fadein, timing-sensitive), then
+#     shown over the last row area, rows unchanged (music_footer)
+#   Artists: empty list, the footer is its only explanation
+#     (artists_empty), Audiobooks the same (books_empty)
+#   Search: the top row never says "No Search Results" while it can't
+#     search, typed or not (search_footer, search_typed)
+#   stop: the commit lands, the footer fades out, results appear
+#     (search_results), Music without the footer (music_ready)
+# DB state: fresh (rebuild). The ready state is ipodui-p8b-silent.script
+# (USB session, the "lib window" log line).
+# With library generations (#85, cache-persist) a rebuild while music
+# plays keeps the active library browsable (no footer), so the footer's
+# state is reached the way it still happens: the library on disk unusable
+# at boot (dirty_db, then reboot: the only generation fails validation),
+# its fresh build waiting for the stop while the resumed music plays
+# (ipodui-p4-dirty-playing's sequence).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p8b-footer.script
+# needs: library
+# timeout: 150
+# log: lib foot in w=160
+# log: lib foot out
+# log: lib window
+# logrange: 0 600000 lib window .*empty_ms=(\d+)
+# golden: skip main_updating music_fadein music_footer artists_empty books_empty search_footer search_typed search_results music_ready
+# #87: no boot hold here (the device's boot check outlasts it; the sim's would finish inside it)
+# env: SIM_BOOT_NOHOLD=1
+
+wait 4000           # boot to the main menu
+wait_db 30000
+
+wheel +4            # "Shuffle Songs"
+wait 500
+key SELECT          # whole library: plays across tracks
+wait 2000
+expect_playing 300
+
+dirty_db            # generations: no usable library at the next boot
+reboot
+
+wait 1500           # the main menu ("Music" selected)
+key PLAY            # resumes (Now Playing); the fresh build waits
+wait 1000
+expect_playing 3000
+key MENU            # Now Playing -> main menu
+wait 1500
+expect_lib_updating 2000
+shot main_updating  # main menu: no strip, no footer
+
+wheel -10           # "Music"
+wait 800
+key SELECT          # push (190 ms), then the footer fades in (~200 ms)
+wait 300
+shot music_fadein   # mid-fade (timing-sensitive)
+wait 1200
+shot music_footer   # shown: band y 222-239 over x 0-159, rows unchanged
+
+wheel +1            # "Artists"
+wait 600
+key SELECT
+wait 1200
+shot artists_empty  # no rows; the footer full width
+
+key MENU
+wait 800
+wheel +5            # "Audiobooks" (Compilations is hidden)
+wait 600
+key SELECT
+wait 1200
+shot books_empty
+key MENU
+wait 800
+wheel +1            # "Search"
+wait 600
+key SELECT
+wait 1200
+shot search_footer  # "Search", no second line, the letter strip, footer
+type h
+wait 600
+shot search_typed   # still no "No Search Results", no rows
+
+audio_stop          # the commit runs at the thread's next timeout
+wait 3000
+wait_db 45000
+wait 3000           # Search's 1 s poll, the footer's fade-out
+shot search_results # Results for: h, no footer
+key MENU
+wait 800
+key MENU            # the letter strip first, then back to Music
+wait 1200
+shot music_ready    # no footer, the Search row back
+
+quit

@@ -1,0 +1,45 @@
+# P16 #84 (Q6, Q7): after a USB disconnect the header shows the 8-dot
+# activity glyph while the post-USB scan runs; the library stays
+# browsable (Music opens at once); when the scan ends the glyph goes and
+# the read-only housekeeping logs the "._" sidecar count and the FSInfo
+# check. Nothing is deleted or written to the volume.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-usb-busy.script
+# needs: library
+# timeout: 150
+# log: usb housekeeping sidecars=
+# expect-file: /.rockbox/ipodui.log usb busy end
+# expect-file: /.rockbox/ipodui.log usb housekeeping sidecars=1
+# expect-file: /.rockbox/ipodui.log usb fsinfo ok
+# golden: skip glyph browse after
+
+sim_clock 15:08
+wait 4000
+wait_db 30000
+remove /Music/P16Busy/busy.mp3
+remove /Music/P16Busy/._busy.mp3
+update_db_wait 30000
+rm_file /.rockbox/ipodui.log
+
+usb_connect
+wait 2500
+mkdir /Music/P16Busy
+copy fixtures/refresh.mp3 /Music/P16Busy/busy.mp3
+copy fixtures/refresh.mp3 /Music/P16Busy/._busy.mp3   # an AppleDouble sidecar
+usb_disconnect
+wait 150
+shot glyph          # the main menu header with the glyph
+key SELECT          # Music opens at once on the published generation
+wait 500
+shot browse
+key MENU
+wait 800
+expect_in_db /Music/P16Busy/busy.mp3 30000
+wait_db 45000
+wait 3500           # the grace and gap windows end the busy moment
+storage_idle
+wait 1500
+shot after          # glyph gone
+remove /Music/P16Busy/busy.mp3
+remove /Music/P16Busy/._busy.mp3
+update_db_wait 30000
+quit

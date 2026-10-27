@@ -1,0 +1,10 @@
+# gate-speed mutant timeout: a wait longer than the default 60 s watchdog
+# golden: skip boot down
+# resume: playing
+wait 70000
+shot boot
+wheel +2
+wait 800
+shot down
+shot end
+quit

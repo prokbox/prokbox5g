@@ -1,0 +1,71 @@
+# Phase 11 On-The-Go list (docs/phase11-brief.md section 3.2, U1 screen
+# over L's store): two songs added from the hold menu; Playlists >
+# On-The-Go lists them as two-line rows, then Save Playlist and Clear
+# Playlist (⚠️ H4); holding a row offers Remove from On-The-Go; Clear
+# asks first (Clear | Cancel, Cancel preselected; MENU backs out); Save
+# writes "New Playlist 1" to /Playlists, empties the store and returns to
+# Playlists, which lists it. Nothing plays throughout (⚠️ H3).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p11-otg-list.script
+# needs: library
+# golden: skip
+#
+# Needs L's otg.c (with p11_stub.c's section L the store stays empty
+# and On-The-Go shows no rows).
+
+wait 4000           # boot to the main menu, "Music" selected
+wait_db 30000
+
+key SELECT          # Music
+wait 800
+wheel +3 300        # "Songs"  [Compilations off: P11]
+wait 400
+key SELECT
+wait 800
+wheel +2 300        # "Amber Garden"
+wait 400
+hold SELECT 1500
+wait 600
+key SELECT          # Add to On-The-Go
+wait 800
+wheel +1 300        # "Amber Harbour"
+wait 400
+hold SELECT 1500
+wait 600
+key SELECT          # Add to On-The-Go
+wait 800
+expect_queue 0 -
+otg_dump
+key MENU            # Music
+wait 800
+wheel -4 300        # "Playlists"
+wait 400
+key SELECT
+wait 800
+key SELECT          # "On-The-Go"
+wait 1000
+shot otg_list       # 2 songs, Save Playlist, Clear Playlist
+
+hold SELECT 1500    # on the first song
+wait 600
+shot hold_otg       # Remove from On-The-Go / Browse Album /
+                    # Browse Artist / Cancel
+key MENU            # back, nothing removed
+wait 800
+
+wheel +3 300        # "Clear Playlist"
+wait 400
+key SELECT
+wait 800
+shot clear_prompt   # Clear On-The-Go? Clear | Cancel (Cancel blue)
+key MENU            # back out: nothing cleared
+wait 800
+shot not_cleared
+
+wheel -1 300        # "Save Playlist"
+wait 400
+key SELECT
+wait 1000
+shot saved          # Playlists: On-The-Go, ..., New Playlist 1, ...
+otg_dump
+expect_queue 0 -
+quit

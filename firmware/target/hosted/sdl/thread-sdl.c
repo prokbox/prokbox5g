@@ -29,6 +29,7 @@
 #include "thread-sdl.h"
 #include "../kernel-internal.h"
 #include "core_alloc.h"
+#include "devstats.h"   /* P18 18-A (M1): empty unless HAVE_DEVSTATS */
 
 /* Define this as 1 to show informational messages that are not errors. */
 #define THREAD_SDL_DEBUGF_ENABLED 0
@@ -175,6 +176,7 @@ void switch_thread(void)
 
         oldlevel = disable_irq_save();
         current->state = STATE_RUNNING;
+        DEVSTATS_THREAD_WAKE(THREAD_ID_SLOT(current->id));
         restore_irq(oldlevel);
         break;
         } /* STATE_BLOCKED: */
@@ -190,6 +192,7 @@ void switch_thread(void)
         oldlevel = disable_irq_save();
 
         current->state = STATE_RUNNING;
+        DEVSTATS_THREAD_WAKE(THREAD_ID_SLOT(current->id));
 
         if (result == SDL_MUTEX_TIMEDOUT)
         {
@@ -210,6 +213,7 @@ void switch_thread(void)
         SDL_SemWaitTimeout(current->context.s, current->tmo_tick);
         SDL_LockMutex(m);
         current->state = STATE_RUNNING;
+        DEVSTATS_THREAD_WAKE(THREAD_ID_SLOT(current->id));
         break;
         } /* STATE_SLEEPING: */
     }

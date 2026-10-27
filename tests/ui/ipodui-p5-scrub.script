@@ -1,0 +1,43 @@
+# Phase 5: Scrubber mode. SELECT swaps the fill for the diamond; the wheel
+# moves it and the playback jumps ONCE, 250 ms after the wheel stops
+# (NP_SEEK_SETTLE_MS): expect_pos checks the position moved, "# seeks: 1"
+# (check_trace, once the shell logs `np seek`) the count.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p5-scrub.script
+# needs: music
+# trace: np
+# golden: skip slide scrub_mid
+# seeks: 1
+
+wait 3000
+sim_clock 15:08
+clock_format 24      # P11: the default is 12-hour; this golden shows 24
+repeat off
+wait_db 30000
+art_wait 60000
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3 /Music/Tone%20Collective/Sine%20Studies/02%20Low%20E.mp3 /Music/Tone%20Collective/Sine%20Studies/03%20Warble.mp3
+wait 1000
+key SELECT          # Music (the menu re-reads "Now Playing" after a push/pop)
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 1200
+np_pin 2000 50      # the elapsed time shown is pinned for the goldens
+key SELECT          # Scrubber
+wait 80
+shot slide
+wait 500
+shot scrubber
+np_pin off          # the wheel seeks the real position
+wheel +12 60        # fast spin, one gesture
+shot scrub_mid
+wait 600            # the settle passed: one seek
+expect_pos 3000 44000
+np_pin 20000 50     # pinned again for the golden
+wait 300
+shot settled
+wait 600
+audio_stop
+quit

@@ -1,0 +1,2 @@
+# fixtures keep their exact bytes (CRLF and Windows-1252 included)
+* -text

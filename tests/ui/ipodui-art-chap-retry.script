@@ -1,0 +1,36 @@
+# A book whose chapter art fails (both JPEG chapter images corrupted:
+# rich_chapters_badjpg.m4b is rich_chapters.m4b with the 58 bytes after the first 4 of
+# each JPEG's SOI marker zeroed and its title "Rich Bad Book!", so it is
+# an album of its own) next to a good one (rich_chapters.m4b):
+# the good book's chapters are built in the same pass, the bad one is
+# logged with its count ("art chap fail ... n=1"), the pass retries after
+# 60 s and resumes after the albums ("pass start ... r=1": no album walk),
+# and the bad book fails again (n=2). After CHAP_TRIES (3) it is left with
+# the cover and stops failing the pass (not waited for here: the third
+# try comes 300 s later).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-art-chap-retry.script
+# needs: library
+# golden: skip
+# log: art chap fail k=
+# log: n=1
+# log: art retry n=1 in=60s resume=1
+# log: r=1
+# log: n=2
+# log: art retry n=2 in=300s resume=1
+# logbetween: books end no art pass done
+# timeout: 260
+
+wait 1000
+wait_db 30000
+mkdir /Audiobooks/BAD
+copy ../../tests/fixtures/rich_chapters_badjpg.m4b /Audiobooks/BAD/bad.m4b
+mkdir /Audiobooks/GOOD
+copy ../../tests/fixtures/rich_chapters.m4b /Audiobooks/GOOD/good.m4b
+ab_mark books       # the boot's own pass may end before (#87: no boot walk)
+update_db_wait_change 60000
+wait 100000
+shot pending
+rm_file /Audiobooks/BAD/bad.m4b
+rm_file /Audiobooks/GOOD/good.m4b
+update_db_wait_change 60000
+quit

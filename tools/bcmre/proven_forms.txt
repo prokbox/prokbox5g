@@ -1,0 +1,308 @@
+# The proven-forms table (tools/bcmre/proven_table.py reads it; exit
+# criterion E2 of docs/research/hardware-closure-plan.md).  One line per
+# form:  domain | key | class | evidence.  Classes: silicon (measured on
+# our unit), apple (Apple's self-test executes it), guard (only behind a
+# start-up check), bench (only in a bench check region, under test),
+# trap (unproven: vc2sim's strict modes refuse it).  Sessions: S<n> are
+# the device sessions of docs/research/bcm2722/bench-p19.md and earlier;
+# "sitting 2" is 2026-10-25 22:33/22:43, build 799ff0f8d7, merged image
+# 80bc8611 (bench-20261025-2257).
+#
+# vc2sim's strict forms mode traps any vector operand form with no line
+# here.  scripts/proven_forms.py --update appends the lines a new form
+# needs, from the region its code sits in: review that diff, it is where
+# a form gets its evidence.
+
+# ---- regions: the code a symbol pattern names takes the class (first
+# match wins).  Bench check regions: the forms under test
+region | bench_vc_putv | bench | B4V PUTV, sitting 2: FAIL (the V8 D at +r y 8 is not as modelled)
+region | bench_vc_ashx | silicon | B4V ASHX, sitting 2: near32 word for word (modelled since 2026-10-26)
+region | bench_vc_* | silicon | B4V rows, sitting 2: every row passes as modelled
+region | bench_k_* | bench | timing kernels (bench row timings); their forms are the bench_vc rows'
+region | bench_scalar_check | bench | bench_scalar.S checks
+region | bench_sloc_* | bench | the store-locating checks
+region | bcmfw_selfcheck | bench | the probe's checks (probe v2)
+region | bcmfw_algn_call | bench | bench row ALGN's runner
+region | algn_* | bench | bench row ALGN's checks
+region | pw_sumr | bench | PW3/PW4's vector sum (the SUMR row's forms), never run on silicon
+region | jv_bschk_* | bench | the loop filter's vector bS forms' start-up checks (J_VPU2); the forms themselves proven on silicon in sitting 4 (2026-10-26), lines below
+# Whole programs whose output silicon checked
+region | h264_* | silicon | H.264 kernels: per-kernel dumps S17-S27 bit-exact; stage 6 clips 1 and 2 checked frames at 150 MHz, sitting 2
+region | disp_* | silicon | the display path: right on screen S16/S27; stages 5 and 6, sitting 2
+region | video_vpu_row | silicon | the display path's row copy (stage 5, S16 onward)
+region | video_vrf_* | silicon | the VRF dump and clear (dev23 per-kernel dumps, S22)
+region | xfade_blk* | silicon | the drift kernels: b3 and drill 2 pass on the merged image, sitting 2
+region | half_blk | silicon | the drift kernels: b3 and drill 2 pass, sitting 2
+region | copy_blk | silicon | the drift kernels: b3 and drill 2 pass, sitting 2
+region | jv_group16 | silicon | the lane shift: GTHR and J_VPU 3 (checked, shift) on the merged image, sitting 2
+region | jv_gather16 | silicon | the lane shift: GTHR, sitting 2
+region | jv_phase16 | silicon | the lane shift: GTHR, sitting 2
+region | jv_store16* | silicon | the jobs: the jobs self-test, b3, drill 2 and B5 pass on the merged image, sitting 2
+region | jv_rows | silicon | the jobs: jobs self-test and B5, sitting 2
+region | jv_key16 | silicon | the jobs: jobs self-test, sitting 2
+region | jv_mix16 | silicon | the jobs: jobs self-test and the drift, sitting 2
+region | jv_shade16 | silicon | the jobs: jobs self-test, sitting 2
+region | jv_bars16* | silicon | BARV, sitting 2 (and J_VPU_BARS keeps the C if its check fails)
+# Kernels behind a start-up check (the C path if the check disagrees)
+region | jv_fft* | guard | J_VPU_FFT (viz_vpu.c: four signals at each size); never run on silicon
+region | jv_idct* | guard | J_VPU_MAC (jdec's IDCT check); display-only J_VPU read 0x23 on silicon, sitting 2
+region | jv_dot8 | guard | J_VPU_MAC (jdec's IDCT check)
+region | jv_put* | guard | J_VPU_MAC (the put and fill ride the IDCT check); PUTV, sitting 2: a V D's +r y drops below 16 (quirk 39); jv_put keeps rows 0 to size-1 since p19-vplayer-health
+region | jv_fill | guard | J_VPU_MAC (jdec's put and fill)
+region | jv_yuv16 | guard | J_VPU_YUV (jdec's colour stage check)
+# The PP's port writers in a bench or lab function (the 16-bit forms)
+region | port:dt_pa_* | bench | bench row ALGN's port checks (bcm-devtest-hal.c)
+region | port:bcm_video_wr_variant | bench | bench row CR1's Apple forms (bcm-devtest-hal.c)
+region | port:bcm_video_alt_lab | bench | PW7: the ALT bank lab (bcm-devtest-hal.c)
+
+# ---- scalar kinds beyond Apple's static code and device_verified.txt
+# (the halfword loads' semantics, bench row HWLD, sitting 2; the kinds
+# themselves are Apple's)
+scalar | ldst_ind ldh | silicon | HWLD HL16, sitting 2 (zero-extends)
+scalar | ldst_ind ldsh | silicon | HWLD HS16, sitting 2 (sign-extends)
+scalar | ldst_off16 ldh | silicon | HWLD H28O, sitting 2 (0x28/o1 zero-extends)
+scalar | ldst_off16 ldsh | silicon | HWLD H29O, sitting 2 (0x29/o1 sign-extends)
+scalar | mem48 ldh | silicon | HWLD H48H, sitting 2 (48-bit op 2)
+scalar | mem48 ldsh | silicon | HWLD H48S, sitting 2 (48-bit op 6)
+scalar | gp16 ldh sp | silicon | HWLD HSP0, sitting 2 (2d4x/o1)
+scalar | gp16 ldsh sp | silicon | HWLD HSP1, sitting 2 (2d5x/o1)
+
+# ---- BCM DMA: unit bytes and dimensions (each address a multiple of its
+# unit; vc2mmio's strict DMA refuses the rest at run time)
+dma | unit 4 1-D | silicon | LCD channel S5-S7; bench row ALGN D4W9, sitting 2
+dma | unit 4 2-D | silicon | the window push B5 (pitches 320/300/400), sitting 2
+dma | unit 32 1-D | silicon | PW8 channel 7; bench row ALGN D32C, sitting 2
+dma | unit 2 1-D | silicon | bench row ALGN D2H3, sitting 2
+dma | unit 1 1-D | silicon | bench row ALGN D1B5, sitting 2
+dma | unit 32 2-D | trap | never run; vc2mmio strict refuses a 32-byte unit off 32 (D32M copies to the address rounded down, sitting 2)
+dma | unit 2 2-D | trap | never run in 2-D; vc2mmio strict refuses it
+dma | unit 1 2-D | trap | never run in 2-D; vc2mmio strict refuses it
+dma | unit 8 1-D | trap | never run; vc2mmio strict refuses 8-, 16-, 64- and 128-byte units
+
+# ---- the host port (PP side)
+port | addr32 | silicon | a 32-bit address at 0 mod 4: PWD0, PWD4, P164-P16C, sitting 2; at 2 mod 4 it lands 2 bytes low (PWD2), so the writers refuse it (dt_half_writes) and the port models drop bits 1:0
+port | data32 | silicon | whole words: PWD0/PWD4, PLW3 (a zero-padded word tail), sitting 2; engine 2 (S37), the PP DMA with the word-0 fixup (S32-S33)
+port | addr16 | bench | Apple's two halfword address writes (PAD2, CR1): bench and lab functions only
+port | data16 | bench | halfword data (PHD2, PAD2, PLH1-PLH5): an odd last halfword is lost when a new address follows (sitting 2); bench and lab functions only
+
+# added by scripts/proven_forms.py --update (2026-10-25)
+vector | mem48 vld16 rep stride nooff | apple | Apple's self-test executes it
+vector | mem48 vld16 single nostride nooff | apple | Apple's self-test executes it
+vector | mem48 vld16 single nostride off | apple | Apple's self-test executes it
+vector | mem48 vld8 rep stride nooff | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_ld8r)
+vector | mem48 vld8 rep stride off | silicon | the display path: right on screen S16/S27; stages 5 and 6, sitting 2 (disp_yuv_tile)
+vector | mem48 vld8 single nostride nooff | apple | Apple's self-test executes it
+vector | mem48 vld8 single nostride off | guard | J_VPU_YUV (jdec's colour stage check) (jv_yuv16)
+vector | mem48 vld8v single nostride nooff | apple | Apple's self-test executes it
+vector | mem48 vldp8 rep stride nooff | apple | Apple's self-test executes it
+vector | mem48 vldp8 rep stride off | silicon | the display path: right on screen S16/S27; stages 5 and 6, sitting 2 (disp_yuv_tile)
+vector | mem48 vldp8 single nostride nooff | apple | Apple's self-test executes it
+vector | mem48 vldp8 single stride nooff | apple | Apple's self-test executes it
+vector | mem48 vldp8 single stride off | silicon | H.264 kernels: per-kernel dumps S17-S27 bit-exact; stage 6 clips 1 and 2 checked frames at 150 MHz, sitting 2 (h264_vmc_luma4_11)
+vector | mem48 vldq8 rep stride nooff | apple | Apple's self-test executes it
+vector | mem48 vldq8 rep stride off | silicon | the display path: right on screen S16/S27; stages 5 and 6, sitting 2 (disp_yuv_tile)
+vector | mem48 vldq8 single nostride nooff | apple | Apple's self-test executes it
+vector | mem48 vldq8 single stride nooff | apple | Apple's self-test executes it
+vector | mem48 vldq8 single stride off | silicon | H.264 kernels: per-kernel dumps S17-S27 bit-exact; stage 6 clips 1 and 2 checked frames at 150 MHz, sitting 2 (h264_vmc_luma4_11)
+vector | mem48 vst16 rep stride nooff | apple | Apple's self-test executes it
+vector | mem48 vst16 single nostride nooff | apple | Apple's self-test executes it
+vector | mem48 vst16 single nostride off | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_cop8)
+vector | mem48 vst8 rep stride nooff | apple | Apple's self-test executes it
+vector | mem48 vst8 single nostride nooff | bench | timing kernels (bench row timings); their forms are the bench_vc rows' (bench_k_st81)
+vector | vadd DH16 AH16 BH16 - 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_alux)
+vector | vadd DH16 AH16 BH8 - 80 | guard | J_VPU_YUV (jdec's colour stage check) (jv_yuv16)
+vector | vadd DH16 AH16 Bimm - 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_addi)
+vector | vadd DH16 AH16 Bimm acc 80 | apple | Apple's self-test executes it
+vector | vadd DH16 AH16 Breg - 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_adrg)
+vector | vadd DH16 AH16+r BH16+r - 48 | apple | Apple's self-test executes it
+vector | vadd DH16 AH16+r Bimm ifnz 80 | silicon | B4V ASHX, sitting 2: near32 word for word (modelled since 2026-10-26) (bench_vc_ashx)
+vector | vadd DH16 AH16+r++ BH16 - 80 | guard | J_VPU_FFT (viz_vpu.c: four signals at each size); never run on silicon (jv_fft_split)
+vector | vadd DH16 AH16+r++ Bimm - 80 | guard | J_VPU_FFT (viz_vpu.c: four signals at each size); never run on silicon (jv_fft_tw)
+vector | vadd DH16 AH8 BH8 - 80 | apple | Apple's self-test executes it
+vector | vadd DH16 AH8 BH8 acc 80 | silicon | H.264 kernels: per-kernel dumps S17-S27 bit-exact; stage 6 clips 1 and 2 checked frames at 150 MHz, sitting 2 (h264_vdbk_luma_h_strong)
+vector | vadd DH16 AH8 Bimm - 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_ad8i)
+vector | vadd DH16 AV8 BV8 - 80 | silicon | H.264 kernels: per-kernel dumps S17-S27 bit-exact; stage 6 clips 1 and 2 checked frames at 150 MHz, sitting 2 (h264_vdbk_luma_v_normal)
+vector | vadd DH16 AV8 BV8 acc 80 | silicon | H.264 kernels: per-kernel dumps S17-S27 bit-exact; stage 6 clips 1 and 2 checked frames at 150 MHz, sitting 2 (h264_vdbk_luma_v_strong)
+vector | vadd DH16++ AH16 BH16++ rep 80 | silicon | H.264 kernels: per-kernel dumps S17-S27 bit-exact; stage 6 clips 1 and 2 checked frames at 150 MHz, sitting 2 (h264_vpred16_plane)
+vector | vadd DH16++ AH16++ BH16++ - 80 | silicon | H.264 kernels: per-kernel dumps S17-S27 bit-exact; stage 6 clips 1 and 2 checked frames at 150 MHz, sitting 2 (h264_vmc_luma4_21)
+vector | vadd DH16++ AH16++ BH16++ rep 80 | apple | Apple's self-test executes it
+vector | vadd DH16++ AH16++ BH8++ rep 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_ad68)
+vector | vadd DH16++ AH16++ Bimm ifn rep 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_barv)
+vector | vadd DH16++ AH16++ Bimm rep 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_adir)
+vector | vadd DH16++ AH16++ Breg rep 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_barv)
+vector | vadd DH16++ AH16+r++ Bimm ifnz rep 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_ashf)
+vector | vadd DH16++ AH16+r++ Bimm rep 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_ashf)
+vector | vadd DH16++ AH8++ BH16++ - 80 | silicon | H.264 kernels: per-kernel dumps S17-S27 bit-exact; stage 6 clips 1 and 2 checked frames at 150 MHz, sitting 2 (h264_vmc_luma4_21)
+vector | vadd DH16++ AH8++ BH16++ rep 80 | silicon | H.264 kernels: per-kernel dumps S17-S27 bit-exact; stage 6 clips 1 and 2 checked frames at 150 MHz, sitting 2 (h264_vmc_luma4_10)
+vector | vadd DH16++ AH8++ BH8++ - 80 | silicon | H.264 kernels: per-kernel dumps S17-S27 bit-exact; stage 6 clips 1 and 2 checked frames at 150 MHz, sitting 2 (h264_vmc_luma4_21)
+vector | vadd DH16++ AH8++ BH8++ rep 80 | apple | Apple's self-test executes it
+vector | vadd DH16++ AH8++ Bimm - 80 | silicon | H.264 kernels: per-kernel dumps S17-S27 bit-exact; stage 6 clips 1 and 2 checked frames at 150 MHz, sitting 2 (h264_vmc_luma4_21)
+vector | vadd DH16++ AH8++ Bimm rep 80 | silicon | H.264 kernels: per-kernel dumps S17-S27 bit-exact; stage 6 clips 1 and 2 checked frames at 150 MHz, sitting 2 (h264_vmc_luma4_10)
+vector | vadd DH16+r AH16 Bimm - 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_d16r)
+vector | vadd DH8 AH8 BH8 - 80 | bench | timing kernels (bench row timings); their forms are the bench_vc rows' (bench_k_ad81)
+vector | vadd DH8 AH8 Bimm - 80 | apple | Apple's self-test executes it
+vector | vadd DH8 AH8 Bimm ifnz 80 | apple | Apple's self-test executes it
+vector | vadd DH8 AV8 Bimm - 80 | silicon | H.264 kernels: per-kernel dumps S17-S27 bit-exact; stage 6 clips 1 and 2 checked frames at 150 MHz, sitting 2 (h264_vpred4_hu)
+vector | vadd DH8++ AH8++ BH8++ rep 80 | bench | timing kernels (bench row timings); their forms are the bench_vc rows' (bench_k_ad82)
+vector | vadd DH8++ AH8++ Bimm rep 80 | guard | J_VPU_MAC (jdec's IDCT check); display-only J_VPU read 0x23 on silicon, sitting 2 (jv_idct_cm)
+vector | vadd DV16 AV16 BV16 - 80 | silicon | H.264 kernels: per-kernel dumps S17-S27 bit-exact; stage 6 clips 1 and 2 checked frames at 150 MHz, sitting 2 (h264_vidct4_add)
+vector | vadd DV16 AV16 Bimm - 80 | guard | J_VPU_FFT (viz_vpu.c: four signals at each size); never run on silicon (jv_fft_cols)
+vector | vadd DV16++ AH16 Bimm rep 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_barv)
+vector | vadd DV16++ AV16++ BV16++ rep 80 | guard | J_VPU_FFT (viz_vpu.c: four signals at each size); never run on silicon (jv_fft_cols)
+vector | vadd DV16++ AV16++ Bimm - 80 | guard | J_VPU_FFT (viz_vpu.c: four signals at each size); never run on silicon (jv_fft_cols)
+vector | vadd DV16++ AV16++ Bimm rep 80 | guard | J_VPU_FFT (viz_vpu.c: four signals at each size); never run on silicon (jv_fft_cols)
+vector | vadd DV16+r AH16 BH16 - 80 | guard | J_VPU_MAC (jdec's IDCT check); display-only J_VPU read 0x23 on silicon, sitting 2 (jv_idct4n)
+vector | vadd DV8 AH8 Bimm - 80 | silicon | H.264 kernels: per-kernel dumps S17-S27 bit-exact; stage 6 clips 1 and 2 checked frames at 150 MHz, sitting 2 (h264_vpred4_hd)
+vector | vadd DV8+r AH8+r Bimm - 80 | guard | J_VPU_MAC; PUTV, sitting 2: a V D's +r y aligns down to 16 (v_vd_reg_y align16, strict refuses y off 16); jv_put's +r is x only since p19-vplayer-health (jv_put)
+vector | vadd Ddiscard AH8 BH8 clra acc 80 | apple | Apple's self-test executes it
+vector | vadd Ddiscard AH8 Bimm clra acc 80 | apple | Apple's self-test executes it
+vector | vadd Ddiscard AV8 BV8 clra acc 80 | silicon | H.264 kernels: per-kernel dumps S17-S27 bit-exact; stage 6 clips 1 and 2 checked frames at 150 MHz, sitting 2 (h264_vdbk_luma_v_strong)
+vector | vadd Ddiscard AV8 Bimm clra acc 80 | apple | Apple's self-test executes it
+vector | vadds DH8 AH8 BH16 - 80 | guard | J_VPU_YUV (jdec's colour stage check) (jv_yuv16)
+vector | vadds DH8 AH8 BH16 ifn 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_adsn)
+vector | vadds DH8++ AH8 BH16++ rep 80 | apple | Apple's self-test executes it
+vector | vadds DH8++ AH8++ BH16 rep 80 | silicon | H.264 kernels: per-kernel dumps S17-S27 bit-exact; stage 6 clips 1 and 2 checked frames at 150 MHz, sitting 2 (h264_vidct4_dc_add)
+vector | vadds DH8++ AH8++ BH16++ rep 80 | apple | Apple's self-test executes it
+vector | vadds DV8 AH8 BH16 ifn 80 | silicon | H.264 kernels: per-kernel dumps S17-S27 bit-exact; stage 6 clips 1 and 2 checked frames at 150 MHz, sitting 2 (h264_vdbk_luma_v_strong)
+vector | vadds DV8 AV8 BH16 ifn 80 | silicon | H.264 kernels: per-kernel dumps S17-S27 bit-exact; stage 6 clips 1 and 2 checked frames at 150 MHz, sitting 2 (h264_vdbk_luma_v_normal)
+vector | vasr DH16 AH16 Bimm - 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_barv)
+vector | vasr DH16++ AH16++ Bimm - 80 | silicon | H.264 kernels: per-kernel dumps S17-S27 bit-exact; stage 6 clips 1 and 2 checked frames at 150 MHz, sitting 2 (h264_vmc_luma4_21)
+vector | vasr DH16++ AH16++ Bimm rep 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_barv)
+vector | vasr DV16 AV16 Bimm - 80 | silicon | H.264 kernels: per-kernel dumps S17-S27 bit-exact; stage 6 clips 1 and 2 checked frames at 150 MHz, sitting 2 (h264_vidct4_add)
+vector | vasr DV16++ AV16++ Bimm rep 80 | guard | J_VPU_FFT (viz_vpu.c: four signals at each size); never run on silicon (jv_fft_cols)
+vector | vasr Ddiscard AH16 Bimm acc 80 | apple | Apple's self-test executes it
+vector | vbitplanes Ddiscard AH8 Bimm setf 80 | apple | Apple's self-test executes it
+vector | vbitplanes Ddiscard AH8 Breg setf 80 | apple | Apple's self-test executes it
+vector | vclip DH16 AH16 Bimm - 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_vclp)
+vector | vclip DH8+r AH16 Bimm - 80 | apple | Apple's self-test executes it
+vector | vdist DH16 AH8 BH8 - 80 | silicon | H.264 kernels: per-kernel dumps S17-S27 bit-exact; stage 6 clips 1 and 2 checked frames at 150 MHz, sitting 2 (h264_vdbk_luma_h_normal)
+vector | vdist DH16 AV8 BV8 - 80 | silicon | H.264 kernels: per-kernel dumps S17-S27 bit-exact; stage 6 clips 1 and 2 checked frames at 150 MHz, sitting 2 (h264_vdbk_luma_v_normal)
+vector | vdist DH16++ AH8++ Breg rep 80 | silicon | the jobs: jobs self-test, sitting 2 (jv_key16)
+vector | vlsr DH16 AH16 Bimm - 80 | guard | J_VPU_YUV (jdec's colour stage check) (jv_yuv16)
+vector | vlsr DH8++ AH8++ Bimm rep 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_lsr8)
+vector | vmax DH16 AH16 BH16 - 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_mxsu)
+vector | vmax DH16++ AH16++ BH16++ rep 80 | bench | timing kernels (bench row timings); their forms are the bench_vc rows' (bench_k_max2)
+vector | vmin DH16 AH16 BH16 - 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_vmin)
+vector | vmin DH16++ AH16++ BH16++ rep 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_barv)
+vector | vmov DH16 AH16 Bimm - 48 | apple | Apple's self-test executes it
+vector | vmov DH16 AH8 Bimm acc 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_x15m)
+vector | vmov DH16 AH8 Bimm x15 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_x15m)
+vector | vmov DH16 AH8 Bimm x15 ifnz 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_acsa)
+vector | vmov DH16 AH8 Breg - 80 | apple | Apple's self-test executes it
+vector | vmov DH16 AH8 Breg ifn 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_movn)
+vector | vmov DH16++ AH8 BH16++ rep 80 | silicon | the VRF dump and clear (dev23 per-kernel dumps, S22) (video_vrf_dump)
+vector | vmov DH16++ AH8 BV16++ rep 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_gthr)
+vector | vmov DH16++ AH8 Bimm rep 80 | silicon | the VRF dump and clear (dev23 per-kernel dumps, S22) (video_vrf_clear)
+vector | vmov DH16++ AH8 Breg ifnz rep 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_barv)
+vector | vmov DH16++ AH8 Breg rep 80 | silicon | BARV, sitting 2 (and J_VPU_BARS keeps the C if its check fails) (jv_bars16)
+vector | vmov DH8 AH8 BH8 ifnz 80 | apple | Apple's self-test executes it
+vector | vmov DH8 AH8 BV8 ifnz 80 | silicon | H.264 kernels: per-kernel dumps S17-S27 bit-exact; stage 6 clips 1 and 2 checked frames at 150 MHz, sitting 2 (h264_vpred4_ddr)
+vector | vmov DH8 AH8 Breg - 80 | apple | Apple's self-test executes it
+vector | vmov DH8 AH8 Breg ifnz 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_mvnz)
+vector | vmov DH8++ AH8 BH8 rep 80 | silicon | H.264 kernels: per-kernel dumps S17-S27 bit-exact; stage 6 clips 1 and 2 checked frames at 150 MHz, sitting 2 (h264_vpred4_v)
+vector | vmov DH8++ AH8 Breg ifnz rep 80 | guard | J_VPU_MAC (jdec's put and fill) (jv_fill)
+vector | vmov DH8++ AH8 Breg rep 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_mvrp)
+vector | vmov DH8+r++ AH8 Breg ifnz rep 80 | guard | J_VPU_MAC (jdec's put and fill) (jv_fill)
+vector | vmov DV16++ AH8 BH16 rep 80 | silicon | H.264 kernels: per-kernel dumps S17-S27 bit-exact; stage 6 clips 1 and 2 checked frames at 150 MHz, sitting 2 (h264_vpred16_plane)
+vector | vmov DV8++ AH8 BV8 rep 80 | apple | Apple's self-test executes it
+vector | vmov Ddiscard AH8 BH16 acc 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_acsa)
+vector | vmov Ddiscard AH8 BH16 acc x15 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_x15s)
+vector | vmov Ddiscard AH8 BH16 clra acc 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_x15s)
+vector | vmov Ddiscard AH8 BH16 clra x15 80 | guard | J_VPU_MAC (jdec's IDCT check) (jv_dot8)
+vector | vmov Ddiscard AH8 BH16 x15 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_x15z)
+vector | vmov Ddiscard AH8 BH8 ifnz sum 80 | apple | Apple's self-test executes it
+vector | vmov Ddiscard AH8 BH8 sum 80 | apple | Apple's self-test executes it
+vector | vmov Ddiscard AH8 BV8 ifnz sum 80 | silicon | H.264 kernels: per-kernel dumps S17-S27 bit-exact; stage 6 clips 1 and 2 checked frames at 150 MHz, sitting 2 (h264_vpred4_dc_lt)
+vector | vmov Ddiscard AH8 BV8 sum 80 | apple | Apple's self-test executes it
+vector | vmov Ddiscard AH8 Bimm clra acc 80 | apple | Apple's self-test executes it
+vector | vmov Ddiscard AH8 Breg clra x15 80 | guard | J_VPU_MAC (jdec's IDCT check); display-only J_VPU read 0x23 on silicon, sitting 2 (jv_idct4n)
+vector | vmul DH16 AH16 Bimm - 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_barv)
+vector | vmul DH16 AH16 Breg - 80 | apple | Apple's self-test executes it
+vector | vmul DH16 AH16+r++ BV16++ x15 rep 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_repa)
+vector | vmul DH16 AH8 Breg - 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_mul8)
+vector | vmul DH16 AH8 Breg acc 80 | apple | Apple's self-test executes it
+vector | vmul DH16 AV8 Breg acc 80 | silicon | H.264 kernels: per-kernel dumps S17-S27 bit-exact; stage 6 clips 1 and 2 checked frames at 150 MHz, sitting 2 (h264_vdbk_luma_v_normal)
+vector | vmul DH16++ AH16++ BH16 rep 80 | silicon | the jobs: jobs self-test and the drift, sitting 2 (jv_mix16)
+vector | vmul DH16++ AH16++ BH16++ rep 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_barv)
+vector | vmul DH16++ AH16++ Bimm rep 80 | silicon | the drift kernels: b3 and drill 2 pass on the merged image, sitting 2 (xfade_blk)
+vector | vmul DH16++ AH16++ Breg - 80 | silicon | H.264 kernels: per-kernel dumps S17-S27 bit-exact; stage 6 clips 1 and 2 checked frames at 150 MHz, sitting 2 (h264_vmc_luma4_21)
+vector | vmul DH16++ AH16++ Breg rep 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_mulr)
+vector | vmul DH16++ AH8++ Breg - 80 | silicon | H.264 kernels: per-kernel dumps S17-S27 bit-exact; stage 6 clips 1 and 2 checked frames at 150 MHz, sitting 2 (h264_vmc_chroma2_hv)
+vector | vmul DH16++ AH8++ Breg rep 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_mu8r)
+vector | vmul DH16+r AH16 BH16 x15 80 | guard | J_VPU_FFT (viz_vpu.c: four signals at each size); never run on silicon (jv_fft_split)
+vector | vmul Ddiscard AH16 BH16 clra x15 80 | guard | J_VPU_FFT (viz_vpu.c: four signals at each size); never run on silicon (jv_fft_split)
+vector | vmul Ddiscard AH16 BH16 x15 80 | guard | J_VPU_FFT (viz_vpu.c: four signals at each size); never run on silicon (jv_fft_split)
+vector | vmul Ddiscard AH16 BH8 sum 80 | silicon | H.264 kernels: per-kernel dumps S17-S27 bit-exact; stage 6 clips 1 and 2 checked frames at 150 MHz, sitting 2 (h264_vpred8_plane)
+vector | vmul Ddiscard AH16 BV8 sum 80 | apple | Apple's self-test executes it
+vector | vmul Ddiscard AH16 Bimm clra x15 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_x15m)
+vector | vmul Ddiscard AH16 Bimm x15 80 | apple | Apple's self-test executes it
+vector | vmul Ddiscard AH16 Breg clra acc 80 | apple | Apple's self-test executes it
+vector | vmul Ddiscard AH16+r++ BH16 clra x15 80 | guard | J_VPU_FFT (viz_vpu.c: four signals at each size); never run on silicon (jv_fft_tw)
+vector | vmul Ddiscard AH16+r++ BH16 x15 80 | guard | J_VPU_FFT (viz_vpu.c: four signals at each size); never run on silicon (jv_fft_tw)
+vector | vmul Ddiscard AH8 Breg acc 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_macc)
+vector | vmul Ddiscard AH8 Breg clra acc 80 | apple | Apple's self-test executes it
+vector | vmul Ddiscard AV16 Bimm clra x15 80 | guard | J_VPU_FFT (viz_vpu.c: four signals at each size); never run on silicon (jv_fft_cols)
+vector | vmul Ddiscard AV16 Bimm x15 80 | guard | J_VPU_FFT (viz_vpu.c: four signals at each size); never run on silicon (jv_fft_cols)
+vector | vmul Ddiscard AV8 Breg acc 80 | silicon | H.264 kernels: per-kernel dumps S17-S27 bit-exact; stage 6 clips 1 and 2 checked frames at 150 MHz, sitting 2 (h264_vdbk_luma_v_normal)
+vector | vmul Ddiscard AV8 Breg clra acc 80 | apple | Apple's self-test executes it
+vector | vmulhd DH16 AH16 BH16 - 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_mhdu)
+vector | vmulhd DH16 AH16 BH16 acc 80 | guard | J_VPU_FFT (viz_vpu.c: four signals at each size); never run on silicon (jv_fft_split)
+vector | vmulhd DH16 AH16 Bimm acc 80 | apple | Apple's self-test executes it
+vector | vmulhd DH16 AH16+r++ BV16++ acc rep 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_repa)
+vector | vmulhd DH16++ AH16++ BH16++ rep 80 | guard | J_VPU_FFT (viz_vpu.c: four signals at each size); never run on silicon (jv_fft256)
+vector | vmulhd DH16+r AH16 BH16 acc 80 | guard | J_VPU_FFT (viz_vpu.c: four signals at each size); never run on silicon (jv_fft_split)
+vector | vmulhd DH16+r AH16+r++ BH16 acc 80 | guard | J_VPU_FFT (viz_vpu.c: four signals at each size); never run on silicon (jv_fft_tw)
+vector | vmulhd DV16 AV16 Bimm acc 80 | guard | J_VPU_FFT (viz_vpu.c: four signals at each size); never run on silicon (jv_fft_cols)
+vector | vmulhd Ddiscard AH16 BH16 acc 80 | guard | J_VPU_FFT (viz_vpu.c: four signals at each size); never run on silicon (jv_fft_split)
+vector | vmulhd Ddiscard AH16 Bimm acc 80 | apple | Apple's self-test executes it
+vector | vmulhd Ddiscard AH16+r++ BH16 acc 80 | guard | J_VPU_FFT (viz_vpu.c: four signals at each size); never run on silicon (jv_fft_tw)
+vector | vmulhd Ddiscard AV16 Bimm acc 80 | guard | J_VPU_FFT (viz_vpu.c: four signals at each size); never run on silicon (jv_fft_cols)
+vector | vmulhdsu DH16 AH16 BH16 - 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_mhdu)
+vector | vmulhduu DH16 AH16 BH16 - 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_mhdu)
+vector | vmulhr DH16 AH16 Bimm - 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_mhr4)
+vector | vmulhr DH16++ AH16++ Bimm rep 80 | apple | Apple's self-test executes it
+vector | vmulhr DH8 AH16 Bimm - 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_mh8i)
+vector | vmulhr DH8++ AH16++ Bimm rep 80 | silicon | H.264 kernels: per-kernel dumps S17-S27 bit-exact; stage 6 clips 1 and 2 checked frames at 150 MHz, sitting 2 (h264_vmc_chroma2_h)
+vector | vmulhrs DH16 AH16 Bimm - 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_rndt)
+vector | vmulhrs DH8 AH16 Bimm - 80 | apple | Apple's self-test executes it
+vector | vmulhrs DH8++ AH16++ Bimm rep 80 | apple | Apple's self-test executes it
+vector | vmulhru DH8 AH16 Bimm ifn 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_subz)
+vector | vmulm DH16++ AH8++ Bimm rep 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_mlmi)
+vector | vmulms DH8 AH16 Bimm - 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_mlsc)
+vector | vmulms DH8++ AH16++ Bimm rep 80 | apple | Apple's self-test executes it
+vector | vrsub DH16 AH16 Bimm - 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_rsb0)
+vector | vrsub DH16 AH16+r++ Bimm - 80 | guard | J_VPU_FFT (viz_vpu.c: four signals at each size); never run on silicon (jv_fft_tw)
+vector | vrsub DH16++ AH16++ BH16 rep 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_barv)
+vector | vrsub DH16++ AH16++ Breg rep 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_barv)
+vector | vrsub DV16 AV16 Bimm - 80 | guard | J_VPU_FFT (viz_vpu.c: four signals at each size); never run on silicon (jv_fft_cols)
+vector | vshl DH16 AH16 Bimm - 80 | guard | J_VPU_MAC (jdec's IDCT check); display-only J_VPU read 0x23 on silicon, sitting 2 (jv_idct4n)
+vector | vshl Ddiscard AH16 Bimm clra x15 80 | apple | Apple's self-test executes it
+vector | vstr rep ifnz | apple | Apple's self-test executes it
+vector | vstr single ifnz | apple | Apple's self-test executes it
+vector | vsub DH16 AH16 BH16 - 80 | silicon | H.264 kernels: per-kernel dumps S17-S27 bit-exact; stage 6 clips 1 and 2 checked frames at 150 MHz, sitting 2 (h264_vidct4_add)
+vector | vsub DH16 AH16+r++ BH16 - 80 | guard | J_VPU_FFT (viz_vpu.c: four signals at each size); never run on silicon (jv_fft_split)
+vector | vsub DH16++ AH16++ BH16 rep 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_barv)
+vector | vsub DH16++ AH16++ BH16++ - 80 | silicon | H.264 kernels: per-kernel dumps S17-S27 bit-exact; stage 6 clips 1 and 2 checked frames at 150 MHz, sitting 2 (h264_vmc_luma4_21)
+vector | vsub DH16++ AH16++ BH16++ rep 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_barv)
+vector | vsub DV16 AV16 BV16 - 80 | silicon | H.264 kernels: per-kernel dumps S17-S27 bit-exact; stage 6 clips 1 and 2 checked frames at 150 MHz, sitting 2 (h264_vidct4_add)
+vector | vsub DV16++ AV16++ BV16++ rep 80 | guard | J_VPU_FFT (viz_vpu.c: four signals at each size); never run on silicon (jv_fft_cols)
+vector | vsub Ddiscard AH16 BH8 setf 80 | apple | Apple's self-test executes it
+vector | vsub Ddiscard AH16 BH8 setf ifn 80 | apple | Apple's self-test executes it
+vector | vsub Ddiscard AH16 BH8 setf ifnz 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_subz)
+vector | vsub Ddiscard AH16 Breg setf 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_barv)
+
+# added by scripts/proven_forms.py --update (2026-10-26)
+vector | vadd DH16+r AH16+r BH16 - 80 | guard | J_VPU_FFT (viz_vpu.c: four signals at each size); never run on silicon (jv_fft_tw)
+vector | vmul DH16 AH16 BH16 clra x15 80 | guard | J_VPU_FFT (viz_vpu.c: four signals at each size); never run on silicon (jv_fft_split)
+vector | vmul DH16 AH16 BH16 x15 80 | guard | J_VPU_FFT (viz_vpu.c: four signals at each size); never run on silicon (jv_fft_split)
+vector | vmul DH16 AH16+r++ BH16 clra x15 80 | guard | J_VPU_FFT (viz_vpu.c: four signals at each size); never run on silicon (jv_fft_tw)
+vector | vmulhd DH16 AH16+r++ BH16 acc 80 | guard | J_VPU_FFT (viz_vpu.c: four signals at each size); never run on silicon (jv_fft_tw)
+
+# added by scripts/proven_forms.py --update (2026-10-26)
+vector | mem48 vldp16 single nostride nooff | silicon | BSL1 ok on silicon: sitting 4, 2026-10-26, build 207956fb84, merged image 23693ff4 (session log: "jvpu: forms BSL1 ok BSF1 ok BSM1 ok BSR1 ok BSX1 ok BSS1 ok BSZ1 ok (vpu2 ff)") (jv_bschk_l1)
+vector | mem48 vldq16 single nostride nooff | silicon | BSL1 ok on silicon: sitting 4, 2026-10-26, build 207956fb84, merged image 23693ff4 (session log: "jvpu: forms BSL1 ok BSF1 ok BSM1 ok BSR1 ok BSX1 ok BSS1 ok BSZ1 ok (vpu2 ff)") (jv_bschk_l1)
+vector | vmax DH8 AH8 BH8 - 80 | silicon | BSX1 ok on silicon: sitting 4, 2026-10-26, build 207956fb84, merged image 23693ff4 (session log: "jvpu: forms BSL1 ok BSF1 ok BSM1 ok BSR1 ok BSX1 ok BSS1 ok BSZ1 ok (vpu2 ff)") (jv_bschk_x1)
+vector | vmov DH8 AH8 Bimm ifn 80 | silicon | BSM1 ok on silicon: sitting 4, 2026-10-26, build 207956fb84, merged image 23693ff4 (session log: "jvpu: forms BSL1 ok BSF1 ok BSM1 ok BSR1 ok BSX1 ok BSS1 ok BSZ1 ok (vpu2 ff)") (jv_bschk_m1)
+vector | vmov DH8 AH8 Breg ifz 80 | silicon | BSZ1 ok on silicon: sitting 4, 2026-10-26, build 207956fb84, merged image 23693ff4 (session log: "jvpu: forms BSL1 ok BSF1 ok BSM1 ok BSR1 ok BSX1 ok BSS1 ok BSZ1 ok (vpu2 ff)") (jv_bschk_z1)
+vector | vsub Ddiscard AH16 BH16 setf 80 | silicon | BSF1 ok on silicon: sitting 4, 2026-10-26, build 207956fb84, merged image 23693ff4 (session log: "jvpu: forms BSL1 ok BSF1 ok BSM1 ok BSR1 ok BSX1 ok BSS1 ok BSZ1 ok (vpu2 ff)") (jv_bschk_f1)
+vector | vsub Ddiscard AH8 BH8 setf 80 | silicon | BSR1 ok on silicon: sitting 4, 2026-10-26, build 207956fb84, merged image 23693ff4 (session log: "jvpu: forms BSL1 ok BSF1 ok BSM1 ok BSR1 ok BSX1 ok BSS1 ok BSZ1 ok (vpu2 ff)") (jv_bschk_r1)

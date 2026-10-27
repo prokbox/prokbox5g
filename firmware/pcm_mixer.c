@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2011 by Michael Sevakis
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -25,6 +26,19 @@
 #include "pcm-internal.h"
 #include "pcm_mixer.h"
 #include "pcm_sampr.h"
+#if defined(HAVE_IPOD_UI_DEVMODE) || defined(HAVE_VIZ_TAP) || \
+    defined(HAVE_COP_COHERENCE)
+#include "xcore.h"      /* ProkBox: XCORE_BSS for the tap pointer; P19
+                         * ucop-fix: XCORE_ASSERT_CPU (the channel calls
+                         * are CPU-only: their control words are cached and
+                         * the PCM lock masks the CPU's FIQ only) */
+#else
+#define XCORE_ASSERT_CPU(what) do { } while (0)
+#endif
+#ifdef HAVE_DAC_STANDBY
+#include "dac_ext.h"
+#include "devstats.h"   /* ProkBox Fit-1 M0: empty unless HAVE_DEVSTATS */
+#endif
 
 /* Channels use standard-style PCM callback interface but a latency of one
    frame by double-buffering is introduced in order to facilitate mixing and
@@ -74,6 +88,26 @@ static struct mixer_channel * active_channels[PCM_MIXER_NUM_CHANNELS+1] IBSS_ATT
 
 /* Number of silence frames to play after all data has played */
 static unsigned int idle_counter = 0;
+
+#if defined(HAVE_IPOD_UI_DEVMODE) || defined(HAVE_VIZ_TAP)
+/* NULL unless the audio path test or the visualizer's tap is armed;
+ * uncached (xcore.h), so an opener on either core sets the copy the FIQ
+ * reads */
+static mixer_tap_fn mixer_tap XCORE_BSS;
+
+void mixer_set_tap(mixer_tap_fn fn)
+{
+    /* under the PCM lock: once this returns, no callback is in the old
+     * tap (on the PP the lock masks the FIQ on this core; the simulator's
+     * audio thread mixes holding it).  CPU only: the FIQ is the CPU's,
+     * and the lock's depth is a plain increment (P19 ucop-fix2; a COP
+     * caller crosses by remote call, febe_rpc.list) */
+    XCORE_ASSERT_CPU("mixer_set_tap");
+    pcm_play_lock();
+    mixer_tap = fn;
+    pcm_play_unlock();
+}
+#endif
 
 #ifdef CONFIG_SAMPR_TYPES
 #define SAMPR_NUM(sampr) (sampr & ~SAMPR_TYPE_MASK)
@@ -251,6 +285,11 @@ fill_frame:
     }
     /* else silence period ran out - go to sleep */
 
+#if defined(HAVE_IPOD_UI_DEVMODE) || defined(HAVE_VIZ_TAP)
+    if (UNLIKELY(mixer_tap) && next_size)
+        mixer_tap(downmix_buf[downmix_index], next_size);
+#endif
+
 #if FRAME_BOUNDARY_MARKERS != 0
     if (next_size)
         *downmix_buf[downmix_index] = downmix_index ? 0x7fff7fff : 0x80008000;
@@ -351,6 +390,11 @@ void mixer_channel_play_data(enum pcm_mixer_channel channel,
 {
     struct mixer_channel *chan = &channels[channel];
 
+    XCORE_ASSERT_CPU("mixer_channel_play_data");
+#ifdef HAVE_DAC_STANDBY
+    dac_wake();     /* codec clocks back before any PCM start; may sleep on
+                     * I2C, so never under pcm_play_lock (P15 review H3) */
+#endif
     ALIGN_AUDIOBUF(start, size);
 
     if (!(start && size) && cbs && cbs->get_more)
@@ -381,6 +425,10 @@ void mixer_channel_play_data(enum pcm_mixer_channel channel,
         mixer_activate_channel(chan);
         chan_call_buffer_hook(chan);
         mixer_start_pcm();
+#ifdef HAVE_DEVSTATS
+        if (channel == PCM_MIXER_CHAN_PLAYBACK)
+            DEVSTATS_PCM_START();   /* M0: tap to first PCM */
+#endif
     }
     else
     {
@@ -396,6 +444,10 @@ void mixer_channel_play_pause(enum pcm_mixer_channel channel, bool play)
 {
     struct mixer_channel *chan = &channels[channel];
 
+#ifdef HAVE_DAC_STANDBY
+    if (play)
+        dac_wake(); /* as in mixer_channel_play_data() */
+#endif
     pcm_play_lock();
 
     if (play == (chan->status == CHANNEL_PAUSED) &&
@@ -406,6 +458,10 @@ void mixer_channel_play_pause(enum pcm_mixer_channel channel, bool play)
             chan->status = CHANNEL_PLAYING;
             mixer_activate_channel(chan);
             mixer_start_pcm();
+#ifdef HAVE_DEVSTATS
+            if (channel == PCM_MIXER_CHAN_PLAYBACK)
+                DEVSTATS_PCM_START();
+#endif
         }
         else
         {
@@ -422,6 +478,7 @@ void mixer_channel_stop(enum pcm_mixer_channel channel)
 {
     struct mixer_channel *chan = &channels[channel];
 
+    XCORE_ASSERT_CPU("mixer_channel_stop");
     pcm_play_lock();
     channel_stopped(chan);
     pcm_play_unlock();

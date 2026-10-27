@@ -1,0 +1,45 @@
+# #38 (docs/phase-nav-brief.md, "C: verification"): the Settings split
+# screen (D11, D13 the capacity panel) and a split leaf (D8, Backlight:
+# "draw_into_panel" + ui_panel_select_screen(), tile + current value).
+# Needs agent B's screens/settings.c and ui_preview_capacity (D13), which
+# have landed: Settings is now the real 17-row tree (apps/ipodui/screens/
+# settings.c items[]), and "Backlight" is index 6 from the top (the
+# wheel count below, verified against items[]/item_lang[]): About,
+# Shuffle, Repeat, Main Menu, Music Menu, Volume Limit, Backlight. It is
+# the only row using the real split choice_screen ("settings-choice");
+# every other row but About (ui_preview_capacity) still pushes the plain
+# ui_stub_screen (no panel) until its own detail screen lands.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-nav-settings.script
+# golden: skip settings_push_mid backlight_push_mid
+
+wait 4000           # boot to the main menu, "Music" selected
+
+wheel +3             # "Settings" (4th main-menu row)
+wait 400
+key SELECT 50
+shot settings_push_mid   # (timing) sliding in
+wait 1200            # past NAV_REST_ICON: the capacity panel arrives
+shot settings_top    # split (post-B): list x 0-159, header above it,
+                      # the capacity panel x 160-319 (device name, the
+                      # wheel glyph, the capacity bar, "N GB Free", D13).
+                      # Stub (pre-B): the old flat 30-row list, no panel.
+
+wheel +6              # "Backlight" (see the header comment above)
+wait 400
+key SELECT 50
+shot backlight_push_mid  # (timing) sliding in
+wait 500              # past NAV_REST_ICON: the leaf's own panel arrives
+shot backlight_top    # split leaf (post-B, D8): panel shows the tile and
+                      # the current brightness value. Stub (pre-B): a
+                      # plain full-width ui_stub_screen, no panel.
+
+wheel +1              # change the value (post-B: ui_panel_invalidate(),
+wait 500              # the panel cross-fades to the new value, still
+                      # after a rest delay, NAV_REST_ICON)
+shot backlight_changed
+
+key MENU
+wait 700
+shot back_to_settings
+
+quit

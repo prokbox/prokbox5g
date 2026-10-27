@@ -78,4 +78,16 @@ void usb_core_notify_set_config(uint8_t config);
 void usb_core_hotswap_event(int volume,bool inserted);
 #endif
 
+#ifdef HAVE_USB_STATS
+/* ProkBox (USB reliability): control-path counters for the device log,
+ * zeroed by usb_core_init(), kept after usb_core_exit() */
+struct usb_core_stats {
+    uint32_t bus_resets;        /* bus reset interrupts */
+    uint32_t setups_deferred;   /* SETUPs held behind a pending reset */
+    bool pending_now;           /* bus_reset_pending now */
+    bool pending_at_exit;       /* ... as usb_core_exit() found it */
+};
+void usb_core_get_stats(struct usb_core_stats *out);
+#endif
+
 #endif

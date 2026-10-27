@@ -1,0 +1,45 @@
+# #109 (docs/design/queue-by-index.md 7, "-dbq-shuffle-2k"): a database
+# queue of the whole Songs list, shuffled from the shelf by Albums: the
+# album groups come from the slot table (grp bits, any length), not the
+# 2,048-entry static they replace. The mini library has 302 songs; the
+# 2,000-row timing case is the device's (design 7, Device).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-dbq-shuffle.script
+# needs: library
+# timeout: 150
+# trace: shuf
+# golden: skip shelf albums
+# log: dbq build n=302
+# log: shuf: queue albums groups=302
+# nolog: shuf: queue albums in order
+# nolog: lib play fail
+# nolog: splash-pass
+
+wait 4000
+wait_db 30000
+repeat off
+key SELECT          # Music
+wait 1000
+wheel -10 100
+wait 300
+wheel +3 300        # Songs
+wait 600
+key SELECT
+wait 1500
+key SELECT          # row 0: the whole list (dbq build n=302)
+wait_pos 100 20000
+key PLAY            # pause at once (a track change drops the mode)
+wait 300
+key SELECT
+wait 500
+key SELECT
+wait 500
+key SELECT          # Shuffle shelf
+wait 700
+wheel +2 300        # Albums
+wait 300
+shot shelf
+key SELECT
+wait 2500
+shot albums
+audio_stop
+quit

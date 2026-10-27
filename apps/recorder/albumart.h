@@ -36,6 +36,11 @@ bool find_albumart(const struct mp3entry *id3, char *buf, int buflen,
 
 bool search_albumart_files(const struct mp3entry *id3, const char *size_string,
                            char *buf, int buflen);
+#if defined(HAVE_IPOD_UI) && !defined(PLUGIN)
+/* iPod UI shell: run before each file probe of search_albumart_files()
+ * (the art builder's pace point; it acts on its own thread only) */
+void albumart_set_probe_hook(void (*fn)(void));
+#endif
 
 void get_albumart_size(struct bitmap *bmp);
 

@@ -1,0 +1,44 @@
+# #109 (design 5.4, 7 "-dbq-usb"): a database queue plays, USB connects
+# and disconnects: no dbq write at the connect (no fd is held, nothing is
+# persisted there), no miss after it, and the queue still resumes by its
+# T line after a restart.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-dbq-usb.script
+# needs: library
+# timeout: 200
+# golden: skip resumed
+# log: dbq build n=302
+# log: dbq resume n=302
+# nolog: dbq persist fail
+# nolog: dbq commit fail
+# nolog: dbq miss
+# nolog: dbq resume fail
+# nolog: splash-pass
+
+wait 4000
+wait_db 30000
+key SELECT          # Music
+wait 1000
+wheel -10 100
+wait 300
+wheel +3 300        # Songs
+wait 600
+key SELECT
+wait 1500
+key SELECT          # the whole list
+wait 2000
+expect_playing 300
+usb_connect
+wait 2000
+usb_disconnect
+wait 3000
+reboot
+
+wait 4000
+wait_db 30000
+key PLAY            # resume
+wait 1500
+expect_playing 1000
+shot resumed
+audio_stop
+wait 500
+quit

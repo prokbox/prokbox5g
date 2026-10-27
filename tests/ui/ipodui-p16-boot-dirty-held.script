@@ -1,0 +1,33 @@
+# #87/#89 (review M3, L2): ipodui-p4-dirty-playing's power cut mid-commit,
+# with the boot window's hold (that script skips it: SIM_BOOT_NOHOLD).
+# The cut leaves no stamp, so the boot walks; the window ends within
+# 1.5 s, never the full 3 s cap (L2: a rebuild or walk the window waits
+# for is a walk, handed over at about a second when it cannot finish),
+# the library is back in this boot and music resumes after it as usual.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-boot-dirty-held.script
+# needs: library
+# timeout: 150
+# golden: skip restored
+# logrange: 0 1500 boot window ms=(\d+)
+
+wait 4000           # boot to the main menu
+wait_db 30000
+wheel +4            # "Shuffle Songs"
+wait 500
+key SELECT          # plays (the resume point is saved at power-off)
+wait 2000
+expect_playing 300
+dirty_db            # the power cut mid-commit, as the disk is left
+boot_unclean        # a cut: no clean shutdown's boot stamp
+reboot
+
+expect_boot_walk 1 15000
+wait_db 30000       # the rebuild lands in this boot
+key PLAY            # resumes
+wait 1000
+expect_playing 3000
+key SELECT          # Music
+wait 1000
+shot restored
+
+quit

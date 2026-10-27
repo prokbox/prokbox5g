@@ -1,0 +1,29 @@
+# P12 W4-0 (docs/design/sdk.md 2.4): the graceful exit is enforced, not
+# trusted. In mode 4 the test game's exit() takes 3 s under its 1,000 ms
+# policy: a long MENU starts the exit, the watchdog stops it at the
+# deadline ("sdk exit deadline badgame ms=1000"), the SDK reclaims and the
+# Games list is back about 1 s later, never 3 s.
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-sdk-badgame-deadline.script
+# needs: modules
+# reset: mainmenu
+
+wait 4000
+sdk_clear
+wheel +2             # Extras
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Games
+wait 600
+key SELECT
+wait 1200
+wheel +3             # Game rule tests (below Bricks, Chess, Chute)
+wait 600
+sdk_bad 4
+key SELECT
+wait 1500
+shot running
+hold MENU 900        # the exit, with its 1 s deadline
+wait 1500
+shot out             # the Games list
+quit

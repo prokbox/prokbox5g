@@ -1,0 +1,32 @@
+session build=4e57b3b9a1 date=2026-10-25 15:10 steps=9 mode=reverify image=218660 fnv=cd8e5d96 kind=merged
+step=pre result=start
+step=pre log=pre: stage 5 pass flag: PASS
+step=pre result=pass answer=- ms=20 note=pre: stage 5 pass flag: PASS
+step=s05 result=skip answer=- ms=0 note=not needed: the stage 5 flag is there
+step=boot result=skip answer=- ms=0 note=not needed: the stage 5 flag is there
+step=jobs result=start
+step=jobs log=jobs: self-test rc 0
+step=jobs result=pass answer=- ms=40 note=jobs: self-test rc 0
+step=jvpu result=start
+step=jvpu log=jvpu: J_VPU 3, expected 3 (merged image; checked 1, shift 1, MAC 0) at block 000de000
+step=jvpu log=jvpu: forms BSL1 ok BSF1 ok BSM1 differs BSR1 ok BSX1 ok BSS1 ok BSZ1 ok (vpu2 f7)
+step=jvpu log=jvpu: forms: first differing BSM1 lane 7 got 00ff exp 0047
+step=jvpu log=jvpu: sdram byte 41.2 ns word 38.0 ns; sram byte 7.4 ns word 7.3 ns at 150 MHz
+step=jvpu result=pass answer=- ms=400 note=jvpu: J_VPU 3, expected 3 (merged image; checked 1, shift 1, MAC 0) at block 000de000
+step=b3 result=start
+step=b3 result=pass answer=Yes ms=0 note=
+resume after=b3
+step=drill2 result=start
+step=drill2 log=drill2: inject op=0x26 n=2 rc=0
+step=drill2 result=pass answer=Drift_or_still_cover ms=60000 note=drill2: inject op=0x26 n=2 rc=0
+step=s6 result=start
+step=s6 log=video image (merged) 218660 bytes fnv cd8e5d96
+step=s6 log=stage 6: 2 clips, 0 late, A/V within 12 ms
+step=s6 result=pass answer=Smooth,_in_sync ms=26000 note=stage 6 PASS
+step=b13 result=start
+step=b13 result=pass answer=No ms=9000 note=Warm swap: PASS
+step=b5 result=start
+step=b5 log=lab5: J_VPU 7 (display-only image)
+step=b5 result=pass answer=Yes ms=15000 note=Window push: PASS
+verified bcmvideo_jobs cd8e5d96  stage 6 PASS (merged, 218660 bytes), B5 PASS, jobs self-test PASS, J_VPU 3 PASS, drift B3 PASS on the owner's 5.5G: re-verify session 2026-10-25, build 4e57b3b9a1
+end passed=8 failed=0 skipped=2

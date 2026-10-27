@@ -1,0 +1,59 @@
+# Tracker #10: the developer power log (apps/ipodui/powerlog.c). From the
+# Developer list: "Power log every" steps 30 -> 60 -> 5 s, "Power log: on"
+# starts it (an "on <date>" mark row, /.rockbox/power.cfg written). Back in
+# the shell, ~20 s of 5 s rows, a phase mark from test code, the storage-
+# idle flush (a mark is pending, so it writes), then "Power log: off" (an
+# "off" row written at once, power.cfg removed, so no later script logs).
+# The CSV must hold the header, the interval and phase marks, both edge
+# marks and periodic rows between them (no disk wake: the writes ride the
+# idle callback and the developer action).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p10-powerlog.script
+# timeout: 90
+# log: power log on every=30s
+# log: power log off forced=0
+# log: powerlog flush rows=
+# expect-file: /.rockbox/power.csv s,mv,pct,charger,charging,play,boost_pct,bl_pct,lcd_pct,disk_pct,dac_allow,dac_sb,dac_sleeps,dac_wakes,vol_db,dropped,mark
+# expect-file: /.rockbox/power.csv ,every=5s
+# expect-file: /.rockbox/power.csv ,phase-a
+# expect-file: /.rockbox/power.csv ,off
+# golden: skip devlist_on devlist_off
+
+wait 5000           # boot to the main menu
+rm_file /.rockbox/power.csv
+rm_file /.rockbox/power.cfg
+wheel +3            # Settings
+wait 400
+key SELECT
+wait 1500
+key SELECT          # About
+wait 1500
+chord SELECT+LEFT 3200
+wait 1000
+wheel +1            # Power log: off (the row after Status)
+wait 400
+key SELECT          # on, every 30 s
+wait 800
+wheel +1            # Power log every: 30 s
+wait 400
+key SELECT          # 60 s
+wait 600
+key SELECT          # 5 s
+wait 600
+shot devlist_on
+key LEFT            # leave developer mode (About again)
+wait 1500
+wait 12000          # two or three 5 s rows
+powerlog_mark phase-a
+wait 6000
+storage_idle        # the device's idle flush: the mark makes it write
+wait 1500
+chord SELECT+LEFT 3200
+wait 1000
+wheel +1            # Power log: on (the row after Status)
+wait 400
+key SELECT          # off: the "off" row is written now
+wait 1000
+shot devlist_off
+key LEFT
+wait 1000
+quit

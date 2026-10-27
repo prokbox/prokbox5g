@@ -1,0 +1,26 @@
+# #114: USB connect while the adapter is powered off: the storage layer
+# powers it up before anyone (the host) is told, and keeps it on until
+# the disconnect; after it the idle cut comes back.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p18-stor-usb.script
+# needs: music
+# golden: skip
+# timeout: 120
+# log: stor pwr on ms=
+# log: reason=usb
+# nolog: splash-pass
+
+wait 3000
+stor_tune 2000 1000
+stor_expect off 15000
+stor_mark
+usb_connect
+stor_expect on 2000         # powered before the broadcast
+wait 6000
+stor_expect on              # no cut while USB owns the drive
+stor_expect_cycles_le 1
+usb_disconnect
+wait 1000
+stor_expect off 15000
+stor_status
+shot after-usb
+quit

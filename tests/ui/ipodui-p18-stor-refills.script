@@ -1,0 +1,45 @@
+# #114 (P18 A3): dark playback across several buffer refills with the
+# flash adapter powered off in between. The audio buffer is shrunk so a
+# FLAC refills every ~10 s of play, and the hold cut to 2 s (the device:
+# 10 s dark, a refill every 5-6 min): each refill finds the power off,
+# powers it up (the sim waits 300 ms, as the device's >= 250 ms + re-init),
+# fills, and the power goes off again. No underrun; the cycles are logged.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p18-stor-refills.script
+# needs: music
+# needs: np
+# golden: skip
+# fulls-extra: 3   (the Now Playing row with each play_files; the screen lit again by MENU)
+# timeout: 200
+# log: stor pwr off ms=
+# log: stor pwr on ms=
+# log: reason=access
+# nolog: pcm underrun
+# nolog: splash-pass
+
+wait 3000
+mkdir /StorPwr
+copy ../../build/np-fixtures/nolen.flac /StorPwr/a.flac
+play_files /StorPwr/a.flac
+wait 1500
+audio_stop
+wait 500
+stor_buffer 150000      # the rest reserved: refills seconds apart
+stor_tune 2000 1000     # hold 2 s, min off 1 s
+repeat all
+dark on                 # dark playback (no setting changed: nothing persists)
+play_files /StorPwr/a.flac
+wait 3000
+stor_mark
+stor_expect off 10000   # the first fill done, the hold run out
+wait 60000
+stor_status
+stor_expect_cycles_ge 3
+expect_playing 500
+key MENU                # lights the screen (the unlit exit)
+wait 1000
+stor_buffer 0
+audio_stop
+wait 500
+rm_file /StorPwr/a.flac
+shot end
+quit

@@ -1,0 +1,19 @@
+# Phase 8b-3 (docs/phase8b-brief.md 4.3): the main menu's glyph panels
+# (Podcasts, Extras, Settings capacity) on the reflective surface with the
+# split shadow at the seam (10 px, 36 %, panel columns 160-169). Clock pinned (10:08, 6 Oct 2026).
+
+wait 4000            # boot to the main menu, Music selected (cover drift)
+shot main
+wheel +1 300
+wait 1200
+shot row2
+wheel +1 300
+wait 1200
+shot row3
+wheel +1 300
+wait 1200
+shot row4
+wheel +1 300
+wait 1200
+shot row5
+quit

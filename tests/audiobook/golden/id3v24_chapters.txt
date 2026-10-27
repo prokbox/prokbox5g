@@ -1,0 +1,16 @@
+Audiobook: no
+Chapter count: 5
+Chapters read: 5
+Chapter 1: 0 ms "Opening Café"
+Chapter 2: 1500 ms "Kapitel Zwei – Über"
+Chapter 3: 3000 ms "日本語の章 🎧"
+Chapter 4: 4500 ms "Part Four (LE, no BOM)"
+Chapter 5: 6000 ms "Épilogue"
+Lyrics: id3, 114 bytes
+Lyrics read: 50
+Lyrics text: "First line\nZweite Zeile – Über\n🎧 third line\n"
+Lyrics read (20-byte buffer): 19 (truncated)
+Lyrics text (short): "First line\nZweite Z"
+Chapter art: 2
+Chapter 2 art: jpeg 207 bytes crc32 0ff9f151
+Chapter 5 art: png 103 bytes crc32 5e13d048

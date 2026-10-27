@@ -65,12 +65,15 @@ struct viewport_stack_item
     bool   enabled;
 };
 
+#ifndef IPODUI_TRIM_SKIN
 static void viewportmanager_redraw(unsigned short id, void* data);
+#endif
 
 static int theme_stack_top[NB_SCREENS]; /* the last item added */
 static struct viewport_stack_item theme_stack[NB_SCREENS][VPSTACK_DEPTH];
 static bool is_theme_enabled(enum screen_type screen);
 
+#ifndef IPODUI_TRIM_SKIN
 static void evt_toggle(bool enable, unsigned short id,
                          void (*handler)(unsigned short id, void *data))
 {
@@ -90,6 +93,32 @@ static void toggle_events(bool enable)
 #endif
 }
 
+#endif /* !IPODUI_TRIM_SKIN */
+
+
+#ifdef IPODUI_TRIM_SKIN
+/* Phase 9 (docs/phase9-brief.md 3.3.2): no skin engine in the shell, so no
+ * skinned status bar, backdrop or skinned list to switch. The stock lists
+ * (developer mode only) draw unthemed, full screen. */
+static void toggle_theme(enum screen_type screen, bool force)
+{
+    (void)force;
+#if LCD_DEPTH > 1 || (defined(LCD_REMOTE_DEPTH) && LCD_REMOTE_DEPTH > 1)
+    screens[screen].backdrop_show(NULL);
+#endif
+    if (!is_theme_enabled(screen))
+        screens[screen].scroll_stop();
+    /* let list initialize viewport in case viewport dimensions is changed. */
+    send_event(GUI_EVENT_THEME_CHANGED, NULL);
+}
+
+/* Called by firmware/backlight.c and action.c on a Hold change; the skin
+ * engine's version only refreshes the skinned bar. */
+void skin_request_update_locked(bool locked)
+{
+    (void)locked;
+}
+#else /* !IPODUI_TRIM_SKIN */
 static void set_clear_valid_vp(enum screen_type screen, struct viewport *vp)
 {
     if (vp->width && vp->height)
@@ -174,6 +203,7 @@ static void toggle_theme(enum screen_type screen, bool force)
 #endif
     after_boot[screen] = true;
 }
+#endif /* IPODUI_TRIM_SKIN */
 
 void viewportmanager_theme_enable(enum screen_type screen, bool enable,
                                  struct viewport *viewport)
@@ -196,8 +226,10 @@ void viewportmanager_theme_undo(enum screen_type screen, bool force_redraw)
         panicf("Stack underflow... viewportmanager");
 
     toggle_theme(screen, force_redraw);
+#ifndef IPODUI_TRIM_SKIN
     if (sb_get_persistent_title(screen))
         screens[screen].scroll_stop();
+#endif
 }
 
 
@@ -212,6 +244,7 @@ int viewport_get_nb_lines(const struct viewport *vp)
     return vp->height/font_get(vp->font)->height;
 }
 
+#ifndef IPODUI_TRIM_SKIN
 static void viewportmanager_redraw(unsigned short id, void* data)
 {
     (void)id;
@@ -227,6 +260,7 @@ static void viewportmanager_update(unsigned short id, void* data)
         if (skin_is_dirty(i))
             screens[i].update();
 }
+#endif
 
 void viewportmanager_init(void)
 {
@@ -236,7 +270,9 @@ void viewportmanager_init(void)
         /* We always want the theme enabled by default... */
         viewportmanager_theme_enable(i, true, NULL);
     }
+#ifndef IPODUI_TRIM_SKIN
     add_event(GUI_EVENT_ACTIONUPDATE, viewportmanager_update);
+#endif
 }
 
 void viewportmanager_theme_changed(const int which)
@@ -336,7 +372,9 @@ void viewport_set_defaults(struct viewport *vp,
         viewport_set_fullscreen(vp, screen);
         return;
     }
+#ifndef IPODUI_TRIM_SKIN
     sbs_area = sb_skin_get_info_vp(screen);
+#endif
 
     if (sbs_area)
         *vp = *sbs_area;

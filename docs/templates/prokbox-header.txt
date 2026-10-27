@@ -1,0 +1,76 @@
+ProkBox file header (owner decision, 2026-10-20: GPL v2 or later, attributed
+to the owner).  Every file ProkBox adds carries it; upstream Rockbox files
+that are only edited keep their own header untouched.
+
+Generate it instead of typing it:
+
+    python3 scripts/prokbox_header.py FILE...     # new file, or fix an old header
+    python3 scripts/prokbox_header.py --dry FILE  # preview
+
+Generators that write C/asm/header files call prokbox_header.stamp(path) (or
+prokbox_header.convert(text, ext)) so a regenerated file carries it too.
+
+Rules
+  - Year: the year the file was first added (git log --follow --diff-filter=A).
+  - No email address.  No Apple names or marks.
+  - The purpose line(s) go where shown; keep an existing purpose verbatim.
+  - A file ADAPTED from Rockbox code keeps every original upstream copyright
+    line (listed beside the owner's line) and adds, after the owner's line:
+        Portions derived from Rockbox (rockbox.org).
+  - A file only EDITED from upstream keeps its header as it is.
+  - Docs (.md) and data files get no code header.
+  - Python, shell, make and similar use the '#' variant (shebang line first).
+
+---- C / C++ / asm / headers / linker scripts -------------------------------
+
+/***************************************************************************
+ *              __________                   __    __________
+ *   Open       \______   \_______    ____  |  | __\______   \  ____  ___  ___
+ *   Source      |     ___/\_  __ \  /  _ \ |  |/ / |    |  _/ /  _ \ \  \/  /
+ *   Player      |    |     |  | \/ (  <_> )|    <  |    |   \(  <_> ) >    <
+ *   Firmware    |____|     |__|     \____/ |__|_ \ |______  / \____/ /__/\_ \
+ *                                               \/        \/               \/
+ *
+ * Custom firmware for the iPod Video, 5th generation (5G and 5.5G).
+ * Not affiliated with or endorsed by Apple Inc.
+ *
+ * <the file's purpose, one or two lines>
+ *
+ * Copyright (C) <first year of the file> prokopto-dev
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 2
+ * of the License, or (at your option) any later version.
+ *
+ * This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
+ * KIND, either express or implied.
+ *
+ ****************************************************************************/
+
+---- Python / shell / make (shebang first) ----------------------------------
+
+#***************************************************************************
+#               __________                   __    __________
+#    Open       \______   \_______    ____  |  | __\______   \  ____  ___  ___
+#    Source      |     ___/\_  __ \  /  _ \ |  |/ / |    |  _/ /  _ \ \  \/  /
+#    Player      |    |     |  | \/ (  <_> )|    <  |    |   \(  <_> ) >    <
+#    Firmware    |____|     |__|     \____/ |__|_ \ |______  / \____/ /__/\_ \
+#                                                \/        \/               \/
+#
+# Custom firmware for the iPod Video, 5th generation (5G and 5.5G).
+# Not affiliated with or endorsed by Apple Inc.
+#
+# <the file's purpose, one or two lines>
+#
+# Copyright (C) <first year of the file> prokopto-dev
+#
+# This program is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation; either version 2
+# of the License, or (at your option) any later version.
+#
+# This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
+# KIND, either express or implied.
+#
+#***************************************************************************

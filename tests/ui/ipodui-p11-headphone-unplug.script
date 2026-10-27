@@ -1,0 +1,39 @@
+# Owner (#58): unplugging the headphones while playing PAUSES, as on the
+# stock 7G, and plugging them back in does not resume. Now Playing shows
+# the paused state and the main menu keeps its "Now Playing" row.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p11-headphone-unplug.script
+# needs: music
+# timeout: 90
+# logrange: 1 1 after=unplugged until=leaving np row visible=(\d)
+# golden: skip playing unplugged replugged unplugged_menu
+
+wait 3000
+sim_clock 15:08
+clock_format 24
+repeat off
+wait_db 30000
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait 1000
+key SELECT          # Music
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 2500
+shot playing
+headphones out
+wait 1500
+ab_mark unplugged
+shot unplugged      # paused (the position does not advance)
+wait 2500
+shot replugged_before
+headphones in
+wait 2500
+shot replugged      # still paused: same position as before the plug
+hold MENU 1000
+wait 1200
+ab_mark leaving
+shot unplugged_menu # "Now Playing" still listed
+quit

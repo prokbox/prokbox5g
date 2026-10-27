@@ -1,0 +1,89 @@
+# Phase 3 motion, developer check (agent A): push/pop slides, slow and
+# fast smooth scrolling with the scrollbar, and the marquee on a long
+# selected label. Shots marked (timing) catch an animation mid-flight and
+# depend on the host's timing: keep them out of goldens.
+# Run with: SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p3-motion-dev.script
+#
+# #38 (docs/phase-nav-brief.md, "C: verification") retargets this from the
+# Settings stub (now split, with panels) to Music > Songs, two pushes deep
+# (main menu > Music > Songs) instead of Settings' one, so there are two
+# push shots and two pop shots below; the scroll and marquee calibration
+# matches the retargeted ipodui-p3-scroll.script and ipodui-p3-marquee.script
+# (Songs is two-line, 5 rows/view; the marquee row is the "Ölfus ..." fixture,
+# tests/ui/setup_library.py SPECIAL_TITLES, rank 161 of 297, reached by
+# "wheel +165 100").
+# golden: skip push_mid push2_mid glide_mid fast_mid marquee_2s marquee_lap pop_mid pop2_mid
+# needs: library
+
+wait 4000           # boot to the shell main menu
+shot boot
+wait_db 30000
+
+key SELECT          # Music ("Playlists" selected)
+wait 100
+shot push_mid       # (timing) Music sliding in from the right
+wait 700
+shot music          # at rest
+
+wheel +3            # "Songs"  [Compilations off: P11]
+wait 400
+key SELECT
+wait 100
+shot push2_mid      # (timing) Songs sliding in from the right
+wait 700
+shot songs          # at rest, "Amber Comet" first
+
+# slow turn: one click every 250 ms = one row per click; rows 0-4 are
+# visible at rest, so the 5th click makes the view glide
+wheel +1
+wait 250
+wheel +1
+wait 250
+wheel +1
+wait 250
+wheel +1
+wait 250
+shot slow           # at rest on row 4, scrollbar still showing
+wheel +1
+shot glide_mid      # (timing) view gliding to keep row 5 on screen
+wait 1500
+shot slow_rest      # scrollbar gone: identical to a Phase 2 frame
+
+# fast spin: 10 ms between clicks accelerates to the 5-steps-per-click cap
+# (apps/ipodui/scroll.c WHEEL_STEPS_MAX); 400 clicks clamp at the end of
+# the ~297-row list however the curve runs
+wheel +400 10
+shot fast_mid       # (timing) gliding, scrollbar showing
+wait 500
+shot fast_end       # settled at the bottom of the list, scrollbar showing
+wait 1500
+shot fast_rest
+
+# marquee: the one song title long enough to overflow its row, 136 clicks
+# up from the bottom (rank 161 of 297, tests/ui/setup_library.py, a
+# handful more than the raw 135-row distance: empirically, a reversal
+# right after a fast spin loses fewer clicks than a cold start does, but
+# still loses one); 100 ms between clicks (10 clicks/s) stays under the
+# no-acceleration threshold (WHEEL_ACCEL_V0 = 12), same margin as
+# ipodui-p3-marquee.script
+wheel -136 100
+wait 300            # the glide settles
+shot marquee_0      # label clipped, not moving yet (in the 1 s delay)
+wait 2000
+shot marquee_2s     # (timing) scrolled left
+wait 3500
+shot marquee_lap    # (timing) a lap later
+
+key MENU            # back to Music
+wait 100
+shot pop_mid        # (timing) Music sliding back in from the left
+wait 700
+shot music_back     # at rest, back in Music
+
+key MENU            # back to the main menu
+wait 100
+shot pop2_mid       # (timing) main menu sliding back in from the left
+wait 700
+shot back
+
+quit

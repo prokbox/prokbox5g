@@ -1,0 +1,15 @@
+{{- /* Links between Markdown files (../guide/music.md#section) become links
+       to the generated pages, so the same source reads well on GitHub. */ -}}
+{{- $dest := .Destination -}}
+{{- $u := urls.Parse $dest -}}
+{{- if and (not $u.IsAbs) (strings.HasSuffix $u.Path ".md") -}}
+  {{- $target := path.Join .Page.File.Dir $u.Path | path.Clean -}}
+  {{- with site.GetPage $target -}}
+    {{- $dest = .RelPermalink -}}
+    {{- with $u.Fragment }}{{ $dest = printf "%s#%s" $dest . }}{{ end -}}
+  {{- else -}}
+    {{- errorf "%s: broken link to %s" $.Page.File.Path $.Destination -}}
+  {{- end -}}
+{{- end -}}
+<a href="{{ $dest | safeURL }}"{{ with .Title }} title="{{ . }}"{{ end }}{{ if $u.IsAbs }} rel="noopener"{{ end }}>{{ .Text }}</a>
+{{- /**/ -}}

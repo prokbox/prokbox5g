@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2002 by Alan Korr
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -30,10 +31,16 @@
 #include "power.h"
 #include "string.h"
 #include "ata-driver.h"
+#include "hang_watch.h"           /* ProkBox */
 #include "ata-defines.h"
 #include "fs_defines.h"
 #include "storage.h"
 #include "logf.h"
+#include "devstats.h"   /* ProkBox Fit-1 M0: empty unless HAVE_DEVSTATS */
+#ifdef STORAGE_QUIET_WAIT
+#include "quiet_wait_core.h"   /* P19 19-1a */
+#include "backlight.h"
+#endif
 
 #define SELECT_DEVICE1  0x10
 #define SELECT_LBA      0x40
@@ -73,6 +80,30 @@
 #define ATA_POWER_OFF_TIMEOUT 2*HZ
 #endif
 
+/* ProkBox P18 (#86, #114): the drive's power is cut when idle and at
+ * sleep entry on both storage kinds (firmware/export/stor_pwr.h), so the
+ * power-on path is built for flash too */
+#if defined(HAVE_ATA_POWER_OFF) || defined(HAVE_STORAGE_POWEROFF)
+#define ATA_POWER_CYCLE
+#endif
+#ifdef HAVE_STORAGE_POWEROFF
+#include "stor_pwr.h"
+#include "backlight.h"
+static struct stor_pwr spw;         /* ~170 B: counters and event ring */
+static const struct stor_pwr_tune spw_tune = {
+    .hold_dark = STOR_PWR_HOLD_DARK_S * HZ,
+    .hold_lit  = STOR_PWR_HOLD_LIT_S * HZ,
+    .min_off   = STOR_PWR_MIN_OFF_S * HZ,
+    .hold_max  = STOR_PWR_HOLD_MAX_S * HZ,
+    .relax     = STOR_PWR_RELAX_S * HZ,
+};
+static bool spw_allow = true;       /* the developer switch */
+static bool spw_solid;              /* set at init from IDENTIFY */
+static bool spw_usb;                /* USB owns the drive */
+static int spw_reason = STOR_PWR_R_ACCESS;  /* why the next power-on */
+static bool spw_clean;              /* in standby with the cache safe */
+#endif
+
 #if defined(HAVE_USBSTACK)
 #define ATA_ACTIVE_IN_USB 1
 #else
@@ -96,7 +127,15 @@ static bool ata_led_enabled = true;
 static bool ata_led_on = false;
 #endif
 
-static long sleep_timeout = 5*HZ;
+#if defined(HAVE_IPOD_UI) && defined(HAVE_FLASH_STORAGE)
+/* ProkBox (Fit-1 C1): flash has no spin-up, so the hard disk's 5 s of
+ * hysteresis only keeps the adapter out of standby; 1 s covers a burst of
+ * reads. Hard disk units keep 5 s and their spin-down setting. */
+#define ATA_SLEEP_TIMEOUT_DEFAULT (1*HZ)
+#else
+#define ATA_SLEEP_TIMEOUT_DEFAULT (5*HZ)
+#endif
+static long sleep_timeout = ATA_SLEEP_TIMEOUT_DEFAULT;
 
 static long last_disk_activity = -1;
 #ifdef HAVE_ATA_POWER_OFF
@@ -109,16 +148,69 @@ static uint8_t  multisectors; /* number of supported multisectors */
 static int dma_mode = 0;
 #endif
 
-#ifdef HAVE_ATA_POWER_OFF
+#ifdef HAVE_ATA_XFER_STATS
+static struct ata_xfer_stats xfer_stats; /* ProkBox (#63) */
+#endif
+
+#ifdef HAVE_ATA_UDMA_FORCE
+static int udma_force;          /* Fit-1 C7: 0, or the forced UDMA mode */
+static bool udma_fell_back;
+#endif
+
+#ifdef ATA_POWER_CYCLE
 static int ata_power_on(void);
 #endif
 static int perform_soft_reset(void);
 static int set_multiple_mode(int sectors);
 static int set_features(void);
 
+#ifdef HAVE_STORAGE_POWEROFF
+/* #114: the hardware behind stor_pwr_power_on() (stor_pwr_core.c) */
+static int spw_hw_on(void *ctx)
+{
+    (void)ctx;
+    return ata_power_on();
+}
+
+static void spw_hw_off(void *ctx)
+{
+    (void)ctx;
+    ide_power_enable(false);
+    sleep(HZ/10);           /* let the rail fall before a retry */
+}
+
+static long spw_hw_now(void *ctx)
+{
+    (void)ctx;
+    return current_tick;
+}
+
+static const struct stor_pwr_ops spw_ops = {
+    .power_on = spw_hw_on, .power_off = spw_hw_off, .now = spw_hw_now,
+};
+#endif
+
+#ifdef HAVE_STORAGE_POWEROFF
+static void (*ata_awake_hook)(void);     /* P19 19-1a (review M1) */
+
+void storage_set_awake_hook(void (*fn)(void))
+{
+    ata_awake_hook = fn;
+}
+
+static inline void ata_awake_notify(void)
+{
+    if (ata_awake_hook)
+        ata_awake_hook();
+}
+#endif
+
 static inline void keep_ata_active(void)
 {
     last_disk_activity = current_tick;
+#ifdef STORAGE_QUIET_WAIT
+    storage_quiet_kick();   /* P19 19-1a: a sleep is owed again */
+#endif
 }
 
 static inline bool ata_sleep_timed_out(void)
@@ -136,6 +228,26 @@ static inline bool ata_power_off_timed_out(void)
 #endif
 }
 
+#ifdef HAVE_PP_GOV_DVS
+/* ProkBox band governor, stage 2 (pp-governor.md 16.5, review S2): every
+ * command this driver issues runs under ata_mutex, PIO and DMA, flash and
+ * hard drive alike; while it is held the core rail is at its normal
+ * voltage and 100 MHz is capped.  The functions are defined before the
+ * macros, so they call the kernel's own */
+#include "pgov.h"
+static inline void ata_gov_lock(struct mutex *m)
+{
+    mutex_lock(m);
+    pgov2_storage(true);
+}
+static inline void ata_gov_unlock(struct mutex *m)
+{
+    pgov2_storage(false);
+    mutex_unlock(m);
+}
+#define mutex_lock(m)   ata_gov_lock(m)
+#define mutex_unlock(m) ata_gov_unlock(m)
+#endif
 #include "ata-common.c"
 
 #ifndef ATA_TARGET_POLLING
@@ -181,12 +293,33 @@ static ICODE_ATTR int wait_for_rdy(void)
 static int ata_perform_wakeup(int state)
 {
     logf("ata WAKE %ld", current_tick);
+#ifdef HAVE_STORAGE_POWEROFF
+    spw_clean = false;      /* writes may follow: flushed again first */
+#endif
     if (state > ATA_OFF) {
         if (perform_soft_reset()) {
             return -1;
         }
     }
-#ifdef HAVE_ATA_POWER_OFF
+#ifdef HAVE_STORAGE_POWEROFF
+    else {
+        /* P18 (§4.2), #114 H1: one retry from a drive powered off again;
+         * a power-up that fails both is cut and the caller leaves the
+         * drive ATA_OFF, so the next access starts afresh. After
+         * STOR_PWR_FAIL_MAX of them in a row the idle cut is given up
+         * for the session (logged by the event ring, nothing shown) */
+        bool give_up = false;
+        int rc = stor_pwr_power_on(&spw, &spw_tune, &spw_ops, spw_reason,
+                                   1000 / HZ, &give_up);
+        if (give_up) {
+            logf("ata power-up failed %d times: power kept",
+                 STOR_PWR_FAIL_MAX);
+            spw_allow = false;
+        }
+        if (rc)
+            return -2;
+    }
+#elif defined(ATA_POWER_CYCLE)
     else {
         if (ata_power_on()) {
             return -2;
@@ -270,14 +403,78 @@ static int ata_perform_flush_cache(void)
     return 0;
 }
 
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+static struct ata_flush_stats ata_flush_stats;
+
+void ata_flush_stats_get(struct ata_flush_stats *out)
+{
+    *out = ata_flush_stats;
+}
+#endif
+
+#ifdef HAVE_STORAGE_POWEROFF
+/* #114 M2: after a FLUSH CACHE that returned flush_rc, may the power be
+ * cut? Upstream's guard (power management claimed, or FLUSH CACHE
+ * offered), then the cache: flushed, or no write cache enabled (IDENTIFY
+ * word 85 bit 5). This holds for any adapter, not only ours (#43). A
+ * refusal is counted and logged (the event ring), never shown */
+static bool spw_cache_ok(int flush_rc)
+{
+    bool ok = stor_pwr_cut_safe(canflush, flush_rc == 0,
+                                identify_info[85] & (1 << 5),
+                                ata_disk_can_sleep());
+    if (ok)
+        stor_pwr_note_clean(&spw);
+    else {
+        logf("ata cache not safe (flush %d): power kept", flush_rc);
+        stor_pwr_note_dirty(&spw, current_tick);
+    }
+    return ok;
+}
+#endif
+
 int ata_flush(void)
 {
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+    int rc = 0;
+#endif
     if (ata_state >= ATA_SPINUP) {
         mutex_lock(&ata_mutex);
+#ifdef HAVE_STORAGE_POWEROFF
+        /* #114 L1: re-checked under the mutex; a power-down that ran in
+         * between flushed the drive already */
+        if (ata_state < ATA_SPINUP) {
+            mutex_unlock(&ata_mutex);
+            return 0;
+        }
+#endif
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+        /* #91 H2: what a write-order barrier costs on this unit's drive;
+         * #91 M2: a failed flush, or a drive that offers none (every
+         * barrier then does nothing), is counted and returned */
+        unsigned long t0 = USEC_TIMER;
+        rc = ata_perform_flush_cache();
+        unsigned long dt = USEC_TIMER - t0;
+        ata_flush_stats.n++;
+        ata_flush_stats.total_us += dt;
+        if (dt > ata_flush_stats.max_us)
+            ata_flush_stats.max_us = dt;
+        if (rc < 0)
+            ata_flush_stats.fail++;
+        else if (!canflush) {
+            ata_flush_stats.nosup++;
+            rc = 1;
+        }
+#else
         ata_perform_flush_cache();
+#endif
         mutex_unlock(&ata_mutex);
     }
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+    return rc;
+#else
     return 0;
+#endif
 }
 
 static ICODE_ATTR int wait_for_start_of_transfer(void)
@@ -387,11 +584,40 @@ static int ata_transfer_sectors(uint64_t start,
 #ifdef HAVE_ATA_DMA
     bool usedma = false;
 #endif
+#ifdef HAVE_DEVSTATS
+    bool woke = ata_state < ATA_ON;     /* M0: who wakes the disk */
+#endif
+#if defined(HAVE_DEVSTATS) || defined(HAVE_ATA_UDMA_FORCE)
+    bool retried = false;
+#endif
 
     if (start + incount > total_sectors) {
         ret = -1;
         goto error;
     }
+
+#ifdef HAVE_IPOD_UI
+    /* ProkBox (Fit-1 C12a): the FAT layer now asks for up to 256 KB at a
+     * time; an LBA28 command moves at most 256 sectors (NSECTOR 0), so a
+     * stock-sized hard disk without LBA48 gets it in pieces. */
+#ifdef HAVE_LBA48
+    if (!ata_lba48 && incount > 256)
+#else
+    if (incount > 256)
+#endif
+    {
+        while (incount > 0) {
+            int n = MIN(incount, 256);
+            ret = ata_transfer_sectors(start, n, inbuf, write);
+            if (ret)
+                return ret;
+            start += n;
+            inbuf = (char *)inbuf + n * log_sector_size;
+            incount -= n;
+        }
+        return 0;
+    }
+#endif
 
     keep_ata_active();
 
@@ -402,9 +628,18 @@ static int ata_transfer_sectors(uint64_t start,
         int state = ata_state;
         ata_state = ATA_SPINUP;
         if (ata_perform_wakeup(state)) {
+#ifdef HAVE_STORAGE_POWEROFF
+            /* #114 H1: a failed power-up was cut again; left ON, every
+             * access would wait out wait_for_rdy() (~40 s) on it */
+            if (state == ATA_OFF)
+                ata_state = ATA_OFF;
+#endif
             ret = -2;
             goto error;
         }
+#ifdef HAVE_STORAGE_POWEROFF
+        ata_awake_notify();     /* P19 19-1a: up from off or standby */
+#endif
     }
 
     logf("ata XFER (%d) %d @ %llu", write, incount, start);
@@ -419,6 +654,22 @@ static int ata_transfer_sectors(uint64_t start,
     }
 
  retry:
+#ifdef HAVE_DEVSTATS
+    if (retried)
+        DEVSTATS_DISK_RESET();          /* a failed command, soft reset */
+#endif
+#ifdef HAVE_ATA_UDMA_FORCE
+    if (retried && udma_force) {
+        /* C7: the first failure at a forced mode ends the experiment; the
+         * retry runs at the negotiated mode (set_features() again) */
+        udma_force = 0;
+        udma_fell_back = true;
+        perform_soft_reset();
+    }
+#endif
+#if defined(HAVE_DEVSTATS) || defined(HAVE_ATA_UDMA_FORCE)
+    retried = true;
+#endif
     buf = inbuf;
     count = incount;
     while (TIME_BEFORE(current_tick, timeout)) {
@@ -469,6 +720,25 @@ static int ata_transfer_sectors(uint64_t start,
             ATA_OUT8(ATA_COMMAND, write ? CMD_WRITE_MULTIPLE : CMD_READ_MULTIPLE);
 #endif
         }
+
+#ifdef HAVE_ATA_XFER_STATS
+        {
+            unsigned long *n = write ? &xfer_stats.pio_wr : &xfer_stats.pio_rd;
+#ifdef HAVE_ATA_DMA
+            if (usedma)
+                n = write ? &xfer_stats.dma_wr : &xfer_stats.dma_rd;
+#endif
+            (*n)++;
+        }
+#endif
+#ifdef HAVE_DEVSTATS
+#ifdef HAVE_ATA_DMA
+        DEVSTATS_IO(write, start, incount, woke, !usedma);
+#else
+        DEVSTATS_IO(write, start, incount, woke, true);
+#endif
+        woke = false;
+#endif
 
         /* wait at least 400ns between writing command and reading status */
         __asm__ volatile ("nop");
@@ -663,6 +933,9 @@ static int freeze_lock(void)
 void ata_spindown(int seconds)
 {
     sleep_timeout = seconds * HZ;
+#ifdef STORAGE_QUIET_WAIT
+    storage_quiet_kick();   /* P19 19-1a: a new deadline */
+#endif
 }
 
 bool ata_disk_is_active(void)
@@ -670,13 +943,30 @@ bool ata_disk_is_active(void)
     return (ata_state >= ATA_SPINUP);
 }
 
+#ifdef HAVE_HANG_RECORD
+/* ProkBox: the hang watcher's spin-up grace (hang_watch.c) */
+bool ata_spinning_up(void)
+{
+    return ata_state == ATA_SPINUP;
+}
+#endif
+
 void ata_sleepnow(void)
 {
     if (ata_state >= ATA_SPINUP) {
         logf("ata SLEEPNOW %ld", current_tick);
         mutex_lock(&ata_mutex);
         if (ata_state == ATA_ON) {
+#ifdef HAVE_STORAGE_POWEROFF
+            /* #114 M2: whether the power may be cut later is decided
+             * here, from this flush (spw_cache_ok()) */
+            int f = ata_perform_flush_cache();
+            if (!f && !ata_perform_sleep()) {
+                spw_clean = spw_cache_ok(f);
+#else
             if (!ata_perform_flush_cache() && !ata_perform_sleep()) {
+#endif
+                DEVSTATS_DISK_SLEEP(true);
                 ata_state = ATA_SLEEPING;
 #ifdef HAVE_ATA_POWER_OFF
                 if (ata_disk_can_sleep() || canflush) {
@@ -684,18 +974,204 @@ void ata_sleepnow(void)
                 }
 #endif
             }
+#ifdef HAVE_STORAGE_POWEROFF
+            else {
+                if (f)
+                    spw_cache_ok(f);    /* counted and logged */
+                DEVSTATS_DISK_SLEEP(false); /* stays ON: retried per tick */
+            }
+#elif defined(HAVE_DEVSTATS)
+            else
+                DEVSTATS_DISK_SLEEP(false); /* stays ON: retried per tick */
+#endif
         }
         mutex_unlock(&ata_mutex);
     }
 }
+
+#ifdef HAVE_STORAGE_POWEROFF
+/* ProkBox #114 / P18 (#86, brief §4.2): the one power-down path
+ * (firmware/export/stor_pwr.h). Mutex held. */
+static void spw_cut(int reason)
+{
+    logf("ata OFF %ld", current_tick);
+    ide_power_enable(false);
+    ata_state = ATA_OFF;
+#ifdef HAVE_ATA_POWER_OFF
+    power_off_tick = 0;
+#endif
+    stor_pwr_note_off(&spw, current_tick, reason, 1000 / HZ);
+}
+
+/* FLUSH CACHE, STANDBY IMMEDIATE, then the power off. The sleep entry
+ * (STOR_PWR_KEEP_LOCK) keeps the mutex to the wake, so nothing starts a
+ * transfer in the dark; every other caller drops it, so the next access
+ * from any thread powers the drive up again (ata_transfer_sectors()) */
+int ata_power_down(int reason, unsigned flags)
+{
+    int rc = 0;
+
+    mutex_lock(&ata_mutex);
+    if (spw_usb) {
+        rc = -3;
+        goto out;
+    }
+    if (ata_state == ATA_ON) {
+        int f = ata_perform_flush_cache();
+        int sl = ata_perform_sleep();
+
+        spw_clean = spw_cache_ok(f);
+        if (!spw_clean) {
+            /* #114 M2: no cut while the cache may hold data. A failed
+             * flush stays ON (the storage tick's sleepnow retries it);
+             * a drive with a write cache and no FLUSH CACHE goes to
+             * standby but keeps its power */
+            if (!f && !sl)
+                ata_state = ATA_SLEEPING;
+            rc = (f && sl) ? -2 : -1;
+            goto out;
+        }
+        ata_state = ATA_SLEEPING;
+    }
+    else if (ata_state == ATA_SLEEPING && !spw_clean) {
+        rc = -1;                /* in standby, its cache not known safe */
+        goto out;
+    }
+    if (ata_state > ATA_OFF) {
+        if (spw_allow)
+            spw_cut(reason);
+        else if (rc == 0)
+            rc = 1;             /* standby only: the developer switch */
+    }
+out:
+    if (!(flags & STOR_PWR_KEEP_LOCK))
+        mutex_unlock(&ata_mutex);
+    return rc;
+}
+
+void ata_power_release(void)
+{
+    mutex_unlock(&ata_mutex);
+}
+
+int ata_power_up(int reason)
+{
+    int rc = 0;
+
+    mutex_lock(&ata_mutex);
+    if (ata_state < ATA_ON) {
+        int state = ata_state;
+        ata_state = ATA_SPINUP;
+        spw_reason = reason;
+        rc = ata_perform_wakeup(state);
+        spw_reason = STOR_PWR_R_ACCESS;
+        /* #114 H1: a failed power-up was cut again and stays OFF (the
+         * next access tries afresh); a failed soft reset from standby
+         * leaves it ON, as a failed transfer does */
+        ata_state = (rc && state == ATA_OFF) ? ATA_OFF : ATA_ON;
+        keep_ata_active();
+        if (ata_state == ATA_ON)
+            ata_awake_notify(); /* P19 19-1a */
+    }
+    mutex_unlock(&ata_mutex);
+    return rc;
+}
+
+bool ata_powered(void)
+{
+    return ata_state != ATA_OFF;
+}
+
+bool ata_power_warm(void)
+{
+    return ata_state >= ATA_SPINUP
+        || (spw_solid && ata_state == ATA_SLEEPING);
+}
+
+void ata_set_poweroff(bool allow)
+{
+    spw_allow = allow;
+#ifdef STORAGE_QUIET_WAIT
+    storage_quiet_kick();   /* P19 19-1a: a cut may be owed now */
+#endif
+}
+
+bool ata_poweroff_allowed(void)
+{
+    return spw_allow;
+}
+
+const struct stor_pwr *ata_power_state(void)
+{
+    return &spw;
+}
+
+/* the storage thread's tick: time to cut the power of a drive in standby?
+ * Flash: the policy's hold (stor_pwr_core.c); a disk: upstream's timer */
+static bool spw_off_due(void)
+{
+    if (!spw_allow || spw_usb || !spw_clean)
+        return false;       /* #114 M2: never with the cache unsafe */
+    if (!spw_solid)
+        return ata_power_off_timed_out();
+    return stor_pwr_off_due(&spw, &spw_tune, current_tick,
+                            last_disk_activity, is_backlight_on(true));
+}
+#endif /* HAVE_STORAGE_POWEROFF */
 
 void ata_spin(void)
 {
     keep_ata_active();
 }
 
-/* Hardware reset protocol as specified in chapter 9.1, ATA spec draft v5 */
+#ifdef STORAGE_QUIET_WAIT
+/* P19 19-1a: when ata_event(Q_STORAGE_TICK) next has something to do:
+ * standby at last_disk_activity + sleep_timeout while on, the power cut
+ * (spw_off_due(), or upstream's power_off_tick) while in standby, and
+ * nothing while off. The storage idle notices run at the standby, so
+ * they need no deadline of their own. */
+long ata_tick_wait(bool ticked)
+{
+    struct qw_stor_in in = {
+        .now = current_tick,
+        .last_activity = last_disk_activity,
+        .sleep_timeout = sleep_timeout,
+        .ticked = ticked,
+    };
+    long w;
+
+    if (ata_state >= ATA_SPINUP)
+        in.state = QW_ST_ON;
+    else if (ata_state == ATA_SLEEPING)
+        in.state = QW_ST_SLEEPING;
+    else
+        in.state = QW_ST_OFF;
+#ifdef HAVE_STORAGE_POWEROFF
+    if (spw_allow && !spw_usb && spw_clean) {
+        if (spw_solid) {
+            in.lit = is_backlight_on(true);
+            in.off_armed = spw.on;
+            in.off_deadline = last_disk_activity
+                + stor_pwr_hold(&spw, &spw_tune, in.lit);
+        }
 #ifdef HAVE_ATA_POWER_OFF
+        else {
+            in.off_armed = power_off_tick != 0;
+            in.off_deadline = power_off_tick;
+        }
+#endif
+    }
+#elif defined(HAVE_ATA_POWER_OFF)
+    in.off_armed = power_off_tick != 0;
+    in.off_deadline = power_off_tick;
+#endif
+    w = qw_stor_wait(&in, HZ);
+    return w == QW_BLOCK ? TIMEOUT_BLOCK : w;
+}
+#endif /* STORAGE_QUIET_WAIT */
+
+/* Hardware reset protocol as specified in chapter 9.1, ATA spec draft v5 */
+#ifdef ATA_POWER_CYCLE
 static int ata_hard_reset(void)
 #else
 static int STORAGE_INIT_ATTR ata_hard_reset(void)
@@ -799,6 +1275,9 @@ static int perform_soft_reset(void)
     int retry_count;
 
     logf("ata SOFT RESET %ld", current_tick);
+#ifdef HAVE_ATA_XFER_STATS
+    xfer_stats.resets++;
+#endif
 
     ATA_OUT8(ATA_SELECT, SELECT_LBA | ata_device );
     ATA_OUT8(ATA_CONTROL, CONTROL_nIEN|CONTROL_SRST );
@@ -854,7 +1333,7 @@ int ata_soft_reset(void)
     return ret;
 }
 
-#ifdef HAVE_ATA_POWER_OFF
+#ifdef ATA_POWER_CYCLE
 static int ata_power_on(void)
 {
     int rc;
@@ -871,8 +1350,34 @@ static int ata_power_on(void)
      * ata_hard_reset() will shortened by the same amount), it's a good idea
      * to do this on all HDD based targets. */
 
+#ifdef HAVE_STORAGE_POWEROFF
+    /* P18: the controller lost DEV_IDE0 with the drive; its DMA and
+     * interrupt set-up again before the reset (set_features() below
+     * re-writes the PIO/UDMA timings). #114 M1: after the wait above, as
+     * both touch the IDE controller (IDE0_CFG, the DMA control, the
+     * timings, then the device control register) */
+    ata_device_init();
+    ATA_OUT8(ATA_CONTROL, 0);       /* INTRQ on: DMA completion needs it */
+
+    /* #114 H1: a solid drive gets STOR_PWR_READY_S to clear BSY, not
+     * upstream's 30 s for a disk spinning up, so a dead adapter fails the
+     * power-up in seconds; a rotating one keeps the 30 s */
+    {
+        long timeout = current_tick +
+                       (spw_solid ? STOR_PWR_READY_S * HZ : 30 * HZ);
+        ata_reset();
+        ATA_OUT8(ATA_SELECT, ata_device);
+        while (ATA_IN8(ATA_STATUS) & STATUS_BSY) {
+            if (!TIME_BEFORE(current_tick, timeout))
+                return -1;
+            keep_ata_active();
+            yield();
+        }
+    }
+#else
     if( ata_hard_reset() )
         return -1;
+#endif
 
     if (identify())
         return -5;
@@ -887,12 +1392,29 @@ static int ata_power_on(void)
     if (identify())
         return -2;
 
+#ifdef HAVE_STORAGE_POWEROFF
+    /* #114: a multi-card adapter (the 4-card JBOD) must report its whole
+     * size again; one that answers before every card is up fails here and
+     * gets the one retry in ata_perform_wakeup() [hypothesis: not seen] */
+    {
+        uint64_t n = ((uint64_t)identify_info[61] << 16) | identify_info[60];
+#ifdef HAVE_LBA48
+        if (ata_lba48)
+            n = ((uint64_t)identify_info[103] << 48) |
+                ((uint64_t)identify_info[102] << 32) |
+                ((uint64_t)identify_info[101] << 16) | identify_info[100];
+#endif
+        if (n != total_sectors)
+            return -7;
+    }
+#endif
+
     if (freeze_lock())
         return -4;
 
     return 0;
 }
-#endif /* HAVE_ATA_POWER_OFF */
+#endif /* ATA_POWER_CYCLE */
 
 static int STORAGE_INIT_ATTR master_slave_detect(void)
 {
@@ -991,6 +1513,12 @@ static int set_features(void)
         if (!identify_info[76] && !(identify_info[93] & (1<<13))) /* w93b13 is only valid for PATA, w76 is 0 PATA */
             max_udma = 2;
 #endif
+#ifdef HAVE_ATA_UDMA_FORCE
+        /* C7: only a mode the adapter lists as supported */
+        if (udma_force > max_udma && udma_force <= ATA_MAX_UDMA
+            && (identify_info[88] & BIT_N(udma_force)))
+            max_udma = udma_force;
+#endif
         /* Ultra DMA mode info present, find a mode */
         dma_mode = ata_get_best_mode(identify_info[88], max_udma, 0x40);
     }
@@ -1085,6 +1613,7 @@ int STORAGE_INIT_ATTR ata_init(void)
 
     if (ata_state == ATA_BOOT) {
         mutex_init(&ata_mutex);
+        hang_watch_mutex(HANG_MX_ATA, &ata_mutex);  /* ProkBox */
     }
 
     mutex_lock(&ata_mutex);
@@ -1174,6 +1703,10 @@ int STORAGE_INIT_ATTR ata_init(void)
 #endif
         ata_state = ATA_ON;
         keep_ata_active();
+#ifdef HAVE_STORAGE_POWEROFF
+        stor_pwr_init(&spw, current_tick, true);
+        spw_solid = ata_disk_isssd();
+#endif
     }
 
     rc = set_multiple_mode(multisectors);
@@ -1207,6 +1740,13 @@ long ata_last_disk_activity(void)
     return last_disk_activity;
 }
 
+#ifdef HAVE_ATA_XFER_STATS
+void ata_get_xfer_stats(struct ata_xfer_stats *out)
+{
+    *out = xfer_stats;
+}
+#endif
+
 #ifdef HAVE_ATA_DMA
 /* Returns last DMA mode as set by set_features() */
 int ata_get_dma_mode(void)
@@ -1217,6 +1757,35 @@ int ata_get_dma_mode(void)
 /* Needed to allow updating while waiting for DMA to complete */
 void ata_keep_active(void)
     __attribute__((alias("ata_spin")));
+#endif
+
+#ifdef HAVE_ATA_UDMA_FORCE
+void ata_set_udma_force(int mode)
+{
+    udma_force = mode;
+    if (ata_state >= ATA_SPINUP)
+        ata_soft_reset();           /* set_features() with the new cap */
+}
+
+int ata_udma_force(void)
+{
+    return udma_force;
+}
+
+bool ata_udma_forced_now(void)
+{
+    return udma_force && (dma_mode & 7) > 2 && (dma_mode & 0xf8) == 0x40;
+}
+
+bool ata_udma_fell_back(void)
+{
+    return udma_fell_back;
+}
+
+void ata_udma_clear_fell_back(void)
+{
+    udma_fell_back = false;
+}
 #endif
 
 #ifdef CONFIG_STORAGE_MULTI
@@ -1239,7 +1808,16 @@ int ata_event(long id, intptr_t data)
     if (LIKELY(id == Q_STORAGE_TICK)) {
         /* won't see ATA_BOOT in here */
         if (ata_state != ATA_ON || !ata_sleep_timed_out()) {
-#ifdef HAVE_ATA_POWER_OFF
+#ifdef HAVE_STORAGE_POWEROFF
+            /* #114: re-checked under the mutex, so a transfer that woke
+             * the drive meanwhile is never followed by a cut */
+            if (ata_state == ATA_SLEEPING && spw_off_due()) {
+                mutex_lock(&ata_mutex);
+                if (ata_state == ATA_SLEEPING && spw_off_due())
+                    spw_cut(STOR_PWR_R_IDLE);
+                mutex_unlock(&ata_mutex);
+            }
+#elif defined(HAVE_ATA_POWER_OFF)
             if (ata_state == ATA_SLEEPING && ata_power_off_timed_out()) {
                 power_off_tick = 0;
                 mutex_lock(&ata_mutex);
@@ -1261,6 +1839,15 @@ int ata_event(long id, intptr_t data)
 #ifndef USB_NONE
     else if (id == SYS_USB_CONNECTED) {
         logf("deq USB %ld", current_tick);
+#ifdef HAVE_STORAGE_POWEROFF
+        /* #114: powered and re-initialised before the acknowledgement
+         * lets the host in; no idle power-off until the disconnect */
+        mutex_lock(&ata_mutex);
+        spw_usb = true;
+        mutex_unlock(&ata_mutex);
+        if (ata_state == ATA_OFF)
+            ata_power_up(STOR_PWR_R_USB);
+#endif
         if (ATA_ACTIVE_IN_USB) {
             /* There is no need to force ATA power on */
             STG_EVENT_ASSERT_ACTIVE(STORAGE_ATA);
@@ -1278,6 +1865,13 @@ int ata_event(long id, intptr_t data)
         }
     }
 #endif /* ndef USB_NONE */
+#if defined(HAVE_STORAGE_POWEROFF) && !defined(USB_NONE)
+    else if (id == SYS_USB_DISCONNECTED) {
+        spw_usb = false;
+        rc = storage_event_default_handler(id, data, last_disk_activity,
+                                           STORAGE_ATA);
+    }
+#endif
     else {
         rc = storage_event_default_handler(id, data, last_disk_activity,
                                            STORAGE_ATA);

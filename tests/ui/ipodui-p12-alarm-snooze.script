@@ -1,0 +1,17 @@
+# P12 W1-A1 (Q4, Q5): the snooze cap. An alarm with its 3 snoozes taken
+# rings with Dismiss only (no Snooze row); PLAY at its release then
+# dismisses (no snooze left): the daily alarm re-arms for tomorrow.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p12-alarm-snooze.script
+# golden: skip capped     (proposed after capture C3)
+# env: IPODUI_SIM_ALARM_IN=12,3
+# Trace: alarm ring i=0, alarm dismiss how=0, alarm arm rtc= ok=1
+# alarm-rings: 1
+# log: ipodui: alarm dismiss how=1
+# nolog: ipodui: alarm snooze
+# reset: mainmenu
+wait 16000
+shot capped
+key PLAY
+wait 1500
+shot dismissed
+quit

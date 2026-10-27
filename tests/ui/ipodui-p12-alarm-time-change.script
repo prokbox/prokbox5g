@@ -1,0 +1,36 @@
+# P12 (brief 9 "-alarm-time-change"; W1-C's Date & Time hook): an alarm
+# armed 20 minutes ahead, then Settings > Date & Time > Time moves the
+# clock an hour forward, past it. Date & Time calls alarm_rearm() after
+# the change: the PMU is armed again for the alarm's next time (read back,
+# ok=1), the alarm is not left behind as missed, and nothing rings late.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p12-alarm-time-change.script
+# env: IPODUI_SIM_ALARM_IN=1200
+# reset: clocks
+# golden: skip time_roller
+# alarm-rings: 0
+# alarm-arms: 2        (boot, then the one after the clock change)
+# log: alarm sim seed
+# log: datetime set
+# nolog: alarm missed
+# reset: mainmenu
+
+wait 4000
+wheel +3             # Settings
+wait 600
+key SELECT
+wait 1500
+wheel +12            # Date & Time
+wait 600
+key SELECT
+wait 1500
+wheel +1             # Time
+wait 600
+key SELECT
+wait 1500
+wheel +1             # the hour, one on
+wait 600
+shot time_roller
+key MENU             # saves (D5): the clock jumps past the alarm
+wait 2000
+shot after
+quit

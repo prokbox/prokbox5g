@@ -1,0 +1,62 @@
+# P12 W4 (docs/design/sdk.md 9, 13.2): Quadrus' Settings. A long MENU
+# pauses (Resume, New Game, Settings, Exit; owner's controls 2026-10-24,
+# a MENU tap is the hold slot); Settings pushes the SDK's list:
+# "Start Level" 1 and "Ghost Piece" On. Start Level has ten values, so
+# SELECT pushes their list (sdk.md 9.2), "1" selected as the stock value
+# lists; the wheel and SELECT pick 2 and go back. SELECT on Ghost Piece
+# (two values) turns it off in place; MENU comes back to the pause menu
+# over the same game, now with no ghost under the piece; New Game starts
+# at level 2.
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-quadrus-settings.script
+# needs: modules
+# reset: mainmenu
+
+wait 4000
+sdk_clear            # a fresh game (the simulator seeds from a fixed value)
+wheel +2             # Extras
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Games
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Quadrus
+wait 600
+key SELECT
+wait 800
+hold MENU 700        # the pause menu
+wait 600
+shot paused
+wheel +2 300         # Settings
+wait 400
+key SELECT
+wait 1200
+shot settings
+key SELECT           # Start Level: its value list
+wait 1200
+shot levels
+wheel +1 300         # 2
+wait 400
+key SELECT           # picks it and goes back
+wait 1200
+shot level_set
+wheel +1 300
+wait 400
+key SELECT           # Ghost Piece: Off
+wait 600
+shot changed
+key MENU             # back: the pause menu again
+wait 1200
+shot back
+key SELECT           # Resume: no ghost now
+wait 800
+shot no_ghost
+hold MENU 700
+wait 600
+wheel +1 300         # New Game
+wait 400
+key SELECT
+wait 800
+shot level_two
+quit

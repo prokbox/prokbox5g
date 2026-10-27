@@ -1,0 +1,46 @@
+# P12 W1-C (9 "-clocks-dst", Q27): on Tuesday 6 October 2026 at 15:05 in
+# New York (EDT, the RTC's time): London on BST is 20:05 Today (standard
+# time would be 19:05), Sydney on AEDT (since Sunday 4 October) is 06:05
+# Tomorrow (standard: 05:05).
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-clocks-dst.script
+# needs: modules
+# reset: clocks
+# modclass: steady
+# log: clocks add city=42 n=2
+# log: clocks add city=85 n=3
+# reset: mainmenu
+
+wait 4000
+sim_clock 15:05
+wheel +2             # Extras
+wait 1500
+key SELECT
+wait 2500
+key SELECT           # Clocks
+wait 1500
+key SELECT
+wait 1200
+key SELECT           # Add
+wait 1200
+wheel +4             # Europe
+wait 500
+key SELECT
+wait 1200
+wheel +10            # London
+wait 500
+key SELECT
+wait 3000
+key SELECT
+wait 1200
+key SELECT           # Add
+wait 1200
+wheel +3             # Australia
+wait 500
+key SELECT
+wait 1200
+wheel +5             # Sydney
+wait 500
+key SELECT
+wait 3000
+shot dst             # 15:05 / 20:05 / 06:05 Tomorrow
+quit

@@ -1,0 +1,23 @@
+# Labels of the non-music items in the Phase 4 test library
+# (tests/ui/setup_library.py --manifest). scripts/check_trace.py
+# fails if one shows up as a "lib row <music cat> <label>" line.
+# kind<TAB>label
+audiobook	The Lighthouse Keeper
+audiobook-author	Imogen Thrale
+audiobook	A Field Guide to Tones
+audiobook-author	Osric Pell
+audiobook	Winter Stories
+audiobook-author	Maren Solvik
+audiobook	Mini Audiobook
+audiobook-author	Fixture Author
+podcast	Signal Hour
+podcast-author	Signal Hour Network
+podcast	Episode 1: Hello Sine
+podcast	Episode 2: Square Deal
+podcast	Tone Talk Weekly
+podcast-author	Tone Talk Collective
+podcast	Ep. 41 Listener Mail
+podcast	Ep. 42 The Noise Floor
+genre	Audiobook
+genre	Podcast
+genre	Spoken Word

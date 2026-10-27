@@ -58,6 +58,37 @@ void cpu_boost(bool on_off);
 #endif
 void cpu_idle_mode(bool on_off);
 int get_cpu_boost_counter(void);
+#ifdef HAVE_PLL_IDLE
+/* ProkBox Fit-1 C6 (docs/fit1-brief.md section C): unboosted, the CPU runs
+ * from the 24 MHz crystal with the PLL powered down (CPUFREQ_DEFAULT)
+ * unless something holds the PLL, in which case it runs at CPUFREQ_NORMAL
+ * as upstream does. A boost always goes to CPUFREQ_MAX and waits for the
+ * PLL's lock. Each holder owns one bit. */
+#define CPU_PLL_HOLD_DEV    0x01    /* the policy is off (developer switch,
+                                     * and until the shell starts it) */
+#define CPU_PLL_HOLD_LIT    0x02    /* the backlight is on (pll_idle.c) */
+#define CPU_PLL_HOLD_LOAD   0x04    /* PCM plays a track that needs more
+                                     * than 24 MHz (pll_idle.c) */
+#define CPU_PLL_HOLD_ATA    0x08    /* an ATA DMA transfer (UDMA2 is
+                                     * rated at 30 MHz, ata-target.h) */
+#define CPU_PLL_HOLD_USB    0x10    /* the USB controller is enabled */
+void cpu_pll_hold(unsigned int reason, bool hold);
+unsigned int cpu_pll_holds(void);
+
+struct cpu_pll_stats {
+    unsigned long idle_entries;     /* switches down to 24 MHz */
+    unsigned long idle_ticks;       /* ticks spent at 24 MHz, so far */
+    unsigned long boosts_from_idle; /* boosts that started at 24 MHz */
+    unsigned long lock_count;       /* PLL power-ups that waited for lock */
+    unsigned int lock_us_last;      /* their lock time, microseconds */
+    unsigned int lock_us_max;
+    unsigned int holds;             /* CPU_PLL_HOLD_* now */
+};
+void cpu_pll_get_stats(struct cpu_pll_stats *st);
+/* target: the PLL's lock waits after a power-up (system-pp502x.c) */
+void pll_lock_get_stats(unsigned long *count, unsigned int *last_us,
+                        unsigned int *max_us);
+#endif /* HAVE_PLL_IDLE */
 #else /* ndef HAVE_ADJUSTABLE_CPU_FREQ */
 #ifndef FREQ
 #define FREQ CPU_FREQ

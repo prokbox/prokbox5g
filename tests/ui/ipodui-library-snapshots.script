@@ -1,0 +1,24 @@
+# Retain a real old-generation search while a candidate is committed.
+# Every tick must still expose a usable Music library; after publication,
+# both the old retained search and a new search must resolve the same file.
+# needs: library
+# golden: skip published recovered
+wait 4000
+wait_db 30000
+art_wait 30000
+snapshot_begin
+copy_file /Library/Basalt/Columns/01%20Narrow%20Echo.mp3 /Library/Basalt/Columns/zz-snapshot-test.mp3
+update_db
+expect_snapshot_switch 30000
+shot published
+rm_file /Library/Basalt/Columns/zz-snapshot-test.mp3
+update_db_wait_change 30000
+# Exercise the real manifest validator on the next boot, not only its host
+# helper callback: it must not alias the helper's live manifest workspace.
+reboot
+wait 4000
+wait_db 30000
+art_wait 30000
+snapshot_begin
+shot recovered
+quit

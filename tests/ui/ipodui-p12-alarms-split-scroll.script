@@ -1,0 +1,111 @@
+# Owner, device, 2026-10-24 (module build 0e12c13d02): scrolling Extras >
+# Alarms painted a full-width row over the split screen's panel. The
+# stand-in (modload.c) took the split geometry from the Extras table and
+# the real Alarms screen kept it (header_w), while its list was full
+# width: the band pushes of a scroll covered the panel. Fixed twice over:
+# the swap gives the real screen a fresh geometry, and Alarms is a split
+# list itself (photo 1198). Five alarms make the list scroll; then step
+# down and up, push past both ends (the list does not wrap) and glide.
+# Frame by frame: the simulator hashes the panel's columns over every
+# band redraw of a split screen and logs "split overdraw" if a scroll or
+# glide frame touched them (ui_main.c); with the bug every scroll step
+# did. Every shot also shows the alarm clock in the panel.
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-alarms-split-scroll.script
+# needs: modules
+# golden: skip
+# timeout: 180
+# log: ipodui: alarms save idx=4
+# nolog: split overdraw
+# logbetween: scroll_in scroll_out \bupdate band y=
+# reset: mainmenu
+
+wait 4000
+rtc_at 2026-10-06 15:06:00
+sim_clock 15:06
+wheel +2              # Extras
+wait 700
+key SELECT
+wait 1200
+wheel +3              # Alarms
+wait 800
+key SELECT
+wait 1500
+shot list_empty
+# five alarms: Create Alarm, turn it on (the editor's first row), leave
+key SELECT
+wait 1200
+key SELECT
+wait 600
+key MENU
+wait 1200
+key SELECT
+wait 1200
+key SELECT
+wait 600
+key MENU
+wait 1200
+key SELECT
+wait 1200
+key SELECT
+wait 600
+key MENU
+wait 1200
+key SELECT
+wait 1200
+key SELECT
+wait 600
+key MENU
+wait 1200
+key SELECT
+wait 1200
+key SELECT
+wait 600
+key MENU
+wait 1500
+shot list_full        # Create Alarm, Sleep Timer, five alarms
+ab_mark scroll_in
+wheel +1
+wait 300
+shot down1
+wheel +1
+wait 300
+shot down2
+wheel +1
+wait 300
+shot down3
+wheel +1
+wait 300
+shot down4
+wheel +1
+wait 300
+shot down5
+wheel +1
+wait 300
+shot down6            # the last alarm
+wheel +3              # past the end: stays
+wait 400
+shot past_end
+wheel -1
+wait 300
+shot up1
+wheel -1
+wait 300
+shot up2
+wheel -10             # a fast spin: the glide to the top
+wait 120
+shot glide_mid
+wait 800
+shot top
+wheel -3              # past the top: stays
+wait 400
+shot past_top
+wheel +10             # and down again
+wait 120
+shot glide_down
+wait 800
+shot bottom
+ab_mark scroll_out
+key MENU
+wait 1000
+shot back_extras
+quit

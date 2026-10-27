@@ -1,0 +1,29 @@
+# Phase 18 (§8; Q1, Q3): a soft sleep past SLEEP_DEEP_AFTER (24 h at
+# most) wakes with WAKE_DEEP and powers off silently (no splash); the next
+# start is a full boot to the main menu with the queue's resume point
+# kept.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p18-sleep-deep.script
+# needs: library
+# golden: skip
+# fulls-extra: 2          (the Now Playing row appears: play_files, PLAY after the boot)
+# log: sleep wake why=4
+# log: sleep deep s=
+# nolog: splash-pass
+
+sleep_mode soft       # soft sleep is off by default (developer switch)
+wait 4000
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait_pos 6000 60000
+hold PLAY 1500          # the hold: dark at once, PLAY's release awaited
+expect_sleep asleep 8000
+sleep_warp 90000        # over 24 h: polls every 60 s, then the deep timer
+expect_sleep deep 5000
+wait 6000               # today's power-off (the sim quits)
+reboot
+sleep_mode soft
+wait 4000               # a full boot: the main menu (Q3)
+shot boot_menu
+key PLAY                # the queue's resume point (status_save at entry;
+wait_pos 6000 2000 Concert  # music has no database resume point): from
+                        # ~6.6 s, so 6 s within 2 s, never from 0
+quit

@@ -22,7 +22,15 @@
 #include "events.h"
 #include "panic.h"
 
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+/* ProkBox P19 (review M2): the shell's subscribers came to 27 of 28 on
+ * fw-ui (28 with the video image); a full table panics. The high-water
+ * mark is in sys_events_peak() (the developer log's m0 polls line) */
+#define MAX_SYS_EVENTS 32
+static unsigned int sys_events_hw;
+#else
 #define MAX_SYS_EVENTS 28
+#endif
 
 struct sysevent {
     unsigned short id;
@@ -63,6 +71,15 @@ static bool do_add_event(unsigned short id, bool oneshot,
         ev->handler.cb = handler;
         ev->user_data = user_data;
         ev->oneshot = oneshot;
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+        {
+            unsigned int used = 0;
+            for (size_t i = 0; i < MAX_SYS_EVENTS; i++)
+                used += events[i].handler.cb != NULL;
+            if (used > sys_events_hw)
+                sys_events_hw = used;
+        }
+#endif
 
         return true;
     }
@@ -125,3 +142,15 @@ void send_event(unsigned short id, void *data)
         }
     }
 }
+
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+unsigned int sys_events_peak(void)
+{
+    return sys_events_hw;
+}
+
+unsigned int sys_events_max(void)
+{
+    return MAX_SYS_EVENTS;
+}
+#endif

@@ -21,6 +21,20 @@
 #include "system.h"
 
 #include "version.h"
+#ifdef HAVE_IPOD_UI
+#include "ipodui/ipodui.h"
+#include "ipodui/bootbatt.h"
+#include "logf.h"
+#endif
+#ifdef HAVE_IPOD_UI_DEVMODE
+#include "ipodui/devmode.h"
+#endif
+#ifdef HAVE_IPOD_BOOTSCREEN
+#include "bootscreen.h"
+#ifdef SIMULATOR
+#include "sim_capture.h"
+#endif
+#endif
 #include "gcc_extensions.h"
 #include "storage.h"
 #include "disk.h"
@@ -140,6 +154,13 @@
 #endif
 #endif
 
+#ifdef HAVE_BCMFW_L1
+#include "bcm-devtest.h"        /* bcm_boot_early(), #62 level 1 */
+#ifdef HAVE_BCMFW_RESIDENT
+#include "video/bcmres.h"       /* bcmres_offer() */
+#endif
+#endif
+
 #if (CONFIG_PLATFORM & PLATFORM_SDL)
 #ifdef SIMULATOR
 #include "sim_tasks.h"
@@ -175,13 +196,17 @@ int main(void)
     CHART(">init");
     init();
     CHART("<init");
+#ifndef HAVE_IPOD_UI /* the shell's first frame is a full draw: no black flash */
     FOR_NB_SCREENS(i)
     {
         screens[i].clear_display();
         screens[i].update();
     }
+#endif
     list_init();
+#ifndef IPODUI_TRIM_BROWSER
     tree_init();
+#endif
 #if defined(HAVE_DEVICEDATA) && !defined(BOOTLOADER) /* SIMULATOR */
     verify_device_data();
 #endif
@@ -243,12 +268,37 @@ int main(void)
     validate_start_directory_init();
     /* no calls INIT_ATTR functions after this point anymore!
      * see definition of INIT_ATTR in config.h */
+#ifdef HAVE_IPOD_UI
+#ifdef HAVE_IPOD_UI_DEVMODE
+    /* boot escape (RIGHT held): the Developer list before the shell */
+    if (ipodui_devmode_boot_requested())
+        ipodui_devmode_run();
+#endif
+    CHART(">ipodui_main");
+    ipodui_main();
+#else
     CHART(">root_menu");
     root_menu();
+#endif
 }
 
 /* The disk isn't ready at boot, rblogo is stored in bin and erased after boot */
 int show_logo_boot( void ) INIT_ATTR;
+#ifdef HAVE_IPOD_BOOTSCREEN
+/* the bootloader's own boot screen, redrawn identically (no clear, no
+ * version text), so the hand-off does not flicker */
+int show_logo_boot( void )
+{
+    bootscreen_draw();
+    lcd_update();
+    DEBUGF("ipodui: boot screen gen=%08lx\n", (unsigned long)BOOTSCREEN_GEN);
+#ifdef SIMULATOR
+    sim_capture_screen("boot-fw");
+    sleep(HZ); /* sim is too fast to see logo */
+#endif
+    return 0;
+}
+#else /* !HAVE_IPOD_BOOTSCREEN */
 int show_logo_boot( void )
 {
     unsigned char version[32];
@@ -290,6 +340,7 @@ int show_logo_boot( void )
 #endif
     return 0;
 }
+#endif /* HAVE_IPOD_BOOTSCREEN */
 
 #ifdef HAVE_DIRCACHE
 static int INIT_ATTR init_dircache(bool preinit)
@@ -320,11 +371,17 @@ static int INIT_ATTR init_dircache(bool preinit)
         {
             if (result > 0)
             {
+#ifdef HAVE_IPOD_UI
+                /* no splash: the boot logo stays up while it scans */
+                logf("dircache: scanning disk");
+                dircache_wait();
+#else
                 /* Print "Scanning disk..." to the display. */
                 splash(0, str(LANG_SCANNING_DISK));
                 dircache_wait();
                 backlight_on();
                 show_logo_boot();
+#endif
             }
 
             struct dircache_info info;
@@ -349,6 +406,13 @@ static void init_tagcache(void)
 #endif
     tagcache_init();
 
+#ifdef HAVE_IPOD_UI
+    /* Only an interrupted build's commit can hold us here; the shell
+     * shows no progress splash (the boot logo stays up). */
+    while (!tagcache_is_initialized())
+        sleep(HZ/4);
+    (void)clear;
+#else
     while (!tagcache_is_initialized())
     {
         int ret = tagcache_get_commit_step();
@@ -385,6 +449,7 @@ static void init_tagcache(void)
         }
         sleep(HZ/4);
     }
+#endif /* HAVE_IPOD_UI */
     tagtree_init();
 
     if (clear)
@@ -413,7 +478,15 @@ static void init(void)
     FOR_NB_SCREENS(i)
         global_status.font_id[i] = FONT_SYSFIXED;
     font_init();
+#ifdef HAVE_IPOD_UI
+    /* boot battery guard (the target splits it: bootbatt.h) */
+    bootbatt_sample();
+    bootbatt_enforce();
+#endif
     show_logo_boot();
+#ifdef HAVE_IPOD_UI
+    bootbatt_latch_check();     /* stage 2: the drained latch (bootbatt.h) */
+#endif
     button_init();
     powermgmt_init();
     backlight_init();
@@ -438,8 +511,10 @@ static void init(void)
     /* Keep the order of this 3 (viewportmanager handles statusbars)
      * Must be done before any code uses the multi-screen API */
     gui_syncstatusbar_init(&statusbars);
+#ifndef IPODUI_TRIM_SKIN
     gui_sync_skin_init();
     sb_skin_init();
+#endif
     viewportmanager_init();
 
     storage_init();
@@ -456,14 +531,36 @@ static void init(void)
 #ifdef HAVE_TAGCACHE
     init_tagcache();
 #endif
+#ifndef IPODUI_TRIM_BROWSER
     tree_mem_init();
     filetype_init();
+#endif
     playlist_init();
+#ifndef IPODUI_TRIM_BROWSER
     shortcuts_init();
+#endif
 
     audio_init();
     talk_announce_voice_invalid(); /* notify user w/ voice prompt if voice file invalid */
+#ifdef HAVE_IPOD_UI /* the simulator mirrors the target's power rails (P9) */
+#ifdef HAVE_ACCESSORY_SUPPLY
+    accessory_supply_set(global_settings.accessory_supply);
+#ifndef HAVE_IPOD_DOCK30
+    DEBUGF("p9 accessory=%d\n", (int)global_settings.accessory_supply);
+#endif
+#endif
+#ifdef HAVE_LINEOUT_POWEROFF
+#ifdef IPODUI_TRIM_IAP
+    lineout_set(false); /* no dock connector: OUT2 (dock line-out) off */
+    DEBUGF("p9 lineout=0\n");
+#else
+    lineout_set(global_settings.lineout_active);
+#endif
+#endif
+#endif /* HAVE_IPOD_UI */
+#ifndef IPODUI_TRIM_SKIN
     settings_apply_skins();
+#endif
 
 /* do USB last so prompt (if enabled) can work correctly if USB was inserted with device off,
  * also doesn't hurt that it will display the nice pretty backdrop this way too. */
@@ -503,7 +600,9 @@ static void init(void)
 #ifdef CPU_COLDFIRE
     coldfire_set_pllcr_audio_bits(DEFAULT_PLLCR_AUDIO_BITS);
 #endif
+#ifndef HAVE_IPOD_UI /* the boot battery guard reads first (below) */
     cpu_boost(true);
+#endif
 #endif
 
     i2c_init();
@@ -516,6 +615,15 @@ static void init(void)
 #endif
     /* current_tick should be ticking by now */
     CHART("ticking");
+#ifdef HAVE_IPOD_UI
+    /* boot battery guard: the raw voltage and the power inputs, before
+     * the boost and any write (the I2C needs the tick) */
+    bootbatt_sample();
+#ifdef HAVE_ADJUSTABLE_CPU_FREQ
+    if (bootbatt_boost_allowed())
+        cpu_boost(true);
+#endif
+#endif
 
     unicode_init();
     lcd_init();
@@ -527,6 +635,12 @@ static void init(void)
     font_init();
 
     settings_reset();
+
+#ifdef HAVE_IPOD_UI
+    /* boot battery guard: on a flat cell, the low-battery image and power
+     * off before the boot logo, storage or any write; else nothing */
+    bootbatt_enforce();
+#endif
 
     CHART(">show_logo");
     show_logo_boot();
@@ -579,12 +693,14 @@ static void init(void)
     CHART(">gui_syncstatusbar_init");
     gui_syncstatusbar_init(&statusbars);
     CHART("<gui_syncstatusbar_init");
+#ifndef IPODUI_TRIM_SKIN
     CHART(">sb_skin_init");
     sb_skin_init();
     CHART("<sb_skin_init");
     CHART(">gui_sync_wps_init");
     gui_sync_skin_init();
     CHART("<gui_sync_wps_init");
+#endif
     CHART(">viewportmanager_init");
     viewportmanager_init();
     CHART("<viewportmanager_init");
@@ -705,6 +821,40 @@ static void init(void)
         }
     }
 
+#if defined(HAVE_IPOD_UI) && !defined(SIMULATOR)
+    /* #91: a rename a power cut interrupted leaves one file under two
+     * names; one goes before anything opens a file (file.c), and before a
+     * USB host can see the volume: with HAVE_USBSTACK, USB monitoring
+     * starts in main() after init() returns. A target that enters USB
+     * mode before the mount (the !HAVE_USBSTACK branch above) would hand
+     * the host an unresolved volume */
+#ifndef HAVE_USBSTACK
+#error "rbfs_rename_intent_boot() must run before USB mode; see #91"
+#endif
+    rbfs_rename_intent_boot();
+#endif
+#if defined(HAVE_IPOD_UI) && !defined(SIMULATOR)
+    /* boot battery guard, stage 2: the drained latch, one sector read
+     * right after the mount, before any app opens a file (bootbatt.h) */
+    bootbatt_latch_check();
+#endif
+
+#ifdef HAVE_BCMFW_L1
+    /* #62 level 1: our VideoCore image right after the disk mounts (the
+     * gates read files); not while the Developer escape is held, so that
+     * list still draws on Apple's vmcs */
+#ifdef HAVE_BCMFW_RESIDENT
+    bcmres_offer();             /* the merged image, for the resident rung */
+#endif
+    bcm_boot_early(
+#ifdef HAVE_IPOD_UI_DEVMODE
+                   ipodui_devmode_boot_requested()
+#else
+                   false
+#endif
+                  );
+#endif
+
     pcm_init();
     dsp_init();
 
@@ -768,10 +918,12 @@ static void init(void)
     }
 #endif
     playlist_init();
+#ifndef IPODUI_TRIM_BROWSER
     tree_mem_init();
     filetype_init();
 
     shortcuts_init();
+#endif
 
     CHART(">audio_init");
     audio_init();
@@ -785,7 +937,7 @@ static void init(void)
     /* runtime database has to be initialized after audio_init() */
     cpu_boost(false);
 
-#if CONFIG_CHARGING
+#if CONFIG_CHARGING && !defined(IPODUI_TRIM_MISC)
     car_adapter_mode_init();
 #endif
 #ifdef IPOD_ACCESSORY_PROTOCOL
@@ -793,18 +945,28 @@ static void init(void)
 #endif
 #ifdef HAVE_ACCESSORY_SUPPLY
     accessory_supply_set(global_settings.accessory_supply);
+#if defined(HAVE_IPOD_UI) && !defined(HAVE_IPOD_DOCK30)
+    DEBUGF("p9 accessory=%d\n", (int)global_settings.accessory_supply);
+#endif
 #endif
 #ifdef HAVE_LINEOUT_POWEROFF
+#ifdef IPODUI_TRIM_IAP
+    lineout_set(false); /* no dock connector: OUT2 (dock line-out) off */
+    DEBUGF("p9 lineout=0\n");
+#else
     lineout_set(global_settings.lineout_active);
+#endif
 #endif
 #ifdef HAVE_HOTSWAP_STORAGE_AS_MAIN
     CHART("<check_bootfile(false)");
     check_bootfile(false); /* remember write time and filesize */
     CHART(">check_bootfile(false)");
 #endif
+#ifndef IPODUI_TRIM_SKIN
     CHART("<settings_apply_skins");
     settings_apply_skins();
     CHART(">settings_apply_skins");
+#endif
 }
 
 #ifdef CPU_PP

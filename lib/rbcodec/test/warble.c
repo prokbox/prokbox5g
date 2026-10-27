@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2011 Sean Bartell
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -22,7 +23,9 @@
 #include <sys/types.h>
 #include <SDL.h>
 #include <dlfcn.h>
-#include <endian.h>
+#ifndef __APPLE__
+#include <endian.h> /* macOS: provided via rbcodecplatform-unix.h */
+#endif
 #include <fcntl.h>
 #include <math.h>
 #include <stdarg.h>
@@ -37,9 +40,12 @@
 #include "codecs.h"
 #include "dsp_core.h"
 #include "metadata.h"
+#include "chapters.h"
+#include "lyrics.h"
 #include "settings.h"
 #include "sound.h"
 #include "tdspeed.h"
+#include "resample.h"
 #include "platform.h"
 
 /***************** EXPORTED *****************/
@@ -100,6 +106,7 @@ off_t ffilesize(int fd)
 static enum { MODE_PLAY, MODE_WRITE } mode;
 static bool use_dsp = true;
 static bool enable_loop = false;
+static bool out_rate_auto = false; /* output at the codec's own rate */
 static const char *config = "";
 
 /* Volume control */
@@ -404,8 +411,14 @@ static void perform_config(void)
             enable_loop = atoi(val) != 0;
         } else if (!strncmp(name, "offset=", 7)) {
             ci.id3->offset = atoi(val);
+        } else if (!strncmp(name, "outrate=", 8)) {
+            out_rate_auto = atoi(val) == 0;
+            if (!out_rate_auto)
+                dsp_configure(ci.dsp, DSP_SET_OUT_FREQUENCY, atoi(val));
         } else if (!strncmp(name, "rate=", 5)) {
             dsp_set_pitch(atof(val) * PITCH_SPEED_100);
+        } else if (!strncmp(name, "rsq=", 4)) {
+            dsp_resample_set_quality(atoi(val));
         } else if (!strncmp(name, "seek=", 5)) {
             codec_action = CODEC_ACTION_SEEK_TIME;
             codec_action_param = atoi(val);
@@ -589,6 +602,8 @@ static void ci_set_offset(size_t value)
 static void ci_configure(int setting, intptr_t value)
 {
     if (use_dsp) {
+        if (out_rate_auto && setting == DSP_SET_FREQUENCY)
+            dsp_configure(ci.dsp, DSP_SET_OUT_FREQUENCY, value);
         dsp_configure(ci.dsp, setting, value);
     } else {
         if (setting == DSP_SET_FREQUENCY
@@ -816,6 +831,176 @@ static void print_mp3entry(const struct mp3entry *id3, FILE *f)
     if (id3->mb_track_id) fprintf(f, "Musicbrainz track ID: %s\n", id3->mb_track_id);
 }
 
+#ifdef HAVE_METADATA_EXTRAS
+/* zlib-compatible CRC-32, to check image locations against the fixture
+ * generator's images */
+static uint32_t zcrc32(const uint8_t *p, size_t n)
+{
+    uint32_t c = 0xffffffff;
+    while (n--)
+    {
+        int k;
+        c ^= *p++;
+        for (k = 0; k < 8; k++)
+            c = (c >> 1) ^ (0xedb88320 & -(c & 1));
+    }
+    return ~c;
+}
+
+static void print_escaped(FILE *f, const char *label, const char *s)
+{
+    fprintf(f, "%s: \"", label);
+    for (; *s; s++)
+    {
+        if (*s == '\n')
+            fputs("\\n", f);
+        else if (*s == '\r')
+            fputs("\\r", f);
+        else if (*s == '"' || *s == '\\')
+            fprintf(f, "\\%c", *s);
+        else
+            fputc(*s, f);
+    }
+    fputs("\"\n", f);
+}
+
+/* lyrics locator + text (whole, and into a small buffer to check the
+ * truncation), then the per-chapter art locations */
+static void print_extras(const struct mp3entry *id3, int fd,
+                         const struct audiobook_chapters *ab, FILE *f)
+{
+    static const char *const lyr_fmt[] = {
+        "none", "id3", "id3-unsync", "id3-unsync23", "mp4-utf8", "mp4-utf16"
+    };
+    static char text[8192];
+    static struct ab_chapter_art art[AB_MAX_CHAPTERS];
+    char small[20];
+    bool trunc;
+    int n, i;
+
+    if (!metadata_has_lyrics(id3))
+        fprintf(f, "Lyrics: none\n");
+    else
+    {
+        fprintf(f, "Lyrics: %s, %u bytes\n",
+                id3->lyrics.format < 6 ? lyr_fmt[id3->lyrics.format] : "?",
+                (unsigned)id3->lyrics.size);
+        n = metadata_read_lyrics(fd, id3, text, sizeof(text), &trunc);
+        fprintf(f, "Lyrics read: %d%s\n", n, trunc ? " (truncated)" : "");
+        print_escaped(f, "Lyrics text", text);
+        n = metadata_read_lyrics(fd, id3, small, sizeof(small), &trunc);
+        fprintf(f, "Lyrics read (%d-byte buffer): %d%s\n", (int)sizeof(small),
+                n, trunc ? " (truncated)" : "");
+        print_escaped(f, "Lyrics text (short)", small);
+    }
+
+    n = metadata_read_chapter_art(fd, id3, ab, art);
+    fprintf(f, "Chapter art: %d\n", n);
+    for (i = 0; n > 0 && i < ab->chapter_count; i++)
+    {
+        uint8_t *img;
+        if (!art[i].size)
+            continue;
+        img = malloc(art[i].size);
+        if (!img || lseek(fd, art[i].pos, SEEK_SET) != (off_t)art[i].pos
+            || read(fd, img, art[i].size) != (ssize_t)art[i].size)
+            fprintf(f, "Chapter %d art: read error\n", i + 1);
+        else
+            fprintf(f, "Chapter %d art: %s %u bytes crc32 %08x\n", i + 1,
+                    art[i].type == AB_ART_JPEG ? "jpeg" : "png",
+                    (unsigned)art[i].size,
+                    (unsigned)zcrc32(img, art[i].size));
+        free(img);
+    }
+}
+#endif
+
+/* Print audiobook flag and chapter table; reads chapters via the same API
+ * playback uses. fd position is not preserved. */
+static void print_chapters(const struct mp3entry *id3, int fd, FILE *f)
+{
+    /* the packed table at playback's size (too big for the stack) */
+    static uint32_t ab_mem[(AB_CH_TABLE_SIZE + 3) / 4];
+    struct audiobook_chapters *ab = (struct audiobook_chapters *)ab_mem;
+    int i, n;
+
+    /* P6 fix 2: read through a scratch window as the shell's page does
+     * (WARBLE_CH_SCRATCH bytes, default 4,096; 0: none), then again entry
+     * by entry; a difference is printed, so every golden checks both */
+    static uint32_t ref_mem[(AB_CH_TABLE_SIZE + 3) / 4];
+    struct audiobook_chapters *ref = (struct audiobook_chapters *)ref_mem;
+    static uint32_t scratch[65536 / 4];
+    const char *env = getenv("WARBLE_CH_SCRATCH");
+    size_t ssize = env ? (size_t)atoi(env) : 4096;
+    int m;
+
+    if (ssize > sizeof(scratch))
+        ssize = sizeof(scratch);
+    ab_ch_init(ab, AB_MAX_CHAPTERS, AB_CH_POOL);
+    fprintf(f, "Audiobook: %s\n", id3->is_audiobook ? "yes" : "no");
+    fprintf(f, "Chapter count: %d\n", id3->chapter_count);
+    /* WARBLE_CH_SKIP: no chapter read (I/O measurements by difference) */
+    n = getenv("WARBLE_CH_SKIP") ? 0
+        : metadata_read_chapters_buf(fd, id3, ab, ssize ? scratch : NULL,
+                                     ssize);
+    fprintf(f, "Chapters read: %d\n", n);
+    if (getenv("WARBLE_CH_EXIT"))       /* with/without WARBLE_CH_SKIP */
+        exit(0);
+    if (!getenv("WARBLE_CH_NOREF"))
+    {
+        ab_ch_init(ref, AB_MAX_CHAPTERS, AB_CH_POOL);
+        m = metadata_read_chapters(fd, id3, ref);
+        if (m != n || ref->chapter_count != ab->chapter_count
+            || ref->cut != ab->cut)
+            fprintf(f, "Chapter read mismatch: %d/%d entry by entry\n",
+                    m, ref->chapter_count);
+        for (i = 0; i < ab->chapter_count && i < ref->chapter_count; i++)
+            if (ab_ch_start(ab, i) != ab_ch_start(ref, i)
+                || strcmp(ab_ch_title_ptr(ab, i), ab_ch_title_ptr(ref, i)))
+            {
+                fprintf(f, "Chapter read mismatch at %d\n", i + 1);
+                break;
+            }
+    }
+    for (i = 0; i < ab->chapter_count; i++)
+        fprintf(f, "Chapter %d: %lu ms \"%s\"\n", i + 1,
+                (unsigned long)ab_ch_start(ab, i), ab_ch_title_ptr(ab, i));
+    /* the packed pool (P6 Rev 1 item 15): only when a title was cut, so
+     * the goldens of tables that fit are unchanged */
+    if (ab->cut)
+        fprintf(f, "Titles cut: %d (pool %d of %d B)\n", ab->cut,
+                ab->pool_used, ab->pool_size);
+    print_extras(id3, fd, ab, f);
+    lseek(fd, 0, SEEK_SET);
+}
+
+/* -m: print metadata and chapters to stdout, no decoding */
+static int print_metadata_only(const char *input_fn)
+{
+    struct mp3entry id3;
+    int fd = open(input_fn, O_RDONLY);
+    if (fd < 0) {
+        perror(input_fn);
+        return 1;
+    }
+    if (!get_metadata(&id3, fd, input_fn)) {
+        fprintf(stderr, "error: metadata parsing failed\n");
+        close(fd);
+        return 1;
+    }
+    print_mp3entry(&id3, stdout);
+    print_chapters(&id3, fd, stdout);
+    close(fd);
+    return 0;
+}
+
+/* firmware/include/assert.h maps assert() to this */
+void __assert(const char *file, int line, const char *expr)
+{
+    fprintf(stderr, "%s:%d: assertion failed: %s\n", file, line, expr);
+    abort();
+}
+
 static void decode_file(const char *input_fn)
 {
     /* Initialize DSP before any sort of interaction */
@@ -847,6 +1032,8 @@ static void decode_file(const char *input_fn)
         exit(1);
     }
     print_mp3entry(&id3, stderr);
+    if (id3.is_audiobook || id3.chapter_count)
+        print_chapters(&id3, input_fd, stderr);
     ci.filesize = ffilesize(input_fd);
     ci.id3 = &id3;
     if (use_dsp) {
@@ -902,11 +1089,13 @@ static void print_help(const char *progname)
 {
     fprintf(stderr, "Usage:\n"
                     "        Play: %s [options] INPUTFILE\n"
+                    "    Metadata: %s -m INPUTFILE\n"
                     "Write to WAV: %s [options] INPUTFILE OUTPUTFILE\n"
                     "\n"
                     "general options:\n"
                     "  -c a=1:b=2    Configuration (see below)\n"
                     "  -h            Show this help\n"
+                    "  -m            Print metadata and chapters to stdout, don't decode\n"
                     "\n"
                     "write to WAV options:\n"
                     "  -f            Write raw codec output converted to 64-bit float\n"
@@ -917,7 +1106,10 @@ static void print_help(const char *progname)
                     "  halt=<0|1>    Stop decoding if 1 [0]\n"
                     "  loop=<0|1>    Enable/disable looping [0]\n"
                     "  offset=<n>    Start at byte offset within the file [0]\n"
+                    "  outrate=<n>   Output rate in Hz; 0 = the codec's own [44100]\n"
                     "  rate=<n>      Multiply rate by <n> [1.0]\n"
+                    "  rsq=<n>       Resampler: 0 Hermite, 1 half-band for whole\n"
+                    "                ratios, 2 also 3:2 [1]\n"
                     "  seek=<n>      Seek <n> ms into the file\n"
                     "  tempo=<n>     Timestretch by <n> [1.0]\n"
                     "  vol=<n>       Set volume attenuation to <n> dB [-0]\n"
@@ -929,14 +1121,18 @@ static void print_help(const char *progname)
                     "  %s in.adx -c loop=1:wait=44100:halt=1\n"
                     "  # Lower pitch 1 octave and write to out.wav\n"
                     "  %s in.ogg -c rate=0.5:tempo=2 out.wav\n"
-                    , progname, progname, progname, progname);
+                    , progname, progname, progname, progname, progname);
 }
 
 int main(int argc, char **argv)
 {
     int opt;
-    while ((opt = getopt(argc, argv, "c:fhr")) != -1) {
+    bool metadata_only = false;
+    while ((opt = getopt(argc, argv, "c:fhmr")) != -1) {
         switch (opt) {
+        case 'm':
+            metadata_only = true;
+            break;
         case 'c':
             config = optarg;
             break;
@@ -952,6 +1148,14 @@ int main(int argc, char **argv)
             print_help(argv[0]);
             exit(1);
         }
+    }
+
+    if (metadata_only) {
+        if (argc != optind + 1) {
+            print_help(argv[0]);
+            exit(1);
+        }
+        return print_metadata_only(argv[optind]);
     }
 
     if (argc == optind + 2) {

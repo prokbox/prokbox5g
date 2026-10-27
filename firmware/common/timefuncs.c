@@ -102,10 +102,29 @@ bool valid_time(const struct tm *tm)
  * targets may override with their own implementation
  */
 #ifndef HAVE_RTC_IRQ
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+static bool rtc_stale;          /* get_time_stale(): read at the next call */
+
+void get_time_stale(void)
+{
+    rtc_stale = true;
+}
+#endif
+
 static inline bool rtc_dirty(void)
 {
     static long timeout = 0;
 
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+    if (rtc_stale)
+    {
+        /* the tick stood still (a soft sleep): the copy is as old as the
+         * sleep, whatever the tick says */
+        rtc_stale = false;
+        timeout = current_tick / HZ * HZ + 6*HZ / 5;
+        return true;
+    }
+#endif
     /* Don't read the RTC more than once per second */
     if (TIME_AFTER(current_tick, timeout))
     {

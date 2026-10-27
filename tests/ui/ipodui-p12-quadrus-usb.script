@@ -1,0 +1,46 @@
+# P12 integration (docs/design/sdk.md 2.2, 8.2): a USB data session over
+# a running game marks it suspended after the USB screen's ack, with no
+# call into the game and no disk write while the host owns the disk; at
+# the session's end the game gets its suspend() (SDK_WHY_USB = 7), then
+# resumes (Quadrus: its pause menu), and its record waits for the next
+# natural disk wake.
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-quadrus-usb.script
+# needs: modules
+# golden: skip
+# timeout: 90
+# log: sdk suspend quadrus why=7
+# log: sdk usb quadrus 1
+# log: sdk usb quadrus 0
+# log: sdk resume quadrus
+# log: why=deferred
+# nolog: sdk kill
+# logbetween: usbin usbout no sdk state write
+# logbetween: usbin usbout no sdk suspend
+# reset: mainmenu
+
+wait 4000
+sdk_clear
+wheel +2             # Extras
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Games
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Quadrus
+wait 600
+key SELECT
+wait 2000
+shot playing
+ab_mark usbin
+usb_connect
+wait 5000
+shot usb
+ab_mark usbout
+usb_disconnect
+wait 3000
+shot after
+disk_active 2000
+wait 2500
+quit

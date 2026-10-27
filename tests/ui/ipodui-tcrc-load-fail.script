@@ -1,0 +1,26 @@
+# tagcache RAM cache: a load that fails (here a corrupt filename tag file;
+# on the device also USB or a power-off during the boot load) frees the
+# cache. The silent rebuild that follows must commit into a buffer of its
+# own, not into the freed cache: before the fix commit() pinned handle 0
+# ("buflib: invalid handle pin: 0") through the stale ramcache_allocated.
+# Boot 2 fails the load (no library this boot); after USB the rebuild
+# commits, and the library comes back.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-tcrc-load-fail.script
+# needs: library
+# golden: skip library
+# timeout: 120
+
+wait 1000
+wait_db 30000
+copy_file /.rockbox/database_3.tcd /.rockbox/database_4.tcd
+reboot
+
+wait 8000           # boot 2: the RAM cache load fails, no library
+usb_connect         # after USB the library is rebuilt and committed
+wait 2000
+usb_disconnect
+wait 8000
+wait_db 45000
+key SELECT          # Music
+wait 700
+shot library

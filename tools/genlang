@@ -493,7 +493,15 @@ if($prefix) {
  * translated. Use it like str(MACRO) and expect a string to be
  * returned!
  */
+#if defined(SIMULATOR) && defined(HAVE_IPOD_UI) && !defined(PLUGIN) && !defined(CODEC)
+/* ProkBox simulator only: str() goes through sim_lang_str()
+ * (uisimulator/common/sim_cmd_text.c), which logs a shell call with LANG id
+ * 0 or an id outside the array (the native-illusion check, P12 close) */
+unsigned char *sim_lang_str(int id, const char *file, int line);
+#define str(x) sim_lang_str((int)(x), __FILE__, __LINE__)
+#else
 #define str(x) language_strings[x]
+#endif
 
 /* this is the array for holding the string pointers.
    It will be initialized at runtime. */
@@ -727,12 +735,17 @@ if($verbose) {
 }
 
 if ($binary and !file_is_newer("$binpath/english.list", $english)) {
-    open(ENGLIST, ">$binpath/english.list") ||
-        die "Failed creating $binpath/english.list";
+    # Written under a private name and renamed into place: a parallel
+    # genlang that finds english.list "newer" must never read it half
+    # written (it then emits an empty .lng).
+    open(ENGLIST, ">$binpath/english.list.$$") ||
+        die "Failed creating $binpath/english.list.$$";
     for my $user (keys %users) {
         for my $id (sort { $idmap[$user]{$a} <=> $idmap[$user]{$b} } keys %{$idmap[$user]}) {
             print ENGLIST "$user:$id:$idmap[$user]{$id}\n";
         }
     }
     close ENGLIST;
+    rename("$binpath/english.list.$$", "$binpath/english.list") ||
+        die "Failed renaming $binpath/english.list.$$";
 }

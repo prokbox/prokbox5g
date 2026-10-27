@@ -19,6 +19,9 @@
  ****************************************************************************/
 
 #include <math.h>
+#if defined(SIMULATOR) && defined(HAVE_IPOD_UI)
+#include <string.h>
+#endif
 #include <stdlib.h>         /* EXIT_SUCCESS */
 #include <stdio.h>
 #include "sim-ui-defines.h"
@@ -70,6 +73,96 @@ int remote_type(void)
 #endif
 
 static int btn = 0;    /* Hopefully keeps track of currently pressed keys... */
+
+#if defined(SIMULATOR) && defined(HAVE_IPOD_UI)
+/* IPODUI_SIM_BOOT_KEYS="RIGHT:2500" (or "SELECT+LEFT:3000"): holds those
+ * buttons down for <ms> from the first poll, as a finger holding a key at
+ * power-on. Set by scripts/shots.sh from a "# boot_keys: RIGHT 2500"
+ * script header (docs/phase8a-brief.md section 8). Unset: no effect. */
+static int boot_keys_mask = 0;
+static long boot_keys_until = 0;        /* tick; 0 = not started yet */
+static long boot_keys_ms = 0;
+static bool boot_keys_parsed = false;
+
+static void boot_keys_parse(void)
+{
+    static const struct { const char *name; int mask; } names[] = {
+#ifdef BUTTON_MENU
+        { "MENU", BUTTON_MENU },
+#endif
+#ifdef BUTTON_PLAY
+        { "PLAY", BUTTON_PLAY },
+#endif
+#ifdef BUTTON_LEFT
+        { "LEFT", BUTTON_LEFT },
+#endif
+#ifdef BUTTON_RIGHT
+        { "RIGHT", BUTTON_RIGHT },
+#endif
+#ifdef BUTTON_SELECT
+        { "SELECT", BUTTON_SELECT },
+#endif
+        { NULL, 0 }
+    };
+    const char *env = getenv("IPODUI_SIM_BOOT_KEYS");
+    char buf[64], *colon, *tok, *save = NULL;
+
+    boot_keys_parsed = true;
+    if (!env || !env[0])
+        return;
+    snprintf(buf, sizeof(buf), "%s", env);
+    colon = strchr(buf, ':');
+    if (!colon)
+    {
+        fprintf(stderr, "IPODUI_SIM_BOOT_KEYS: want NAME[+NAME]:<ms>\n");
+        return;
+    }
+    *colon = '\0';
+    boot_keys_ms = atol(colon + 1);
+    for (tok = strtok_r(buf, "+", &save); tok; tok = strtok_r(NULL, "+", &save))
+    {
+        int i;
+        for (i = 0; names[i].name && strcmp(names[i].name, tok); i++)
+            ;
+        if (names[i].name)
+            boot_keys_mask |= names[i].mask;
+        else
+            fprintf(stderr, "IPODUI_SIM_BOOT_KEYS: unknown key '%s'\n", tok);
+    }
+}
+
+static int boot_keys_now(void)
+{
+    if (!boot_keys_parsed)
+        boot_keys_parse();
+    if (!boot_keys_mask)
+        return 0;
+    if (!boot_keys_until)
+    {
+        boot_keys_until = current_tick + boot_keys_ms * HZ / 1000 + 1;
+        fprintf(stderr, "sim: boot keys 0x%x held for %ld ms\n",
+                boot_keys_mask, boot_keys_ms);
+    }
+    if (TIME_BEFORE(current_tick, boot_keys_until))
+        return boot_keys_mask;
+    boot_keys_mask = 0;
+    fprintf(stderr, "sim: boot keys released\n");
+    return 0;
+}
+
+/* the clickwheel driver's touch count; scripts touch with wheel_touch */
+static unsigned int wheel_touches = 0;
+
+unsigned int button_wheel_touches(void)
+{
+    return wheel_touches;
+}
+
+void sim_wheel_touch(void)
+{
+    wheel_touches++;
+}
+#endif /* SIMULATOR && HAVE_IPOD_UI */
 
 #ifdef SIMULATOR
 #include "strlcat.h"
@@ -685,8 +778,19 @@ int button_read_device(void)
     else
 #endif
 
+#if defined(SIMULATOR) && defined(HAVE_IPOD_UI)
+    return btn | boot_keys_now();
+#else
     return btn;
+#endif
 }
+
+#ifdef SIMULATOR
+void sim_inject_key(int key, bool pressed)
+{
+    button_event(key, pressed);
+}
+#endif
 
 void button_init_device(void)
 {

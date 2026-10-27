@@ -273,6 +273,9 @@ int uncached_readdir_dirent(struct filestr_base *stream,
     entry->info.size    = fatent.filesize;
     entry->info.wrtdate = fatent.wrtdate;
     entry->info.wrttime = fatent.wrttime;
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+    entry->info.fstclus = fatent.firstcluster;  /* #89: the boot digest */
+#endif
 
     return rc;
 }

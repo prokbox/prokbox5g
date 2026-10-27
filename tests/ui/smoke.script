@@ -1,0 +1,19 @@
+# Simulator UI smoke test: boot, scroll the main menu, open an item, back out.
+# Run with: scripts/shots.sh tests/ui/smoke.script
+
+wait 4000           # boot to the main menu
+shot boot
+
+wheel +3            # move the selection down to "Settings"
+wait 500
+shot menu
+
+key SELECT          # enter it
+wait 1000
+shot item
+
+key MENU            # back to the main menu
+wait 700
+shot back
+
+quit

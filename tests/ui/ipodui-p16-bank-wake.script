@@ -1,0 +1,57 @@
+# Phase 16-4 (#92 review H1): a natural disk wake in the middle of a
+# paused dwell must not stall the bank. Paused with storage asleep the
+# drift swaps banked covers in ("why=bank"); a wake mid-dwell lets the
+# prefetch read the next cover by key, which is often the bank's first
+# entry. The bank then steps past every entry the slot already shows
+# (re-checked against the slot's key at each swap) and, once all were
+# seen, is read again at the next wake. After the wake the drift keeps
+# rotating while storage sleeps, never the same cover twice in a row
+# (all inside the backlight's time: no key may be pressed).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-bank-wake.script
+# trace: panelset driftrepeat
+# needs: library
+# golden: skip
+# log: panel bank covers=3 music=1 books=1
+# logbetween: w1 p1 why=bank
+# logbetween: w1 p1 how=bank
+# nolog: why=empty
+# timeout: 300
+wait 4000
+wait_db 30000
+art_wait 120000
+sim_clock 15:04
+clock_format 24
+battery 100
+drift_phase 0
+wheel +4            # Shuffle Songs
+wait 400
+key SELECT
+wait 2000
+key MENU
+wait 700
+wheel -4
+wait 800
+key SELECT          # Music menu, playing
+wait 2000
+drift_phase 350     # mid-dwell
+disk_active 2500    # a natural wake (a refill): the bank is read
+wait 3000
+key PLAY            # pause
+ab_mark p0
+wait 7000           # storage asleep (the disk's idle hold is over)
+drift_phase 700
+wait 2000
+shot pa0
+ab_mark w0
+disk_active 1500    # a natural wake mid-dwell: the prefetch may read
+drift_phase 1050
+wait 2000           # asleep again
+ab_mark w1
+drift_phase 1400    # the prefetched cover
+wait 1500
+shot pa1
+drift_phase 2100    # the bank again, past what the slot shows
+wait 1500
+shot pa2
+ab_mark p1
+quit

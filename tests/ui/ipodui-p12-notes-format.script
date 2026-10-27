@@ -1,0 +1,78 @@
+# P12 W3-K review (format version): notes.idx in the first format
+# (version 1, written by W1-N before the pages; a real one, made by that
+# code for these eight notes: tests/ui/fixtures/p12/notes-v1.idx) is
+# planted after a clean session, then a boot the stamp trusts: it would
+# skip the folder check and keep the old file, which the paged reader
+# refuses (an empty list). The trusted boot reads the indexes' headers,
+# owes a build for the old version ("xidx owed why=format") and rebuilds
+# notes.idx once in the new format; Notes then lists the eight.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p12-notes-format.script
+# needs: library
+# timeout: 180
+# log: xidx build kind=1 n=8
+# log: boot stamp walk=0 why=trust
+# log: xidx owed why=format
+# log: at=format
+# log: notes open n=8 whole=1 rc=0
+# nolog: modclass viol
+# golden: skip
+# reset: mainmenu
+
+sim_clock 15:06
+wait 3000
+wait_db 30000
+rm_file /Notes/Shopping.txt
+rm_file /Notes/Welcome.txt
+rm_file /Notes/Long%20note.txt
+rm_file /Notes/Unicode%20note.txt
+rm_file /Notes/Windows%20note.txt
+rm_file /Notes/._Shopping.txt
+rm_file /Notes/readme.md
+rm_file /Notes/Trips/Paris.txt
+rm_file /Notes/Trips/Lisbon.TXT
+rm_file /Notes/Trips
+rm_file /.rockbox/notes.idx
+rm_file /.rockbox/xindex.owe
+
+usb_connect
+wait 2500
+mkdir /Notes
+mkdir /Notes/Trips
+copy fixtures/notes/Shopping.txt /Notes/Shopping.txt
+copy fixtures/notes/Welcome.txt /Notes/Welcome.txt
+copy fixtures/notes/long-note.txt /Notes/Long%20note.txt
+copy fixtures/notes/unicode-note.txt /Notes/Unicode%20note.txt
+copy fixtures/notes/windows-note.txt /Notes/Windows%20note.txt
+copy fixtures/notes/Trips/Paris.txt /Notes/Trips/Paris.txt
+copy fixtures/notes/Trips/Lisbon.TXT /Notes/Trips/Lisbon.TXT
+usb_disconnect
+wait 150
+wait_db 45000
+wait 3500
+storage_idle
+wait 1500
+boot_unclean
+reboot
+
+expect_boot_walk 1 15000 nostamp
+wait_db 30000
+wait 3000
+copy fixtures/p12/notes-v1.idx /.rockbox/notes.idx   # the old format
+reboot
+
+expect_boot_walk 0 15000 trust
+wait 3000
+wheel +2            # Main Menu: "Extras"
+wait 800
+key SELECT
+wait 1200
+wheel +7            # Extras: to the last row (Stopwatch; the list does not wrap)
+wait 600
+wheel -2            # "Notes", counted from the end: the same with or without a Games row
+wait 800
+key SELECT
+wait 1200
+shot list_rebuilt
+key MENU
+wait 1000
+quit

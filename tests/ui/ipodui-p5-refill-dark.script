@@ -1,0 +1,27 @@
+# Phase 5 (#27, Revision 1 item 2): with the screen dark the refill runs
+# only from the posted wake (a buffering event, no polling): the backlight is
+# switched off, the 50-entry window plays through unattended (2-5 s tracks),
+# and the queue has grown when the screen lights again.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p5-refill-dark.script
+# needs: library
+# golden: skip start walked
+# timeout: 300
+
+wait 1000
+wait_db 30000
+sim_clock 15:08
+clock_format 24      # P11: the default is 12-hour; this golden shows 24
+repeat off
+art_wait 120000
+wheel +4
+wait 500
+key SELECT
+wait 1500
+shot start
+dark on
+wait 140000
+expect_playing 1000
+dark off
+wait 1500
+shot walked
+quit

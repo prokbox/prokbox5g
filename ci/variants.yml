@@ -1,0 +1,146 @@
+# Phase 9 variant CI (docs/phase9-brief.md section 3.5). DRAFT, NOT ENABLED.
+#
+# GitHub Actions syntax, kept outside .github/workflows/ on purpose: the
+# project is LAN-only on Forgejo today (frozen default O7: a local pairwise
+# runner, scripts/variants.sh; this workflow waits for a public GitHub
+# mirror). To enable it, copy it to .github/workflows/variants.yml (or
+# .forgejo/workflows/ with a runner that has the toolchain).
+#
+# Jobs:
+#   compile   all 32 hardware variants (2 storage x 2 RAM x 2 battery
+#             classes x 2 dock x 2 haptics), core image size each; a
+#             default-trim variant over the 914,813 B ceiling fails
+#   extra     fw-rel, --ipodui-plugins (size + mpegplayer.rock built),
+#             --thumb-cold (size only), --core-sections=off (image A)
+#   stock     stock fw/boot byte identity vs the merge-base (M6)
+#   sim       sim-ui smoke subset for the 4 storage x RAM combinations
+#   gate      the full gate for the owner's variant only
+name: variants
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "firmware/**"
+      - "apps/**"
+      - "lib/**"
+      - "tools/configure"
+      - "tools/root.make"
+      - "tools/thumb-c*"
+
+env:
+  CEILING: "914813"
+  CCACHE_DIR: ${{ github.workspace }}/.ccache
+
+jobs:
+  compile:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        storage: [flash, hdd]
+        ram: ["64", "32"]
+        battery: ["3000", stock]
+        dock: [usbc, dock30]
+        haptics: [on, off]
+    steps:
+      - uses: actions/checkout@v4
+      - name: toolchain
+        run: sudo apt-get update && sudo apt-get install -y gcc-arm-none-eabi binutils-arm-none-eabi ccache
+      - uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ccache-${{ matrix.storage }}-${{ matrix.ram }}-${{ github.sha }}
+          restore-keys: ccache-${{ matrix.storage }}-${{ matrix.ram }}-
+      - name: configure
+        run: |
+          args="--target=22 --type=n --compiler-prefix=arm-none-eabi- --ipodui"
+          args="$args --storage=${{ matrix.storage }} --ram=${{ matrix.ram }} --battery=${{ matrix.battery }}"
+          [ "${{ matrix.dock }}" = dock30 ] && args="$args --dock30"
+          [ "${{ matrix.haptics }}" = off ] && args="$args --no-haptics"
+          mkdir -p build/v && cd build/v && ../../tools/configure $args </dev/null
+      - name: build
+        run: make -C build/v -j"$(nproc)"
+      - name: size
+        run: |
+          ipod=$(wc -c < build/v/rockbox.ipod)
+          end=$(printf '%d' "0x$(arm-none-eabi-nm build/v/rockbox.elf | awk '$3 == "_end" {print $1}')")
+          variant=$(sed -n 's/^#define IPOD_VARIANT "\(.*\)"/\1/p' build/v/autoconf.h)
+          echo "variant=$variant ipod=$ipod end=$end" | tee -a "$GITHUB_STEP_SUMMARY"
+          test "$ipod" -le "$CEILING"
+
+  extra:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: fw-rel
+            args: --ipodui --ipodui-release
+            gated: true
+          - name: plugins
+            args: --ipodui --ipodui-plugins
+            gated: false
+          - name: thumb-cold
+            args: --ipodui --thumb-cold
+            gated: false
+          - name: image-a
+            args: --ipodui --core-sections=off
+            gated: true
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y gcc-arm-none-eabi binutils-arm-none-eabi
+      - run: |
+          mkdir -p build/x && cd build/x
+          ../../tools/configure --target=22 --type=n --compiler-prefix=arm-none-eabi- ${{ matrix.args }} </dev/null
+          make -j"$(nproc)"
+      - name: size
+        run: |
+          ipod=$(wc -c < build/x/rockbox.ipod)
+          echo "${{ matrix.name }} ipod=$ipod" | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ "${{ matrix.gated }}" = true ]; then test "$ipod" -le "$CEILING"; fi
+      - name: videos path
+        if: matrix.name == 'plugins'
+        run: test -f build/x/apps/plugins/mpegplayer/mpegplayer.rock
+
+  stock:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: sudo apt-get update && sudo apt-get install -y gcc-arm-none-eabi binutils-arm-none-eabi
+      - name: stock fw/boot identity vs the merge-base
+        run: scripts/risk/stock_identity.sh --base "$(git merge-base HEAD origin/main)" -j "$(nproc)"
+
+  sim:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        storage: [flash, hdd]
+        ram: ["64", "32"]
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y libsdl2-dev python3
+      - run: |
+          mkdir -p build/sim-ui && cd build/sim-ui
+          ../../tools/configure --target=22 --type=s --ipodui \
+            --storage=${{ matrix.storage }} --ram=${{ matrix.ram }} </dev/null
+          make -j"$(nproc)" && make install
+      - name: smoke subset
+        run: |
+          for s in ipodui-p9-smoke-boot ipodui-p9-smoke-browse ipodui-p9-smoke-play \
+                   ipodui-p9-smoke-usb ipodui-p9-smoke-devmode; do
+            scripts/shots.sh "tests/ui/$s.script"
+          done
+
+  gate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: sudo apt-get update && sudo apt-get install -y gcc-arm-none-eabi binutils-arm-none-eabi libsdl2-dev python3
+      - name: full gate, owner's variant
+        run: scripts/validate.sh

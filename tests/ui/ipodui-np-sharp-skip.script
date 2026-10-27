@@ -1,0 +1,58 @@
+# np-sharp: the played trigger is the shuffle debounce. Tracks skipped
+# before IPODUI_NPR_PLAYED_MS (here 4 s; 30 s on the unit) queue nothing,
+# and Now Playing up hides the row (no why=row either): a run of fast
+# skips never asks for one render per track. The track that stays queues
+# its album once (why=played).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-np-sharp-skip.script
+# env: IPODUI_NP_NO_PANEL=built
+# env: IPODUI_NPR_PLAYED_MS=4000
+# reset: mainmenu
+# needs: library
+# needs: np
+# trace: panelset
+# golden: skip
+# logbetween: s0 s1 no art npcover queue
+# logbetween: s0 s1 no art npcover build
+# logbetween: s1 s2 art npcover queue key=\S+ why=played
+# timeout: 300
+
+wait 1000
+wait_db 30000
+sim_clock 15:04
+clock_format 24
+battery 100
+charger off
+repeat off
+mkdir /NPSharp
+copy ../../build/np-fixtures/art_23.mp3 /NPSharp/art_23.mp3
+copy ../../build/np-fixtures/art_big.mp3 /NPSharp/art_big.mp3
+copy ../../build/np-fixtures/art_169.mp3 /NPSharp/art_169.mp3
+copy ../../build/np-fixtures/art_small.mp3 /NPSharp/art_small.mp3
+update_db_wait_change 60000
+art_wait 120000
+play_files /NPSharp/art_23.mp3 /NPSharp/art_big.mp3 /NPSharp/art_169.mp3 /NPSharp/art_small.mp3
+wait 1000
+key SELECT          # Music
+wait 700
+key MENU
+wait 700
+wheel +10 100       # the row (a why=row for the first album, maybe)
+key SELECT          # Now Playing, at once
+wait 1500
+ab_mark s0
+key RIGHT           # skips, each under 4 s of play
+wait 1500
+key RIGHT
+wait 1500
+key RIGHT
+wait 1500
+ab_mark s1
+wait 6000           # the last one stays: played
+ab_mark s2
+shot np_after_skips
+audio_stop
+rm_file /NPSharp/art_23.mp3     # leave the shared disk as primed
+rm_file /NPSharp/art_big.mp3
+rm_file /NPSharp/art_169.mp3
+rm_file /NPSharp/art_small.mp3
+quit

@@ -1,0 +1,48 @@
+# Phase 11 (docs/phase11-brief.md 3.7, 7 criterion 9; E1, Rev 1 H-1):
+# hold PLAY on the charger pauses and saves (charging_sleep_prepare), then
+# pushes the Charging screen, an ordinary stack screen; "Charged" (plug)
+# once the battery is full; a key leaves it (swallowed, still paused),
+# then with USB, and last with the charger pulled, which sleeps (P18 Q9).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p11-sys-charging.script
+# needs: library
+# log: sleep: charging
+# log: sys charging state=charging
+# log: sys charging state=charged
+# log: sys charging pop=key
+# log: sys charging pop=unplug
+# log: sys charging pop=usb
+# log: sleep request why=3
+# nolog: sleep: backlight off
+# nolog: splash-pass
+
+wait 4000            # boot to the main menu
+battery 60
+charger on
+wait 3000            # the power thread notices the charger
+shot before
+hold PLAY 1500       # sleep on power: pause + save, then Charging
+wait 1200
+shot charging        # header "Charging", the battery 60 % with the bolt
+battery 100          # full: charging_state() goes false
+wait 11000           # the 10 s lit wake polls it
+shot charged         # header "Charged", the full battery with the plug
+key SELECT           # any key leaves (the release never reaches the menu)
+wait 1000
+shot after_key       # == before
+
+battery 60
+wait 3000
+hold PLAY 1500
+wait 1200
+usb_connect          # the USB screen takes over ...
+wait 1500
+usb_disconnect
+wait 1500
+shot after_usb       # ... and Charging is gone afterwards
+
+hold PLAY 1500
+wait 1200
+charger off          # unplugged: it leaves, then sleeps (P18 Q9; with
+wait 3000            # soft sleep off, the sleep is a power-off), last
+shot after_unplug
+quit

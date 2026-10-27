@@ -55,6 +55,8 @@ bool parse_flac_album_art(unsigned char *buf, int bytes_read, enum mp3_aa_type *
 int get_ogg_format_and_move_to_comments(int fd, unsigned char *buf);
 bool ogg_file_init(struct ogg_file* file, int fd, int type, int remaining);
 ssize_t ogg_file_read(struct ogg_file* file, void* buffer, size_t buffer_size);
+bool ogg_file_open_art(struct ogg_file* file, int fd, off_t pos,
+                       unsigned char* buf);
 #endif
 
 int string_option(const char *option, const char *const oplist[], bool ignore_case);

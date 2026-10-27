@@ -1,0 +1,55 @@
+# Phase 3 fallback: without the offscreen strip (its core_alloc failed)
+# nothing animates. Push/pop redraw the whole screen at once, the view
+# snaps by whole rows (Phase 2 behaviour) and the scrollbar and marquee
+# still work (they need no strip).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p3-nostrip.script
+# env: IPODUI_NO_STRIP=1
+#
+# Trace: no "anim" lines at all (check_trace.py skips those rules); every
+# push/pop is one "update full", list shifts are "update band" multiples
+# of the row pitch.
+# golden: skip past_bar
+
+wait 4000           # boot to the main menu
+wheel +3            # Settings
+wait 400
+key SELECT          # no slide: one full redraw
+wait 800
+shot settings
+
+# slow turn past the 8th row: the view snaps one row
+wheel +1
+wait 250
+wheel +1
+wait 250
+wheel +1
+wait 250
+wheel +1
+wait 250
+wheel +1
+wait 250
+wheel +1
+wait 250
+wheel +1
+wait 250
+wheel +1
+wait 250
+wheel +1
+wait 150
+shot past_bar       # 10th row selected, scrollbar showing (timing-sensitive)
+wait 1500
+shot past_view      # scrollbar gone
+
+wheel +40           # to the last row
+wait 2000
+shot fast_end
+
+wheel -60           # back to the top
+wait 2000
+shot top
+
+key MENU            # no slide: one full redraw
+wait 800
+shot back
+
+quit

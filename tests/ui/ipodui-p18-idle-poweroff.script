@@ -1,0 +1,18 @@
+# Phase 18-1 review M1: the idle timer still powers off as upstream's
+# does when there is no soft sleep. The shell registers its sleep handler
+# at start (ui_main.c, since the p18-2 merge), so the timer's request goes
+# to sleep.c; with the developer "Sleep: off" switch (sleep_mode off) the
+# shell answers it with today's power-off: stopped and idle past a
+# 1-minute timeout, the SYS_POWEROFF path runs and no soft sleep starts.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p18-idle-poweroff.script
+# golden: skip
+# timeout: 150
+# log: power off batt=
+# nolog: sleep enter
+
+wait 4000
+sleep_mode off
+idle_poweroff 1         # 1 min, the setting's least
+shot armed               # before the power-off ends the run
+wait 80000              # the power-off ends the run before this does
+quit

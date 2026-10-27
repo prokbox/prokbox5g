@@ -1,0 +1,14 @@
+{{ $cur := . }}
+{{ $all := slice }}
+{{ with site.GetPage "/guide" }}{{ $all = $all | append . }}{{ range .Pages.ByWeight }}{{ $all = $all | append . }}{{ end }}{{ end }}
+{{ $prev := false }}{{ $next := false }}
+{{ range $i, $p := $all }}
+  {{ if eq $p $cur }}
+    {{ if gt $i 0 }}{{ $prev = index $all (sub $i 1) }}{{ end }}
+    {{ if lt (add $i 1) (len $all) }}{{ $next = index $all (add $i 1) }}{{ end }}
+  {{ end }}
+{{ end }}
+<nav class="prevnext" aria-label="Previous and next chapter" data-pagefind-ignore>
+  {{ with $prev }}<a class="prev" href="{{ .RelPermalink }}"><small>Previous</small>{{ if .IsSection }}Introduction{{ else }}{{ .Title }}{{ end }}</a>{{ end }}
+  {{ with $next }}<a class="next" href="{{ .RelPermalink }}"><small>Next</small>{{ .Title }}</a>{{ end }}
+</nav>

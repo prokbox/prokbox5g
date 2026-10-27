@@ -1,0 +1,45 @@
+# Phase 16-4 (#92, M5; review M1): a panels.pak with its sets interleaved
+# (as an 8b unit may have it) is regrouped (each set's covers in
+# consecutive slots, so the drift's bank refresh is one read) inside a
+# maintenance window only: never at boot, never in a young pause; once
+# the pause is 3 min old and the user idle, the art builder copies the
+# slots in set order (no decode) and publishes the header, still version
+# 1 (what an 8b build reads). The queue stays paused.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-panels-v2.script
+# needs: library
+# golden: skip
+# log: art_panels_ungroup ok
+# log: expect_panels_grouped ok v=1
+# logbetween: p0 p1 art panel regroup v=\d->1
+# logbetween: p0 p1 maint window open
+# logbetween: start p0 no art panel regroup
+# nolog: expect_panels_grouped failed
+# nolog: art fail
+# timeout: 300
+
+wait 1000
+wait_db 30000
+art_wait 120000
+art_panels_ungroup  # sets interleaved, as an 8b unit may have them
+wheel +4            # Shuffle Songs
+wait 500
+key SELECT          # plays (the WPS)
+wait 2000
+expect_playing 500
+key PLAY            # pause
+wait 1500
+expect_paused 500
+backlight_expire    # idle, but the pause is young: no regroup
+art_wait 60000
+wait 3000
+ab_mark p0
+pause_age 200       # the window opens at the next poll
+wait 3000
+art_wait 120000
+ab_mark p1
+expect_paused 500   # never stopped
+expect_panels_grouped
+key MENU
+wait 1000
+shot after
+quit

@@ -1,0 +1,84 @@
+# P12 W1-L (owner: reserved holds work everywhere): locked, hold PLAY
+# still sleeps (global_hold, before any screen) and the next boot is
+# locked; Hold SELECT + MENU is the hardware reset (the sim's "reboot"):
+# the chord itself reaches no screen and leaves the lock up. A system
+# screen pushed over the lock (Charging, as an alarm's ring is) gets its
+# keys, and the locked screen is back when it goes.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p12-lock-holds.script
+# golden: skip
+# modclass: none (resident sim-ui: the accountant follows the module
+# loader; a modules-build run, SIM_BUILD=build/sim-ui-mod, is owed)
+# log: ipodui: sleep: hold PLAY
+# log: ipodui: sleep: charging
+# log: ipodui: lock screen push
+# nolog: hold MENU: to the main menu
+# nolog: 1234
+# reset: mainmenu
+wait 4000            # boot to the main menu, "Music" selected
+wheel +2 300         # "Extras"
+wait 600
+key SELECT
+wait 1200
+wheel +7 200         # the last row (Stopwatch; the list does not wrap)
+wait 600
+wheel -1 200         # "Screen Lock", from the end: with or without a Games row
+wait 800
+key SELECT
+wait 1200
+# New Combination 1234, then Confirm 1234: Lock / Reset
+wheel +1 250
+wait 300
+key SELECT
+wait 200
+wheel +2 250
+wait 300
+key SELECT
+wait 200
+wheel +3 250
+wait 300
+key SELECT
+wait 200
+wheel +4 250
+wait 300
+key SELECT
+wait 200
+wait 800
+wheel +1 250
+wait 300
+key SELECT
+wait 200
+wheel +2 250
+wait 300
+key SELECT
+wait 200
+wheel +3 250
+wait 300
+key SELECT
+wait 200
+wheel +4 250
+wait 300
+key SELECT
+wait 200
+wait 800
+key SELECT           # Lock
+wait 1200
+chord SELECT+MENU 3000
+wait 800
+shot after_chord     # still locked, nothing popped
+charger on
+wait 3000            # the power thread notices the charger (500 ms
+                     # raced its poll)
+hold PLAY 1500       # on a charger: the Charging screen, over the lock
+wait 1500
+shot charging
+hold MENU 1500       # its key; the hold never pops past the lock
+wait 1500
+shot back_locked     # the locked screen again
+charger off
+wait 500
+hold PLAY 2500
+wait 4000
+reboot
+wait 5000
+shot booted_locked
+quit

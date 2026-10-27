@@ -1,0 +1,28 @@
+# Phase 19 W0-5: the simulator's BCM2722 job model (uisimulator/common/
+# sim_bcm_job.c over bcmfw/jobs/jmodel.c) and its script commands
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p19-bcm-model.script
+# Needs the --bcmfw-video simulator (HAVE_BCM_JOBS_MODEL); validate.sh maps
+# ipodui-p19-* there (script_sim).
+# needs: video
+# golden: skip
+# log: bcmjob init model resident=
+# log: bcmjob selftest ok
+# log: bcmjob selftest failed rc=-1
+#
+# The ring-full injection refuses the next submit, so the second self-test
+# fails cleanly (BUSY) instead of hanging; "bcm_fault none" clears it.  The
+# dark power-up count stays 0 (nothing asks for the BCM while dark).  The
+# dark phase itself (a 60 s LCD sleep) is covered by P18's lcd-sleep script.
+wait 4000
+bcm_stats
+bcm_selftest
+bcm_stats
+bcm_fault ringfull 0x25 1
+bcm_selftest
+bcm_fault none
+bcm_selftest
+bcm_advance 1000
+bcm_stats
+expect_bcm_dark_ups 0
+shot main
+quit

@@ -1,0 +1,4 @@
+boot build=4e57b3b9a1 rtc=2026-10-25 13:58:02
+1 panel drift jobs mode=on
+2 bcmjob cpu why=no jobs caps=0000
+3 panel drift still why=off

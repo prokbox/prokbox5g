@@ -1,0 +1,70 @@
+# Developer menu layout (owner, 2026-10-26; docs/design/devmode.md
+# section 3): the top level, the Status screen (with one switch changed),
+# Advanced and its Experiments, Diagnostics and Labs, and Back to About.
+# The simulator has no video chip rows and no Bench session (target-only,
+# HAVE_BCMFW_DEVTEST).
+wait 5000           # boot to the main menu
+wheel +3            # Settings
+wait 400
+key SELECT
+wait 1500
+key SELECT          # About
+wait 1500
+chord SELECT+LEFT 3200
+wait 1000
+shot top            # Status, Power log, ..., Advanced, Back
+key SELECT          # Status
+wait 1000
+shot status         # every row at its default: "Not at default: 0"
+key LEFT
+wait 800
+wheel -2            # Advanced (above Back; the list wraps)
+wait 400
+key SELECT
+wait 800
+shot advanced       # Experiments, Diagnostics, Labs, System debug
+key SELECT          # Experiments
+wait 800
+shot experiments
+wheel -1            # the last row (the list wraps)
+wait 400
+shot experiments_end
+key LEFT
+wait 600
+wheel +1            # Diagnostics
+wait 400
+key SELECT
+wait 800
+shot diagnostics
+key LEFT
+wait 600
+wheel +1            # Labs
+wait 400
+key SELECT
+wait 800
+shot labs
+key LEFT
+wait 600
+key LEFT            # back to the top level, on Advanced
+wait 600
+wheel -4            # Power log (Status, Power log, every, the battery
+wait 400            # table, its reset, Advanced)
+key SELECT          # on: the Status row turns "(changed)"
+wait 800
+wheel -1            # Status
+wait 400
+key SELECT
+wait 1000
+shot status_changed # "Not at default: 1", "Power log: every 30 s (changed)"
+key LEFT
+wait 800
+wheel +1            # Power log
+wait 400
+key SELECT          # off again
+wait 800
+wheel -2            # Back (the list wraps)
+wait 400
+key SELECT
+wait 1500
+shot about_after    # the shell's About again
+quit

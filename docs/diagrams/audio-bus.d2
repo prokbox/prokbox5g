@@ -1,0 +1,87 @@
+# ProkBox hardware manual: the I2S audio bus shared by the PP5022, the BCM2722 and the WM8758.
+# Facts: docs/bcm2722-reference/audio.md (§2-§5), memory-map.md, open-questions.md #35/#39;
+# docs/research/bcm2722/audio-spike.md §8; firmware/target/arm/pp/wmcodec-pp.c (I2C 0x1A);
+# device logs session log, session 3 bcmtest*.log (stage 8a-0 edge counts, 8a-0b pull test).
+...@style
+
+direction: right
+
+title: |md
+  # The audio bus: one codec, two possible sources
+  The WM8758 is the I²S clock master; its clocks reach the PP5022 and the BCM2722 (device sessions 32–34)
+| {class: title; near: top-center}
+
+codec: "Audio: Wolfson WM8758" {
+  class: audio
+  direction: down
+  ctl: "Control port\nI²C slave 0x1A" {class: audiob}
+  dai: "Digital audio interface\nclock master (CLKCTRL_MS)\nBCLK · LRCK out · DACDAT in" {class: audiob}
+  dac: "DACs · headphone amp" {class: audiob}
+  hp: "Headphone jack" {class: audiob}
+  dai -> dac {class: data}
+  dac -> hp: "analogue" {class: data}
+}
+
+pp: "Host: PP5022" {
+  class: pp
+  direction: right
+  ppdma: "DMA → I²S FIFO\n(Rockbox PCM)" {class: ppb}
+  i2s: "I²S block (slave) 0x7000_2800\nTXFIFOEN stays set after a stop" {class: ppb}
+  i2c: "I²C master 0x7000_C000\nvolume stays with the PP" {class: ppb}
+  ppdma -> i2s {class: data}
+}
+
+bcm: "Video co-processor: BCM2722" {
+  class: bcm
+  direction: right
+  ring: "PCM ring\n(silence block\nloops on itself)" {class: bcmb}
+  ch5: "DMA ch 5\nDREQ 7" {class: bcmb}
+  ablk: "Audio block 0x1000_4800\nFIFO +0x04 · divider +0x14\n[apple]; not yet run on silicon" {class: bcmb}
+  g2: "GPIO 2 (input)\n257–285 k edges/s while the PP plays\n(aliased: 64·fs ≈ 2.8 MHz) [silicon S32–S34]" {class: bcmb}
+  g3: "GPIO 3 (input)\n88,198 edges/s = 2·fs at 44.1 kHz\n[silicon S32–S34]" {class: bcmb}
+  g1: "GPIO 1 (fn 2 audio · fn 1 output)\n0 edges; floats in all three states\n[silicon S34]" {class: bcmb}
+  ring -> ch5 -> ablk {class: data}
+  ablk -> g1: "data out [hypothesis]" {class: hypedge}
+  g2 -> ablk: "bit clock [hyp.]" {class: hypedge}
+  g3 -> ablk: "frame clock [hyp.]" {class: hypedge}
+}
+
+mux: "Where the two data\nlines meet: selector,\ngate or wired-OR\n[hypothesis]" {class: hyp; shape: diamond}
+
+# ---- clocks from the codec (the master) ------------------------------------
+codec.dai -> pp.i2s: "BCLK, LRCK" {class: clk}
+codec.dai -> bcm.g2: "BCLK" {class: clk}
+codec.dai -> bcm.g3: "LRCK" {class: clk}
+
+# ---- data -------------------------------------------------------------------
+pp.i2s -> mux: "I²S data out" {class: data}
+bcm.g1 -> mux: "own net [hypothesis, strong]" {class: hypedge}
+mux -> codec.dai: "DACDAT" {class: hypedge}
+
+# ---- control ----------------------------------------------------------------
+pp.i2c -> codec.ctl: "I²C: volume, power, DAC standby" {class: ctl}
+
+notes: |md
+  **Proven** [silicon]: with the PP's audio stopped GPIO 1–3 show 0 edges/s; while it plays GPIO 2 and 3 toggle (S32–S34).
+
+  GPIO 1 never toggles and follows the BCM's pulls with the PP playing, its TX stopped, and audio off: undriven (S34, stage 8a-0b).
+
+  **Apple's code** [apple]: `audio_enable 1` sets GPIO 1–3 to function 2; `audio_enable 0` parks GPIO 1 as a driven output.
+
+  The BCM's codec-control routine is empty: it never writes the WM8758, so volume stays with the PP.
+
+  **Open** [hypothesis]: how GPIO 1 reaches DACDAT, and whether a selector must be set (open-questions.md #35, #39).
+
+  Nothing has been driven yet; stage 8a-1 (a test tone) waits for the owner's go.
+| {class: note}
+
+legend: @legend
+legend.near: bottom-right
+
+foot: |md
+  **Sources:** docs/bcm2722-reference/audio.md §2–§5 · memory-map.md · memory-access.md §6c · open-questions.md #35, #39
+
+  docs/research/bcm2722/audio-spike.md §8 · firmware/target/arm/pp/wmcodec-pp.c (I²C 0x1A)
+
+  Device logs session32–34 bcmtest.log: stage 8a-0 (GPIO sampled at 630–635 k samples/s), stage 8a-0b (pull test)
+| {class: foot; near: bottom-center}

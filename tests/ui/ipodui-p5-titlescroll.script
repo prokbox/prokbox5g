@@ -1,0 +1,41 @@
+# (Named titlescroll, not marquee: check_trace's marquee rule wants
+# `update marquee` lines, which Now Playing logs as np:title/np:row bands.)
+# Phase 5: the title marquee in Normal mode (a 74-char title; the title
+# is rendered once, then 20 Hz blits). Timing: every shot is skipped.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p5-titlescroll.script
+# needs: music
+# needs: np
+# golden: skip start m1 m2 m3 end
+
+wait 3000
+sim_clock 15:08
+clock_format 24      # P11: the default is 12-hour; this golden shows 24
+repeat off
+wait_db 30000
+art_wait 60000
+mkdir /NPTest
+copy ../../build/np-fixtures/long_title.mp3 /NPTest/long_title.mp3
+play_files /NPTest/long_title.mp3
+wait 1000
+np_pin 8000 50
+key SELECT          # Music (the menu re-reads "Now Playing" after a push/pop)
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 1200
+shot start
+wait 1500
+shot m1
+wait 1500
+shot m2
+wait 2000
+shot m3
+key MENU
+wait 800
+shot end
+audio_stop
+rm_file /NPTest/long_title.mp3
+quit

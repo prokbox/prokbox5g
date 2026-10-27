@@ -1,0 +1,35 @@
+# Phase 14a (#64, docs/phase14a-brief.md 7 A2): Videos > Settings reached directly with setvideos (V6)
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p14a-setvideos.script
+# (ipodui-p14a-* default to build/sim-ui-video; the gate runs them there)
+# needs: video
+#
+# Disk: tests/fixtures/videos/mkvideos.sh (installed by the gate's prime
+# step, or by shots.sh for a standalone run):
+#   Movies/        Audio First  High Profile  Late Chapter  Short Film
+#   TV Shows/      Show A (S1 x2, S2 x2, tagged)  Show B (S1 x2, untagged)
+#   Misc/          Show.C.S01E02.m4v  S01E03.m4v (nameless)
+#   Podcasts/Pod One/  Audio Episode.m4a  Video Episode.m4v
+#   Music/         Fixture Singer/Audio Only.mp4 (a song)
+#                  Fixture Author/Image Book.m4b (a book)
+# Main menu with Videos on (T1 default): Music, Videos, Podcasts, Extras,
+# Settings, Shuffle Songs. Videos: Movies, TV Shows, Settings.
+
+# From V6 (f895b7c5f2 tests/video/ui_video_settings.script): setvideos calls
+# ui_setvideos_push().
+wait 4000
+setvideos
+wait 800
+shot start               # Start Playing: Where Left Off / Fit to Screen: On
+key SELECT
+wait 300
+shot from_beginning      # Start Playing: From Beginning
+wheel +1
+wait 300
+key SELECT
+wait 300
+shot fit_off             # Fit to Screen: Off
+key SELECT
+wait 300
+key MENU
+wait 700
+shot back

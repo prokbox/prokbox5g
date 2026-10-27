@@ -1,0 +1,45 @@
+# #91 (docs/phase16-brief.md 4.3): the playlist control file's safe
+# replaces (playlist_set_current(), the control swap) leave a queue that a
+# reboot resumes. Playback starts from the library (Music > Songs), the
+# unit restarts while playing, PLAY resumes the queue (the main menu's Now
+# Playing row waits for playback after a boot, #58) and Now Playing shows
+# the resumed song.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-np-resume.script
+# needs: library
+# timeout: 120
+# golden: skip
+# log: rm_file /.rockbox/.playlist_control.tmp: not removed
+# log: rm_file /.rockbox/.playlist_control_prev: not removed
+
+wait 4000
+wait_db 30000
+key SELECT          # Music
+wait 800
+wheel +3 300        # "Songs"
+wait 400
+key SELECT
+wait 800
+wheel +2 300
+wait 400
+key SELECT          # plays the library from this song
+wait 2500
+expect_playing 300
+reboot
+
+wait 4000
+wait_db 30000
+shot menu           # no Now Playing row until playback (#58)
+key PLAY            # resume
+wait 1500
+expect_playing 1000
+shot resumed        # the Now Playing row is back
+wheel +5 300        # "Now Playing"
+wait 400
+key SELECT
+wait 1200
+shot now_playing
+rm_file /.rockbox/.playlist_control.tmp     # no working copy left
+rm_file /.rockbox/.playlist_control_prev    # no set-aside copy left
+audio_stop
+wait 500
+quit

@@ -1,0 +1,42 @@
+# Phase 5: PREV/NEXT in an audiobook jump by chapter (brief section 6).
+# Chapters start at 0 / 8 / 22 / 38 s. NEXT in chapter 1 lands at 8 s; PREV
+# more than 3 s into a chapter restarts it; PREV within 3 s of its start
+# goes to the previous chapter's start (the 3 s rule), so the script waits
+# for the restart case until playback is 3.2 s into chapter 2 (wait_pos) and presses the next PREV < 1 s in.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p5-ab-chapterkeys.script
+# needs: music
+# trace: np
+# golden: skip ch2
+
+wait 3000
+sim_clock 15:08
+clock_format 24      # P11: the default is 12-hour; this golden shows 24
+repeat off
+wait_db 30000
+art_wait 60000
+play_files /Music/Fixture%20Author/Mini%20Audiobook/Mini%20Audiobook.m4b
+wait 1000
+key SELECT          # Music (the menu re-reads "Now Playing" after a push/pop)
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 1200
+key NEXT            # at ~3 s: chapter 1 -> the start of chapter 2
+wait 800
+expect_pos 7800 10500
+shot ch2
+wait_pos 11200      # > 3 s into chapter 2 (a position, not a wall-clock wait: playback lags it on a loaded host)
+key PREV            # restarts chapter 2
+wait 500
+expect_pos 7800 9500
+key PREV            # < 3 s into it: the previous chapter's start
+wait 500
+expect_pos 0 3000
+key NEXT            # and forward again
+wait 800
+expect_pos 7800 10500
+audio_stop
+quit

@@ -1,0 +1,55 @@
+# P19 19-5: the stepped PAN's frames against F2 (bcm_drift parity).  The
+# BCM2722's model runs the title's PAN, and F2 also draws and pushes each
+# step at the PAN's own phase (a tick past each 50 ms step); the model's
+# panel must equal the framebuffer in the 152 x 18 window at every step
+# ("np mq parity x=N diff=0"): the same offsets at the same times, the
+# pause at rest included.  The shots are F2's (the framebuffer), the
+# same pictures as ipodui-p5-titlescroll's at those offsets.
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p19-mq-parity.script
+# needs: music
+# needs: np
+# needs: video
+# golden: skip
+# logbetween: start p0 np mq bcm start key=\S+ lap=\d+ w=1392 up=1
+# logbetween: p0 p1 np mq parity x=\d+ diff=0
+# logbetween: start end no np mq parity x=\d+ diff=[1-9]
+# logbetween: p1 end np mq bcm stop why=\S+ phase=\d+ rc=0
+# nolog: np mq cpu why=
+# nolog: glass owned STALE
+# nolog: shot POISONED
+
+wait 3000
+bcm_drift parity
+sim_clock 15:08
+clock_format 24
+repeat off
+wait_db 30000
+art_wait 60000
+mkdir /NPTest
+copy ../../build/np-fixtures/long_title.mp3 /NPTest/long_title.mp3
+play_files /NPTest/long_title.mp3
+wait 1000
+np_pin 8000 50
+key SELECT          # Music (the menu re-reads "Now Playing" after a push/pop)
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 1200
+shot start
+ab_mark p0
+wait 1500
+shot m1
+wait 1500
+shot m2
+wait 6000
+ab_mark p1
+shot m3
+key MENU
+wait 800
+shot end
+audio_stop
+rm_file /NPTest/long_title.mp3
+quit

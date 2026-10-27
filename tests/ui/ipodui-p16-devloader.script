@@ -1,0 +1,45 @@
+# #106 tenant B: the developer screen "Loader & storage"
+# needs: modules   (the developer screen is a module: build/sim-ui-mod)
+# (apps/ipodui/modules/devloader.c), the last row of the developer menu.
+# The row leaves the stock list and the shell pushes the screen (no
+# slide): white on black, 1 px rules, our own 5 x 8 bitmap face, the
+# arena map, each module's numbers and the storage counters, refreshed
+# once a second by row. In the simulator the modules link statically
+# (mode "static"); the ATA counters are target-only ("-").
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-devloader.script
+# timeout: 60
+# trace: devmode
+# log: devmode exit
+# log: devloader draw snap=
+# golden: skip devmenu loader loader_live
+#   (uptime and the quiet time move run to run)
+
+wait 5000            # boot
+wheel +3             # Settings (4th main-menu row)
+wait 400
+key SELECT           # Settings; About is its first row
+wait 1500
+key SELECT           # About
+wait 1500
+chord SELECT+LEFT 3200
+wait 1000
+wheel -2 300         # Advanced (above Back; the list wraps)
+wait 400
+key SELECT
+wait 800
+wheel +1             # Diagnostics
+wait 400
+key SELECT
+wait 800
+wheel +7 300         # Loader & storage (after Audio path test, the two
+wait 400             # crash rows and the four counters)
+shot devmenu
+key SELECT           # leaves the list, pushes the screen
+wait 1500
+shot loader
+wait 2200            # two refreshes: only changed rows are pushed
+shot loader_live
+key MENU             # back to About
+wait 1500
+shot back
+quit

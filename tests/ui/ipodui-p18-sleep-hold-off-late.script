@@ -1,0 +1,22 @@
+# Phase 18 (Q12, owner 2026-10-22): past SLEEP_HOLD_WAKE_S, Hold off does
+# not wake; the next SELECT wakes at once (no 60 s poll: the opto is
+# re-initialised at the Hold edge). 601 s = ten 60 s polls + 1 s.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p18-sleep-hold-off-late.script
+# golden: skip
+# log: sleep wake why=1 s=601 polls=10 spurious=0 resyncs=0 buttons=0x1 holds=2
+
+sleep_mode soft       # soft sleep is off by default (developer switch)
+wait 4000
+hold PLAY 1500          # the hold: dark at once, PLAY's release awaited
+expect_sleep asleep 8000
+hold_switch on
+sleep_warp 601
+hold_switch off
+expect_sleep asleep 100
+wait 1000
+expect_sleep asleep 100
+key SELECT
+expect_sleep button 3000
+wait 1000
+shot woken              # the gate needs one shot
+quit

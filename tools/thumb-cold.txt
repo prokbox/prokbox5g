@@ -1,0 +1,115 @@
+# Cold-Thumb list (Phase 8b-T, docs/phase8b-brief.md section 4.T; #45).
+#
+# tools/root.make compiles exactly these sources with -mthumb when
+# configure's --thumb-cold is on (the default for the shell firmware;
+# --no-thumb-cold turns it off). One path per line, relative to the source
+# root; no globs, so a file joins only by name. Everything else stays ARM.
+#
+# Rule for joining: the code runs on a press or once, never per frame,
+# never in an interrupt and never in a bulk loop over the library or a
+# file. A file that fails that rule joins only with a timing proof (< 5 %
+# slower, the brief's T1b). Never Thumb: apps/ipodui/sortkey.c, codecs,
+# plugins, firmware/, lib/, the hot list (library, list, paint, np_draw,
+# artblur, artfmt, browse, nowplaying, search_core, buffering, playback,
+# pcmbuf, tagcache). scripts/validate.sh prints this list with the size
+# report.
+
+# T1a: safe-cold shell screens and services
+apps/ipodui/screens/about.c
+apps/ipodui/apath.c
+apps/ipodui/screens/brightness.c
+apps/ipodui/clockpol.c
+apps/ipodui/clockpol_core.c
+apps/ipodui/screens/datetime.c
+apps/ipodui/devmode.c
+apps/ipodui/screens/eq.c
+apps/ipodui/eq_hw_presets.c
+apps/ipodui/screens/holdmenu.c
+apps/ipodui/screens/language.c
+apps/ipodui/screens/legal.c
+apps/ipodui/menucfg.c
+apps/ipodui/screens/newsw.c
+apps/ipodui/screens/reset.c
+apps/ipodui/sc_hw.c
+apps/ipodui/screens/settings.c
+apps/ipodui/screens/setwidgets.c
+apps/ipodui/screens/stub.c
+apps/ipodui/sysscreen.c
+apps/ipodui/udmatest.c
+apps/ipodui/sleeplab.c
+# usbscreen.c: usb_compose_all() blends 12 frames per pixel on every plug;
+# device check 8 times the first USB frame (> 10 % slower: it leaves)
+apps/ipodui/usbscreen.c
+apps/ipodui/vlimit.c
+
+# T2: the stock developer UI, reachable only through the hidden developer
+# combo. Proof (direct calls in the linked image, objdump): no call
+# into these from outside them except devmode.c (the combo's entry), main()
+# once at boot (list_init, gui_syncstatusbar_init), and the splash funnel's
+# callers, which return at ipodui_stock_ui_allowed() before any drawing.
+# apps/recorder/* (JPEG decode and resize, the art builder) stays ARM.
+apps/debug_menu.c
+apps/screens.c
+apps/gui/splash.c
+apps/gui/option_select.c
+apps/gui/yesno.c
+apps/gui/statusbar.c
+apps/gui/list.c
+apps/gui/bitmap/list.c
+apps/menu.c
+
+# T1b (the timing-gated reserve): a file joins only with its proof.
+# dbgen.c: runs once per boot (select) and per library update (prepare,
+# publish). Its only loops over file bytes go one chunk (>= 1 KB scratch,
+# DBGEN_SCRATCH_MIN) per pass, the bytes themselves through crc_32r() and
+# read()/write() in firmware/ (ARM); its other loops cover at most 32
+# manifest files (DBGEN_MAX_FILES). Thumb adds ~10-20 instructions per
+# chunk against ~10k for the chunk's CRC: < 0.5 %.
+apps/ipodui/dbgen.c
+# lib_shuffle_rec.c: seals and checks the shuffle record (a sum over its
+# ~100 bytes) once per record write or boot check, each beside a file
+# open/write/close; Thumb adds ~40 instructions per write: < 1 %.
+apps/ipodui/lib_shuffle_rec.c
+# The four list screens below: per frame they run only their row callbacks
+# (label, sublabel, extra, mark: loop-free, 15-80 ARM instructions each,
+# the text work in lib_label()/snprintf()/lcd_* in ARM) for the visible
+# rows and a draw of ~30-45 instructions: under ~1,000 instructions per
+# frame, so Thumb adds at most ~400 against the 300k frame budget
+# (docs/process.md lean rule 8): < 0.2 %. Their loops run on a press
+# (input) or on entry (otg.c's resolve and the directory read stay ARM).
+apps/ipodui/screens/audiobooks.c
+apps/ipodui/screens/playlists.c
+apps/ipodui/screens/otglist.c
+apps/ipodui/screens/checklist.c
+# screen_stack.c (2026-10-20, after the np-select merge pushed _end one
+# page): push/pop and the arena on navigation; per frame only getters and
+# two loops over the pending update bands (<= 8) and the depth (<= 8):
+# a few dozen instructions, so Thumb adds < 0.05 % of the frame budget.
+# No asm, IRQ or tick use.
+apps/ipodui/screen_stack.c
+# np_state.c (same reason): Now Playing's mode machine (SELECT cycle,
+# scrub state) on input, plus np_shown_pos(), two compares per pass; one
+# loop over the <= 6 modes on SELECT. No asm, IRQ or tick use.
+apps/ipodui/np_state.c
+# click.c (2026-10-20, the soft headphone click): click_pass() draws the
+# 4 ms damped tone once per mixer sample rate (cold); per click only
+# ipodui_click_play() runs (a level lookup and one mixer call, no loop).
+# No asm, IRQ or tick use.
+apps/ipodui/click.c
+# unlit.c (same reason): the Hold and clock face's state, status reads and
+# per-rect fill callback; the face redraws once a minute (the pixel work is
+# unlit_core.c, which stays ARM). No loops, asm, IRQ or tick use.
+apps/ipodui/unlit.c
+# #106: the module loader (cold: once per screen entry)
+apps/ipodui/modload.c          # optional: only with -DIPODUI_WITH_MODULES
+apps/ipodui/modload_core.c     # optional: only with -DIPODUI_WITH_MODULES
+# P12 (the SDK trim): the game SDK's cold half. sdk_cold.c is the entry
+# and exit paths, the .state read and write, the overlay menu (drawn on a
+# press) and the Settings screen; sdk_state.c packs and checks the .state
+# image and the games file's records (once per entry, exit or save);
+# sdk_games.c is the Games list (a press, or one list draw). The per-frame
+# calls (drawing, input, the loop, the watchdog) stay ARM in sdk.c and
+# sdk_core.c. No asm, IRQ or tick use (the watchdog tick is in sdk.c).
+apps/ipodui/sdk/sdk_cold.c
+apps/ipodui/sdk/sdk_state.c
+apps/ipodui/sdk/sdk_games.c

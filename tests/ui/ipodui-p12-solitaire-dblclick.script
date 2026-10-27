@@ -1,0 +1,61 @@
+# Solitaire: a quick double press of SELECT sends the card under the
+# cursor to its foundation (the top right stacks), like the classic
+# double click. The simulator's fixed deal turns the ace of clubs up on
+# the waste after seven draws. A double press on a card with no legal
+# home does nothing visible; a slow second press is a normal pick up
+# then put back; the pause menu's Undo takes the auto-move back.
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-solitaire-dblclick.script
+# needs: modules
+# reset: mainmenu
+
+wait 4000
+sdk_clear            # a fresh deal (the simulator deals from a fixed seed)
+wheel +2             # Extras
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Games
+wait 600
+key SELECT
+wait 1200
+wheel +5             # Solitaire
+wait 600
+key SELECT
+wait 1500
+key SELECT           # draw three, seven times: the ace of clubs on top
+wait 500
+key SELECT
+wait 500
+key SELECT
+wait 500
+key SELECT
+wait 500
+key SELECT
+wait 500
+key SELECT
+wait 500
+key SELECT
+wait 700
+wheel +1 300         # the waste
+wait 500
+shot before          # the ace of clubs on top of the waste
+key SELECT           # first press: picks it up
+wait 120
+key SELECT           # second press: sends it home
+wait 700
+shot after           # the ace on a foundation, nothing held
+wheel +7 500         # tableau pile 3: the 2 of diamonds has no home yet
+wait 500
+key SELECT
+wait 120
+key SELECT           # double press, no legal move: nothing happens
+wait 700
+shot nohome
+key MENU             # the pause menu
+wait 600
+wheel +2 400         # Undo
+wait 400
+key SELECT
+wait 800
+shot undone          # the ace is back on the waste
+quit

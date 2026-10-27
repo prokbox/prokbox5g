@@ -1,0 +1,89 @@
+# Phase 9 Rev 1 M1: the stock files the shell keeps for developer mode
+# (menu.c, debug_menu.c, screens.c, gui/list.c) still work with the trims
+# on. Every debug screen of the simulator build opens and closes in turn:
+# no crash, no other splash. With IPODUI_TRIM_SKIN the stock lists draw
+# unthemed, full screen (no skinned status bar); IPODUI_TRIM_VOICE drops
+# "Talk engine stats" and IPODUI_TRIM_SKIN "Skin Engine RAM usage" (their
+# engines are gone). The simulator's list is five rows: View OS stacks,
+# Screendump, Metadata log, View database info, View buffering thread.
+# The device has more (I/O ports, PCF registers, CPU frequency, battery,
+# HW info, partitions, disk info): a P10 device check. Screendump and
+# Metadata log are toggles whose stock "... enabled/disabled" splash passes
+# in developer mode by design (8a M3, as before P9); each is toggled twice
+# so the settings end as found.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p9-devmode-debug.script
+# needs: library
+# trace: devmode
+# log: devmode enter
+# log: devmode exit
+# env: SIM_TRACE_LCD_PUSH=1
+# logbetween: dev_in dev_shown \bsim lcd push x=0 y=0 w=320 h=240\b
+# golden: skip debug os_stacks screendump metadata_log db_info buffering about_after
+
+wait 5000            # boot
+wheel +3            # Settings (4th main-menu row)
+wait 400
+key SELECT          # Settings; About is its first row
+wait 1500
+key SELECT          # About
+wait 1500
+ab_mark dev_in      # #63: the device showed About through all of this
+chord SELECT+LEFT 3200
+wait 1000
+wheel -2            # Advanced (above Back; the list wraps)
+wait 400
+key SELECT
+wait 800
+wheel -1            # System debug (its last row)
+wait 400
+key SELECT          # System debug
+wait 1000
+shot debug
+ab_mark dev_shown   # the Developer and Debug lists reached the panel
+
+key SELECT          # 1 View OS stacks
+wait 1500
+shot os_stacks
+key LEFT
+wait 800
+wheel +1
+wait 300
+key SELECT          # 2 Screendump: a toggle, back in the list at once
+wait 1500
+key SELECT          # toggled back
+wait 1500
+shot screendump
+wheel +1
+wait 300
+key SELECT          # 3 Metadata log: a toggle too
+wait 1500
+key SELECT          # toggled back
+wait 1500
+shot metadata_log
+wheel +1
+wait 300
+key SELECT          # 4 View database info
+wait 1500
+shot db_info
+key LEFT
+wait 800
+wheel +1
+wait 300
+key SELECT          # 5 View buffering thread
+wait 1500
+shot buffering
+key LEFT
+wait 800
+
+key LEFT            # out of Debug, to Advanced
+wait 800
+key LEFT            # Advanced
+wait 600
+key LEFT            # Developer, on Advanced
+wait 600
+wheel +1            # the Back row
+wait 400
+key SELECT          # Back: leave developer mode
+wait 1500
+shot about_after
+quit

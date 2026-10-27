@@ -1,0 +1,63 @@
+# #109 (design 4.3, 6 row 10, 7 "-dbq-otg"): On-The-Go still plays a path
+# queue (capped at OTG_MAX): after a database queue, playing On-The-Go
+# replaces it (playlist_create() resets the slot table) and a restart
+# resumes the path queue, not a database block.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-dbq-otg.script
+# needs: library
+# timeout: 200
+# golden: skip resumed
+# log: dbq build n=302
+# nolog: dbq resume n=
+# nolog: dbq resume fail
+# nolog: splash-pass
+
+wait 4000
+wait_db 30000
+key SELECT          # Music
+wait 1000
+wheel -10 100
+wait 300
+wheel +3 300        # Songs
+wait 600
+key SELECT
+wait 1500
+key SELECT          # the whole list: a database queue
+wait 2000
+expect_playing 300
+audio_stop
+wait 500
+hold MENU 1000
+wait 1500
+key SELECT          # Music
+wait 800
+wheel +3 300        # "Songs"
+wait 400
+key SELECT
+wait 800
+wheel +2 300
+wait 400
+hold SELECT 1500
+wait 600
+key SELECT          # Add to On-The-Go
+wait 800
+key MENU            # Music
+wait 800
+wheel -4 300        # "Playlists"
+wait 400
+key SELECT
+wait 800
+key SELECT          # "On-The-Go"
+wait 1000
+key SELECT          # play it: a path queue
+wait 2000
+expect_playing 500
+reboot
+
+wait 4000
+wait_db 30000
+key PLAY            # resumes the On-The-Go queue (one short song)
+wait 1000
+shot resumed
+audio_stop
+wait 500
+quit

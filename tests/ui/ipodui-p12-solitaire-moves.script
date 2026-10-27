@@ -1,0 +1,49 @@
+# P12 W4-1 (docs/design/sdk.md 13.1): playing. The simulator's fixed deal
+# has the 2 of diamonds on pile 3 and the 3 of spades on pile 4: the
+# wheel slides the cursor along the top shelf and on to pile 3 of the
+# bottom one, SELECT picks the 2 up (gold ring), one step right, SELECT
+# drops it on the 3 and pile 3's next card turns up.
+# Then the stock turns three, and the pause menu's Undo takes the draw
+# back. Each card placed clicks (the Clicker path).
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-solitaire-moves.script
+# needs: modules
+# reset: mainmenu
+
+wait 4000
+sdk_clear            # a fresh deal (the simulator deals from a fixed seed)
+wheel +2             # Extras
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Games
+wait 600
+key SELECT
+wait 1200
+wheel +5             # Solitaire
+wait 600
+key SELECT
+wait 1500
+wheel +8 800         # stock -> pile 3 (along the top shelf, then the tableau)
+wait 600
+key SELECT           # pick up the 2
+wait 500
+shot picked
+wheel +1 300         # pile 4
+wait 500
+key SELECT           # drop: 2 on the 3, pile 3 turns a card up
+wait 600
+shot moved
+wheel -9 900         # back to the stock
+wait 600
+key SELECT           # draw three
+wait 600
+shot drawn
+key MENU             # the pause menu
+wait 600
+shot menu
+wheel +2 400         # Undo
+wait 400
+key SELECT
+wait 800
+shot undone
+quit

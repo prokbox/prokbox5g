@@ -1,0 +1,97 @@
+# ProkBox hardware manual: data paths, (c) the BCM2722 side, in three panels:
+#   1. what the PP reaches through the host port (its window onto the BCM's address space);
+#   2. the BCM's own masters (scalar core, vector unit, DMA) and its memories;
+#   3. the way out: the LCD interface and panel, and the audio block.
+# A master that appears in two panels is the same block.
+# Facts: docs/data-paths.md §2 (M8–M12), §3 "BCM side", §4 cells 2–4, 17–28 (the number in brackets).
+...@paths-style
+
+direction: down
+
+title: |md
+  # BCM2722 side: the window, the cores, the panel
+  Each arrow is a master reaching a target; (n) is its cell in docs/data-paths.md §4 (status as of S37)
+| {class: title; near: top-center}
+
+# ---- panel 1 -------------------------------------------------------------------
+win: "1 · The PP's window onto the BCM (only the PP drives it)" {
+  class: chip_bcm
+  label.near: top-left
+  direction: down
+
+  port: "PP5022 host port\n0x3000_0000, 16-bit\n(see data-paths-pp)" {class: pp}
+  sram: "SRAM 1.25 MB\nhost 0x0–0x13_FFFF" {class: mem}
+  bsdram: "SDRAM 4 MB\nhost 0xC000_0000\nonly after bring-up" {class: mem}
+  regs: "Peripheral registers\n0x1000_xxxx\n32-bit accesses only" {class: bcm}
+
+  port -> sram: "image upload,\nhost frame (2)" {class: e_si}
+  port -> bsdram: "video bitstream,\n0 wrong words (3)" {class: e_si}
+  port -> regs: "start, cache flush,\nstatus reads (4)" {class: e_si}
+}
+
+# ---- panel 2 -------------------------------------------------------------------
+own: "2 · The BCM's own masters and its memories (SRAM above, SDRAM below)" {
+  class: chip_bcm
+  label.near: top-left
+  direction: down
+
+  vec: "Vector unit\n64 × 64-byte registers" {class: bcm}
+  core: "Scalar core (VPU)\n27 → 150 MHz, cache off" {class: bcm}
+  dma15: "DMA ch 1 (LCD)\nand ch 5 (audio)" {class: bcm}
+  dma67: "DMA ch 6 (TV)\nand ch 7 (memcpy)" {class: bcm}
+
+  sram: "SRAM 1.25 MB\ncore 0x0–0x13_FFFF" {class: mem}
+  bsdram: "SDRAM 4 MB\ncore 0xFE00_0000" {class: mem}
+  regs: "Peripheral registers\n0x1000_xxxx" {class: bcm}
+
+  sram <- vec: "≈ 31 B/cycle (23)" {class: e_si}
+  vec -> bsdram: "(23)" {class: e_si}
+  sram <- core: "(18)" {class: e_si}
+  core -> bsdram: "(19)" {class: e_si}
+  core -> regs: "(20)" {class: e_si}
+  sram <- dma15: "read (24, 26)" {class: e_si}
+  dma15 -> bsdram: "untried (25)" {class: e_unk}
+  sram <- dma67: "(28)" {class: e_apple}
+  dma67 -> bsdram: "(28)" {class: e_apple}
+}
+
+# ---- panel 3 -------------------------------------------------------------------
+outp: "3 · The way out: the panel and the audio block" {
+  class: chip_bcm
+  label.near: top-left
+  direction: down
+
+  core: "Scalar core (VPU)" {class: bcm}
+  dma1: "DMA ch 1\n(from SRAM)" {class: bcm}
+  dma5: "DMA ch 5\n(from SRAM)" {class: bcm}
+
+  lcdif: "LCD interface\n0x1000_4000\nbus 27 MHz" {class: bcm}
+  aud: "Audio block\n0x1000_4800\n(see data-paths-audio)" {class: bcm}
+  panel: "LCD panel 320 × 240\n(wired to the BCM only)" {class: out}
+
+  core -> lcdif: "pixel writes,\n39–49 ms/frame (21)" {class: e_si}
+  dma1 -> lcdif: "14.26 ms/frame (24)" {class: e_si}
+  dma5 -> aud: "S35 (26)" {class: e_si}
+  lcdif -> panel {class: e_si}
+}
+
+win -> own: "" {style.opacity: 0}
+own -> outp: "" {style.opacity: 0}
+
+key: "" {
+  near: bottom-center
+  style: {fill: transparent; stroke: transparent}
+  grid-columns: 2
+  horizontal-gap: 40
+  legend: @paths-legend
+  note: |md
+    **No path back:** the BCM cannot write PP memory (17).\
+    Its only signal is GPIO 23 to the PP's GPIO C bit 6,\
+    unconfirmed on our unit. The PP reads results itself.
+
+    **Not drawn:** the BCM writing the WM8758's registers\
+    (22, probably no path; see data-paths-audio).
+
+    Sources: docs/data-paths.md §2–§4. Our own drawing.
+  | {class: note}
+}

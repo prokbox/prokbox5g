@@ -71,6 +71,24 @@
 #define SYS_CALL_INCOMING         MAKE_SYS_EVENT(SYS_EVENT_CLS_MISC, 3)
 #define SYS_CALL_HUNG_UP          MAKE_SYS_EVENT(SYS_EVENT_CLS_MISC, 4)
 #define SYS_VOLUME_CHANGED        MAKE_SYS_EVENT(SYS_EVENT_CLS_MISC, 5)
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+/* iPod UI shell, Phase 8a (docs/phase8a-brief.md §4.2): posted to the
+ * button queue by firmware/backlight.c */
+/* the backlight began to turn off by its timer (unlit face) */
+#define SYS_IPODUI_BACKLIGHT_OFF  MAKE_SYS_EVENT(SYS_EVENT_CLS_MISC, 6)
+/* the Hold switch changed; data = 1 on, 0 off */
+#define SYS_IPODUI_HOLD_CHANGED   MAKE_SYS_EVENT(SYS_EVENT_CLS_MISC, 7)
+/* Phase 18: a soft sleep is asked for (any thread posts it to the button
+ * queue; the UI thread sleeps); data = enum ui_sleep_reason */
+#define SYS_SLEEP_REQUEST         MAKE_SYS_EVENT(SYS_EVENT_CLS_MISC, 8)
+/* its data: why the sleep is asked for (apps/ipodui/sleep.h) */
+enum ui_sleep_reason {
+    SLEEP_HOLD_PLAY,    /* global_hold() */
+    SLEEP_IDLE,         /* the idle power-off timer (Q4) */
+    SLEEP_TIMER,        /* P12 Sleep Timer */
+    SLEEP_UNPLUGGED,    /* left the charging screen by unplugging (Q9) */
+};
+#endif
 
 #define IS_SYSEVENT(ev)           ((ev & SYS_EVENT) == SYS_EVENT)
 

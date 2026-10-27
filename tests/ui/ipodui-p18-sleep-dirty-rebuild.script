@@ -1,0 +1,38 @@
+# Phase 18 (§4.3 table; Rev 1 H3): a dirty database whose rebuild waits
+# for the stop (music resumed at boot) rebuilds in the next sleep-entry
+# window instead of waiting for a boot.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p18-sleep-dirty-rebuild.script
+# needs: library
+# golden: skip
+# timeout: 300
+# env: SIM_BOOT_NOHOLD=1
+# log: sleep job=rebuild ran
+# nolog: sleep job=rebuild cut
+# fulls-extra: 1          (the wake pushes the left screen in full)
+
+sleep_mode soft       # soft sleep is off by default (developer switch)
+wait 4000
+wait_db 30000
+wheel +4                # "Shuffle Songs"
+wait 500
+key SELECT
+wait 2000
+expect_playing 300
+dirty_db
+boot_unclean
+reboot
+sleep_mode soft
+
+wait 1500
+key PLAY                # resumed before the rebuild's commit
+wait 1000
+expect_playing 3000
+expect_lib_updating 4000    # the commit waits for the stop
+hold PLAY 1500          # the hold: dark at once, PLAY's release awaited
+expect_sleep asleep 45000            # the window runs the rebuild
+key SELECT
+expect_sleep button 3000
+expect_lib_browsable 5000
+wait 1000
+shot lit                # the screen it left (Now Playing), lit
+quit

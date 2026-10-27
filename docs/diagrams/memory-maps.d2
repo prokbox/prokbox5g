@@ -1,0 +1,109 @@
+# ProkBox hardware manual: memory maps of the PP5022 and the BCM2722.
+# Facts: docs/bcm2722-reference/memory-access.md §2-§3 (our image's SRAM and SDRAM maps, dev41),
+# memory-map.md; firmware/export/pp5020.h; firmware/target/arm/pp/app-pp.lds; docs/hardware.md.
+# Bar heights: PP DRAM 12 px/MB; BCM SRAM 0.9 px/KB; BCM SDRAM 0.3 px/KB; every row at least 36 px,
+# so small regions are enlarged. The PP address-space bar is not to scale.
+...@style
+
+title: |md
+  # Memory maps: PP5022 and BCM2722
+  Address bars, low addresses at the top. PP DRAM and the BCM's SRAM and SDRAM are drawn to scale, small regions enlarged
+| {class: title; near: top-center}
+
+classes: {
+  host: {style: {fill: "#DCEBFA"; stroke: "#2B6CB0"; font-color: "#1A365D"; font-size: 18; border-radius: 0}}
+  chip: {style: {fill: "#E9DDFA"; stroke: "#6B46C1"; font-color: "#3C1F7A"; font-size: 18; border-radius: 0}}
+  shared: {style: {fill: "#FFF5DB"; stroke: "#B7791F"; font-color: "#5F370E"; font-size: 18; border-radius: 0}}
+  fixed: {style: {fill: "#E2E8F0"; stroke: "#4A5568"; font-color: "#1A202C"; font-size: 18; border-radius: 0}}
+  free: {style: {fill: "#FFFFFF"; stroke: "#A0AEC0"; stroke-dash: 3; font-color: "#718096"; font-size: 18; italic: true; border-radius: 0}}
+  bar: {style: {fill: "#FFFFFF"; stroke: "#CBD5E0"; font-size: 22; bold: true; border-radius: 6}}
+}
+
+maps: "" {
+  style: {fill: transparent; stroke: transparent}
+  grid-columns: 4
+  grid-gap: 60
+
+  ppcol: "" {
+  style: {fill: transparent; stroke: transparent}
+  grid-columns: 1
+  grid-gap: 60
+  ppmap: "PP5022 address space (not to scale)" {
+    class: bar
+    grid-columns: 1
+    grid-gap: 0
+    width: 520
+    a: "0x0000_0000 · DRAM, remapped by Rockbox\n(64 MB; cached)" {class: host; height: 120}
+    b: "0x1000_0000 · DRAM physical\n(uncached alias, UNCACHED_ADDR)" {class: host; height: 80}
+    c: "0x3000_0000–0x3007_FFFF · BCM2722 port\nmain bank 0x3000–0x3003 · ALT 0x3004–0x3007" {class: shared; height: 90}
+    d: "0x4000_0000 · IRAM 128 KB\ncore 48 KB · codec/plugin 80 KB at 0x4000_C000" {class: host; height: 90}
+    e: "0x6000_xxxx · system peripherals\nIRQ 4000 · timers 5000 · dev 6000 · CPU 7000\nDMA A000 · cache C000 · GPIO D000" {class: fixed; height: 110}
+    f: "0x7000_xxxx · I/O peripherals\nGPO32 0080 · I²S 2800 · UART 6000\nPWM A000 · I²C C000 · wheel C100" {class: fixed; height: 110}
+    g: "0xC300_0000 · ATA (IDE)" {class: fixed; height: 50}
+    h: "0xC500_0000 · USB OTG (ARC)" {class: fixed; height: 50}
+    i: "0xF000_F000 · memory-map (MMAP) registers" {class: fixed; height: 50}
+  }
+  key: "Legend: who writes it" {
+    class: bar
+    grid-columns: 1
+    grid-gap: 8
+    k1: "PP5022 / host-written" {class: host; height: 40}
+    k2: "BCM2722 image" {class: chip; height: 40}
+    k3: "Both, by convention" {class: shared; height: 40}
+    k4: "Fixed hardware / registers" {class: fixed; height: 40}
+    k5: "Free or absent" {class: free; height: 40}
+  }
+  }
+
+  ppdram: "PP5022 DRAM, 64 MB (shell build)" {
+    class: bar
+    grid-columns: 1
+    grid-gap: 0
+    width: 440
+    a: "0x000000 · firmware image\ntext · data · bss (_end 991,424 B)" {class: host; height: 50}
+    b: "_end → audio buffer\n65,068,864 B (62.05 MiB) static pool\nbuflib: fonts, list strip, tagcache RAM cache,\nplaylist, then PCM and codec data" {class: host; height: 740}
+    c: "ENDAUDIOADDR · codec slot 1 MB" {class: host; height: 36}
+    d: "plugin slot: 0 B in the shell build\n(512 KB in stock Rockbox)" {class: free; height: 44}
+  }
+
+  sram: "BCM2722 SRAM, 1.25 MB (our video image)" {
+    class: bar
+    grid-columns: 1
+    grid-gap: 0
+    width: 560
+    a: "0x000000–0x0001FF · vectors, VP header,\ndiagnostics, 0x1F8 command word" {class: fixed; height: 54}
+    b: "0x000200–0x01FFFF · image: code, data, .bss\n127.5 KB (96,008 B image in S34)" {class: chip; height: 115}
+    c: "0x020000–0x0CBFFF · decoder arena, 688 KB\ncontext, macroblock info, reference frames" {class: chip; height: 619}
+    d: "0x0CC000–0x0CFFFF · stack 16 KB" {class: chip; height: 36}
+    e: "0x0D0000 · command ring 8 KB (host → chip)" {class: host; height: 36}
+    f: "0x0D2000 · event ring 4 KB (chip → host)" {class: chip; height: 36}
+    g: "0x0D3000–0x0DEFFF · reserved, skeleton FIFO,\nscaler strip, self-test (48 KB)" {class: chip; height: 54}
+    h: "0x0DF000 · guard block 224 B" {class: chip; height: 36}
+    i: "0x0E0000–0x1057FF · host frame, 150 KB\n320×240 RGB565 (Rockbox BCMA_CMDPARAM)" {class: host; height: 135}
+    j: "0x105800–0x12AFFF · VIDEO_FB, 150 KB\nthe picture the LCD DMA reads" {class: chip; height: 135}
+    k: "0x12C000 · tone buffer 35 KB (stage 8a-1 only)" {class: chip; height: 36}
+    l: "0x1349D0–0x13FFFF · free 46 KB" {class: free; height: 41}
+  }
+
+  sdram: "BCM2722 SDRAM, 4 MB (our video image)" {
+    class: bar
+    grid-columns: 1
+    grid-gap: 0
+    width: 560
+    a: "0x000000–0x0FFFFF · bitstream FIFO, 1 MB\nhost 0xC000_0000 · core 0xFE00_0000\npackets 64-byte aligned" {class: host; height: 307}
+    b: "0x100000–0x2FBFFF · DPB, 2 MB − 16 KB\nframes that don't fit the SRAM arena\n(> 320×240 or HP_OPEN_SDRAM_DPB)" {class: chip; height: 610}
+    c: "0x300000–0x33FFFF · wrap copy, 256 KB" {class: chip; height: 77}
+    d: "0x340000–0x39FFFF · PCM rings, 384 KB\n(stage 8b: host in, chip out)" {class: shared; height: 115}
+    e: "0x3A0000–0x3CFFFF · dump: first picture 192 KB" {class: chip; height: 58}
+    f: "0x3D0000 · dump: VRF 22 KB" {class: chip; height: 36}
+    g: "0x3E0000 · dump: self-test 88 KB" {class: chip; height: 36}
+    h: "0x3F6000–0x3FFFFF · free 40 KB" {class: free; height: 36}
+  }
+}
+
+
+foot: |md
+  **Sources:** docs/bcm2722-reference/memory-access.md §2–§3, §8 (maps marked [ours]: our image's layout, dev41, not the chip's) · memory-map.md
+
+  firmware/export/pp5020.h · firmware/target/arm/pp/app-pp.lds · docs/hardware.md (budget table, Phase 9 shell build). SDRAM bit 22 is not decoded: 0xFE40_0000 reads 0xFE00_0000 [silicon S11].
+| {class: foot; near: bottom-center}

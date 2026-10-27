@@ -1,0 +1,350 @@
+# Gate --changed coverage map (docs/process.md "Gate").
+#
+# One rule per line: <path-glob>  <script-name-pattern>...
+# Whitespace-separated; a path-glob with no wildcard is just a literal
+# path. The second-and-later columns are script-name glob patterns
+# (matched against tests/ui/*.script basenames, e.g. "ipodui-p4-*"), or
+# the single word ALL.
+#
+# validate.sh --quick --changed maps every changed file (git diff against
+# the merge-base with main, plus uncommitted changes) through this table.
+# A changed path matching ALL on any line, or matching NO line at all,
+# makes the run cover every ipodui-* script (the safe default — an
+# unmapped file is an unknown risk, not a free pass). Only the ipodui-*
+# selection is narrowed; stock scripts, builds and host tests are
+# unaffected, and the plain full gate (no flags) always runs everything.
+#
+# Keep this table in sync with apps/ipodui/ as screens/features are
+# added; when in doubt, map to ALL rather than guess narrow.
+
+# feature screens -> the scripts that exercise them
+apps/ipodui/menu.c                 ipodui-p2-menu ipodui-p4-screens-dev
+apps/ipodui/menu.h                 ipodui-p2-menu ipodui-p4-screens-dev
+apps/ipodui/screens/stub.c         ipodui-p4-screens-dev ipodui-p2-core-dev
+apps/ipodui/screens/screens.h      ipodui-p4-screens-dev ipodui-p2-core-dev
+apps/ipodui/screens/browse.c       ipodui-p4-browse ipodui-p4-sort ipodui-p4-qscroll ipodui-p4-update ipodui-p4-commit-playing ipodui-p4-rebuild-playing ipodui-p4-dirty-playing ipodui-p4-refresh ipodui-p4-stats-survive library-db
+apps/ipodui/library.c              ipodui-p4-* library-db
+apps/ipodui/library.h              ipodui-p4-* library-db
+apps/ipodui/screens/playlists.c    ipodui-p4-playlists
+apps/ipodui/fonts/*                ALL
+
+# Phase 4b art cache / rich rows cluster
+apps/ipodui/artcache.c    ipodui-p4b-* ipodui-p4b1-* ipodui-idle-*
+apps/ipodui/artcache.h    ipodui-p4b-* ipodui-p4b1-* ipodui-idle-*
+tests/ui/ipodui-idle-*.script      ipodui-idle-*
+apps/ipodui/artfmt.c      ipodui-p4b-* ipodui-p4b1-*
+apps/ipodui/artfmt.h      ipodui-p4b-* ipodui-p4b1-*
+apps/ipodui/artkey.c      ipodui-p4b-* ipodui-p4b1-*
+apps/ipodui/artkey.h      ipodui-p4b-* ipodui-p4b1-*
+apps/ipodui/rowart.c      ipodui-p4b-rows ipodui-p4b-artbuild ipodui-p4b1-* ipodui-p4b-art-* ipodui-p8b-rowart-latency
+apps/ipodui/rowart.h      ipodui-p4b-rows ipodui-p4b-artbuild ipodui-p4b1-* ipodui-p4b-art-* ipodui-p8b-rowart-latency
+apps/ipodui/rowglyphs.h   ipodui-p4b-rows
+apps/ipodui/libfile.h     ipodui-p4b-* ipodui-p4b1-* ipodui-p4-*
+apps/ipodui/art/rowglyphs.py ipodui-p4b-rows
+
+# audiobook/chapter logic feeds the audiobooks screen
+apps/audiobook.c                   ipodui-p4-audiobooks ipodui-p5-ab-* ipodui-p5-audiobook ipodui-p6-*
+apps/audiobook_core.c              ipodui-p4-audiobooks ipodui-p5-ab-* ipodui-p5-audiobook ipodui-p6-*
+lib/rbcodec/metadata/chapters.c    ipodui-p4-audiobooks ipodui-p5-ab-* ipodui-p5-audiobook ipodui-p6-*
+lib/rbcodec/metadata/chapters.h    ipodui-p4-audiobooks ipodui-p5-ab-* ipodui-p5-audiobook ipodui-p6-*
+lib/rbcodec/metadata/mp4.c         ipodui-p4-audiobooks ipodui-p5-ab-* ipodui-p5-audiobook ipodui-p6-*
+# core/shared infrastructure: used by every screen, so a change here
+# can't be narrowed without risking silent gaps
+apps/ipodui/ui_main.c              ALL
+apps/ipodui/ipodui.h               ALL
+apps/ipodui/screen_stack.c         ALL
+apps/ipodui/screen_stack.h         ALL
+apps/ipodui/scroll.c               ALL
+apps/ipodui/scroll.h               ALL
+apps/ipodui/qscroll.c              ALL
+apps/ipodui/qscroll.h              ALL
+apps/ipodui/sortkey.c              ALL
+apps/ipodui/sortkey.h              ALL
+apps/ipodui/list.c                 ALL
+apps/ipodui/list.h                 ALL
+apps/ipodui/anim.c                 ALL
+apps/ipodui/anim.h                 ALL
+apps/ipodui/paint.c                ALL
+apps/ipodui/paint.h                ALL
+apps/ipodui/theme.c                ALL
+apps/ipodui/theme.h                ALL
+apps/ipodui/header.c               ALL
+apps/ipodui/header.h               ALL
+apps/ipodui/input.c                ALL
+apps/ipodui/input.h                ALL
+apps/tagcache.c                    ALL
+apps/tagcache.h                    ALL
+
+# #38 (docs/phase-nav-brief.md): split-screen preview panels, drift and
+# transition timing touch every split screen and every push/pop, so this
+# cluster maps to ALL like the rest of the core infrastructure above.
+apps/ipodui/preview.h              ALL
+apps/ipodui/nav_core.c             ALL
+apps/ipodui/nav_core.h             ALL
+apps/ipodui/preview.c              ALL
+apps/ipodui/screens/panels.h       ALL
+apps/ipodui/screens/panels.c       ALL
+apps/ipodui/screens/settings.c     ipodui-nav-settings ipodui-p3-*
+
+# Phase 8a (docs/phase8a-brief.md): native system screens. The unlit face
+# and the log hook into ui_main.c/input.c (already ALL above); the files
+# below are mapped to the scripts that exercise them.
+apps/ipodui/usbscreen.c            ipodui-p8a-usb ipodui-p8a-unlit-usb
+apps/ipodui/usbscreen.h            ipodui-p8a-usb ipodui-p8a-unlit-usb
+apps/ipodui/usbscreen_data.h       ipodui-p8a-usb ipodui-p8a-unlit-usb
+apps/ipodui/unlit.c                ipodui-p8a-unlit*
+apps/ipodui/unlit_core.c           ipodui-p8a-unlit*
+apps/ipodui/unlit.h                ipodui-p8a-unlit*
+apps/ipodui/devmode.c              ipodui-p8a-devmode* ipodui-p15-apath ipodui-p19-bench-*
+apps/ipodui/devmode.h              ipodui-p8a-devmode*
+apps/ipodui/uilog.c                ipodui-p8a-splash* ipodui-p8a-devmode* ipodui-p19-bench-*
+apps/ipodui/uilog.h                ipodui-p8a-splash* ipodui-p8a-devmode*
+apps/gui/usb_screen.c              ipodui-p8a-usb ipodui-p8a-unlit-usb ipodui-p4b*-art-usb
+apps/gui/splash.c                  ipodui-p8a-splash* ipodui-p8a-devmode*
+apps/gui/yesno.c                   ipodui-p8a-splash*
+apps/main.c                        ipodui-p8a-boot ipodui-p8a-devmode-boot ipodui-p2-menu
+firmware/backlight.c               ipodui-p8a-unlit*
+firmware/common/bootscreen.c       ipodui-p8a-boot
+firmware/common/bootscreen_data.c  ipodui-p8a-boot
+firmware/export/bootscreen.h       ipodui-p8a-boot
+firmware/export/bootscreen_data.h  ipodui-p8a-boot
+bootloader/*                       ipodui-p8a-boot
+firmware/target/hosted/sdl/button-sdl.c  ALL
+uisimulator/common/sim_cmd_sys.c   ipodui-p8a-*
+uisimulator/common/sim_capture.c   ipodui-p8a-boot
+tests/ui/ipodui-p8a-*.script       ipodui-p8a-*
+# Phase 6 (docs/phase6-brief.md): books, the resume store, the book map,
+# speed. Anything touching the chapter table, the pak or the store is
+# exercised by every ipodui-p6-* script; the Now Playing readers also by the
+# P5 audiobook/slot scripts.
+apps/ipodui/ab_book.h              ipodui-p6-* ipodui-p5-ab-* ipodui-p5-audiobook ipodui-p5-seqmove
+apps/ipodui/ab_book_core.c         ipodui-p6-*
+apps/ipodui/ab_book.c              ipodui-p6-* ipodui-p5-ab-* ipodui-p5-audiobook
+apps/ipodui/ab_store.h             ipodui-p6-*
+apps/ipodui/ab_store_core.c        ipodui-p6-*
+apps/ipodui/ab_store.c             ipodui-p6-*
+apps/ipodui/ab_speed.c             ipodui-p6-speed ipodui-p5-audiobook
+apps/ipodui/ab_stub.c              ipodui-p6-*
+lib/rbcodec/metadata/abpack.c      ipodui-p6-* ipodui-p5-ab-* ipodui-p5-audiobook ipodui-p5-chapart-*
+lib/rbcodec/metadata/id3extras.c   ipodui-p6-* ipodui-p5-chapart-*
+lib/rbcodec/metadata/id3tags.c     ipodui-p6-* ipodui-p4-audiobooks
+apps/ipodui/screens/audiobooks.c   ipodui-p4-audiobooks ipodui-p6-*
+uisimulator/common/sim_cmd_ab.c    ipodui-p6-*
+uisimulator/common/sim_cmd_ab.h    ipodui-p6-*
+tests/fixtures/ab/*                ipodui-p6-*
+
+
+# Phase 11 (docs/phase11-brief.md): each new screen/module maps to its own
+# ipodui-p11-* scripts plus the older scripts that walk through its entry
+# row. Shared files (ui_main.c, header.c, screen_stack.*, library.*) are ALL
+# above; the p11 sim commands touch every script that uses them.
+apps/ipodui/search.h               ipodui-p11-search* ipodui-p2-menu
+apps/ipodui/search_core.c          ipodui-p11-search* ipodui-p2-menu
+apps/ipodui/screens/search.c       ipodui-p11-search* ipodui-p2-menu
+apps/ipodui/otg.h                  ipodui-p11-hold* ipodui-p11-otg* ipodui-p4-playlists
+apps/ipodui/otg.c                  ipodui-p11-hold* ipodui-p11-otg* ipodui-p4-playlists
+apps/ipodui/screens/otglist.c      ipodui-p11-hold* ipodui-p11-otg* ipodui-p4-playlists
+apps/ipodui/screens/holdmenu.c     ipodui-p11-hold* ipodui-p11-otg* ipodui-p4-browse ipodui-p5-normal
+apps/ipodui/screens/holdmenu.h     ipodui-p11-hold* ipodui-p11-otg* ipodui-p4-browse ipodui-p5-normal
+apps/ipodui/menucfg.c              ipodui-p11-checklist* ipodui-p2-menu ipodui-nav-*
+apps/ipodui/menucfg.h              ipodui-p11-checklist* ipodui-p2-menu ipodui-nav-*
+apps/ipodui/screens/checklist.c    ipodui-p11-checklist* ipodui-p2-menu
+apps/ipodui/vlimit.c               ipodui-p11-vlimit* ipodui-p5-volume ipodui-p15-volume
+apps/ipodui/vlimit.h               ipodui-p11-vlimit* ipodui-p5-volume
+apps/ipodui/roller.c               ipodui-p11-vlimit* ipodui-p11-datetime*
+apps/ipodui/roller.h               ipodui-p11-vlimit* ipodui-p11-datetime*
+apps/ipodui/sysscreen.c            ipodui-p11-sys* ipodui-p8a-usb ipodui-p8a-unlit*
+apps/ipodui/sysscreen.h            ipodui-p11-sys* ipodui-p8a-usb ipodui-p8a-unlit*
+apps/ipodui/usbscreen.c            ipodui-p11-sys* ipodui-p8a-usb ipodui-p8a-unlit-usb ipodui-p4b*-art-usb
+apps/ipodui/screens/about.c        ipodui-p11-about* ipodui-p8a-devmode*
+apps/ipodui/screens/legal.c        ipodui-p11-legal ipodui-p11-about*
+apps/ipodui/screens/reset.c        ipodui-p11-reset* ipodui-p11-language*
+apps/ipodui/screens/language.c     ipodui-p11-reset* ipodui-p11-language*
+apps/ipodui/screens/datetime.c     ipodui-p11-datetime* ipodui-p4b2-header-clock
+apps/ipodui/screens/brightness.c   ipodui-p11-brightness* ipodui-nav-settings
+apps/ipodui/screens/eq.c           ipodui-p11-eq* ipodui-nav-settings
+apps/ipodui/np_draw.c              ipodui-qw2-* ipodui-p5-* ipodui-p6-* ipodui-p8a-unlit-npstop
+apps/ipodui/np_draw.h              ipodui-qw2-* ipodui-p5-* ipodui-p6-* ipodui-p8a-unlit-npstop
+apps/ipodui/artfmt.c               ipodui-qw2-* ipodui-p4b*-art* ipodui-p5-*art* ipodui-p5-chapart-*
+apps/ipodui/artfmt.h               ipodui-qw2-* ipodui-p4b*-art* ipodui-p5-*art* ipodui-p5-chapart-*
+uisimulator/common/sim_cmd_p11.c   ipodui-p11-* ipodui-p4b2-header-clock ipodui-nav-drift-review ipodui-nav-transitions-review
+uisimulator/common/sim_cmd_p11.h   ipodui-p11-* ipodui-p4b2-header-clock ipodui-nav-drift-review ipodui-nav-transitions-review
+tests/ui/ipodui-p11-*.script       ipodui-p11-*
+tests/ui/ipodui-qw2-*.script       ipodui-qw2-*
+
+# Phase 9 (docs/phase9-brief.md): the trim header and the tag
+# normalisation change what every screen is built from, so ALL; the
+# scratch slot has no live caller (reach.py, M8) and only the P9 scripts
+# exercise it; the sim commands and scripts map to their own scripts.
+firmware/export/config/ipodvideo-variant.h  ALL
+firmware/common/nfc.c                ALL
+firmware/common/nfc_table.h          ALL
+firmware/include/nfc.h               ALL
+firmware/common/unicode.c            ALL
+apps/language.c                      ALL
+apps/ipodui/panelart.c               ALL
+apps/ipodui/panelart.h               ALL
+apps/scratchbuf.c                    ipodui-p9-*
+apps/scratchbuf.h                    ipodui-p9-*
+apps/tagtree.c                       ipodui-p9-* ipodui-p4-stats-survive ipodui-p6-*
+uisimulator/common/sim_cmd_p9.c      ipodui-p9-*
+uisimulator/common/sim_cmd_p9.h      ipodui-p9-*
+uisimulator/common/sim_cmd_p9a.c     ipodui-p9-*
+uisimulator/common/sim_cmd_p9a.h     ipodui-p9-*
+uisimulator/common/filesystem-sim.c  ipodui-p9-* ipodui-p5-ab-* ipodui-p6-* ipodui-p11-otg*
+tests/ui/ipodui-p9-*.script          ipodui-p9-*
+# host-side P9 tools never run in the sim; the boot smoke stands in
+scripts/sizemap.py                   ipodui-p9-smoke-boot
+scripts/risk/reach.py                ipodui-p9-smoke-boot
+scripts/risk/reach_selftest.sh       ipodui-p9-smoke-boot
+scripts/risk/reach_gc_agree.py       ipodui-p9-smoke-boot
+scripts/risk/gc_check.sh             ipodui-p9-smoke-boot
+scripts/trim-revert.sh               ipodui-p9-smoke-boot
+scripts/trim-deps.txt                ipodui-p9-smoke-boot
+scripts/variants.sh                  ipodui-p9-smoke-boot
+
+# Phase 15 (docs/phase15-brief.md): hardware EQ, DAC standby, volume curve,
+# fades. The firmware-side files (mixer, playback, audio thread, pcmbuf, the
+# WM8758 driver and its sim twin) feed every p15 script plus the playback
+# ones that pause, end or switch tracks.
+apps/ipodui/screens/eq.c           ipodui-p15-eq-engine ipodui-p11-eq
+apps/ipodui/eq_hw.h                ipodui-p15-eq-engine ipodui-p11-eq
+apps/ipodui/eq_hw_presets.c        ipodui-p15-eq-engine ipodui-p11-eq
+apps/ipodui/volcurve.c             ipodui-p15-volume ipodui-p11-vlimit* ipodui-p5-volume
+apps/ipodui/volcurve.h             ipodui-p15-volume ipodui-p11-vlimit* ipodui-p5-volume
+apps/ipodui/fadecurve.h            ipodui-p15-fade
+apps/ipodui/np_playback.c          ipodui-p15-volume ipodui-p15-fade ipodui-p5-volume ipodui-np-*
+apps/pcmbuf.c                      ipodui-p15-fade ipodui-p15-standby* ipodui-np-row-paused ipodui-np-queue-end
+firmware/drivers/audio/wm8758.c    ipodui-p15-* ipodui-p11-eq
+firmware/drivers/audio/sdl.c       ipodui-p15-* ipodui-p11-eq
+firmware/pcm_mixer.c               ipodui-p15-* ipodui-np-row-paused ipodui-np-queue-end ipodui-p9-smoke-play
+apps/playback.c                    ipodui-p15-* ipodui-np-row-paused ipodui-np-queue-end ipodui-p9-smoke-play ipodui-p6-book-end
+apps/audio_thread.c                ipodui-p15-* ipodui-np-row-paused ipodui-np-queue-end ipodui-p9-smoke-play
+firmware/export/dac_ext.h          ipodui-p15-*
+firmware/export/dac_gain.h         ipodui-p15-*
+firmware/export/pcm_mixer.h        ipodui-p15-* ipodui-np-row-paused ipodui-np-queue-end ipodui-p9-smoke-play
+apps/ipodui/sc_hw.c                ipodui-p15-soundcheck ipodui-p15-volume ipodui-p11-vlimit*
+apps/ipodui/sc_hw.h                ipodui-p15-soundcheck ipodui-p15-volume ipodui-p11-vlimit*
+apps/ipodui/apath.c                ipodui-p15-apath ipodui-p8a-devmode*
+apps/ipodui/apath.h                ipodui-p15-apath ipodui-p8a-devmode*
+tests/fixtures/sc/*                ipodui-p15-soundcheck
+tests/ui/ipodui-p15-*.script       ipodui-p15-*
+
+# Phase 8b-0 tooling: perf-trace hooks (ptrace.h is included by rowart.c,
+# preview.c, list.c), the side-by-side harness and the style gallery.
+apps/ipodui/ptrace.h                 ipodui-p8b-* ipodui-p4b-rows ipodui-nav-drift
+tests/ui/ipodui-p8b-*.script         ipodui-p8b-*
+scripts/check_trace.py               ALL
+art/gallery.py                       ipodui-p8b-gallery
+tests/review/p8b-*                   ipodui-p8b-gallery
+
+# Phase 14a video (docs/phase14a-brief.md 5, 7 A2): the ipodui-p14a-*
+# scripts run on build/sim-ui-video. Rules accumulate: a file already mapped
+# above (library.c, menu.c, np_playback.c, ...) keeps its other scripts and
+# gains these. The video screens map to the scripts that show them; the
+# classifier, the lists and the precompute (vclass, vixpass, library, the
+# metadata reader) can change any list, so they map to every p14a script.
+tests/ui/ipodui-p14a-*.script        ipodui-p14a-*
+tests/fixtures/videos/*              ipodui-p14a-*
+uisimulator/common/sim_cmd_video.*   ipodui-p14a-*
+apps/ipodui/vclass.h                 ipodui-p14a-*
+apps/ipodui/vclass_core.c            ipodui-p14a-*
+apps/ipodui/vixpass.c                ipodui-p14a-*
+apps/ipodui/vixpass.h                ipodui-p14a-*
+apps/ipodui/vixpass_core.c           ipodui-p14a-*
+apps/ipodui/vixpass_core.h           ipodui-p14a-*
+apps/ipodui/library.c                ipodui-p14a-*
+apps/ipodui/library.h                ipodui-p14a-*
+apps/ipodui/libfile.h                ipodui-p14a-*
+apps/ipodui/lib_shuffle.c            ipodui-p14a-classify ipodui-p14a-podcasts-mixed
+apps/ipodui/artcache.c               ipodui-p14a-menu ipodui-p14a-movies ipodui-p14a-tv
+apps/ipodui/artcache.h               ipodui-p14a-menu ipodui-p14a-movies ipodui-p14a-tv
+apps/ipodui/artfmt.c                 ipodui-p14a-menu ipodui-p14a-movies ipodui-p14a-tv
+apps/ipodui/artfmt.h                 ipodui-p14a-menu ipodui-p14a-movies ipodui-p14a-tv
+apps/ipodui/screens/panels.c         ipodui-p14a-menu
+apps/ipodui/preview.c                ipodui-p14a-menu
+apps/ipodui/menu.c                   ipodui-p14a-menu ipodui-p14a-settings
+apps/ipodui/menucfg.c                ipodui-p14a-menu ipodui-p14a-settings
+apps/ipodui/menucfg.h                ipodui-p14a-menu ipodui-p14a-settings
+apps/ipodui/screens/videos.c         ipodui-p14a-menu ipodui-p14a-movies ipodui-p14a-tv ipodui-p14a-podcasts-mixed
+apps/ipodui/screens/browse.c         ipodui-p14a-movies ipodui-p14a-tv ipodui-p14a-podcasts-mixed ipodui-p14a-classify
+apps/ipodui/rowglyphs.h              ipodui-p14a-podcasts-mixed ipodui-p14a-tv ipodui-p14a-movies
+apps/ipodui/screens/video.c          ipodui-p14a-play ipodui-p14a-chapters ipodui-p14a-fallback ipodui-p14a-error-runtime ipodui-p14a-podcasts-mixed
+apps/ipodui/video.h                  ipodui-p14a-play ipodui-p14a-chapters ipodui-p14a-fallback ipodui-p14a-podcasts-mixed
+apps/ipodui/screens/setvideos.c      ipodui-p14a-settings
+apps/ipodui/screens/about.c          ipodui-p14a-about
+apps/ipodui/screens/holdmenu.c       ipodui-p14a-podcasts-mixed ipodui-p14a-chapters
+apps/ipodui/np_playback.c            ipodui-p14a-chapters ipodui-p14a-podcasts-mixed
+apps/ipodui/ab_speed.c               ipodui-p14a-chapters
+apps/settings_list.c                 ipodui-p14a-settings ipodui-p14a-chapters
+
+# Phase 12 Extras (docs/phase12-brief.md 6, 9; W1-T). Every new P12 file maps
+# to the ipodui-p12-* families that exercise it (script names per brief 9:
+# -extras-*, -mod-*, -modclass, -alarm-*, -sleeptimer-*, -clocks-*,
+# -stopwatch-*, -lock-*, -notes-*, -sdk-*, plus the tooling test -tooling-*).
+# Shared files already mapped above (ui_main.c, input.c: ALL; menu.c,
+# artcache.*, panels.c, filesystem-sim.c) keep their rules and gain these.
+tests/ui/ipodui-p12-*.script         ipodui-p12-*
+tests/trace/test_p12_rules.py        ipodui-p12-*
+uisimulator/common/sim_cmd_extras.*  ipodui-p12-*
+uisimulator/common/filesystem-sim.c  ipodui-p12-modclass ipodui-p12-extras-* ipodui-p12-notes-* ipodui-p12-tooling-*
+uisimulator/common/stubs.c           ipodui-p12-alarm-* ipodui-p12-tooling-* ipodui-p18-sleep-*
+tests/perf/floor_gate.sh             ipodui-p12-mod-* ipodui-p12-modclass
+tests/perf/floor-50k.script          ipodui-p12-mod-* ipodui-p12-modclass
+# framework (W1-F)
+apps/ipodui/modclass.h               ipodui-p12-modclass ipodui-p12-extras-* ipodui-p12-*-while-playing
+apps/ipodui/modclass.c               ipodui-p12-modclass ipodui-p12-extras-* ipodui-p12-*-while-playing
+apps/ipodui/extras.h                 ipodui-p12-extras-* ipodui-p12-mod-* ipodui-p12-modclass
+apps/ipodui/extras.c                 ipodui-p12-extras-* ipodui-p12-mod-* ipodui-p12-modclass
+apps/ipodui/screens/extras.c         ipodui-p12-extras-* ipodui-p12-mod-*
+apps/ipodui/modload.c                ipodui-p12-mod-* ipodui-p12-modclass
+apps/ipodui/modload.h                ipodui-p12-mod-* ipodui-p12-modclass
+apps/ipodui/modload_core.c           ipodui-p12-mod-* ipodui-p12-modclass
+apps/ipodui/modload_core.h           ipodui-p12-mod-* ipodui-p12-modclass
+apps/ipodui/modules/*                ipodui-p12-mod-* ipodui-p12-modclass
+tools/modpak.py                      ipodui-p12-mod-* ipodui-p12-modclass
+# alarms (W1-A1, W1-A2)
+apps/ipodui/alarm.c                  ipodui-p12-alarm-* ipodui-p12-sleeptimer-* ipodui-p12-tooling-pmu ipodui-p18-sleep-alarm-ontime
+apps/ipodui/alarm.h                  ipodui-p12-alarm-* ipodui-p12-sleeptimer-* ipodui-p12-tooling-pmu ipodui-p18-sleep-alarm-ontime
+apps/ipodui/alarm_core.c             ipodui-p12-alarm-* ipodui-p12-tooling-pmu
+apps/ipodui/alarm_core.h             ipodui-p12-alarm-* ipodui-p12-tooling-pmu
+apps/ipodui/screens/alarmring.c      ipodui-p12-alarm-*
+apps/ipodui/screens/alarms.c         ipodui-p12-alarm-* ipodui-p12-sleeptimer-*
+# stopwatch, lock, clocks, notes (W1-S, W1-L, W1-C, W1-N)
+apps/ipodui/stopwatch.c              ipodui-p12-stopwatch-* ipodui-p12-alarm-in-extra
+apps/ipodui/stopwatch.h              ipodui-p12-stopwatch-* ipodui-p12-alarm-in-extra
+apps/ipodui/stopwatch_core.c         ipodui-p12-stopwatch-*
+apps/ipodui/stopwatch_core.h         ipodui-p12-stopwatch-*
+apps/ipodui/screens/stopwatch.c      ipodui-p12-stopwatch-* ipodui-p12-alarm-in-extra
+apps/ipodui/lock.c                   ipodui-p12-lock-* ipodui-p12-alarm-locked
+apps/ipodui/lock.h                   ipodui-p12-lock-* ipodui-p12-alarm-locked
+apps/ipodui/lock_core.c              ipodui-p12-lock-*
+apps/ipodui/lock_core.h              ipodui-p12-lock-*
+apps/ipodui/screens/lockset.c        ipodui-p12-lock-*
+apps/ipodui/tzpick.c                 ipodui-p12-clocks-* ipodui-p11-datetime*
+apps/ipodui/tzpick.h                 ipodui-p12-clocks-* ipodui-p11-datetime*
+apps/ipodui/screens/clocks.c         ipodui-p12-clocks-*
+apps/ipodui/screens/datetime.c       ipodui-p12-clocks-* ipodui-p11-datetime*
+apps/ipodui/xindex_core.c            ipodui-p12-notes-*
+apps/ipodui/xindex_core.h            ipodui-p12-notes-*
+apps/ipodui/screens/xindex.c         ipodui-p12-notes-*
+apps/ipodui/xindex_build.c           ipodui-p12-notes-* ipodui-p12-contacts-*
+apps/ipodui/screens/notes.c          ipodui-p12-notes-*
+# SDK (wave 4)
+apps/ipodui/sdk.c                    ipodui-p12-sdk-*
+apps/ipodui/sdk.h                    ipodui-p12-sdk-*
+
+# Phase 19: the BCM2722 job model (sim-ui-video) and 19-1a/19-1c's scripts
+tests/ui/ipodui-p19-*.script         ipodui-p19-*
+tests/ui/ipodui-p19a-*.script        ipodui-p19a-*
+tests/ui/ipodui-p19c-*.script        ipodui-p19c-*
+tests/fixtures/p19c/*                ipodui-p19c-*
+uisimulator/common/sim_bcm_job.*     ipodui-p19-*
+
+# the bench session in the sim (apps/ipodui/devbench_sim.h): its runner,
+# pure part, stubs, script command and script generator
+apps/ipodui/devbench.c             ipodui-p19-bench-*
+apps/ipodui/devbench.h             ipodui-p19-bench-*
+apps/ipodui/devbench_sim*          ipodui-p19-bench-*
+uisimulator/common/sim_cmd_bench.* ipodui-p19-bench-*
+scripts/bench_sim_script.py        ipodui-p19-bench-*

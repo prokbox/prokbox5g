@@ -1,0 +1,9 @@
+boot build=4e57b3b9a1 rtc=2026-10-25 13:58:02
+1 bcmjob up epoch=1 ops=00003fff
+2 panel drift jobs mode=on
+3 bcmjob upload_rect deferred rows=12/240
+4 bcmjob upload_rect deferred rows=24/240
+5 bcmjob upload_rect deferred rows=36/240
+6 bcmjob upload_rect deferred rows=48/240
+7 bcmjob upload_rect deferred rows=60/240
+8 bcmjob fault op=0x30 why=timeout

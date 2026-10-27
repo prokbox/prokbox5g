@@ -1,0 +1,34 @@
+# Most of the owner's books have chapters but no chapter images. Such a
+# single-file book is a success: its record gets the done mark through the
+# batched delta (no index rewrite per book, "recs=0"), nothing fails or
+# retries, and the next pass (a library change) leaves it alone (no second
+# "art build chapters book=" line for it). Fixtures: nero_chapters.m4b
+# (Nero chapters, no image track; chapters_300.mp3 rides along).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-art-chap-noart.script
+# needs: library
+# golden: skip
+# log: images=0 bundles=0 recs=0 rc=0
+# log: art pass done
+# nolog: art retry
+# nolog: art fail
+# nolog: art chap fail
+# timeout: 240
+
+wait 1000
+wait_db 30000
+mkdir /Audiobooks/NOART1
+copy ../../tests/fixtures/nero_chapters.m4b /Audiobooks/NOART1/nero.m4b
+mkdir /Audiobooks/NOART2
+copy ../../tests/fixtures/chapters_300.mp3 /Audiobooks/NOART2/ch300.mp3
+update_db_wait_change 60000
+art_wait 120000
+mkdir /Audiobooks/NOART3
+copy ../../tests/fixtures/plain.mp3 /Audiobooks/NOART3/plain.mp3
+update_db_wait_change 60000
+art_wait 120000
+shot done
+rm_file /Audiobooks/NOART1/nero.m4b
+rm_file /Audiobooks/NOART2/ch300.mp3
+rm_file /Audiobooks/NOART3/plain.mp3
+update_db_wait_change 60000
+quit

@@ -1,0 +1,32 @@
+{{/* Pagefind (static search, indexed in CI after the Hugo build). Hidden
+     until its files exist, so a local build without the index still works. */}}
+<dialog class="search-dialog" data-search-dialog aria-label="Search the guide">
+  <div id="search"></div>
+  <form method="dialog"><button class="search-close">Close</button></form>
+</dialog>
+<script>
+(function () {
+  var base = {{ "pagefind/" | relURL }};
+  var btn = document.querySelector('[data-search-open]');
+  var dlg = document.querySelector('[data-search-dialog]');
+  var css = document.createElement('link');
+  css.rel = 'stylesheet'; css.href = base + 'pagefind-ui.css';
+  var s = document.createElement('script');
+  s.src = base + 'pagefind-ui.js';
+  s.onload = function () {
+    document.head.appendChild(css);
+    new PagefindUI({ element: '#search', showSubResults: true, showImages: false });
+    btn.hidden = false;
+    btn.addEventListener('click', function () {
+      dlg.showModal();
+      var i = dlg.querySelector('input'); if (i) i.focus();
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === '/' && !dlg.open && !/input|textarea/i.test(document.activeElement.tagName)) {
+        e.preventDefault(); btn.click();
+      }
+    });
+  };
+  document.head.appendChild(s);
+})();
+</script>

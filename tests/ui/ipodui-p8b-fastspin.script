@@ -1,0 +1,33 @@
+# Phase 8b-3 review M2: panel fades during fast wheel spins over split
+# screens (main menu, Settings, Date & Time). The arrival fade's first
+# frame stays paced (hl_k -1, "started, no frame yet") and is never lost:
+# every row that rests gets its panel, a row passed in a spin gets none,
+# and no fade frame is pushed out of the 30 fps turn of a list glide.
+# Count per run: "panel arrive" and "update anim:xfade" lines in sim.log.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p8b-fastspin.script
+
+wait 4000            # boot to the main menu
+wheel +3 40          # fast to Settings
+wheel -3 40
+wheel +3 40
+wait 600
+key SELECT
+wait 1500
+wheel +16 40         # fast spin to Reset Settings (row 17)
+wait 900
+shot settings_spin   # Reset Settings' tile, not a stale row's
+wheel -16 40         # fast back to About
+wait 900
+shot settings_back   # the capacity panel
+wheel +12 40         # Date & Time
+wait 900
+shot date_time       # the calendar page
+key SELECT
+wait 1500
+wheel +4 40          # Date & Time's own list, fast
+wait 900
+shot dt_list
+wheel -4 40
+wait 900
+shot dt_list_back
+quit

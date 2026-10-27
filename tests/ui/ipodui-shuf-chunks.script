@@ -1,0 +1,84 @@
+# npfix end review L1/L2: a shuffle refill runs in 5-entry chunks, one
+# per UI pass (lib_shuffle.c); the record is written once, at its end.
+#  L1  a power-off between two chunks ("shuf_chunk_hold" stops it after
+#      the first): the power-off ends the refill first (lib_shuffle_settle:
+#      "shuf: settle"), so the next boot's check resumes the lap ("shuf:
+#      boot record 0"), never restarts it ("... 1");
+#  L2  a shelf mode change mid-refill: the open refill ends before the
+#      new source replaces the queue; nothing is left open and the record
+#      names the queue (shuf_expect_settled).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-shuf-chunks.script
+# needs: library
+# log: shuf: chunk +5 total=5
+# log: shuf: settle chunks=1 +5
+# log: shuf: boot record 0
+# log: shuf: mode albums ok
+# log: shuf: mode albums replaced=
+# log: shuf_expect_settled ok
+# nolog: shuf: boot record 1
+# nolog: shuf: boot record 2
+# nolog: shuf_expect_settled failed
+# nolog: unavailable
+# nolog: splash-pass
+# nolog: bad command
+# fulls-extra: 8   (Now Playing's pushes and pops, the reboot)
+# golden: skip mode_albums
+# timeout: 300
+
+wait 3000
+wait_db 30000
+art_wait 120000
+charger off
+repeat off
+sim_clock 15:08
+
+# --- L1: a power-off between two chunks -------------------------------------
+wheel +4                # "Shuffle Songs"
+wait 500
+key SELECT              # plays; Now Playing is pushed
+wait 3000
+shuf_chunk_hold 1
+shuf_refill_force       # a refill now: one chunk, then held
+wait 2000
+reboot                  # the clean power-off: the refill ends first
+
+wait 3000
+wait_db 30000
+key PLAY                # the resume point plays: the boot check
+wait 3000
+key NEXT                # a track change (the check, if not yet)
+wait 2000
+shuf_expect_settled
+
+# --- L2: a mode change mid-refill -------------------------------------------
+shuf_chunk_hold 1       # (a new boot: set again)
+shuf_refill_force
+wait 2000               # one chunk, then held
+key MENU                # the main menu
+wait 700
+wheel +10               # "Now Playing"
+wait 300
+key SELECT
+wait 1200
+key PLAY                # paused: the 2 s tracks would change track
+wait 300                # (dropping the mode to Normal). Not audio_pause:
+                        # that command exists only in a --bcmfw-video sim
+key SELECT
+wait 500
+key SELECT
+wait 500
+key SELECT              # Shuffle shelf
+wait 700
+wheel +2 300            # Albums
+wait 300
+key SELECT              # commits: the open refill ends first
+wait 2000
+shot mode_albums
+shuf_chunk_hold 0
+wait 1000
+shuf_expect_settled
+audio_stop
+wait 1500
+key MENU
+wait 500
+quit

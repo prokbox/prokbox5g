@@ -1,0 +1,30 @@
+# Phase 4b-1 (docs/phase4b-brief.md, Revision 1 decision 9; checklist
+# item 8): a power-off in the middle of a build. The builder stops at the
+# next album (SYS_POWEROFF); index.dat only ever points at complete slots,
+# so the next boot keeps what was committed and builds the rest.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p4b1-art-poweroff.script
+# needs: library
+
+wait 1000
+wait_db 30000
+art_wait 120000
+rm_file /.rockbox/artcache/index.dat
+rm_file /.rockbox/artcache/index.prev
+rm_file /.rockbox/artcache/index.tmp
+rm_file /.rockbox/artcache/thumbs.pak
+reboot
+
+wait 1000           # boot 2: a full build starts (~100 ms per album)
+wait_db 30000
+wait 1500           # partway through
+power_off_now       # the real shutdown path, mid-build
+wait 3000
+reboot
+
+wait 1000           # boot 3: carries on, silently
+wait_db 30000
+art_wait 120000
+expect_art art_manifest.txt
+shot after_poweroff
+
+quit

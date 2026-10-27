@@ -1,0 +1,181 @@
+# The audio-buffer floor gate (Phase 16-A, #105): the audio file buffer
+# at the worst cases named in docs/phase16-brief.md 4.0a, at 50k tracks.
+# Floor: 7,500,000 B (32 MB unit), 39,000,000 B (64 MB unit); MEMORYSIZE
+# picks it (uisimulator/common/sim_cmd_floor.c). Run through
+# tests/perf/floor_gate.sh (both memory sizes, a cloned 50k disk), not
+# validate.sh directly. "floor ..." lines in sim.log are the receipts.
+# The USB prefetch ring is not measured: it is taken only while audio is
+# idle (docs/hardware.md).
+# golden: skip np_open
+wait 4000
+wait_db 300000
+repeat all
+floor_watch begin
+snapshot_play
+wait 2000
+expect_playing 500
+floor shell_start
+# #109 (16-7, M6) steady state: snapshot_play is lib_play() of Songs row
+# 0, so the queue is all 50,000 rows (indices[] and the slot table,
+# ~406 KB from the heap, design 1.3); a second play-all from playing
+# takes the hard stop (reserve=stop) and must clear the floor again
+snapshot_play
+wait 2500
+expect_playing 500
+floor dbq_playall_50k
+
+# Now Playing open (the 58,368 B block)
+key SELECT
+wait 700
+key MENU
+wait 700
+wheel +10
+wait 500
+key SELECT
+wait 1500
+shot np_open
+floor np_open
+
+# runtime reservations, each as a real core_alloc beside the playing
+# buffer (they shrink it exactly as the shell's would):
+# chap_bytes (69,640 + 8,192 B, artcache.c)
+floor_reserve 0 77832
+wait 300
+floor chap_bytes
+floor_release 0
+wait 300
+# the panel transient (785,844 B, hardware.md; now also possible in
+# paused windows through the 16-4 top-up)
+floor_reserve 0 785844
+wait 300
+floor panel_transient
+floor_release 0
+wait 300
+# P12 W3-K: the sync-time index build (XIDX_BUILD_BLK, 532,480 B: the
+# post-USB moment, the boot window or an owed build; stopped or inside
+# the paused window, freed when the job ends)
+floor_reserve 0 532480
+wait 300
+floor xidx_build
+floor_release 0
+wait 300
+# the module / loader arena (floor_gate.sh substitutes the real
+# MOD_ARENA_SIZE for these 65536s; run standalone it is the 16-6 placeholder)
+floor_reserve 0 65536
+wait 300
+floor module_arena
+floor_release 0
+wait 300
+# all three at once, with Now Playing open: the stacked worst case
+floor_reserve 0 77832
+floor_reserve 1 785844
+floor_reserve 2 65536
+wait 300
+floor worst_stack
+floor_release 2
+floor_release 1
+floor_release 0
+wait 300
+# P12 (brief 2.3 item 4, 9): the arena at its P12 size with its largest
+# tenant held (the arena is sized for it), while playing, plus the resident
+# build's Extra-open transient (mod_work_alloc, slot 3; floor_gate.sh
+# substitutes FLOOR_EXTRA_WORK for the 32768 here) on top of the three
+# stacked worst cases
+floor_reserve 0 65536
+wait 300
+floor p12_arena_tenant
+floor_reserve 3 32768
+wait 300
+floor p12_arena_extra_open
+floor_reserve 1 785844
+floor_reserve 2 77832
+wait 300
+floor worst_stack_p12
+floor_release 3
+floor_release 2
+floor_release 1
+floor_release 0
+wait 300
+
+# HOOK (16-1, #88): the paused window's shrink. A library update found
+# while paused waits while the pause is young; once it is 3 min old
+# (pause_age) with the user idle, the window takes the commit's peak by
+# one partial shrink (the paused song restarts silently), only if the
+# buffer stays >= the floor, and the update publishes with the queue
+# still paused. The watch above sees the dip. PLAY afterwards keeps the
+# smaller buffer (no regrow at an unpause): "after_shrink_play". The
+# 32 MB wait case (the commit too big for the floor) is
+# tests/perf/paused-floor-wait-50k.script.
+snapshot_pause
+expect_paused 500
+floor before_shrink
+backlight_expire
+copy ../../tests/ui/fixtures/refresh.mp3 /zz-floor-window.mp3
+db_mark
+update_db
+expect_snapshot_deferred 5000
+pause_age 200
+expect_db_grew 300000
+expect_paused 500
+floor after_shrink
+wait 3000                   # the job is done, still paused and dark:
+floor after_window_regrow   # its memory goes back to the buffer (M3)
+key MENU
+wait 800
+snapshot_play
+wait 2500
+expect_playing 500
+floor after_shrink_play
+# the space comes back at the next cold start (a stop, then play): the
+# sections below start from a full buffer, as before the window
+audio_stop
+wait 1000
+snapshot_play
+wait 2500
+expect_playing 500
+floor after_shrink_regrow
+
+# the library update while audio plays: it defers and never takes the
+# playing or paused buffer (the commit peak is the free heap, not the
+# buffer; docs/hardware.md #85)
+copy ../../tests/ui/fixtures/refresh.mp3 /zz-floor-update.mp3
+update_db
+expect_playing 5000
+expect_snapshot_deferred 1000
+floor commit_deferred_playing
+snapshot_pause
+expect_snapshot_deferred 2500
+floor commit_deferred_paused
+audio_stop
+expect_snapshot_after_playback 300000
+expect_db_grew 300000
+
+# after the commit (its peak taken from the freed audio buffer while
+# stopped), playback starts again: the regrown buffer must clear the floor
+snapshot_play
+wait 2500
+expect_playing 500
+floor after_commit_regrow
+floor_watch end all_cases
+# #109 (16-7, M6) the commit peak with a 50k database queue live, after
+# the watch: stopped, the commit takes its peak from the stopped buffer
+# (#85), which the watch would count as a session though nothing plays: the
+# queue plays, a library update waits for the stop, commits (its peak in
+# the freed buffer, with the queue's ~406 KB still held) and is rebased
+# onto (dbq rebase); playback of the same queue clears the floor
+copy ../../tests/ui/fixtures/refresh.mp3 /zz-floor-dbq.mp3
+db_mark
+db_gen_mark
+update_db
+expect_playing 3000
+audio_stop
+expect_db_grew 300000
+expect_db_gen_change 300000 # published (the old snapshot is gone, #85)
+wait 3000
+key MENU                    # wake the screen (an unlit key is swallowed)
+wait 800
+key PLAY                    # the same queue plays on
+wait 2500
+expect_playing 500
+floor dbq_commit_live
+quit

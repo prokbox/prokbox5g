@@ -1,0 +1,51 @@
+# #132: the ring as a four-way pad (sdk_wheel_pos(), chess_pad.c). From
+# e2: a tap at the top moves the cursor to e3, at the left to d3, at the
+# bottom to d2, at the right back to e2; a finger held at the top walks
+# it up the file (e3, e4, ... one square every 160 ms after 450 ms); a
+# press of NEXT under the finger is a press, not a tap (the cursor stays);
+# a finger sliding round the ring is turning it, not tapping.
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-chess-pad.script
+# needs: modules
+# golden: skip (the hold's step count follows the 50 ms poll: timing, not pixels)
+# reset: mainmenu
+# log: sdk wheel pos chess
+# log: wheel_at 0 150
+# nolog: sdk viol chess
+# nolog: sdk kill chess
+
+wait 4000
+sdk_clear
+wheel +2             # Extras
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Games
+wait 600
+key SELECT
+wait 1200
+wheel +1             # Chess
+wait 800
+key SELECT
+wait 1000
+shot start           # the cursor on e2
+wheel_at 0 150       # a tap at the top: e3
+wait 300
+shot tap_up
+wheel_at 72 150      # left: d3
+wait 300
+wheel_at 48 150      # bottom: d2
+wait 300
+shot tap_left_down
+wheel_at 24 150      # right: e2
+wait 300
+shot tap_right       # back on e2
+wheel_at 2 1000      # held at the top: e3 at 450 ms, then e4.. every 160
+wait 300
+shot held            # several squares up the e-file
+wheel_at 24 150 RIGHT    # a press of NEXT (under the right of the ring)
+wait 300
+shot pressed         # the cursor did not move for it
+wheel_at 40 400 60   # a finger sliding round the bottom: a turn
+wait 300
+shot slid            # no move either
+quit

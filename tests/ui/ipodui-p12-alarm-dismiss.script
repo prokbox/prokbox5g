@@ -1,0 +1,15 @@
+# P12 W1-A1 (Q5): MENU at its release dismisses; the ring screen pops to
+# the menu below, the daily alarm re-arms for tomorrow (one file write).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p12-alarm-dismiss.script
+# golden: skip
+# env: IPODUI_SIM_ALARM_IN=12
+# Trace: alarm ring i=0, alarm dismiss how=1, alarm arm rtc= ok=1,
+#        alarm file write
+# alarm-rings: 1
+# log: ipodui: alarm dismiss how=1
+# reset: mainmenu
+wait 16000
+key MENU
+wait 1500
+shot dismissed
+quit

@@ -1,0 +1,31 @@
+# #47, run 2 of tests/perf/ab_oldkey_check.sh: the upgrade boot. The
+# precompute is rewritten with the new keys; the book page finds the
+# books.pak entry still filed under the old key ("ab pak hit-old") and
+# lists the book's chapters, before any art pass rebuilds it (music plays
+# from the start: the books pass waits for a stop).
+# needs: ab
+# boot-stamp: keep
+# trace: ab
+# log: lib precompute done
+# log: ab pak hit-old
+# nolog: ab pak miss
+
+wait 300
+play_files "/Music/Tone Collective/Sine Studies/01 Concert A.mp3"
+wait 3700
+wait_db 45000
+wait 3000           # the precompute's rewrite (grouping stamp)
+key SELECT          # Music
+wait 800
+wheel +6 300        # Audiobooks
+wait 400
+key SELECT
+wait 900
+shot books
+wheel +1 300        # ÉTÉ Multi (row 1, after A Field Guide)
+wait 400
+key SELECT
+wait 1500
+shot page           # its chapters (6 entries), not 4 files
+audio_stop
+quit

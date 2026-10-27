@@ -1,0 +1,59 @@
+# Phase 8b-4a (owner 2026-10-20, spec index.md "Transitions" item 6): the
+# split <-> full-screen parting. Into a full screen the split screen parts
+# at x = 160 (list column out left, panel out right) over the full screen
+# already drawn underneath; back, the halves slide in over it and meet at
+# the seam. Recorded at 30 fps (part_frames/) for the contact sheet
+# (out/review/p8b-4a/): the in-between frames depend on timing and are
+# never goldens (no mid shots). The rest shots must equal the same
+# screens before the parting (UI_SLIDE_PART 0).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p8b-part.script
+# needs: library
+# No "# transitions:" here: eight timed brackets in one sim run make
+# the D7 check flaky (sim ticks vs wall clock); ipodui-nav-transitions
+# keeps asserting the parting's 250/290 ms.
+
+wait 4000           # boot to the main menu, "Music" selected
+wait_db 30000
+sim_clock 15:04
+clock_format 24
+battery 100
+shot boot
+
+key SELECT          # Music (split -> split: the list column slides)
+wait 700
+wheel +2            # "Albums"
+wait 600
+shot music
+
+key SELECT 30       # Music (split) -> Albums (full): parting
+record 600 30 part
+wait 400
+shot albums
+
+key MENU 30         # Albums (full) -> Music (split): closing
+record 600 30 part
+wait 400
+shot music_back
+
+key MENU            # Music -> main menu (split -> split)
+wait 700
+wheel +3            # "Settings"
+wait 600
+key SELECT          # Settings (split -> split)
+wait 700
+shot settings
+
+key SELECT 30       # About is the first Settings row: parting
+record 600 30 part
+wait 400
+shot about
+
+key MENU 30         # About -> Settings: closing
+record 600 30 part
+wait 400
+shot settings_back
+
+key MENU            # Settings -> main menu
+wait 700
+shot back
+quit

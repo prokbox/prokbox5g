@@ -1,0 +1,107 @@
+# P12 W1-L (docs/phase12-brief.md 9 "-lock-set"): Extras > Screen Lock
+# with no combination opens New Combination (open padlock, owner photo
+# photo 1201); a different second entry says so under the roller and starts
+# again at New; the same entry twice sets it and shows Lock / Reset beside
+# the closed padlock; back out and in again: Lock / Reset at once.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p12-lock-set.script
+# golden: skip
+# modclass: none (resident sim-ui: the accountant follows the module
+# loader; a modules-build run, SIM_BUILD=build/sim-ui-mod, is owed)
+# log: ipodui: lockset phase=new
+# log: ipodui: lockset set step=3
+# log: ipodui: lockset set step=2
+# nolog: ipodui: lock engage
+# nolog: 1234
+# reset: mainmenu
+wait 4000            # boot to the main menu, "Music" selected
+wheel +2 300         # "Extras"
+wait 600
+key SELECT
+wait 1200
+wheel +7 200         # the last row (Stopwatch; the list does not wrap)
+wait 600
+wheel -1 200         # "Screen Lock", from the end: with or without a Games row
+wait 800
+shot list_row
+key SELECT
+wait 1200
+shot new             # New Combination, 0000, the first digit boxed
+wheel +1 250         # 1
+wait 300
+key SELECT
+wait 250
+wheel +2 250         # 2
+wait 300
+key SELECT
+wait 300
+shot new_digits      # 1 2 0 0, the third digit boxed
+wheel +3 250         # 3
+wait 300
+key SELECT
+wait 250
+wheel +4 250         # 4
+wait 300
+key SELECT
+wait 800
+shot confirm         # Confirm Combination
+wheel +1 250         # 1 2 4 3: a different entry
+wait 300
+key SELECT
+wait 250
+wheel +2 250
+wait 300
+key SELECT
+wait 250
+wheel +4 250
+wait 300
+key SELECT
+wait 250
+wheel +3 250
+wait 300
+key SELECT
+wait 800
+shot mismatch        # New again, our sentence under the roller
+wheel +1 250         # 1 2 3 4, twice
+wait 300
+key SELECT
+wait 250
+wheel +2 250
+wait 300
+key SELECT
+wait 250
+wheel +3 250
+wait 300
+key SELECT
+wait 250
+wheel +4 250
+wait 300
+key SELECT
+wait 600
+wheel +1 250
+wait 300
+key SELECT
+wait 250
+wheel +2 250
+wait 300
+key SELECT
+wait 250
+wheel +3 250
+wait 300
+key SELECT
+wait 250
+wheel +4 250
+wait 300
+key SELECT
+wait 800
+shot menu            # Lock (selected) / Reset, closed padlock
+wheel +1 250
+wait 300
+wait 400
+shot menu_reset      # Reset selected
+key MENU
+wait 1000
+shot back_list
+key SELECT
+wait 1200
+shot menu_again      # a combination is set: Lock / Reset at once
+quit

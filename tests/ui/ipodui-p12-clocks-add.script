@@ -1,0 +1,44 @@
+# P12 W1-C (9 "-clocks-add"): SELECT on Clocks opens the Clocks menu (Add,
+# Edit, Cancel: no Delete with one clock); Add opens the shared region ->
+# city picker (tzpick.c, the Date & Time lists, titled Clocks) with the
+# first region highlighted; a city comes straight back to Clocks with the
+# new clock selected (the blue band) under the first (slate).
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-clocks-add.script
+# needs: modules
+# reset: clocks
+# modclass: steady
+# log: clocks menu n=1 items=3
+# log: clocks add city=42 n=2
+# log: clocks save list=0,42
+# reset: mainmenu
+
+wait 4000
+sim_clock 15:05
+wheel +2             # Extras
+wait 1500
+key SELECT
+wait 2500
+key SELECT           # Clocks
+wait 1500
+key SELECT           # the Clocks menu
+wait 1500
+shot menu
+key SELECT           # Add
+wait 1500
+shot regions         # Africa highlighted
+wheel +4             # Europe
+wait 600
+key SELECT
+wait 1500
+shot cities_europe
+wheel +10            # London
+wait 600
+key SELECT           # both lists and the menu leave
+wait 3000
+shot two_clocks      # New York 15:05, London 20:05 (BST), both Today
+key MENU             # out: the list is saved
+wait 1500
+key SELECT           # and in again
+wait 1500
+shot two_again
+quit

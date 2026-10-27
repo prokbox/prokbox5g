@@ -22,6 +22,7 @@
 #include "tick.h"
 #include "general.h"
 #include "panic.h"
+#include "xcore.h"      /* ProkBox P19 S0: tick-list edits are CPU-only */
 
 /****************************************************************************
  * Timer tick
@@ -41,6 +42,7 @@ volatile long current_tick SHAREDBSS_ATTR;
 
 int tick_add_task(void (*f)(void))
 {
+    XCORE_ASSERT_CPU("tick_add_task");
     int oldlevel = disable_irq_save();
     void **arr = (void **)tick_funcs;
     void **p = find_array_ptr(arr, f);
@@ -61,6 +63,7 @@ int tick_add_task(void (*f)(void))
 
 int tick_remove_task(void (*f)(void))
 {
+    XCORE_ASSERT_CPU("tick_remove_task");
     int oldlevel = disable_irq_save();
     int rc = remove_array_ptr((void **)tick_funcs, f);
     restore_irq(oldlevel);

@@ -1,0 +1,77 @@
+# Phase 8b-0: the style gallery in place. art/gallery.py renders the material
+# kit host-side; this script shows the same surfaces on the real shell for
+# the in-situ check: the header glyph states (battery 0/9/50/100 %,
+# charging, hold lock, play, pause), the main menu, a Settings screen, About
+# and its legend. art/gallery.py reads these shots (names below) into the
+# bottom half of its contact sheet. Pinned clock/battery, no timing in any
+# shot, so every shot may carry a golden (proposed at 8b close).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p8b-gallery.script
+# needs: library
+# timeout: 120
+# golden-region: hdr_play 0 0 320 20
+# golden-region: hdr_pause 0 0 320 20
+
+wait 4000           # boot to the main menu, "Music" selected
+wait_db 30000
+art_wait 120000
+sim_clock 15:04
+clock_format 24
+battery 100
+wait 600
+shot main_menu
+
+# -- header states (the header band only matters; the panel varies) ------
+battery 0
+wait 1200
+shot hdr_batt0
+battery 9
+wait 1200
+shot hdr_batt9
+battery 50
+wait 1200
+shot hdr_batt50
+battery 100
+wait 1200
+shot hdr_batt100
+charger on
+wait 1200
+shot hdr_charging
+charger off
+hold_switch on
+wait 1200
+shot hdr_lock
+hold_switch off
+wait 800
+
+# -- play and pause glyphs ------------------------------------------------
+wheel +4            # "Shuffle Songs"
+wait 400
+key SELECT          # starts playback, opens Now Playing
+wait 2500
+key MENU            # back to the main menu: the header shows the glyph
+wait 1200
+shot hdr_play
+key PLAY            # pause
+wait 1200
+shot hdr_pause
+key PLAY
+wait 600
+
+# -- Settings, About, and its legend --------------------------------------
+wheel -4
+wait 400
+wheel +3            # Settings
+wait 400
+shot settings_panel
+key SELECT
+wait 1500
+shot settings_top
+key SELECT          # About (Settings' first row)
+wait 1500
+shot about_1        # capacity capsule + gel legend
+key RIGHT
+wait 700
+shot about_2
+key RIGHT
+wait 700
+shot about_3

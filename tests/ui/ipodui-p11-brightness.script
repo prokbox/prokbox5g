@@ -1,0 +1,30 @@
+# Phase 11 (docs/phase11-brief.md 3.6, 7 criterion 8): Settings >
+# Brightness, the dark slider screen (photo brightness.jpg). The wheel
+# changes the backlight live; MENU saves and returns.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p11-brightness.script
+# needs: library
+# log: brightness 1 pct=0
+#
+# Needs U2a's row wiring (Settings row 8 -> ui_brightness_screen).
+
+wait 4000
+wheel +3             # Settings
+wait 400
+key SELECT
+wait 1500
+wheel +7             # Brightness
+wait 1200
+shot settings_panel  # the sun tile, caption = the percentage
+key SELECT
+wait 1500
+shot default         # the stored level
+wheel -40            # down to the minimum
+wait 800
+shot zero            # 0%, as the owner's photo
+wheel +40
+wait 800
+shot full            # 100%
+key MENU
+wait 1200
+shot back            # the caption reads 100%
+quit

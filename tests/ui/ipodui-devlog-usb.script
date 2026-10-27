@@ -1,0 +1,24 @@
+# #63: the device log has lines worth reading. A USB session logs its
+# enter and exit (how long it lasted, whether the host ejected), and the
+# lines reach /.rockbox/ipodui.log at the next storage-idle flush.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-devlog-usb.script
+# log: usb enter n=1
+# log: usb exit s=
+# expect-file: /.rockbox/ipodui.log usb enter n=1
+# expect-file: /.rockbox/ipodui.log usb exit s=
+# expect-file: /.rockbox/ipodui.log ejected=1
+# golden: skip after
+
+sim_clock 15:08
+wait 5000           # boot to the main menu
+rm_file /.rockbox/ipodui.log
+usb_connect
+wait 1500
+usb_eject
+wait 1000
+usb_disconnect
+wait 2000
+storage_idle        # the flush the device runs as the disk goes idle
+wait 1500
+shot after
+quit

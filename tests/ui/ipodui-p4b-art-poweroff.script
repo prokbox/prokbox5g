@@ -1,0 +1,51 @@
+# Phase 4b: a power-off mid-build leaves the art cache consistent (docs/
+# phase4b-brief.md Revision 1 point 9 and Revision 2 D3, Agent B):
+# index.dat is rewritten as a new file plus a rename with a bumped
+# generation, thumbs.pak is append-only, and index entries point only at
+# complete records, so a power cut mid-append must never corrupt what is
+# already there; a torn or invalid file falls back to a silent rebuild.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p4b-art-poweroff.script
+# needs: library
+# fresh-db
+#
+# Listed in tests/ui/PENDING until Agent B's builder lands. "power_off_now"
+# calls sys_poweroff() on the script thread: the same SYS_POWEROFF
+# broadcast a real power-button press makes (firmware/powermgmt.c), to
+# hit apps/misc.c's clean_shutdown() mid-build rather than only at "quit"
+# (which already goes through the same path, via sdl_sys_quit()). The
+# shutdown runs on other threads asynchronously, so "reboot" after it
+# just starts the next boot once that process is gone (scripts/shots.sh
+# already waits for the process to exit).
+
+wait 4000
+wait_db 45000       # the shell builds the database itself (fresh-db)
+
+key SELECT          # Music (first open: "Playlists" selected)
+wait 800
+wheel +2            # "Albums" (Playlists, Artists, Albums)
+wait 400
+key SELECT
+wait 800
+wait 2000           # let the builder get partway through the 59 albums
+shot before_poweroff
+
+power_off_now       # mid-build power-off: the real shutdown path
+wait 3000           # give clean_shutdown()/shutdown_hw() time to run
+reboot              # scripts/shots.sh starts a new boot on the same disk
+
+wait 4000           # second boot: a torn/invalid cache falls back to a
+wait_db 30000       # silent rebuild, never a splash or a crash
+key SELECT          # Music (fresh boot: "Playlists" selected again)
+wait 800
+wheel +2            # "Albums"
+wait 400
+key SELECT
+wait 800
+shot after_poweroff # glyphs where the cache was incomplete, nothing
+                    # stale or garbled
+
+art_wait 120000
+wait 500
+shot rebuilt        # the builder picks back up (or restarts) and finishes
+
+quit

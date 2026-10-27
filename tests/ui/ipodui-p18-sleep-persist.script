@@ -1,0 +1,28 @@
+# Phase 18 (§6.8): a battery death while asleep leaves what a clean
+# power-off would: the resume point and the boot stamp were written at
+# sleep entry (the named subset, not clean_shutdown()), so the next boot
+# resumes the track and trusts the stamp (no walk).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p18-sleep-persist.script
+# needs: library
+# golden: skip
+# fulls-extra: 2          (the Now Playing row appears: play_files, PLAY after the boot)
+# boot-stamp: keep
+# log: boot stamp walk=0
+
+sleep_mode soft       # soft sleep is off by default (developer switch)
+wait 4000
+wait_db 45000
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait_pos 6000 60000
+hold PLAY 1500          # the hold: dark at once, PLAY's release awaited
+expect_sleep asleep 8000
+power_cut               # no shutdown path runs
+reboot
+sleep_mode soft
+wait 4000
+expect_boot_walk 0 20000
+key PLAY                # the queue's resume point (status_save at entry;
+wait_pos 6000 2000 Concert  # music has no database resume point): from
+                        # ~6.6 s, so 6 s within 2 s, never from 0
+shot resumed            # the gate needs one shot
+quit

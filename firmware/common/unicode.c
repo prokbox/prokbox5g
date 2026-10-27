@@ -43,8 +43,16 @@
 #define O_NOISODECODE 0
 #endif
 
-#ifdef UTF8PROC_EXPORTS
+#if defined(IPODUI_TRIM_UTF8PROC) && !defined(HAVE_UTF8_NORMALIZE)
+#error "IPODUI_TRIM_UTF8PROC needs HAVE_UTF8_NORMALIZE (config.h): normalisation would silently stop"
+#endif
+
+#ifdef HAVE_UTF8_NORMALIZE
+#ifdef IPODUI_TRIM_UTF8PROC
+#include "nfc.h"
+#else
 #include "utf8proc.h"
+#endif
 #endif
 
 #define getle16(p) (p[0] | (p[1] << 8))
@@ -129,9 +137,11 @@ static int loaded_cp_tid = CP_TID_NONE;
 static int volatile cp_table_ref = 0;
 #define CP_LOADING BIT_N(sizeof(int)*8-1) /* guard against multi loaders */
 
+#ifndef IPODUI_TRIM_MISC
 /* non-default codepage table buffer (cannot be bufalloced! playback itself
    may be making the load request) */
 static unsigned short codepage_table[MAX_CP_TABLE_SIZE+1]; // XXX convert to ucschar_t if we ever need > 16bit mappings?
+#endif
 
 #if defined(APPLICATION) && defined(__linux__)
 static const char * const name_codepages_linux[NUM_CODEPAGES+1] =
@@ -315,10 +325,12 @@ unsigned char* iso_decode_ex(const unsigned char *iso, unsigned char *utf8, int 
         if (tid == loaded_cp_tid) {
             /* use loaded table */
             if (!(cp_table_ref & CP_LOADING)) {
+#ifndef IPODUI_TRIM_MISC /* only CP_TID_NONE is ever "loaded" there */
                 if (tid != CP_TID_NONE) {
                     table = codepage_table;
                     cp_table_ref++;
                 }
+#endif
 
                 break;
             }
@@ -332,10 +344,25 @@ unsigned char* iso_decode_ex(const unsigned char *iso, unsigned char *utf8, int 
 
         if (!load) {
             yield();
-        } else if (alloc_and_load_cp_table(cp, codepage_table) < 0) {
+        }
+#ifdef IPODUI_TRIM_MISC
+        /* no secondary table buffer (Phase 9, brief 3.3.2): take the
+           load-failure path, so the text decodes as ISO-8859-1 */
+        else {
+            static bool logged = false;
+            if (!logged) {
+                logged = true;
+                DEBUGF("p9 cp2 fallback cp=%d\n", cp);
+            }
+            cp = INIT_CODEPAGE;
+            tid = cp_info[cp].tid;
+        }
+#else
+        else if (alloc_and_load_cp_table(cp, codepage_table) < 0) {
             cp = INIT_CODEPAGE; /* table may be clobbered now */
             tid = cp_info[cp].tid;
         }
+#endif
 
         cp_lock_enter();
 
@@ -410,9 +437,12 @@ unsigned char* iso_decode_ex(const unsigned char *iso, unsigned char *utf8, int 
 
     if (table) {
         cp_lock_enter();
+#ifndef IPODUI_TRIM_MISC
         if (table == codepage_table) {
             cp_table_ref--;
-        } else {
+        } else
+#endif
+        {
             default_cp_table_ref--;
         }
         cp_lock_leave();
@@ -655,7 +685,19 @@ const char * get_codepage_name(int cp)
     return cp_info[cp].name;
 }
 
-#ifdef UTF8PROC_EXPORTS
+#if defined(HAVE_UTF8_NORMALIZE) && defined(IPODUI_TRIM_UTF8PROC)
+/* Phase 9: compact composer, no buffer and no lock (firmware/common/nfc.c) */
+void utf8_normalize(char *string)
+{
+    nfc_normalize(string);
+}
+
+void unicode_init(void)
+{
+    cp_lock_init();
+}
+
+#elif defined(HAVE_UTF8_NORMALIZE)
 static utf8proc_int32_t normbuf[2048];
 static struct mutex norm_mutex SHAREDBSS_ATTR;
 

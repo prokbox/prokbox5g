@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{ site.Title }} User Guide {{ site.Params.version }}</title>
+{{ $css := resources.Get "css/site.css" | minify }}
+<link rel="stylesheet" href="{{ $css.RelPermalink }}">
+</head>
+<body class="print-book">
+<section class="cover">
+  <svg class="brand-mark big" viewBox="0 0 64 64" aria-hidden="true"><rect x="14" y="4" width="36" height="56" rx="7"/><rect class="scr" x="19" y="10" width="26" height="19" rx="2"/><circle cx="32" cy="44" r="10"/><circle class="hub" cx="32" cy="44" r="3.5"/></svg>
+  <h1>ProkBox<b>5g</b></h1>
+  <p class="cover-sub">User Guide</p>
+  <p class="cover-ver">Version {{ site.Params.version }}</p>
+  <p class="cover-hw">Firmware for the iPod Video (5th generation and 5.5)</p>
+</section>
+<section class="contents">
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#introduction">Introduction</a></li>
+    {{ range .Pages.ByWeight }}<li><a href="#{{ .File.ContentBaseName }}">{{ .Title }}</a></li>{{ end }}
+  </ol>
+</section>
+<article class="chapter" id="introduction">
+  <h1>Introduction</h1>
+  {{ .Content }}
+</article>
+{{ range .Pages.ByWeight }}
+<article class="chapter" id="{{ .File.ContentBaseName }}">
+  <h1>{{ .Title }}</h1>
+  {{ .Content }}
+</article>
+{{ end }}
+<section class="colophon">
+  <p>ProkBox5g is not Apple software. It is an independent, community-driven fork of Rockbox, and Apple Inc. has not made, approved, endorsed or supported it in any way. It contains no Apple software. iPod is a trademark of Apple Inc.</p>
+  <p>Free software under the GNU GPL v2 or later. This guide is licensed CC BY-SA 4.0. Source code and the latest guide: {{ site.Params.repo | replaceRE "^https://" "" }} · {{ site.Params.contact }}</p>
+</section>
+</body>
+</html>

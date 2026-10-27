@@ -1,0 +1,26 @@
+# Phase 18 (§8; Q2): with Hold on, no button, touch or turn wakes (the
+# sim's packets are classified and dropped, as the fallback design does:
+# 5 presses + 5 releases + 1 touch + 3 turns = 14 spurious); Hold off
+# inside SLEEP_HOLD_WAKE_S then wakes (Q12).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p18-sleep-hold-on.script
+# golden: skip
+# log: sleep wake why=6 s=0 polls=0 spurious=14 resyncs=0 buttons=0 holds=2
+
+sleep_mode soft       # soft sleep is off by default (developer switch)
+wait 4000
+hold PLAY 1500          # the hold: dark at once, PLAY's release awaited
+expect_sleep asleep 8000
+hold_switch on
+key SELECT
+key MENU
+key PLAY
+key LEFT
+key RIGHT
+wheel_touch
+wheel 3
+expect_sleep asleep 100
+hold_switch off         # within 10 min of entry: wakes
+expect_sleep hold 3000
+wait 1000
+shot woken
+quit

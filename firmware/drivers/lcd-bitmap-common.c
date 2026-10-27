@@ -386,6 +386,11 @@ static void LCDFN(putsxyofs)(int x, int y, int ofs, const unsigned char *str)
 {
     ucschar_t *ucs;
     struct viewport *vp = LCDFN(current_viewport);
+#if defined(SIMULATOR) && defined(HAVE_IPOD_UI) && defined(MAIN_LCD)
+    /* ProkBox sim: the native-illusion text watch (sim_cmd_text.c) */
+    extern void sim_text_drawn(int x, int y, const unsigned char *str);
+    sim_text_drawn(vp->x + x, vp->y + y, str);
+#endif
     font_lock(vp->font, true);
     struct font* pf = font_get(vp->font);
 
@@ -734,6 +739,9 @@ static bool LCDFN(puts_scroll_worker)(int x, int y, const unsigned char *string,
         s->vp = vp;
         s->start_tick = current_tick + LCDFN(scroll_info).delay;
         LCDFN(scroll_info).lines++;
+#if defined(HAVE_IPOD_UI) && !defined(HAVE_REMOTE_LCD) && !defined(BOOTLOADER)
+        scroll_thread_kick();   /* P18 18-A: the scroll thread is asleep */
+#endif
     } else {
         /* not restarting, however we are about to assign new userdata;
          * therefore tell the scroller that it can release the previous userdata */

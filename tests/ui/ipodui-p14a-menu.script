@@ -1,0 +1,74 @@
+# Phase 14a (#64, docs/phase14a-brief.md 7 A2): the main menu panel (posters, then empty) and the Videos rows
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p14a-menu.script
+# (ipodui-p14a-* default to build/sim-ui-video; the gate runs them there)
+# needs: video
+#
+# Disk: tests/fixtures/videos/mkvideos.sh (installed by the gate's prime
+# step, or by shots.sh for a standalone run):
+#   Movies/        Audio First  High Profile  Late Chapter  Short Film
+#   TV Shows/      Show A (S1 x2, S2 x2, tagged)  Show B (S1 x2, untagged)
+#   Misc/          Show.C.S01E02.m4v  S01E03.m4v (nameless)
+#   Podcasts/Pod One/  Audio Episode.m4a  Video Episode.m4v
+#   Music/         Fixture Singer/Audio Only.mp4 (a song)
+#                  Fixture Author/Image Book.m4b (a book)
+# Main menu with Videos on (T1 default): Music, Videos, Podcasts, Extras,
+# Settings, Shuffle Songs. Videos: Movies, TV Shows, Settings.
+
+# Checks: Videos is in the main menu; its panel drifts the fixtures'
+# posters (Short Film, Late Chapter sidecar, Show A pilot) fitted on blurred
+# bars; with no videos left the panel shows the film strip and "No Videos".
+wait 4000
+wait_db 45000
+art_wait 60000
+wheel +1 300        # Videos (second row, after Music)
+wait 900
+shot main_posters   # panel: poster thumbnails
+key SELECT
+wait 900
+shot videos_rows    # Movies / TV Shows / Settings
+key MENU
+wait 700
+
+# empty state: remove every video, rescan
+rm_file /Movies/Short%20Film.m4v
+rm_file /Movies/Late%20Chapter.m4v
+rm_file /Movies/Late%20Chapter.jpg
+rm_file /Movies/High%20Profile.m4v
+rm_file /Misc/Audio%20First.m4v
+rm_file /Misc/Show.C.S01E02.m4v
+rm_file /Misc/S01E03.m4v
+rm_file /Podcasts/Pod%20One/Video%20Episode.m4v
+rm_file /TV%20Shows/Show%20A/Season%201/Show%20A%20S01E01.m4v
+rm_file /TV%20Shows/Show%20A/Season%201/Show%20A%20S01E02.m4v
+rm_file /TV%20Shows/Show%20A/Season%202/Show%20A%20S02E01.m4v
+rm_file /TV%20Shows/Show%20A/Season%202/Show%20A%20S02E02.m4v
+rm_file /TV%20Shows/Show%20B/Season%201/Show%20B%20S01E01.m4v
+rm_file /TV%20Shows/Show%20B/Season%201/Show%20B%20S01E02.m4v
+update_db_wait_change 60000
+art_wait 60000
+wheel -1 300        # repaint the panel over the new library (Music, then
+wait 900            # back to Videos), as after the USB eject on the device
+wheel +1 300
+wait 900
+shot main_empty     # film strip + "No Videos"
+key SELECT
+wait 900
+shot videos_rows_empty
+key SELECT 50
+wait 1500
+shot movies_empty   # "No Movies" (folded in from V5's ipodui-p14a-v5-videos)
+key MENU
+wait 1200
+wheel +1 300
+wait 400
+key SELECT 50
+wait 1500
+shot tv_empty       # "No TV Shows"
+key SELECT 50       # the empty row does nothing
+wait 600
+shot tv_empty_select
+key MENU
+wait 1200
+key MENU
+wait 1200
+shot back_main

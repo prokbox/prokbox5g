@@ -1,0 +1,37 @@
+# #89 (Q3): Rebuild Cache (the Music row's hold menu, holdmenu.c:
+# tagcache_rebuild_maintenance()) always walks, even in a boot that trusted
+# the stamp, and its completed walk restarts the skip count: the stamp
+# written after it says skipped=0 (never 1), and the next boot trusts it.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-boot-rebuild.script
+# needs: music
+# timeout: 300
+# golden: skip
+# log: art build wait db
+# nolog: boot stamp write=1 skipped=1
+
+wait 3000
+wait_db 30000
+boot_nostamp
+reboot
+
+expect_boot_walk 1 15000
+wait_db 30000
+wait 3000
+reboot
+
+expect_boot_walk 0 15000 trust
+wait_db 30000
+hold SELECT 1500    # Music: its hold menu
+wait 1000
+shot hold_menu
+key SELECT          # Rebuild Cache
+wait 2000
+wait_db 60000
+wait 5000
+art_wait 30000
+shot rebuilt
+reboot
+
+expect_boot_walk 0 15000 trust
+shot after_rebuild
+boot_nostamp        # no stamp from this part (the nolog line)

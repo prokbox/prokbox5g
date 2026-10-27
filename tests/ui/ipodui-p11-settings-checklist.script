@@ -1,0 +1,101 @@
+# P11 U2a (docs/phase11-brief.md 3.4): Settings > Main Menu and Music Menu
+# checklists. Shots: the Main Menu list (14 offered rows + Reset Menu, the
+# panel keeping its tile), a toggle in place (a blue tick at the right of
+# a checked row, SELECT does not pop), Settings refusing to uncheck, Reset
+# Menu, then the customised main menu (items in the 7G's fixed slots) and
+# the Music menu with Compilations on (between Albums and Songs).
+# Every "key SELECT" is followed by a wait: the next wheel click would
+# otherwise land between its press and its release.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p11-settings-checklist.script
+# golden: skip main_checklist_top
+wait 4000
+
+wheel +3 300          # Settings
+wait 400
+key SELECT 50
+wait 1200
+wheel +3 300          # Main Menu (row 3)
+wait 400
+key SELECT 50
+wait 1200
+shot main_checklist_top   # Music (ticked) ... Audiobooks; ticks on Music/Podcasts/Extras/Settings/Shuffle
+wheel +1 300
+wait 400
+key SELECT 50           # check Playlists: the tick appears in place
+wait 400
+shot main_checklist_playlists
+wheel +7 300            # Audiobooks (row 8)
+wait 500
+key SELECT 50
+wait 400
+wheel +2 300            # Podcasts (row 10): uncheck
+wait 500
+key SELECT 50
+wait 400
+shot main_checklist_custom
+wheel +2 300            # Settings (row 12): refused
+wait 500
+key SELECT 50
+wait 400
+shot main_checklist_settings_pinned
+wheel +2 300            # Reset Menu (row 14)
+wait 500
+shot main_checklist_reset_sel
+key MENU 50
+wait 900
+key MENU 50
+wait 900
+shot main_menu_custom   # Music, Playlists, Audiobooks, Extras, Settings, Shuffle Songs
+
+# the Reset Menu row restores the shipped menu, the selection to row 0
+key SELECT 50           # Settings (still selected)
+wait 1200
+wheel +3 300            # Main Menu
+wait 400
+key SELECT 50
+wait 1200
+wheel +14 40
+wait 600
+key SELECT 50           # Reset Menu
+wait 600
+shot main_checklist_after_reset   # ticks back to the five defaults, row 0 selected
+key MENU 50
+wait 900
+key MENU 50
+wait 900
+shot main_menu_default
+
+# Music Menu: Compilations is off by default (G12 p.30), on sits between
+# Albums and Songs
+wheel -3 300            # Music
+wait 400
+key SELECT 50
+wait 1200
+shot music_menu_default
+key MENU 50
+wait 900
+wheel +3 300            # Settings
+wait 400
+key SELECT 50
+wait 1200
+wheel +4 300            # Music Menu (row 4)
+wait 400
+key SELECT 50
+wait 1200
+shot music_checklist_top
+wheel +3 300            # Compilations (row 3)
+wait 500
+key SELECT 50
+wait 400
+shot music_checklist_compilations
+key MENU 50
+wait 900
+key MENU 50
+wait 900
+wheel -3 300            # Music
+wait 400
+key SELECT 50
+wait 1200
+shot music_menu_compilations
+
+quit

@@ -1,0 +1,43 @@
+# Phase 11 On-The-Go, DB state "dirty" (docs/phase11-brief.md section 6
+# item 10): a song added, then a power cut mid-commit; the next boot
+# rebuilds in the background. On-The-Go opened during the rebuild shows
+# the row (its file name while unresolved); after the commit a reopen
+# resolves it to its title.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p11-otg-dirty.script
+# needs: library
+# golden: skip
+
+wait 4000
+wait_db 30000
+key SELECT          # Music
+wait 800
+wheel +3 300        # "Songs"  [Compilations off: P11]
+wait 400
+key SELECT
+wait 800
+wheel +2 300        # "Amber Garden"
+wait 400
+hold SELECT 1500
+wait 600
+key SELECT          # Add to On-The-Go
+wait 800
+otg_dump
+dirty_db
+reboot
+
+wait 2000
+key SELECT          # Music
+wait 800
+key SELECT          # Playlists
+wait 800
+key SELECT          # On-The-Go during the rebuild
+wait 1000
+shot during         # one row (title, or the file name while unresolved)
+key MENU
+wait 800
+wait_db 45000
+key SELECT          # On-The-Go again: resolved
+wait 1500
+shot after          # Amber Garden / Harbor Lights
+otg_dump
+quit

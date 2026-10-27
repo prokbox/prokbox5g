@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en">
+<head>
+{{ partial "head.html" . }}
+</head>
+<body class="{{ block "bodyclass" . }}page{{ end }}">
+<a class="skip" href="#main">Skip to content</a>
+{{ partial "header.html" . }}
+{{ block "main" . }}{{ end }}
+{{ partial "footer.html" . }}
+{{ partial "search.html" . }}
+</body>
+</html>

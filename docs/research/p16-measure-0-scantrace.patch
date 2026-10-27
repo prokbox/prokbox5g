@@ -1,0 +1,157 @@
+diff --git a/apps/tagcache.c b/apps/tagcache.c
+index d09f9a8369..82bd9c3148 100644
+--- a/apps/tagcache.c
++++ b/apps/tagcache.c
+@@ -8899,11 +8899,70 @@ static int free_search_roots(struct search_roots_ll * start)
+ #define free_search_roots(a) do {} while(0)
+ #endif
+ 
++#if defined(HAVE_IPOD_UI_DEVMODE) && defined(UI_COMMIT) && !defined(PLUGIN) \
++    && !defined(__PCTOOL__)
++/* 16-0 scan trace (devmode only, log lines, no UI): where a scan's time
++ * and storage commands go, per stage of the walk. A stage is the span
++ * from the previous mark to this one. Commands are the tagcache thread's
++ * own count (devstats, as power.csv's disk_cmds); the sim has none (0). */
++#define SCAN_TRACE
++#ifdef SIMULATOR
++extern unsigned long sim_scan_us(void);
++#define ST_US()   sim_scan_us()
++#define ST_CMDS() 0UL
++#else
++#include "devstats.h"
++#define ST_US()   ((unsigned long)USEC_TIMER)
++/* the slot is the low byte of the thread id (thread-internal.h) */
++#define ST_CMDS() ((unsigned long)devstats.t[(unsigned)thread_self() \
++                                              % DEVSTATS_SLOTS].cmds)
++#endif
++enum { ST_TABLE, ST_OPEN, ST_IGNORE, ST_READDIR, ST_INFO, ST_ADD, ST_N };
++static struct { unsigned long us, cmds; } st_b[ST_N];
++static unsigned long st_t0, st_c0, st_tstart;
++static long st_dirs, st_entries, st_files, st_ign_miss;
++static void st_mark(int b)
++{
++    unsigned long t = ST_US(), c = ST_CMDS();
++    st_b[b].us += t - st_t0;
++    st_b[b].cmds += c - st_c0;
++    st_t0 = t;
++    st_c0 = c;
++}
++static void st_begin(void)
++{
++    memset(st_b, 0, sizeof(st_b));
++    st_dirs = st_entries = st_files = st_ign_miss = 0;
++    st_t0 = st_tstart = ST_US();
++    st_c0 = ST_CMDS();
++}
++static void st_log(long lookups, long reads)
++{
++    unsigned long total = ST_US() - st_tstart;
++    ui_log("db", "scantrace ms=%lu dirs=%ld ent=%ld files=%ld",
++           total / 1000, st_dirs, st_entries, st_files);
++    ui_log("db", "scantrace ms tbl=%lu open=%lu ign=%lu rdir=%lu",
++           st_b[ST_TABLE].us / 1000, st_b[ST_OPEN].us / 1000,
++           st_b[ST_IGNORE].us / 1000, st_b[ST_READDIR].us / 1000);
++    ui_log("db", "scantrace ms info=%lu add=%lu ignmiss=%ld",
++           st_b[ST_INFO].us / 1000, st_b[ST_ADD].us / 1000, st_ign_miss);
++    ui_log("db", "scantrace cmds tbl=%lu open=%lu ign=%lu",
++           st_b[ST_TABLE].cmds, st_b[ST_OPEN].cmds, st_b[ST_IGNORE].cmds);
++    ui_log("db", "scantrace cmds rdir=%lu info=%lu add=%lu",
++           st_b[ST_READDIR].cmds, st_b[ST_INFO].cmds, st_b[ST_ADD].cmds);
++    ui_log("db", "scantrace lookups=%ld reads=%ld", lookups, reads);
++}
++#define ST_MARK(b) st_mark(b)
++#else
++#define ST_MARK(b) do {} while (0)
++#endif
++
+ static bool check_dir(const char *dirname, int add_files)
+ {
+     int success = false;
+ 
+     DIR *dir = opendir(dirname);
++    ST_MARK(ST_OPEN);
+     if (!dir)
+     {
+         logf("tagcache: opendir(%s) failed", dirname);
+@@ -8913,6 +8972,11 @@ static bool check_dir(const char *dirname, int add_files)
+     /* check for a database.ignore and database.unignore */
+     int ignore, unignore;
+     check_ignore(dirname, &ignore, &unignore);
++    ST_MARK(ST_IGNORE);
++#ifdef SCAN_TRACE
++    st_dirs++;
++    st_ign_miss += !ignore + !unignore;
++#endif
+ 
+     /* don't do anything if both ignore and unignore are there */
+     if (ignore != unignore)
+@@ -8926,6 +8990,7 @@ static bool check_dir(const char *dirname, int add_files)
+           )
+     {
+         struct dirent *entry = readdir(dir);
++        ST_MARK(ST_READDIR);
+         if (entry == NULL)
+         {
+             success = true;
+@@ -8934,6 +8999,9 @@ static bool check_dir(const char *dirname, int add_files)
+ 
+         if (is_dotdir_name(entry->d_name))
+             continue;
++#ifdef SCAN_TRACE
++        st_entries++;
++#endif
+ #ifdef HAVE_IPOD_UI
+         /* "._name": a macOS AppleDouble sidecar (Finder writes one per
+          * copied file with extended attributes on FAT), never audio. With
+@@ -8950,6 +9018,7 @@ static bool check_dir(const char *dirname, int add_files)
+ #endif
+ 
+         struct dirinfo info = dir_get_info(dir, entry);
++        ST_MARK(ST_INFO);
+         size_t len = strlen(curpath);
+         path_append(&curpath[len-1], PA_SEP_HARD, entry->d_name,
+                     sizeof (curpath) - len);
+@@ -8971,7 +9040,11 @@ static bool check_dir(const char *dirname, int add_files)
+             tc_stat.curentry = curpath;
+ 
+             /* Add a new entry to the temporary db file. */
++#ifdef SCAN_TRACE
++            st_files++;
++#endif
+             add_tagcache(curpath, info.mtime);
++            ST_MARK(ST_ADD);
+ 
+             /* Wait until current path for debug screen is read and unset. */
+             while (tc_stat.syncscreen && tc_stat.curentry != NULL)
+@@ -9018,6 +9091,9 @@ void do_tagcache_build(const char *path[])
+     data_size = 0;
+     total_entry_count = 0;
+     processed_dir_count = 0;
++#ifdef SCAN_TRACE
++    st_begin();
++#endif
+ #ifdef UI_TIMING
+     ui_scan_misses = ui_scan_lookups = ui_scan_reads = 0;
+     long ui_opens0 = ui_master_opens;
+@@ -9062,6 +9138,7 @@ void do_tagcache_build(const char *path[])
+         struct master_header mh;
+         ui_scan.masterfd = open_master_fd(ui_build, &mh, false);
+     }
++    ST_MARK(ST_TABLE);
+ #endif
+ 
+     if (boost)
+@@ -9155,6 +9232,13 @@ void do_tagcache_build(const char *path[])
+         }
+     }
+     free_search_roots(&roots_ll[0]);
++#ifdef SCAN_TRACE
++#ifdef UI_TIMING
++    st_log(ui_scan_lookups, ui_scan_reads);
++#else
++    st_log(-1, -1);             /* counters are sim-only */
++#endif
++#endif
+ #if defined(HAVE_IPOD_UI) && defined(HAVE_TC_RAMCACHE) && !defined(__PCTOOL__)
+     ui_flush_deleted();         /* changed files were deleted in place */
+ #endif

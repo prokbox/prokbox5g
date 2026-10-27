@@ -1,0 +1,184 @@
+# Phase 8b #67 (owner 2026-10-11): the last-played book sits at the top of
+# Music > Audiobooks, whatever the sort; the same row moves (no duplicate,
+# no mark), the rest keep their order. Ranking (brief §3.2): the book
+# playing or paused now, then the pending record, then the newest written
+# record that is not a migration seed. Library books, title order:
+#   0 A Field Guide to Tones, 1 The Lighthouse Keeper ("The" ignored),
+#   2 Mini Audiobook, 3 Winter Stories
+# Part 1 (precompute file): play Mini Audiobook (row 2) from its page;
+# back in the list it is first while it plays, before any store write
+# (src=play). Stop: still first (src=stamp). Play A Field Guide (now row
+# 1): it moves to the top. Sort By Author: still first (it is last by
+# author, Osric Pell). Podcasts unchanged.
+# Part 2 (scan path, brief M1): the precompute file is removed while a
+# book plays (the precompute waits for the stop), so the books list is
+# built from the RAM cache, keys from artcache_key(): the pin still
+# works (path=scan).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p8b-pin.script
+# needs: library
+# needs: ab
+# timeout: 240
+# fresh-db
+# trace: ab
+# golden: skip
+# log: lib books pin none why=nokey
+# log: row=2 key=e4432b46 src=stamp order=title path=file
+# log: row=2 key=e4432b46 src=play order=title path=file
+# log: row=3 key=e6adf856 src=stamp order=author path=file
+# log: row=2 key=e4432b46 src=play order=title path=scan
+# log: row=0 key=e6adf856 src=play order=title path=scan
+# nolog: lib books pin none why=absent
+
+# no books.dat from an earlier run on this disk: nothing played yet
+rm_file /.rockbox/artcache/books.dat
+reboot
+wait 4000
+wait_db 45000
+art_wait 60000
+
+# Music > Audiobooks: no book played yet, no pin
+key SELECT 50
+wait 800
+wheel +6 300            # Audiobooks (Compilations off: P11)
+wait 400
+key SELECT 50
+wait 1200
+shot list_nopin         # A Field Guide, Lighthouse, Mini, Winter
+
+# play Mini Audiobook (row 2) from its first chapter
+wheel +2 300
+wait 400
+key SELECT 50           # its page
+wait 1000
+key SELECT 50           # the first chapter: plays
+wait 2500
+expect_playing 500
+key MENU 50             # the page
+wait 1000
+key MENU 50             # the list reopens: pinned while it plays
+wait 1500
+shot list_playing       # Mini, A Field Guide, Lighthouse, Winter
+
+# stop: the stop record is pending, then written; still pinned
+audio_stop
+wait 2500
+key MENU 50
+wait 1000
+key SELECT 50
+wait 1500
+shot list_stopped       # Mini first
+
+# play A Field Guide (row 1 now): it moves to the top at once
+wheel +1 300
+wait 400
+key SELECT 50
+wait 1000
+key SELECT 50
+wait 2500
+expect_playing 500
+key MENU 50
+wait 1000
+key MENU 50
+wait 1500
+shot list_second        # A Field Guide, Lighthouse, Mini, Winter
+audio_stop
+wait 2000
+
+# Sort By Author: the pinned book stays first
+hold MENU 1000
+wait 1200
+wheel +3 300            # Settings
+wait 400
+key SELECT 50
+wait 1200
+wheel +8 40             # Audiobooks (row 8)
+wait 800
+key SELECT 50
+wait 1200
+wheel +1 300            # Sort By
+wait 600
+key SELECT 50           # Title -> Author
+wait 800
+key MENU 50
+wait 1000
+key MENU 50
+wait 1000
+wheel -3 300            # Music
+wait 400
+key SELECT 50
+wait 800
+wheel +6 300
+wait 400
+key SELECT 50
+wait 1500
+shot list_author        # A Field Guide first, then by author
+
+# Podcasts: untouched
+hold MENU 1000          # the main menu (Music selected)
+wait 1200
+wheel +1 300            # Podcasts (main menu)
+wait 400
+key SELECT 50
+wait 1500
+shot podcasts
+
+# back to Title
+hold MENU 1000
+wait 1200
+wheel +2 300            # Settings
+wait 400
+key SELECT 50
+wait 1200
+wheel +8 40
+wait 800
+key SELECT 50
+wait 1200
+wheel +1 300
+wait 600
+key SELECT 50           # Author -> Title
+wait 800
+
+# Part 2: the scan path. Play Mini Audiobook, drop the precompute file
+# while it plays (its rewrite waits for the stop), back to the list
+hold MENU 1000
+wait 1200
+wheel -3 300            # Music (the main menu kept Settings)
+wait 400
+key SELECT 50           # Music
+wait 800
+wheel +6 300
+wait 400
+key SELECT 50
+wait 1200
+wheel +2 300            # Mini (A Field Guide is row 0)
+wait 400
+key SELECT 50
+wait 1000
+key SELECT 50
+wait 2500
+expect_playing 500
+rm_file /.rockbox/database_lib.dat
+wait 500
+key MENU 50
+wait 1000
+key MENU 50
+wait 1500
+shot scan_playing       # Mini first, built from the RAM cache
+# A Field Guide (row 1 now), still while a book plays: the file is not
+# back yet, so the switch is also on the scan path
+wheel +1 300
+wait 400
+key SELECT 50
+wait 1000
+key SELECT 50
+wait 2500
+expect_playing 500
+key MENU 50
+wait 1000
+key MENU 50
+wait 1500
+shot scan_second        # A Field Guide, Lighthouse, Mini, Winter
+expect_playing 300
+audio_stop
+wait 2000
+quit

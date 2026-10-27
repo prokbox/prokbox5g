@@ -1,0 +1,113 @@
+# P12 W3-K (docs/phase12-brief.md 2.1, 3.5, 9 "-contacts-*"): 2,000
+# typical cards (big2000.vcf: two phones, an e-mail, one in ten with an
+# organisation, one in ten an address; a ~200 KB paged index, past the cache of the simulator's block): entry
+# reads the index's head (header, both directories, both first pages) in
+# one read; scrolling far reads one page at a time (one open, one range
+# read: a page load, booked apart under the manifest's pages rate);
+# Settings > Sort By Last re-orders it by family name while every row
+# still reads "Given Family"; the order survives leaving Contacts.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p12-contacts-windows2000.script
+# needs: library
+# timeout: 480
+# modclass: paged
+# log: xidx build kind=2 n=2000
+# log: contacts open n=2000 whole=0 last=0
+# log: contacts page l=0
+# log: contacts open n=2000 whole=0 last=1
+# log: contacts page l=1
+# nolog: contacts row blank
+# golden: skip
+# reset: mainmenu
+
+sim_clock 15:06
+wait 4000
+wait_db 30000
+rm_file /Contacts/family.vcf
+rm_file /Contacts/work.vcf
+rm_file /Contacts/modern.vcf
+rm_file /Contacts/big.vcf
+rm_file /Contacts/big2000.vcf
+rm_file /Contacts/._family.vcf
+rm_file /Contacts/readme.txt
+rm_file /.rockbox/contacts.idx
+rm_file /.rockbox/xindex.owe
+
+usb_connect
+wait 2500
+mkdir /Contacts
+copy fixtures/contacts/big2000.vcf /Contacts/big2000.vcf
+usb_disconnect
+wait 150
+wait_db 45000
+wait 3500
+storage_idle
+wait 1500
+wheel +2            # Main Menu: "Extras"
+wait 800
+key SELECT
+wait 1200
+wheel +2            # Extras: "Contacts"
+wait 800
+key SELECT
+wait 1200
+shot first
+wheel +120
+wait 1000
+shot middle
+wheel +900
+wait 1500
+shot deep
+wheel +1100
+wait 1500
+shot end
+key SELECT          # a card read on its own (not in a whole image)
+wait 1200
+shot card
+key MENU
+wait 800
+wheel -2100
+wait 1500
+shot top_again
+key MENU
+wait 800
+key MENU
+wait 800
+wheel +1            # Settings
+wait 600
+key SELECT
+wait 1200
+wheel +13           # Sort By
+wait 800
+shot sort_row
+key SELECT          # First -> Last
+wait 800
+shot sort_last
+key MENU
+wait 800
+wheel -1
+wait 600
+key SELECT          # Extras
+wait 1200
+wheel +2
+wait 800
+key SELECT          # Contacts
+wait 1200
+shot last_first
+wheel +400
+wait 1500
+shot last_middle
+key MENU
+wait 800
+key MENU            # back to Settings > Sort By: First again, so the
+wait 800            # next run starts sorted by First
+wheel +1
+wait 600
+key SELECT
+wait 1200
+wheel +13
+wait 800
+key SELECT
+wait 800
+key MENU
+wait 800
+quit

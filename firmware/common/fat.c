@@ -37,6 +37,10 @@
 #include "disk.h"
 /*#define LOGF_ENABLE*/
 #include "logf.h"
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER) \
+    && !defined(FATCRASH_CONFIG_H)
+#include "../kernel/thread-internal.h"  /* the empty-slot case's thread */
+#endif
 
 #define BYTES2INT32(array, pos) \
     (((uint32_t)array[pos+0] <<  0) | \
@@ -331,6 +335,94 @@ struct fatlong_parse_state
     uint8_t chksum;
 };
 
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER) && !defined(FAT_NO_DIR_BURST)
+/* ProkBox (R1, #107): directory reads in bursts. fat_readdir() used to
+ * read a directory one sector per storage command; it now reads up to a
+ * slot's worth of the current cluster in one command into a small LRU of
+ * slots and serves later sectors from there.
+ * Coherence (Phase 16 brief H3):
+ *  - a slot always equals the disk: every disk write that goes through
+ *    this file (dc_writeback_callback() for the disk cache, transfer() for
+ *    file data) drops the slots it overlaps, and mount/unmount drop all
+ *    (USB mass storage writes only while unmounted);
+ *  - the disk cache wins: a sector the disk cache holds (dirty or clean)
+ *    is served from there, never from a slot;
+ *  - only fat_readdir() reads slots. The free-slot search and every write
+ *    path read directory sectors through the disk cache, as upstream.
+ * Build with -DFAT_NO_DIR_BURST to compare with upstream's reads. */
+#define FAT_DIR_BURST
+#include "core_alloc.h"
+/* Sized by tests/fatcrash/dirburst (50k-track volume, 16 KiB clusters):
+ * commands fall with the slot size up to a cluster (a burst never crosses
+ * one); more slots barely help a walk (folders outgrow any small LRU) but
+ * a second keeps a scan and a track open from refilling each other's */
+#ifndef FAT_DIR_BURST_SLOTS
+#define FAT_DIR_BURST_SLOTS  2
+#endif
+#ifndef FAT_DIR_BURST_BYTES
+#define FAT_DIR_BURST_BYTES  16384   /* per slot: one 16 KiB cluster */
+#endif
+
+static struct dir_burst_slot
+{
+    sector_t start;                  /* first sector, volume relative */
+    unsigned int count;              /* sectors held; 0: empty */
+    unsigned int age;                /* LRU stamp */
+#ifdef HAVE_MULTIVOLUME
+    int volume;
+#endif
+} dir_burst[FAT_DIR_BURST_SLOTS];
+static unsigned int dir_burst_tick;
+static uint8_t *dir_burst_buf;       /* NULL: not allocated, plain reads */
+
+/* drop the slots holding any of [start, start + count); callers hold the
+ * disk cache lock */
+static void dir_burst_drop(IF_MV(int volume,) sector_t start,
+                           unsigned long count)
+{
+#ifdef FATCRASH_BREAK_BURST_DROP
+    return; /* tests/fatcrash negative control: dirburst must catch this */
+#endif
+    for (int i = 0; i < FAT_DIR_BURST_SLOTS; i++)
+    {
+        struct dir_burst_slot *b = &dir_burst[i];
+        if (b->count IF_MV(&& b->volume == volume) &&
+            start < b->start + b->count && b->start < start + count)
+            b->count = 0;
+    }
+}
+
+static void dir_burst_drop_all(void)
+{
+#ifdef FATCRASH_BREAK_BURST_DROP_ALL
+    return; /* tests/fatcrash negative control (unmount/remount) */
+#endif
+    for (int i = 0; i < FAT_DIR_BURST_SLOTS; i++)
+        dir_burst[i].count = 0;
+}
+
+/* at the first mount only (at boot, before the audio buffer exists):
+ * pinned, so the storage driver may DMA into it. No buffer: plain reads */
+static void dir_burst_init(void)
+{
+    static bool tried; /* once: a later mount (USB's remount) may find the
+                        * audio buffer owning the heap */
+    if (tried)
+        return;
+
+    tried = true;
+
+    int handle = core_alloc_ex(FAT_DIR_BURST_SLOTS * FAT_DIR_BURST_BYTES +
+                               2 * CACHEALIGN_SIZE, NULL);
+    if (handle <= 0)
+        return;
+
+    core_pin(handle);
+    dir_burst_buf = (uint8_t *)CACHEALIGN_UP((uintptr_t)
+                                             core_get_data(handle));
+}
+#endif /* FAT_DIR_BURST */
+
 static void cache_commit(struct bpb *fat_bpb)
 {
     dc_lock_cache();
@@ -349,12 +441,27 @@ static void cache_discard(IF_MV_NONVOID(struct bpb *fat_bpb))
     dc_unlock_cache();
 }
 
+#ifdef FAT_SOFT_EMPTY_SLOT
+static struct fat_slot_fault fat_slot_fault;
+static bool cache_sector_was_read;      /* the last cache_sector() read */
+
+unsigned long fat_slot_fault_get(struct fat_slot_fault *out)
+{
+    if (out)
+        *out = fat_slot_fault;
+    return fat_slot_fault.seq;
+}
+#endif
+
 /* caches a FAT or data area sector */
 static void * cache_sector(struct bpb *fat_bpb, sector_t secnum)
 {
     unsigned int flags;
     void *buf = dc_cache_probe(IF_MV(fat_bpb->volume,) secnum, &flags);
 
+#ifdef FAT_SOFT_EMPTY_SLOT
+    cache_sector_was_read = !flags;
+#endif
     if (!flags)
     {
         int rc = storage_read_sectors(IF_MD(fat_bpb->drive,)
@@ -381,12 +488,100 @@ static void * cache_sector_buffer(IF_MV(struct bpb *fat_bpb,)
     return dc_cache_probe(IF_MV(fat_bpb->volume,) secnum, &flags);
 }
 
+#ifdef FAT_WRITE_BARRIER
+/* ProkBox (#91 H2): the drive's volatile write cache (ata.c enables it)
+ * may land or lose unflushed writes in any order at a power cut, so every
+ * write order this file and file.c rely on is enforced with a cache flush
+ * (ATA FLUSH CACHE), not with the order of the write commands alone:
+ *  - automatically, here: whenever a FAT sector is written after a
+ *    directory (or other non-FAT) sector, or the reverse, everything
+ *    before is flushed first. FSInfo is a hint and is neutral. This
+ *    orders separate commits only: within one commit the write-back puts
+ *    every FAT sector first (DC_ORDERED_WRITEBACK), so an allocation
+ *    lands before the entry that names it, and a step that must reach a
+ *    directory sector BEFORE a FAT change (an entry dropping a chain
+ *    before the chain is freed) commits it on its own first: fat_remove()
+ *    commits the cleared entries before it frees the chain, and
+ *    fat_closewrite() commits and flushes the emptied entry before it
+ *    frees the first cluster (FAT_ENTRY_BEFORE_FREE);
+ *  - explicitly, fat_barrier(): the ordered directory-entry steps below
+ *    (FAT_ORDERED_DIRENTRIES), fat_extend_dir()'s zeros before the link,
+ *    fat_closewrite()'s emptied entry, and file.c's rename intent record
+ *    (before, victim, done).
+ * Data sectors written by fat_readwrite() are not tracked (no structure
+ * depends on them); an explicit barrier covers them too.
+ *
+ * Locking: wb_class and wb_data have no lock of their own; each is one
+ * byte (an atomic store). wb_class is touched only under the disk cache
+ * lock (write_order(), barrier_flush() from it) or by fat_barrier(),
+ * whose callers hold the file layer's writer lock, which excludes every
+ * other file operation, so the disk cache is idle then. wb_data is set
+ * by fat_readwrite() after its write completes (under the reader lock,
+ * so writers on two streams may race it): barrier_flush() clears both
+ * before it flushes, so a set either lands after the clear (one spare
+ * flush later) or belongs to a write the flush covers. */
+static unsigned char wb_class;          /* 0 flushed, 1 FAT, 2 other */
+static bool wb_data;                    /* file data written since */
+#ifdef FAT_BARRIER_COUNT
+unsigned long fat_barrier_count;
+#endif
+
+static void barrier_flush(void)
+{
+    int rc = 0;
+    wb_class = 0;                       /* before: a racing write counts */
+    wb_data = false;
+#if defined(HAVE_STORAGE_FLUSH)
+    rc = storage_flush();
+#elif (CONFIG_STORAGE & STORAGE_ATA)
+    rc = ata_flush();
+#endif
+    /* #91 M2: < 0 failed, > 0 the drive offers no flush (ata.c counts
+     * both for the USB log); noted once per boot, never retried */
+    static bool reported;
+    if (rc && !reported)
+    {
+        reported = true;
+        logf("fat: write barrier %s (%d)", rc < 0 ? "failed" : "unsupported",
+             rc);
+    }
+#ifdef FAT_BARRIER_COUNT
+    fat_barrier_count++;
+#endif
+}
+
+static void write_order(struct bpb *fat_bpb, sector_t sector)
+{
+    if (sector == fat_bpb->bpb_fsinfo)
+        return;
+    unsigned char cls = IS_FAT_SECTOR(fat_bpb, sector) ? 1 : 2;
+    if (wb_class && wb_class != cls)
+        barrier_flush();
+    wb_class = cls;
+}
+
+#ifndef FAT_BARRIER_AUTO_ONLY           /* tests/fatcrash: a control */
+/* every write so far is durable before any later one; nothing to do
+ * when nothing was written since the last flush */
+void fat_barrier(IF_MV_NONVOID(int volume))
+{
+    IF_MV((void)volume;)
+    if (wb_class || wb_data)
+        barrier_flush();
+}
+#endif
+#endif /* FAT_WRITE_BARRIER */
+
 /* flush a cache buffer to storage */
 void dc_writeback_callback(IF_MV(int volume,) sector_t sector, void *buf)
 {
     struct bpb * const fat_bpb = &fat_bpbs[IF_MV_VOL(volume)];
     unsigned int copies = !IS_FAT_SECTOR(fat_bpb, sector) ?
                                 1 : fat_bpb->bpb_numfats;
+
+#ifdef FAT_WRITE_BARRIER
+    write_order(fat_bpb, sector);
+#endif
 
     sector += fat_bpb->startsector;
 
@@ -399,6 +594,10 @@ void dc_writeback_callback(IF_MV(int volume,) sector_t sector, void *buf)
                    " (error %d)\n", __func__, (uint64_t)sector, rc);
         }
 
+#ifdef FAT_DIR_BURST
+        /* under the disk cache lock (every write-back is) */
+        dir_burst_drop(IF_MV(volume,) sector - fat_bpb->startsector, 1);
+#endif
         if (--copies == 0)
             break;
 
@@ -406,6 +605,41 @@ void dc_writeback_callback(IF_MV(int volume,) sector_t sector, void *buf)
         sector += fat_bpb->fatsize;
     }
 }
+
+#ifdef DC_ORDERED_WRITEBACK
+/* disk_cache.c: FAT sectors are written before directory entries */
+bool dc_writeback_first(IF_MV(int volume,) sector_t sector)
+{
+    struct bpb * const fat_bpb = &fat_bpbs[IF_MV_VOL(volume)];
+    return IS_FAT_SECTOR(fat_bpb, sector);
+}
+#endif
+
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER) \
+    && !defined(FAT_UNORDERED_RENAME)
+/* ProkBox (#91 H2): directory entries reach the disk in an order where a
+ * power cut never leaves a file under neither name or under a lone 8.3
+ * alias. Adding: the long-name sectors before the short entry's sector.
+ * Renaming: the new entries are committed before the old ones are
+ * cleared. Freeing: the short entry is cleared (0xE5) in a write of its
+ * own before the long-name sectors. Growing a directory: the new cluster
+ * is zeroed on disk before it is linked (fat_extend_dir()). Emptying: a
+ * file closed at size 0 has its entry rewritten (no cluster) and flushed
+ * before its first cluster is freed (fat_closewrite()). What a cut can
+ * leave: orphan long-name entries (no name; fsck drops them), a free
+ * zeroed cluster, a lost cluster, or one file (or directory) under two
+ * names on one cluster chain, from inside any rename. file.c records every rename
+ * before it starts and resolves that record at boot (one name is left,
+ * without freeing the data), and its remove() and O_TRUNC check the last
+ * record's other name before they free a chain. */
+#define FAT_ORDERED_DIRENTRIES
+#ifndef FAT_EXTEND_LINK_FIRST   /* tests/fatcrash: M2's negative control */
+#define FAT_ZERO_BEFORE_LINK
+#endif
+#ifndef FAT_FREE_BEFORE_ENTRY   /* tests/fatcrash: #91 M1's control */
+#define FAT_ENTRY_BEFORE_FREE
+#endif
+#endif
 
 static void raw_dirent_set_fstclus(union raw_dirent *ent, long fstclus)
 {
@@ -1401,10 +1635,19 @@ static long next_write_cluster(struct bpb *fat_bpb, long oldcluster)
         if (cluster)
         {
             /* create the cluster chain */
+#ifdef HAVE_IPOD_UI
+            /* end the new cluster before linking it: an eviction between
+             * the two leaves an orphan, never a chain into a free cluster
+             * (ordered write-back, crash-fat 1019) */
+            update_fat_entry(fat_bpb, cluster, FAT_EOF_MARK);
+            if (oldcluster)
+                update_fat_entry(fat_bpb, oldcluster, cluster);
+#else
             if (oldcluster)
                 update_fat_entry(fat_bpb, oldcluster, cluster);
 
             update_fat_entry(fat_bpb, cluster, FAT_EOF_MARK);
+#endif
         }
         else
         {
@@ -1431,7 +1674,23 @@ static int fat_extend_dir(struct bpb *fat_bpb, struct fat_filestr *dirstr)
     int rc;
 
     long cluster    = dirstr->lastcluster;
+#ifdef FAT_ZERO_BEFORE_LINK
+    /* M2: a fresh cluster is zeroed on disk before it is linked. FAT
+     * sectors go out first (DC_ORDERED_WRITEBACK), so linking first lets a
+     * cut leave the directory running into stale bytes that read as
+     * entries; zeroed first, a cut leaves a free cluster of zeros */
+    long newcluster = cluster > 0 ? get_next_cluster(fat_bpb, cluster) : 0;
+    const bool fresh = !newcluster && cluster >= 0; /* not FAT16's root */
+    if (fresh)
+    {
+        dc_lock_cache();
+        newcluster = find_free_cluster(fat_bpb, cluster > 0 ? cluster + 1 :
+                                       (long)fat_bpb->fsinfo.nextfree);
+        dc_unlock_cache();
+    }
+#else
     long newcluster = next_write_cluster(fat_bpb, cluster);
+#endif
 
     if (!newcluster)
     {
@@ -1456,6 +1715,9 @@ static int fat_extend_dir(struct bpb *fat_bpb, struct fat_filestr *dirstr)
         {
             dc_unlock_cache();
             DEBUGF("Cannot clear cluster %ld\n", newcluster);
+#ifdef FAT_ZERO_BEFORE_LINK
+            if (!fresh)             /* a fresh one was never linked */
+#endif
             update_fat_entry(fat_bpb, newcluster, 0);
             FAT_ERROR(-2);
         }
@@ -1464,6 +1726,21 @@ static int fat_extend_dir(struct bpb *fat_bpb, struct fat_filestr *dirstr)
         dc_dirty_buf(sec);
         dc_unlock_cache();
     }
+
+#ifdef FAT_ZERO_BEFORE_LINK
+    if (fresh)
+    {
+        /* the zeros land, then the chain grows (ended before linked, as
+         * next_write_cluster() does) */
+        cache_commit(fat_bpb);
+        fat_barrier(IF_MV(fat_bpb->volume));
+        dc_lock_cache();
+        update_fat_entry(fat_bpb, newcluster, FAT_EOF_MARK);
+        if (cluster)
+            update_fat_entry(fat_bpb, cluster, newcluster);
+        dc_unlock_cache();
+    }
+#endif
 
     if (!dirstr->fatfilep->firstcluster)
         dirstr->fatfilep->firstcluster = newcluster;
@@ -1688,6 +1965,18 @@ static int write_longname(struct bpb *fat_bpb, struct fat_filestr *parentstr,
         dc_dirty_buf(ent);
         DEBUGF("Longname entry %d\n", ord);
     }
+
+#ifdef FAT_ORDERED_DIRENTRIES
+    /* long-name entries in sectors before the short entry's: those go out
+     * first, so a cut can leave them orphaned but never the 8.3 alias on
+     * its own (one sector write is the unit) */
+    if (longentries && firstentry / DIR_ENTRIES_PER_SECTOR !=
+                       file->e.entry / DIR_ENTRIES_PER_SECTOR)
+    {
+        cache_commit(fat_bpb);
+        fat_barrier(IF_MV(fat_bpb->volume));
+    }
+#endif
 
     /* shortname entry */
     DEBUGF("Shortname '%s'\n", shortname);
@@ -1941,7 +2230,47 @@ static int update_short_entry(struct bpb *fat_bpb, struct fat_file *file,
         FAT_ERROR(-1);
 
     if (!ent->name[0] || ent->name[0] == 0xe5)
+    {
+#ifdef FAT_SOFT_EMPTY_SLOT
+        /* ProkBox: the 2026-10-23 freeze. Nothing is written: the close
+         * fails (EIO) and at worst the file's clusters leak; the case is
+         * kept for ipodui.log. The disk cache lock is held (fat_error
+         * releases it) */
+        struct fat_slot_fault *f = &fat_slot_fault;
+        f->from_disk = cache_sector_was_read;
+        memcpy(f->raw[1], ent, 32);
+        f->have[1] = true;
+        f->dircluster = file->dircluster;
+        f->firstcluster = file->firstcluster;
+        f->entry = file->e.entry;
+        f->size = size;
+#ifndef FATCRASH_CONFIG_H
+        {
+            struct thread_entry *t = __running_self_entry();
+            strmemccpy(f->thread, t && t->name ? t->name : "?",
+                       sizeof(f->thread));
+        }
+#endif
+        for (int i = 0; i < 3; i += 2)
+        {
+            union raw_dirent *n = NULL;
+            f->have[i] = false;
+            if (i == 0 ? file->e.entry > 0 : true)
+                n = cache_direntry(fat_bpb, &parentstr,
+                                   file->e.entry + i - 1);
+            if (n)
+            {
+                memcpy(f->raw[i], n, 32);
+                f->have[i] = true;
+            }
+        }
+        f->count++;
+        f->seq++;
+        FAT_ERROR(-2);
+#else
         panicf("Updating size on empty dir entry %d\n", file->e.entry);
+#endif
+    }
 
     /* basic file data */
     raw_dirent_set_fstclus(ent, file->firstcluster);
@@ -1975,6 +2304,44 @@ static int free_direntries(struct bpb *fat_bpb, struct fat_file *file)
     struct fat_filestr parentstr;
     fat_filestr_init(&parentstr, &parent);
 
+#ifdef FAT_ORDERED_DIRENTRIES
+    /* the short entry first: it alone names the file. When long-name
+     * entries sit in other sectors it goes out in a write of its own, so a
+     * cut leaves orphan long-name entries, never a lone 8.3 alias */
+    const unsigned int first = file->e.entry - file->e.entries + 1;
+
+    dc_lock_cache();
+    union raw_dirent *sent = cache_direntry(fat_bpb, &parentstr,
+                                            file->e.entry);
+    if (!sent)
+    {
+        dc_unlock_cache();
+        return -1; /* nothing at all freed */
+    }
+    sent->data[0] = 0xe5;
+    dc_dirty_buf(sent);
+    if (first / DIR_ENTRIES_PER_SECTOR !=
+        file->e.entry / DIR_ENTRIES_PER_SECTOR)
+    {
+        cache_commit(fat_bpb);
+        fat_barrier(IF_MV(fat_bpb->volume));
+    }
+    dc_unlock_cache();
+
+    for (unsigned int entry = first; entry < file->e.entry; entry++)
+    {
+        dc_lock_cache();
+        union raw_dirent *ent = cache_direntry(fat_bpb, &parentstr, entry);
+        if (ent)
+        {
+            ent->data[0] = 0xe5;
+            dc_dirty_buf(ent);
+        }
+        dc_unlock_cache();
+        if (!ent)
+            break; /* the name is gone; orphans are left for fsck */
+    }
+#else
     for (unsigned int entries = file->e.entries,
                       entry = file->e.entry - entries + 1;
          entries; entries--, entry++)
@@ -2003,6 +2370,7 @@ static int free_direntries(struct bpb *fat_bpb, struct fat_file *file)
         dc_dirty_buf(ent);
         dc_unlock_cache();
     }
+#endif /* FAT_ORDERED_DIRENTRIES */
 
     /* directory entry info is now gone */
     file->dircluster = 0;
@@ -2200,6 +2568,11 @@ int fat_remove(struct fat_file *file, enum fat_remove_op what)
         rc = free_direntries(fat_bpb, file);
         if (rc <= 0)
             FAT_ERROR(rc * 10 - 3);
+#ifdef FAT_ENTRY_BEFORE_FREE
+        /* FAT_RM_ALL: the cleared entries are committed on their own
+         * (write_order() then flushes before the FAT sectors) */
+        cache_commit(fat_bpb);
+#endif
     }
 
     if (file->firstcluster && (what & FAT_RM_DATA))
@@ -2324,6 +2697,13 @@ int fat_rename(struct fat_file *parent, struct fat_file *file,
         dc_unlock_cache();
     }
 
+#ifdef FAT_ORDERED_DIRENTRIES
+    /* the new name reaches the disk before the old one is cleared: a cut
+     * between leaves both names on one chain, never neither */
+    cache_commit(fat_bpb);
+    fat_barrier(IF_MV(fat_bpb->volume));
+#endif
+
     /* remove old name */
     rc = free_direntries(fat_bpb, file);
     if (rc <= 0)
@@ -2389,13 +2769,28 @@ int fat_closewrite(struct fat_filestr *filestr, uint32_t size,
         return -1;
 
     int rc;
+#ifdef FAT_ENTRY_BEFORE_FREE
+    long freecluster = 0;
+#endif
 
     if (!size && file->firstcluster)
     {
         /* empty file */
-        rc = update_fat_entry(fat_bpb, file->firstcluster, 0);
-        if (rc < 0)
-            FAT_ERROR(rc * 10 - 2);
+#ifdef FAT_ENTRY_BEFORE_FREE
+        if (file->dircluster)
+        {
+            /* #91 M1: the entry stops naming the cluster (below) before
+             * it is freed; a cut between leaks one cluster, never leaves
+             * the entry on a free one (a later cross-link) */
+            freecluster = file->firstcluster;
+        }
+        else
+#endif
+        {
+            rc = update_fat_entry(fat_bpb, file->firstcluster, 0);
+            if (rc < 0)
+                FAT_ERROR(rc * 10 - 2);
+        }
 
         file->firstcluster = 0;
         fat_rewind(filestr);
@@ -2405,12 +2800,31 @@ int fat_closewrite(struct fat_filestr *filestr, uint32_t size,
     {
         rc = update_short_entry(fat_bpb, file, size, fatentp);
         if (rc < 0)
+        {
+#ifdef FAT_ENTRY_BEFORE_FREE
+            if (freecluster)            /* the entry still names it */
+                file->firstcluster = freecluster;
+#endif
             FAT_ERROR(rc * 10 - 3);
+        }
     }
     else if (fatentp)
     {
         fat_empty_fat_direntry(fatentp);
     }
+
+#ifdef FAT_ENTRY_BEFORE_FREE
+    if (freecluster)
+    {
+        /* the write-back puts FAT sectors first within one commit: the
+         * entry gets a commit and a flush of its own */
+        cache_commit(fat_bpb);
+        fat_barrier(IF_MV(fat_bpb->volume));
+        rc = update_fat_entry(fat_bpb, freecluster, 0);
+        if (rc < 0)
+            FAT_ERROR(rc * 10 - 4);
+    }
+#endif
 
 #ifdef TEST_FAT
     if (file->firstcluster)
@@ -2462,6 +2876,10 @@ static long transfer(struct bpb *fat_bpb, sector_t start, long count,
                      char *buf, bool write)
 {
     long rc = 0;
+#ifdef FAT_DIR_BURST
+    const sector_t first = start;        /* the bounce loop moves start */
+    const long total = count;
+#endif
 
     DEBUGF("%s(s=%llx, c=%lx, wr=%u)\n", __func__,
            (uint64_t)(start + fat_bpb->startsector), count, write ? 1 : 0);
@@ -2522,6 +2940,20 @@ static long transfer(struct bpb *fat_bpb, sector_t start, long count,
     }
 #endif
 
+#ifdef FAT_WRITE_BARRIER
+    if (write)
+        wb_data = true;
+#endif
+#ifdef FAT_DIR_BURST
+    if (write)
+    {
+        /* the slots must equal the disk, even after a failed write */
+        dc_lock_cache();
+        dir_burst_drop(IF_MV(fat_bpb->volume,) first, total);
+        dc_unlock_cache();
+    }
+#endif
+
     if (rc < 0)
     {
         DEBUGF("Couldn't %s sector %llx (err %ld)\n",
@@ -2531,6 +2963,154 @@ static long transfer(struct bpb *fat_bpb, sector_t start, long count,
 
     return 0;
 }
+
+#ifdef FAT_DIR_BURST
+/* one directory sector into buf: the disk cache's copy if it has one,
+ * else a slot's, else a burst from this sector up to the slot size or the
+ * cluster's end (left sectors), whichever is smaller */
+static int dir_burst_get(struct bpb *fat_bpb, sector_t sector,
+                         unsigned long left, void *buf)
+{
+    const unsigned int secsize = LOG_SECTOR_SIZE(fat_bpb);
+    const unsigned int cap = FAT_DIR_BURST_BYTES / secsize;
+    int rc = 0;
+
+    dc_lock_cache();
+
+    const void *src = dc_peek(IF_MV(fat_bpb->volume,) sector);
+    if (!src)
+    {
+        struct dir_burst_slot *b = NULL, *victim = &dir_burst[0];
+        int i;
+
+        for (i = 0; i < FAT_DIR_BURST_SLOTS; i++)
+        {
+            struct dir_burst_slot *s = &dir_burst[i];
+            if (s->count IF_MV(&& s->volume == fat_bpb->volume) &&
+                sector >= s->start && sector < s->start + s->count)
+            {
+                b = s;
+                break;
+            }
+
+            /* an empty slot first, else the least recently used */
+            if (victim->count && (!s->count || s->age < victim->age))
+                victim = s;
+        }
+
+        if (!b)
+        {
+            b = victim;
+            i = b - dir_burst;
+            b->count = 0;
+            char *dst = (char *)dir_burst_buf + i * FAT_DIR_BURST_BYTES;
+            unsigned long n = MIN(left, cap);
+            rc = transfer(fat_bpb, sector, n, dst, false);
+            if (rc < 0 && n > 1)
+            {
+                /* the burst may span a bad sector the folder never uses:
+                 * this sector alone, as upstream reads it */
+                n = 1;
+                rc = transfer(fat_bpb, sector, n, dst, false);
+            }
+
+            if (rc >= 0)
+            {
+                b->start = sector;
+                b->count = n;
+#ifdef HAVE_MULTIVOLUME
+                b->volume = fat_bpb->volume;
+#endif
+            }
+        }
+
+        if (b->count)
+        {
+            b->age = ++dir_burst_tick;
+            src = dir_burst_buf + (b - dir_burst) * FAT_DIR_BURST_BYTES +
+                  (sector - b->start) * secsize;
+        }
+    }
+
+    if (src)
+        memcpy(buf, src, secsize);
+
+    dc_unlock_cache();
+    return rc;
+}
+
+/* fat_readwrite(dirstr, 1, buf, false) through the bursts: the stream
+ * moves exactly as it would there */
+static long dir_burst_read(struct fat_filestr *filestr, void *buf)
+{
+    struct fat_file * const file = filestr->fatfilep;
+    struct bpb * const fat_bpb = FAT_BPB(file->volume);
+    if (!fat_bpb)
+        return -1;
+
+    if (!dir_burst_buf
+#ifdef HAVE_FAT16SUPPORT
+        || fat_bpb->is_fat16
+#endif
+       )
+        return fat_readwrite(filestr, 1, buf, false);
+
+    if (filestr->eof)
+        return 0;
+
+    long          cluster    = filestr->lastcluster;
+    sector_t      sector     = filestr->lastsector;
+    long          clusternum = filestr->clusternum;
+    unsigned long sectornum  = filestr->sectornum;
+    long rc = 1;
+
+    if (!sector && file->firstcluster)
+    {
+        cluster = file->firstcluster;
+        sector = cluster2sec(fat_bpb, cluster) - 1;
+    }
+
+    if (!sector)
+    {
+        rc = 0;
+        filestr->eof = true;
+        goto out;
+    }
+
+    if (++sectornum >= fat_bpb->bpb_secperclus)
+    {
+        long newcluster = get_next_cluster(fat_bpb, cluster);
+        if (!newcluster)
+        {
+            sectornum--;                 /* remain in previous position */
+            rc = 0;
+            filestr->eof = true;
+            goto out;
+        }
+
+        cluster = newcluster;
+        sector = cluster2sec(fat_bpb, cluster) - 1;
+        clusternum++;
+        sectornum = 0;
+    }
+
+    sector++;
+
+    int rc2 = dir_burst_get(fat_bpb, sector,
+                            fat_bpb->bpb_secperclus - sectornum, buf);
+    if (rc2 < 0)
+        return rc2 * 10 - 3; /* as fat_readwrite; the stream stays put so
+                              * the next call reads this sector again */
+
+    filestr->eof = false;
+out:
+    filestr->lastcluster = cluster;
+    filestr->lastsector  = sector;
+    filestr->clusternum  = clusternum;
+    filestr->sectornum   = sectornum;
+    return rc;
+}
+#endif /* FAT_DIR_BURST */
 
 long fat_readwrite(struct fat_filestr *filestr, unsigned long sectorcount,
                    void *buf, bool write)
@@ -2596,6 +3176,14 @@ long fat_readwrite(struct fat_filestr *filestr, unsigned long sectorcount,
     unsigned long transferred = 0;
     unsigned long count = 0;
     sector_t last = sector;
+#ifdef FAT_MAX_TRANSFER_BYTES
+    /* ProkBox (Fit-1 C12a): the cap per storage command in bytes, so it
+     * does not depend on the volume's sector size */
+    const unsigned long xfer_max =
+        FAT_MAX_TRANSFER_BYTES / LOG_SECTOR_SIZE(fat_bpb);
+#else
+#define xfer_max FAT_MAX_TRANSFER_SIZE
+#endif
 
     while (transferred + count < sectorcount)
     {
@@ -2624,7 +3212,7 @@ long fat_readwrite(struct fat_filestr *filestr, unsigned long sectorcount,
         }
 
         /* find sequential sectors and transfer them all at once */
-        if (sector != last || count >= FAT_MAX_TRANSFER_SIZE)
+        if (sector != last || count >= xfer_max)
         {
             /* not sequential/over limit */
             rc = transfer(fat_bpb, last - count + 1, count, buf, write);
@@ -2650,6 +3238,9 @@ long fat_readwrite(struct fat_filestr *filestr, unsigned long sectorcount,
         transferred += count;
     }
 
+#ifndef FAT_MAX_TRANSFER_BYTES
+#undef xfer_max
+#endif
     rc = (eof && write) ? FAT_RC_ENOSPC : (long)transferred;
 fat_error:
     filestr->lastcluster = cluster;
@@ -2830,13 +3421,22 @@ int fat_readdir(struct fat_filestr *dirstr, struct fat_dirscan_info *scan,
                     FAT_ERROR(rc2 * 10 - 2);
             }
 
+#ifdef FAT_DIR_BURST
+            long rc2 = dir_burst_read(dirstr, cachep->buffer);
+#else
             int rc2 = fat_readwrite(dirstr, 1, cachep->buffer, false);
+#endif
             if (rc2 <= 0)
             {
                 if (rc2 == 0)
                     break; /* eof */
 
                 DEBUGF("%s() - Couldn't read dir (err %d)\n", __func__, rc);
+#ifdef FAT_DIR_BURST
+                /* fat_error steps back one entry for a retry; the retry
+                 * must seek (the stream may have moved past this sector) */
+                cachep->sector = INVALID_SECNUM;
+#endif
                 FAT_ERROR(rc2 * 10 - 3);
             }
 
@@ -2955,6 +3555,13 @@ int fat_mount(IF_MV(int volume,) IF_MD(int drive,) unsigned long startsector)
     fat_bpb->sector_size = disk_get_log_sector_size(IF_MD(drive));
 #endif
 
+#ifdef FAT_DIR_BURST
+    dir_burst_init();
+    dc_lock_cache();
+    dir_burst_drop_all();
+    dc_unlock_cache();
+#endif
+
     rc = fat_mount_internal(fat_bpb);
     if (rc < 0)
         FAT_ERROR(rc * 10 - 2);
@@ -2985,6 +3592,11 @@ int fat_unmount(IF_MV_NONVOID(int volume))
 
     /* free the entries for this volume */
     cache_discard(IF_MV(fat_bpb));
+#ifdef FAT_DIR_BURST
+    dc_lock_cache();
+    dir_burst_drop_all();
+    dc_unlock_cache();
+#endif
     fat_bpb->mounted = false;
 
     return 0;
@@ -3031,6 +3643,67 @@ void fat_recalc_free(IF_MV_NONVOID(int volume))
     dc_unlock_cache();
 }
 
+#ifdef HAVE_IPOD_UI
+/* #81: FSInfo as it stands (in memory: as read at mount, kept current by
+ * every allocation since). freecount 0xffffffff means "unknown": a host
+ * then walks the whole FAT before it mounts (macOS's msdos driver on a
+ * 1 TB volume: 250 MB, past its 20 s limit). */
+bool fat_get_fsinfo(IF_MV(int volume,) unsigned long *freecount,
+                    unsigned long *nextfree, unsigned long *clusters)
+{
+    struct bpb * const fat_bpb = FAT_BPB(volume);
+    if (!fat_bpb)
+        return false;
+    if (freecount) *freecount = fat_bpb->fsinfo.freecount;
+    if (nextfree)  *nextfree = fat_bpb->fsinfo.nextfree;
+    if (clusters)  *clusters = fat_bpb->dataclusters;
+    return true;
+}
+
+/* #81: the volume's dirty flags, as a host will find them (read only).
+ * *bsflags: byte 0x41 of the boot sector (bit 0 set: dirty, the flag
+ * Windows and macOS set while mounted); *fat1: FAT[1] (FAT32: bit 27
+ * clear means not shut down cleanly, bit 26 clear means a hard error).
+ * macOS runs its full repair check before mounting a dirty volume. */
+bool fat_get_dirty(IF_MV(int volume,) unsigned int *bsflags,
+                   unsigned long *fat1)
+{
+    struct bpb * const fat_bpb = FAT_BPB(volume);
+    const uint8_t *b;
+    bool ok = true;
+
+    if (!fat_bpb)
+        return false;
+    dc_lock_cache();
+    b = cache_sector(fat_bpb, 0);
+    if (b)
+        *bsflags = b[0x41];
+    else
+        ok = false;
+    b = cache_sector(fat_bpb, fat_bpb->fatrgnstart);
+    if (b)
+        *fat1 = BYTES2INT32(b, 4);
+    else
+        ok = false;
+    dc_unlock_cache();
+    return ok;
+}
+
+/* Count the free clusters (one walk of the FAT) and write FSInfo back at
+ * once, so the next host finds a valid count. The caller holds the disk
+ * writer lock (volume_recalc_free_commit). */
+void fat_recalc_free_commit(IF_MV_NONVOID(int volume))
+{
+    struct bpb * const fat_bpb = FAT_BPB(volume);
+    if (!fat_bpb)
+        return;
+    dc_lock_cache();
+    fat_recalc_free_internal(fat_bpb);
+    dc_unlock_cache();
+    cache_commit(fat_bpb);
+}
+#endif /* HAVE_IPOD_UI */
+
 bool fat_size(IF_MV(int volume,) sector_t *size, sector_t *free)
 {
     struct bpb * const fat_bpb = FAT_BPB(volume);
@@ -3074,5 +3747,8 @@ void fat_init(void)
         fat_bpbs[i].mounted = false;
     }
 
+#ifdef FAT_DIR_BURST
+    dir_burst_drop_all();
+#endif
     dc_unlock_cache();
 }

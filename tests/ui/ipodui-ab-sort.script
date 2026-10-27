@@ -1,0 +1,126 @@
+# #59: Settings > Audiobooks is a short submenu: Playback Speed (opens
+# the unchanged speed prompt) and Sort By, a blue inline value that SELECT
+# cycles Title -> Author. The Audiobooks list follows it: by title, then
+# author (default), or by author (album artist, else artist), then
+# title, read from the precomputed author slice (no sort at browse time).
+# The choice survives a reboot. Fixture sort/: "Zebra Crossing" and
+# "Middle March" by Ada Quill, "Apple Orchard" by Zed Marlowe (artist
+# only), with the library's four books:
+#   Title:  A Field Guide to Tones, Apple Orchard, Middle March, Mini
+#           Audiobook, The Lighthouse Keeper, Winter Stories, Zebra Crossing
+#   Author: Middle March, Zebra Crossing (Ada Quill), Mini Audiobook
+#           (Fixture Author), The Lighthouse Keeper (Imogen Thrale),
+#           Winter Stories (Maren Solvik), A Field Guide to Tones (Osric
+#           Pell), Apple Orchard (Zed Marlowe)
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-ab-sort.script
+# needs: library
+# needs: ab
+# timeout: 150
+# golden: skip
+# log: settings ab sort=author
+# log: settings ab sort=title
+# log: lib books order=author n=7
+# log: lib books order=title n=7
+# nolog: lib books order=fallback
+
+wait 4000
+wait_db 45000
+mkdir /Audiobooks/Sort
+copy ../../build/ab-fixtures/sort/zebra.m4b /Audiobooks/Sort/zebra.m4b
+copy ../../build/ab-fixtures/sort/apple.m4b /Audiobooks/Sort/apple.m4b
+copy ../../build/ab-fixtures/sort/middle.m4b /Audiobooks/Sort/middle.m4b
+update_db_wait_change 60000
+art_wait 60000
+
+# Settings > Audiobooks: the submenu
+wheel +3 300            # Settings
+wait 400
+key SELECT 50
+wait 1200
+wheel +8 40             # Audiobooks (row 8)
+wait 800
+shot settings_row       # caption "Set Speed and Sort Order"
+key SELECT 50
+wait 1200
+shot submenu            # Playback Speed | Sort By  Title
+key SELECT 50
+wait 1200
+shot speed_prompt       # the unchanged prompt
+key MENU 50
+wait 1000
+wheel +1 300            # Sort By
+wait 600
+shot sortby_title       # "Title", caption "Sort Books By Title"
+key SELECT 50
+wait 800
+shot sortby_author      # "Author", caption "Sort Books By Author"
+
+# the list by author
+key MENU 50
+wait 1000
+key MENU 50
+wait 1000
+wheel -3 300            # Music
+wait 400
+key SELECT 50
+wait 800
+wheel +6 300            # Audiobooks (Compilations off: P11)
+wait 400
+key SELECT 50
+wait 1200
+shot list_author        # Middle March, Zebra Crossing, Mini, Lighthouse
+wheel +6 300
+wait 800
+shot list_author_end    # ... Winter Stories, A Field Guide, Apple Orchard
+
+# survives a reboot
+reboot
+wait 4000
+wait_db 45000
+key SELECT 50           # Music
+wait 800
+wheel +6 300
+wait 400
+key SELECT 50
+wait 1200
+shot list_after_reboot  # still by author
+
+# back to Title
+key MENU 50
+wait 1000
+key MENU 50
+wait 1000
+wheel +3 300            # Settings
+wait 400
+key SELECT 50
+wait 1200
+wheel +8 40
+wait 800
+key SELECT 50
+wait 1200
+wheel +1 300
+wait 600
+key SELECT 50           # Author -> Title
+wait 800
+shot sortby_back_title
+key MENU 50
+wait 1000
+key MENU 50
+wait 1000
+wheel -3 300            # Music
+wait 400
+key SELECT 50
+wait 800
+wheel +6 300
+wait 400
+key SELECT 50
+wait 1200
+shot list_title         # A Field Guide, Apple Orchard, Middle March, Mini
+wheel +6 300
+wait 800
+shot list_title_end     # ... Lighthouse, Winter Stories, Zebra Crossing
+
+remove /Audiobooks/Sort/zebra.m4b
+remove /Audiobooks/Sort/apple.m4b
+remove /Audiobooks/Sort/middle.m4b
+quit

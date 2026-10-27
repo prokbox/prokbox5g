@@ -1,0 +1,117 @@
+# Main-menu Now Playing art quality (np-art-quality review): the row's
+# window read from panelpool.pak, and the "not built" memo.
+# IPODUI_NP_NO_PANEL=pool: the shown set and the default set miss, so
+# only the pool can answer.
+#  1. The new album (in the default set only) misses everywhere: one
+#     conclusive miss (sure=1), the thumbnail shows; shown again under the
+#     same panel_seq it is the memo (no lookup, no I/O).
+#  2. After a pool top-up (the paused maintenance window, as
+#     ipodui-p16-pool-topup), shuffled library tracks: the row reads the
+#     covers the pool holds (from=pool res=0).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-np-artq-pool.script
+# env: IPODUI_NP_NO_PANEL=pool
+# reset: mainmenu
+# needs: library
+# needs: np
+# trace: panelset
+# golden: skip
+# logbetween: start m1 art panel window key=\S+ from=none res=2 sure=1
+# logbetween: start m1 panel nowplaying art key=
+# logbetween: m1 m2 art panel window key=\S+ from=memo res=2
+# logbetween: m1 m2 no art panel window key=\S+ from=(none|default|pool)
+# logbetween: p1 end art panel window key=\S+ from=pool res=0
+# logbetween: p1 end panel nowplaying window key=
+# timeout: 480
+
+wait 1000
+wait_db 30000
+sim_clock 15:04
+clock_format 24
+battery 100
+repeat off
+mkdir /NPArtQ
+copy ../../build/np-fixtures/art_big.mp3 /NPArtQ/art_big.mp3
+update_db_wait_change 60000
+art_wait 120000
+play_files /NPArtQ/art_big.mp3
+wait 1000
+np_pin 3000 50
+key SELECT          # Music (the menu re-reads "Now Playing" after a push/pop)
+wait 700
+key MENU
+wait 700
+wheel +10 100       # Now Playing: a conclusive miss, the thumbnail
+disk_active 3000
+wait 2000
+shot miss_row
+ab_mark m1
+wheel -1 100        # away and back, same panel_seq: the memo
+wait 1000
+wheel +1 100
+disk_active 3000
+wait 2000
+ab_mark m2
+audio_stop
+rm_file /NPArtQ/art_big.mp3     # leave the shared disk as primed
+wait 1500
+# 2: a pool top-up in the paused window, then shuffled tracks
+wheel -10 100
+wheel +4 100        # Shuffle Songs
+wait 500
+key SELECT          # plays
+wait 2000
+expect_playing 500
+key PLAY            # pause
+wait 1500
+expect_paused 500
+backlight_expire
+art_wait 60000
+wait 3000
+pause_age 200       # the window opens at the next poll
+wait 3000
+art_wait 240000
+ab_mark p1
+key MENU            # wakes the unlit screen (swallowed)
+wait 1000
+key MENU            # Now Playing (Shuffle pushed it) -> main menu
+wait 1000
+wheel +10 100       # Now Playing
+wait 2000
+shot pool_row_1
+key SELECT
+wait 1000
+key RIGHT
+wait 1500
+key MENU
+wait 2000
+shot pool_row_2
+key SELECT
+wait 1000
+key RIGHT
+wait 1500
+key MENU
+wait 2000
+shot pool_row_3
+key SELECT
+wait 1000
+key RIGHT
+wait 1500
+key MENU
+wait 2000
+shot pool_row_4
+key SELECT
+wait 1000
+key RIGHT
+wait 1500
+key MENU
+wait 2000
+shot pool_row_5
+key SELECT
+wait 1000
+key RIGHT
+wait 1500
+key MENU
+wait 2000
+shot pool_row_6
+audio_stop
+quit

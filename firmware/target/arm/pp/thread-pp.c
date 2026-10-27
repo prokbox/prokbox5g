@@ -20,6 +20,10 @@
  *
  ****************************************************************************/
 
+#ifdef HAVE_PP_GOV
+#include "pgov.h"       /* ProkBox: the idle stamps in core_sleep() */
+#endif
+
 #if NUM_CORES == 1
 /* Single-core variants for FORCE_SINGLE_CORE */
 static inline void core_sleep(void)
@@ -288,6 +292,12 @@ void core_wake(unsigned int othercore)
  */
 static inline void core_sleep(unsigned int core)
 {
+#ifdef HAVE_PP_GOV
+    /* ProkBox band governor: this core's idle time (one writer per core,
+     * IRQs still off; read by the CPU's tick, firmware/pgov.c) */
+    uint32_t pgov_t0 = USEC_TIMER | 1;
+    pgov_sleep_t0[core] = pgov_t0;
+#endif
     asm volatile (
         "mov    r0, #4                     \n" /* r0 = 0x4 << core */
         "mov    r0, r0, lsl %[c]           \n"
@@ -307,6 +317,10 @@ static inline void core_sleep(unsigned int core)
         :
         :  [ctl]"r"(&CPU_CTL), [mbx]"r"(MBX_BASE), [c]"r"(core)
         : "r0", "r1");
+#ifdef HAVE_PP_GOV
+    pgov_idle_us[core] += USEC_TIMER - pgov_t0;
+    pgov_sleep_t0[core] = 0;
+#endif
     enable_irq();
 }
 

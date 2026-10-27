@@ -1,0 +1,141 @@
+# Phase 6 (Rev 1 item 7): a sector write is not atomic. After three spots
+# are saved, books.dat is damaged after the last flush:
+#   1. half of record sector 1 zeroed (a torn write): at most that sector's
+#      records are lost (they read as unplayed, logged), the boot goes on
+#      and the next save works
+#   2. the file truncated to half: same
+#   3. every byte garbage: an empty store (logged), re-seeded from the
+#      database's stats (the header's "seeded" flag is gone too), rebuilt
+#      by the next save
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p6-powercut-torn.script
+# needs: library
+# needs: ab
+# timeout: 150
+# trace: ab
+# golden: skip page_torn page_trunc page_junk
+# DB state: ready. Needs B. Rows: 1 AB No Chapters, 2 AB Preface, 3 AB Short.
+
+wait 4000
+wait_db 45000
+mkdir /Audiobooks/AB
+copy ../../build/ab-fixtures/nochap.m4b /Audiobooks/AB/nochap.m4b
+copy ../../build/ab-fixtures/pref.m4b /Audiobooks/AB/pref.m4b
+copy ../../build/ab-fixtures/short.m4b /Audiobooks/AB/short.m4b
+update_db_wait_change 60000
+art_wait 60000
+key SELECT
+wait 800
+wheel +6 300   # Audiobooks (Compilations off: P11)
+wait 400
+key SELECT
+wait 900
+wheel +1 300
+wait 400
+key SELECT          # the book page
+wait 1000
+key SELECT
+wait 3500
+key PLAY            # pause: the record is written now
+wait 800
+hold MENU 1000
+wait 1200
+key SELECT
+wait 800
+wheel +6 300   # Audiobooks (Compilations off: P11)
+wait 400
+key SELECT
+wait 900
+wheel +2 300
+wait 400
+key SELECT          # the book page
+wait 1000
+key SELECT
+wait 3500
+key PLAY            # pause: the record is written now
+wait 800
+hold MENU 1000
+wait 1200
+key SELECT
+wait 800
+wheel +6 300   # Audiobooks (Compilations off: P11)
+wait 400
+key SELECT
+wait 900
+wheel +3 300
+wait 400
+key SELECT          # the book page
+wait 1000
+key SELECT
+wait 3500
+key PLAY            # pause: the record is written now
+wait 800
+expect_ab_store 3 0 3000
+ab_power_cut exit store_tear 1
+reboot
+
+wait 4000
+wait_db 45000
+key SELECT
+wait 800
+wheel +6 300   # Audiobooks (Compilations off: P11)
+wait 400
+key SELECT
+wait 900
+wheel +1 300
+wait 400
+key SELECT          # the book page
+wait 1000
+shot page_torn       # no crash; Resume only if that record survived
+expect_ab_store -1 -1 1000
+key SELECT
+wait 2500
+key PLAY
+wait 800
+expect_ab_store ge1 -1 3000   # the next save works on a torn file
+ab_power_cut exit store_trunc
+reboot
+
+wait 4000
+wait_db 45000
+key SELECT
+wait 800
+wheel +6 300   # Audiobooks (Compilations off: P11)
+wait 400
+key SELECT
+wait 900
+wheel +1 300
+wait 400
+key SELECT          # the book page
+wait 1000
+shot page_trunc
+expect_ab_store -1 -1 1000
+key SELECT
+wait 2500
+key PLAY
+wait 800
+expect_ab_store ge1 -1 3000
+ab_power_cut exit store_junk
+reboot
+
+wait 4000
+wait_db 45000
+key SELECT
+wait 800
+wheel +6 300   # Audiobooks (Compilations off: P11)
+wait 400
+key SELECT
+wait 900
+wheel +1 300
+wait 400
+key SELECT          # the book page
+wait 1000
+shot page_junk        # empty store: Resume only from the re-seed
+key SELECT
+wait 2500
+key PLAY            # pause: the record is written now
+wait 800
+expect_ab_store ge1 0 3000     # rebuilt: this book (+ re-seeded ones)
+remove /Audiobooks/AB/nochap.m4b
+remove /Audiobooks/AB/pref.m4b
+remove /Audiobooks/AB/short.m4b
+quit

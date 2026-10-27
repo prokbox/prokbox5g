@@ -1,0 +1,14 @@
+session build=7e8c140e40-261026 date=2026-10-26 09:47 steps=16 mode=reverify image=218660 fnv=cd8e5d96 kind=merged
+step=pre result=start
+step=pre log=pre: Not available: void: the embedded image differs from the one that passed
+step=pre result=skip answer=- ms=20 note=pre: Not available: void: the embedded image differs from the one that passed
+step=s05 result=start
+step=s05 log=Stage 5: PASS
+step=s05 result=pass answer=Yes ms=182330 note=Stage 5: PASS
+resume after=s05
+step=boot result=start
+step=boot result=done answer=- ms=0 note=
+resume after=boot
+step=jobs result=start
+step=jobs log=jobs: self-test rc 1
+step=jobs result=skip answer=- ms=10 note=

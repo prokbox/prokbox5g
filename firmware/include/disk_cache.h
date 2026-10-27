@@ -38,6 +38,10 @@ static inline void dc_unlock_cache(void)
 void * dc_cache_probe(IF_MV(int volume,) sector_t secnum,
                       unsigned int *flags);
 void dc_dirty_buf(void *buf);
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+/* ProkBox (R1, #107): the cached copy of a sector or NULL, claiming nothing */
+void * dc_peek(IF_MV(int volume,) sector_t secnum);
+#endif
 void dc_discard_buf(void *buf);
 void dc_commit_all(IF_MV_NONVOID(int volume));
 void dc_discard_all(IF_MV_NONVOID(int volume));
@@ -47,6 +51,19 @@ void dc_init(void) INIT_ATTR;
 /* in addition to filling, writeback is implemented by the client */
 extern void dc_writeback_callback(IF_MV(int volume, ) sector_t sector,
                                   void *buf);
+
+#if defined(HAVE_IPOD_UI) && !defined(DC_UNORDERED_WRITEBACK)
+/* ProkBox (#crash-fat): allocation reaches the disk before any reference
+ * to it. Dirty sectors the client calls "first" (the FAT) are written
+ * before every other dirty sector of the volume, at a commit and before a
+ * dirty "later" sector (a directory entry, FSInfo) is evicted. A halt
+ * between the two leaves orphan clusters rather than an entry pointing at
+ * a free cluster (which the next allocation turns into a cross-link).
+ * Frees ride the same order: a truncate committed with its size update
+ * can leave a chain shorter than the size, never a cross-link. */
+#define DC_ORDERED_WRITEBACK
+extern bool dc_writeback_first(IF_MV(int volume, ) sector_t sector);
+#endif
 
 
 /** These synchronize and can be called by anyone **/

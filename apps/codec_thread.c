@@ -31,6 +31,19 @@
 #include "playback.h"
 #include "buffering.h"
 #include "dsp_core.h"
+#ifdef HAVE_COP_CODEC
+#include "codec_cop.h"      /* Fit-2: the decode on the second core */
+#define CODEC_API(enc)      codec_cop_select(&ci, (enc))
+/* P19 19-1c: a run from Q_CODEC_RUN is a track start (a re-selection
+ * point); a seek's re-run keeps the core it had */
+#define CODEC_RUN()         codec_cop_run(!codec_seek_run)
+#define CODEC_COP_UNLOAD()  codec_cop_unload()
+static bool codec_seek_run;
+#else
+#define CODEC_API(enc)      (&ci)
+#define CODEC_RUN()         codec_run_proc()
+#define CODEC_COP_UNLOAD()  do { } while (0)
+#endif
 #include "metadata.h"
 #include "settings.h"
 
@@ -245,7 +258,17 @@ static void codec_pcmbuf_insert_callback(
 
             /* It may be awhile before space is available but we want
                "instant" response to any message */
+#ifdef HAVE_IPOD_UI
+            /* P19 19-1c (D): sleep until the level drains to the low
+               watermark (one wake per refill burst, not 20 a second);
+               a message still ends the wait at once */
+#ifdef HAVE_COP_CODEC
+            codec_cop_observe();
+#endif
+            queue_wait_w_tmo(&codec_queue, NULL, pcmbuf_full_wait_ticks());
+#else
             queue_wait_w_tmo(&codec_queue, NULL, HZ/20);
+#endif
         }
         else
         {
@@ -456,6 +479,7 @@ static void load_codec(const struct codec_load_info *ev_data)
     /* Save a local copy so we can let the audio thread go ASAP */
     struct codec_load_info data = *ev_data;
     bool const encoder = type_is_encoder(data.afmt);
+    struct codec_api *api;
 
     if (codec_type != AFMT_UNKNOWN)
     {
@@ -474,11 +498,13 @@ static void load_codec(const struct codec_load_info *ev_data)
         dsp_configure(ci.dsp, DSP_RESET, 0);
     }
 
+    api = CODEC_API(encoder);
+
 #if defined(HAVE_CODEC_BUFFERING)
     if (data.hid >= 0)
     {
         /* First try buffer load */
-        status = codec_load_buf(data.hid, &ci);
+        status = codec_load_buf(data.hid, api);
         bufclose(data.hid);
     }
 #endif /* HAVE_CODEC_BUFFERING */
@@ -488,7 +514,7 @@ static void load_codec(const struct codec_load_info *ev_data)
         /* Either not a valid handle or the buffer method failed */
         const char *codec_fn = get_codec_filename(data.afmt);
         if (codec_fn)
-            status = codec_load_file(codec_fn, &ci);
+            status = codec_load_file(codec_fn, api);
     }
 
     /* Types must agree */
@@ -534,7 +560,7 @@ static void run_codec(void)
         buf_pin_handle(ci.audio_hid, true);
     }
 
-    status = codec_run_proc();
+    status = CODEC_RUN();
 
     if (!encoder)
     {
@@ -563,7 +589,13 @@ static void seek_codec(unsigned long time)
     codec_queue_ack(Q_CODEC_SEEK);
 
     /* Have to run it again */
+#ifdef HAVE_COP_CODEC
+    codec_seek_run = true;      /* mid-track: no re-selection */
+#endif
     run_codec();
+#ifdef HAVE_COP_CODEC
+    codec_seek_run = false;
+#endif
 }
 
 /* Handle Q_CODEC_UNLOAD */
@@ -572,6 +604,7 @@ static void unload_codec(void)
     /* Tell codec to clean up */
     codec_type = AFMT_UNKNOWN;
     codec_close();
+    CODEC_COP_UNLOAD();
 }
 
 /* Handle Q_CODEC_DO_CALLBACK */
@@ -638,6 +671,15 @@ static void NORETURN_ATTR codec_thread(void)
 
 /** --- Miscellaneous external interfaces -- **/
 
+#ifdef HAVE_COP_CODEC
+/* Fit-2: codec_cop.c answers "no command" on the COP while this is true
+ * (the queue is SHAREDBSS, so either core reads it) */
+bool codec_queue_idle(void)
+{
+    return queue_empty(&codec_queue);
+}
+#endif
+
 /* Initialize playback's codec interface */
 void INIT_ATTR codec_thread_init(void)
 {
@@ -658,10 +700,15 @@ void INIT_ATTR codec_thread_init(void)
     ci.strip_filesize = codec_strip_filesize_callback;
 
     /* Init threading */
+#ifdef HAVE_SCHED_BANDS
+#define CODEC_THREAD_PRIORITY PRIORITY_CODEC    /* fixed band (Fit-1 C2) */
+#else
+#define CODEC_THREAD_PRIORITY PRIORITY_PLAYBACK /* pcmbuf boosts it */
+#endif
     queue_init(&codec_queue, false);
     codec_thread_id = create_thread(
             codec_thread, codec_stack, sizeof(codec_stack), 0,
-            codec_thread_name IF_PRIO(, PRIORITY_PLAYBACK)
+            codec_thread_name IF_PRIO(, CODEC_THREAD_PRIORITY)
             IF_COP(, CPU));
     queue_enable_queue_send(&codec_queue, &codec_queue_sender_list,
                             codec_thread_id);

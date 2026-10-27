@@ -1,0 +1,61 @@
+name: Bug report
+description: Something doesn't work the way it should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! If your iPod won't start, hold **MENU** while it powers on to use Apple's software, then tell us what happened.
+  - type: input
+    id: version
+    attributes:
+      label: ProkBox5g version
+      description: Settings › About.
+      placeholder: "0.8.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: model
+    attributes:
+      label: Model
+      options:
+        - 5th generation (30 GB / 60 GB)
+        - 5.5 generation (30 GB / 80 GB)
+        - Not sure
+    validations:
+      required: true
+  - type: dropdown
+    id: storage
+    attributes:
+      label: Storage
+      options:
+        - Original hard drive
+        - Flash mod (SD, CF or other)
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what you saw instead. Photos help.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Can you make it happen again?
+      placeholder: |
+        1. Open Music › Albums
+        2. ...
+  - type: textarea
+    id: report
+    attributes:
+      label: Diagnostics report (optional, helps a lot)
+      description: |
+        On the iPod: Settings › About › Save Diagnostics. Then connect it to your computer and drag **ProkBox Report.txt** (at the top of the iPod) into this box. It lists the version, model and recent errors; song names and folders are left out.
+  - type: textarea
+    id: files
+    attributes:
+      label: Which files were playing? (optional)
+      description: Format and where the file came from, e.g. "M4B audiobook from Libro.fm".

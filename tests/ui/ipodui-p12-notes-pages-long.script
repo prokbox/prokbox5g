@@ -1,0 +1,457 @@
+# P12 W3-K review (HIGH: blank rows across pages): Notes with FAT long
+# names of 60 characters (90 in the root and a folder of a 60-character
+# name holding 30 more). Each row's label is cut to the index's label size
+# with an ellipsis and its full name kept apart (read when it opens); a
+# page holds XIDX_PAGE_ROWS_MIN rows, so every window is in two pages and
+# no row is ever blank ("notes row blank" never logs). Slow and fast
+# spins (10 ms clicks: the page-load budget, no "pages" viol), a long
+# note opened by its full name, the long folder opened and scrolled. The
+# files are removed at the end.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p12-notes-pages-long.script
+# needs: library
+# timeout: 360
+# modclass: paged
+# log: xidx build kind=1 n=121
+# log: notes open n=121 whole=0 rc=0
+# log: notes page p=
+# log: notes view r=
+# nolog: notes row blank
+# nolog: enc=0 ok=0
+# golden: skip
+# reset: mainmenu
+
+sim_clock 15:06
+wait 4000
+wait_db 30000
+rm_file /Notes/Shopping.txt
+rm_file /Notes/Welcome.txt
+rm_file /Notes/Long%20note.txt
+rm_file /Notes/Unicode%20note.txt
+rm_file /Notes/Windows%20note.txt
+rm_file /Notes/._Shopping.txt
+rm_file /Notes/readme.md
+rm_file /Notes/Trips/Paris.txt
+rm_file /Notes/Trips/Lisbon.TXT
+rm_file /Notes/Trips
+
+rm_file /Notes/Quarterly%20planning%20review%20000%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Weekend%20hiking%20trip%20ideas%20001%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Recipe%20collection%20002%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+rm_file /Notes/Garden%20and%20allotment%20jobs%20003%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Reading%20list%20for%20the%20winter%20004%20with%20a%20long%20descriptive%20titl.txt
+rm_file /Notes/Quarterly%20planning%20review%20005%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Weekend%20hiking%20trip%20ideas%20006%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Recipe%20collection%20007%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+rm_file /Notes/Garden%20and%20allotment%20jobs%20008%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Reading%20list%20for%20the%20winter%20009%20with%20a%20long%20descriptive%20titl.txt
+rm_file /Notes/Quarterly%20planning%20review%20010%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Weekend%20hiking%20trip%20ideas%20011%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Recipe%20collection%20012%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+rm_file /Notes/Garden%20and%20allotment%20jobs%20013%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Reading%20list%20for%20the%20winter%20014%20with%20a%20long%20descriptive%20titl.txt
+rm_file /Notes/Quarterly%20planning%20review%20015%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Weekend%20hiking%20trip%20ideas%20016%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Recipe%20collection%20017%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+rm_file /Notes/Garden%20and%20allotment%20jobs%20018%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Reading%20list%20for%20the%20winter%20019%20with%20a%20long%20descriptive%20titl.txt
+rm_file /Notes/Quarterly%20planning%20review%20020%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Weekend%20hiking%20trip%20ideas%20021%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Recipe%20collection%20022%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+rm_file /Notes/Garden%20and%20allotment%20jobs%20023%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Reading%20list%20for%20the%20winter%20024%20with%20a%20long%20descriptive%20titl.txt
+rm_file /Notes/Quarterly%20planning%20review%20025%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Weekend%20hiking%20trip%20ideas%20026%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Recipe%20collection%20027%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+rm_file /Notes/Garden%20and%20allotment%20jobs%20028%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Reading%20list%20for%20the%20winter%20029%20with%20a%20long%20descriptive%20titl.txt
+rm_file /Notes/Quarterly%20planning%20review%20030%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Weekend%20hiking%20trip%20ideas%20031%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Recipe%20collection%20032%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+rm_file /Notes/Garden%20and%20allotment%20jobs%20033%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Reading%20list%20for%20the%20winter%20034%20with%20a%20long%20descriptive%20titl.txt
+rm_file /Notes/Quarterly%20planning%20review%20035%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Weekend%20hiking%20trip%20ideas%20036%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Recipe%20collection%20037%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+rm_file /Notes/Garden%20and%20allotment%20jobs%20038%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Reading%20list%20for%20the%20winter%20039%20with%20a%20long%20descriptive%20titl.txt
+rm_file /Notes/Quarterly%20planning%20review%20040%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Weekend%20hiking%20trip%20ideas%20041%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Recipe%20collection%20042%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+rm_file /Notes/Garden%20and%20allotment%20jobs%20043%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Reading%20list%20for%20the%20winter%20044%20with%20a%20long%20descriptive%20titl.txt
+rm_file /Notes/Quarterly%20planning%20review%20045%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Weekend%20hiking%20trip%20ideas%20046%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Recipe%20collection%20047%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+rm_file /Notes/Garden%20and%20allotment%20jobs%20048%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Reading%20list%20for%20the%20winter%20049%20with%20a%20long%20descriptive%20titl.txt
+rm_file /Notes/Quarterly%20planning%20review%20050%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Weekend%20hiking%20trip%20ideas%20051%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Recipe%20collection%20052%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+rm_file /Notes/Garden%20and%20allotment%20jobs%20053%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Reading%20list%20for%20the%20winter%20054%20with%20a%20long%20descriptive%20titl.txt
+rm_file /Notes/Quarterly%20planning%20review%20055%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Weekend%20hiking%20trip%20ideas%20056%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Recipe%20collection%20057%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+rm_file /Notes/Garden%20and%20allotment%20jobs%20058%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Reading%20list%20for%20the%20winter%20059%20with%20a%20long%20descriptive%20titl.txt
+rm_file /Notes/Quarterly%20planning%20review%20060%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Weekend%20hiking%20trip%20ideas%20061%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Recipe%20collection%20062%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+rm_file /Notes/Garden%20and%20allotment%20jobs%20063%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Reading%20list%20for%20the%20winter%20064%20with%20a%20long%20descriptive%20titl.txt
+rm_file /Notes/Quarterly%20planning%20review%20065%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Weekend%20hiking%20trip%20ideas%20066%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Recipe%20collection%20067%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+rm_file /Notes/Garden%20and%20allotment%20jobs%20068%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Reading%20list%20for%20the%20winter%20069%20with%20a%20long%20descriptive%20titl.txt
+rm_file /Notes/Quarterly%20planning%20review%20070%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Weekend%20hiking%20trip%20ideas%20071%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Recipe%20collection%20072%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+rm_file /Notes/Garden%20and%20allotment%20jobs%20073%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Reading%20list%20for%20the%20winter%20074%20with%20a%20long%20descriptive%20titl.txt
+rm_file /Notes/Quarterly%20planning%20review%20075%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Weekend%20hiking%20trip%20ideas%20076%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Recipe%20collection%20077%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+rm_file /Notes/Garden%20and%20allotment%20jobs%20078%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Reading%20list%20for%20the%20winter%20079%20with%20a%20long%20descriptive%20titl.txt
+rm_file /Notes/Quarterly%20planning%20review%20080%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Weekend%20hiking%20trip%20ideas%20081%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Recipe%20collection%20082%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+rm_file /Notes/Garden%20and%20allotment%20jobs%20083%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Reading%20list%20for%20the%20winter%20084%20with%20a%20long%20descriptive%20titl.txt
+rm_file /Notes/Quarterly%20planning%20review%20085%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Weekend%20hiking%20trip%20ideas%20086%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Recipe%20collection%20087%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+rm_file /Notes/Garden%20and%20allotment%20jobs%20088%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Reading%20list%20for%20the%20winter%20089%20with%20a%20long%20descriptive%20titl.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20000%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20001%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20002%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20003%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20004%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20005%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20006%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20007%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20008%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20009%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20010%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20011%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20012%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20013%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20014%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20015%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20016%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20017%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20018%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20019%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20020%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20021%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20022%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20023%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20024%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20025%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20026%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20027%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20028%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20029%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz
+rm_file /.rockbox/notes.idx
+rm_file /.rockbox/xindex.owe
+
+usb_connect
+wait 2500
+mkdir /Notes
+mkdir /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz
+copy fixtures/notes/Shopping.txt /Notes/Quarterly%20planning%20review%20000%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Weekend%20hiking%20trip%20ideas%20001%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Recipe%20collection%20002%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+copy fixtures/notes/Shopping.txt /Notes/Garden%20and%20allotment%20jobs%20003%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Reading%20list%20for%20the%20winter%20004%20with%20a%20long%20descriptive%20titl.txt
+copy fixtures/notes/Shopping.txt /Notes/Quarterly%20planning%20review%20005%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Weekend%20hiking%20trip%20ideas%20006%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Recipe%20collection%20007%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+copy fixtures/notes/Shopping.txt /Notes/Garden%20and%20allotment%20jobs%20008%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Reading%20list%20for%20the%20winter%20009%20with%20a%20long%20descriptive%20titl.txt
+copy fixtures/notes/Shopping.txt /Notes/Quarterly%20planning%20review%20010%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Weekend%20hiking%20trip%20ideas%20011%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Recipe%20collection%20012%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+copy fixtures/notes/Shopping.txt /Notes/Garden%20and%20allotment%20jobs%20013%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Reading%20list%20for%20the%20winter%20014%20with%20a%20long%20descriptive%20titl.txt
+copy fixtures/notes/Shopping.txt /Notes/Quarterly%20planning%20review%20015%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Weekend%20hiking%20trip%20ideas%20016%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Recipe%20collection%20017%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+copy fixtures/notes/Shopping.txt /Notes/Garden%20and%20allotment%20jobs%20018%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Reading%20list%20for%20the%20winter%20019%20with%20a%20long%20descriptive%20titl.txt
+copy fixtures/notes/Shopping.txt /Notes/Quarterly%20planning%20review%20020%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Weekend%20hiking%20trip%20ideas%20021%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Recipe%20collection%20022%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+copy fixtures/notes/Shopping.txt /Notes/Garden%20and%20allotment%20jobs%20023%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Reading%20list%20for%20the%20winter%20024%20with%20a%20long%20descriptive%20titl.txt
+copy fixtures/notes/Shopping.txt /Notes/Quarterly%20planning%20review%20025%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Weekend%20hiking%20trip%20ideas%20026%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Recipe%20collection%20027%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+copy fixtures/notes/Shopping.txt /Notes/Garden%20and%20allotment%20jobs%20028%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Reading%20list%20for%20the%20winter%20029%20with%20a%20long%20descriptive%20titl.txt
+copy fixtures/notes/Shopping.txt /Notes/Quarterly%20planning%20review%20030%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Weekend%20hiking%20trip%20ideas%20031%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Recipe%20collection%20032%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+copy fixtures/notes/Shopping.txt /Notes/Garden%20and%20allotment%20jobs%20033%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Reading%20list%20for%20the%20winter%20034%20with%20a%20long%20descriptive%20titl.txt
+copy fixtures/notes/Shopping.txt /Notes/Quarterly%20planning%20review%20035%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Weekend%20hiking%20trip%20ideas%20036%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Recipe%20collection%20037%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+copy fixtures/notes/Shopping.txt /Notes/Garden%20and%20allotment%20jobs%20038%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Reading%20list%20for%20the%20winter%20039%20with%20a%20long%20descriptive%20titl.txt
+copy fixtures/notes/Shopping.txt /Notes/Quarterly%20planning%20review%20040%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Weekend%20hiking%20trip%20ideas%20041%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Recipe%20collection%20042%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+copy fixtures/notes/Shopping.txt /Notes/Garden%20and%20allotment%20jobs%20043%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Reading%20list%20for%20the%20winter%20044%20with%20a%20long%20descriptive%20titl.txt
+copy fixtures/notes/Shopping.txt /Notes/Quarterly%20planning%20review%20045%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Weekend%20hiking%20trip%20ideas%20046%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Recipe%20collection%20047%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+copy fixtures/notes/Shopping.txt /Notes/Garden%20and%20allotment%20jobs%20048%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Reading%20list%20for%20the%20winter%20049%20with%20a%20long%20descriptive%20titl.txt
+copy fixtures/notes/Shopping.txt /Notes/Quarterly%20planning%20review%20050%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Weekend%20hiking%20trip%20ideas%20051%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Recipe%20collection%20052%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+copy fixtures/notes/Shopping.txt /Notes/Garden%20and%20allotment%20jobs%20053%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Reading%20list%20for%20the%20winter%20054%20with%20a%20long%20descriptive%20titl.txt
+copy fixtures/notes/Shopping.txt /Notes/Quarterly%20planning%20review%20055%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Weekend%20hiking%20trip%20ideas%20056%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Recipe%20collection%20057%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+copy fixtures/notes/Shopping.txt /Notes/Garden%20and%20allotment%20jobs%20058%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Reading%20list%20for%20the%20winter%20059%20with%20a%20long%20descriptive%20titl.txt
+copy fixtures/notes/Shopping.txt /Notes/Quarterly%20planning%20review%20060%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Weekend%20hiking%20trip%20ideas%20061%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Recipe%20collection%20062%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+copy fixtures/notes/Shopping.txt /Notes/Garden%20and%20allotment%20jobs%20063%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Reading%20list%20for%20the%20winter%20064%20with%20a%20long%20descriptive%20titl.txt
+copy fixtures/notes/Shopping.txt /Notes/Quarterly%20planning%20review%20065%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Weekend%20hiking%20trip%20ideas%20066%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Recipe%20collection%20067%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+copy fixtures/notes/Shopping.txt /Notes/Garden%20and%20allotment%20jobs%20068%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Reading%20list%20for%20the%20winter%20069%20with%20a%20long%20descriptive%20titl.txt
+copy fixtures/notes/Shopping.txt /Notes/Quarterly%20planning%20review%20070%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Weekend%20hiking%20trip%20ideas%20071%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Recipe%20collection%20072%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+copy fixtures/notes/Shopping.txt /Notes/Garden%20and%20allotment%20jobs%20073%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Reading%20list%20for%20the%20winter%20074%20with%20a%20long%20descriptive%20titl.txt
+copy fixtures/notes/Shopping.txt /Notes/Quarterly%20planning%20review%20075%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Weekend%20hiking%20trip%20ideas%20076%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Recipe%20collection%20077%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+copy fixtures/notes/Shopping.txt /Notes/Garden%20and%20allotment%20jobs%20078%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Reading%20list%20for%20the%20winter%20079%20with%20a%20long%20descriptive%20titl.txt
+copy fixtures/notes/Shopping.txt /Notes/Quarterly%20planning%20review%20080%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Weekend%20hiking%20trip%20ideas%20081%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Recipe%20collection%20082%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+copy fixtures/notes/Shopping.txt /Notes/Garden%20and%20allotment%20jobs%20083%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Reading%20list%20for%20the%20winter%20084%20with%20a%20long%20descriptive%20titl.txt
+copy fixtures/notes/Shopping.txt /Notes/Quarterly%20planning%20review%20085%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Weekend%20hiking%20trip%20ideas%20086%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Recipe%20collection%20087%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+copy fixtures/notes/Shopping.txt /Notes/Garden%20and%20allotment%20jobs%20088%20with%20a%20long%20descriptive%20titley.txt
+copy fixtures/notes/Shopping.txt /Notes/Reading%20list%20for%20the%20winter%20089%20with%20a%20long%20descriptive%20titl.txt
+copy fixtures/notes/Welcome.txt /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20000%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+copy fixtures/notes/Welcome.txt /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20001%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+copy fixtures/notes/Welcome.txt /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20002%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+copy fixtures/notes/Welcome.txt /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20003%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+copy fixtures/notes/Welcome.txt /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20004%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+copy fixtures/notes/Welcome.txt /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20005%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+copy fixtures/notes/Welcome.txt /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20006%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+copy fixtures/notes/Welcome.txt /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20007%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+copy fixtures/notes/Welcome.txt /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20008%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+copy fixtures/notes/Welcome.txt /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20009%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+copy fixtures/notes/Welcome.txt /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20010%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+copy fixtures/notes/Welcome.txt /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20011%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+copy fixtures/notes/Welcome.txt /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20012%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+copy fixtures/notes/Welcome.txt /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20013%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+copy fixtures/notes/Welcome.txt /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20014%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+copy fixtures/notes/Welcome.txt /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20015%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+copy fixtures/notes/Welcome.txt /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20016%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+copy fixtures/notes/Welcome.txt /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20017%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+copy fixtures/notes/Welcome.txt /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20018%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+copy fixtures/notes/Welcome.txt /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20019%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+copy fixtures/notes/Welcome.txt /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20020%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+copy fixtures/notes/Welcome.txt /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20021%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+copy fixtures/notes/Welcome.txt /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20022%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+copy fixtures/notes/Welcome.txt /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20023%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+copy fixtures/notes/Welcome.txt /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20024%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+copy fixtures/notes/Welcome.txt /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20025%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+copy fixtures/notes/Welcome.txt /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20026%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+copy fixtures/notes/Welcome.txt /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20027%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+copy fixtures/notes/Welcome.txt /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20028%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+copy fixtures/notes/Welcome.txt /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20029%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+usb_disconnect
+wait 150
+wait_db 45000
+wait 3500
+storage_idle
+wait 1500
+wheel +2            # Main Menu: "Extras"
+wait 800
+key SELECT
+wait 1200
+wheel +7            # Extras: to the last row (Stopwatch; the list does not wrap)
+wait 600
+wheel -2            # "Notes", counted from the end: the same with or without a Games row
+wait 800
+key SELECT
+wait 1200
+shot first          # the folder, then the long notes, cut with an ellipsis
+wheel +12
+wait 1000
+shot across         # a window across two pages
+wheel +33
+wait 1200
+shot middle
+wheel +200 10       # a fast spin to the end
+wait 1500
+shot end
+wheel -200 10       # and back to the top
+wait 1500
+shot top_again
+wheel +40
+wait 1200
+key SELECT          # a long note: opened by its full name
+wait 1500
+shot view
+key MENU
+wait 1200
+shot back
+wheel -200 10
+wait 1500
+key SELECT          # the long folder (its full name read apart)
+wait 1500
+shot folder
+wheel +25
+wait 1200
+shot folder_end
+key MENU
+wait 1200
+key MENU
+wait 800
+key MENU
+wait 800
+rm_file /Notes/Quarterly%20planning%20review%20000%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Weekend%20hiking%20trip%20ideas%20001%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Recipe%20collection%20002%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+rm_file /Notes/Garden%20and%20allotment%20jobs%20003%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Reading%20list%20for%20the%20winter%20004%20with%20a%20long%20descriptive%20titl.txt
+rm_file /Notes/Quarterly%20planning%20review%20005%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Weekend%20hiking%20trip%20ideas%20006%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Recipe%20collection%20007%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+rm_file /Notes/Garden%20and%20allotment%20jobs%20008%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Reading%20list%20for%20the%20winter%20009%20with%20a%20long%20descriptive%20titl.txt
+rm_file /Notes/Quarterly%20planning%20review%20010%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Weekend%20hiking%20trip%20ideas%20011%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Recipe%20collection%20012%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+rm_file /Notes/Garden%20and%20allotment%20jobs%20013%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Reading%20list%20for%20the%20winter%20014%20with%20a%20long%20descriptive%20titl.txt
+rm_file /Notes/Quarterly%20planning%20review%20015%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Weekend%20hiking%20trip%20ideas%20016%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Recipe%20collection%20017%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+rm_file /Notes/Garden%20and%20allotment%20jobs%20018%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Reading%20list%20for%20the%20winter%20019%20with%20a%20long%20descriptive%20titl.txt
+rm_file /Notes/Quarterly%20planning%20review%20020%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Weekend%20hiking%20trip%20ideas%20021%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Recipe%20collection%20022%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+rm_file /Notes/Garden%20and%20allotment%20jobs%20023%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Reading%20list%20for%20the%20winter%20024%20with%20a%20long%20descriptive%20titl.txt
+rm_file /Notes/Quarterly%20planning%20review%20025%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Weekend%20hiking%20trip%20ideas%20026%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Recipe%20collection%20027%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+rm_file /Notes/Garden%20and%20allotment%20jobs%20028%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Reading%20list%20for%20the%20winter%20029%20with%20a%20long%20descriptive%20titl.txt
+rm_file /Notes/Quarterly%20planning%20review%20030%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Weekend%20hiking%20trip%20ideas%20031%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Recipe%20collection%20032%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+rm_file /Notes/Garden%20and%20allotment%20jobs%20033%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Reading%20list%20for%20the%20winter%20034%20with%20a%20long%20descriptive%20titl.txt
+rm_file /Notes/Quarterly%20planning%20review%20035%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Weekend%20hiking%20trip%20ideas%20036%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Recipe%20collection%20037%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+rm_file /Notes/Garden%20and%20allotment%20jobs%20038%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Reading%20list%20for%20the%20winter%20039%20with%20a%20long%20descriptive%20titl.txt
+rm_file /Notes/Quarterly%20planning%20review%20040%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Weekend%20hiking%20trip%20ideas%20041%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Recipe%20collection%20042%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+rm_file /Notes/Garden%20and%20allotment%20jobs%20043%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Reading%20list%20for%20the%20winter%20044%20with%20a%20long%20descriptive%20titl.txt
+rm_file /Notes/Quarterly%20planning%20review%20045%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Weekend%20hiking%20trip%20ideas%20046%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Recipe%20collection%20047%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+rm_file /Notes/Garden%20and%20allotment%20jobs%20048%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Reading%20list%20for%20the%20winter%20049%20with%20a%20long%20descriptive%20titl.txt
+rm_file /Notes/Quarterly%20planning%20review%20050%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Weekend%20hiking%20trip%20ideas%20051%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Recipe%20collection%20052%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+rm_file /Notes/Garden%20and%20allotment%20jobs%20053%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Reading%20list%20for%20the%20winter%20054%20with%20a%20long%20descriptive%20titl.txt
+rm_file /Notes/Quarterly%20planning%20review%20055%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Weekend%20hiking%20trip%20ideas%20056%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Recipe%20collection%20057%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+rm_file /Notes/Garden%20and%20allotment%20jobs%20058%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Reading%20list%20for%20the%20winter%20059%20with%20a%20long%20descriptive%20titl.txt
+rm_file /Notes/Quarterly%20planning%20review%20060%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Weekend%20hiking%20trip%20ideas%20061%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Recipe%20collection%20062%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+rm_file /Notes/Garden%20and%20allotment%20jobs%20063%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Reading%20list%20for%20the%20winter%20064%20with%20a%20long%20descriptive%20titl.txt
+rm_file /Notes/Quarterly%20planning%20review%20065%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Weekend%20hiking%20trip%20ideas%20066%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Recipe%20collection%20067%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+rm_file /Notes/Garden%20and%20allotment%20jobs%20068%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Reading%20list%20for%20the%20winter%20069%20with%20a%20long%20descriptive%20titl.txt
+rm_file /Notes/Quarterly%20planning%20review%20070%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Weekend%20hiking%20trip%20ideas%20071%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Recipe%20collection%20072%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+rm_file /Notes/Garden%20and%20allotment%20jobs%20073%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Reading%20list%20for%20the%20winter%20074%20with%20a%20long%20descriptive%20titl.txt
+rm_file /Notes/Quarterly%20planning%20review%20075%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Weekend%20hiking%20trip%20ideas%20076%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Recipe%20collection%20077%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+rm_file /Notes/Garden%20and%20allotment%20jobs%20078%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Reading%20list%20for%20the%20winter%20079%20with%20a%20long%20descriptive%20titl.txt
+rm_file /Notes/Quarterly%20planning%20review%20080%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Weekend%20hiking%20trip%20ideas%20081%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Recipe%20collection%20082%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+rm_file /Notes/Garden%20and%20allotment%20jobs%20083%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Reading%20list%20for%20the%20winter%20084%20with%20a%20long%20descriptive%20titl.txt
+rm_file /Notes/Quarterly%20planning%20review%20085%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Weekend%20hiking%20trip%20ideas%20086%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Recipe%20collection%20087%20with%20a%20long%20descriptive%20title%20xxxxxxxx.txt
+rm_file /Notes/Garden%20and%20allotment%20jobs%20088%20with%20a%20long%20descriptive%20titley.txt
+rm_file /Notes/Reading%20list%20for%20the%20winter%20089%20with%20a%20long%20descriptive%20titl.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20000%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20001%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20002%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20003%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20004%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20005%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20006%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20007%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20008%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20009%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20010%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20011%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20012%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20013%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20014%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20015%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20016%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20017%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20018%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20019%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20020%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20021%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20022%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20023%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20024%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20025%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20026%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20027%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20028%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz/Old%20note%20029%20with%20a%20long%20descriptive%20title%20xxxxxxxxxxxxxxxxx.txt
+rm_file /Notes/Archive%20of%20old%20project%20notes%20kept%20for%20reference%20and%20historyz
+quit

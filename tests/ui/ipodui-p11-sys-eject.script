@@ -1,0 +1,26 @@
+# Phase 11 (docs/phase11-brief.md 3.7, 7 criterion 9; E2): after the
+# computer ejects the disk the USB screen stays, showing "OK to Disconnect"
+# under the idle glyph, until the cable is pulled.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p11-sys-eject.script
+# needs: library
+# trace: usb
+# same: before after
+# log: usb ejected
+# nolog: splash-pass
+
+sim_clock 15:08
+clock_format 24      # P11: the default is 12-hour; this golden shows 24
+wait 4000
+shot before
+usb_glyph usbc
+usb_connect
+wait 1500
+shot connected       # "Connected" / "Eject before disconnecting."
+usb_eject
+wait 1500            # the screen's 0.5 s idle wake notices it
+shot ok_to_disconnect
+usb_disconnect
+usb_eject off
+wait 1500
+shot after
+quit

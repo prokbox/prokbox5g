@@ -1,0 +1,59 @@
+# Phase 16-4 (#100): the panel pool on a unit that has only 8b's
+# panels.pak (migration: nothing is copied, its covers are candidates as
+# they are) and its top-up. At boot the shown set is re-picked from
+# panels.pak alone (a rotation: no decode, one index write); the pool's
+# other covers are built only inside a maintenance window (paused 3 min,
+# the user idle: maint job=panels), in place into free slots of
+# panelpool.pak, each one fsynced before the index names it. panels.pak
+# stays the default set, version 1, sound for an 8b build (rollback).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-pool-topup.script
+# needs: library
+# golden: skip
+# log: art pool load ok=0
+# log: expect_panels_valid ok
+# logbetween: m0 m1 art panel rotate shown=\d+
+# logbetween: m0 p0 no art pool build key=
+# logbetween: p0 p1 art pool build key=
+# logbetween: p0 p1 maint job=panels ok=1
+# logbetween: p0 p1 art pool save bytes=
+# nolog: art panel stream key=\S+ rows=\d+ writes=\d+ ok=0
+# nolog: art fail
+# timeout: 400
+wait 1000
+wait_db 30000
+art_wait 120000
+# the unit as 8b left it: panels.pak only
+rm_file /.rockbox/artcache/panelpool.idx
+rm_file /.rockbox/artcache/panelpool.idx.prev
+rm_file /.rockbox/artcache/panelpool.pak
+reboot
+ab_mark m0
+wait 1000
+wait_db 30000
+art_wait 120000
+ab_mark m1
+expect_panels_valid
+panel_shown_mark
+shot migrated
+wheel +4            # Shuffle Songs
+wait 500
+key SELECT          # plays
+wait 2000
+expect_playing 500
+key PLAY            # pause
+wait 1500
+expect_paused 500
+backlight_expire
+art_wait 60000
+wait 3000
+ab_mark p0
+pause_age 200       # the window opens at the next poll
+wait 3000
+art_wait 240000
+ab_mark p1
+expect_paused 500
+expect_panels_valid # 8b's file: still version 1, still sound
+key MENU
+wait 1000
+shot after
+quit

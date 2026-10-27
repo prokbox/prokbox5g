@@ -1,0 +1,20 @@
+# P12 W1-A1 (8, item 8): power off and boot: the alarm is still in
+# alarms.dat and armed again (the PMU read back), nothing missed or rung.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p12-alarm-persist.script
+# golden: skip
+# timeout: 120
+# env: IPODUI_SIM_ALARM_IN=3600
+# alarm-rings: 0
+# log: ipodui: alarm init n=1
+# log: expect_pmu ok
+# nolog: expect_pmu failed
+# nolog: ipodui: alarm missed
+# reset: mainmenu
+wait 4000
+power_off_now
+wait 3000
+reboot
+wait 5000
+expect_pmu on rtcwak=1
+shot booted
+quit

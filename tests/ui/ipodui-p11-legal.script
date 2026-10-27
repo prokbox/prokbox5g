@@ -1,0 +1,24 @@
+# Phase 11 (docs/phase11-brief.md 3.6): Settings > Legal, the light text
+# page (the licence notices, wrapped once at enter); the wheel scrolls it.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p11-legal.script
+# needs: library
+# log: legal lines=
+#
+# Needs U2a's row wiring (Settings row 16 -> ui_legal_screen).
+
+wait 4000
+wheel +3             # Settings
+wait 400
+key SELECT
+wait 1500
+wheel +15            # Legal
+wait 400
+key SELECT
+wait 1500
+shot top
+wheel +4
+wait 600
+shot scrolled
+key MENU
+wait 1200
+quit

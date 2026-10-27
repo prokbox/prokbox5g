@@ -286,7 +286,22 @@ int rbfs_rmdir(const char *name)
     }
 
     file_internal_lock_WRITER();
-    int rc = remove_stream_internal(name, NULL, FF_DIR);
+    int rc;
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+    /* #91: an empty directory still under the last move's two names
+     * (its boot resolution failed) loses only this name, never the
+     * cluster the other name holds */
+    rc = rbfs_intent_alias_drop(name, FF_DIR);
+    if (rc > 0)
+        rc = 0;
+    else if (rc < 0)
+    {
+        errno = errno ? errno : EIO;
+        rc = -1;
+    }
+    else
+#endif
+    rc = remove_stream_internal(name, NULL, FF_DIR);
     file_internal_unlock_WRITER();
     return rc;
 }

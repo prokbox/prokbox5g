@@ -1,0 +1,45 @@
+# #38 (docs/phase-nav-brief.md, "C: verification"): push/pop transition
+# timing (D7, nav_transition_ticks() in apps/ipodui/nav_core.c). Four
+# transitions already reachable without agent A's or B's #38 work (the
+# duration itself is still flat ~200 ms until A wires ui_main.c's
+# slide_start()/slide_frame() to nav_transition_ticks() -- see the report
+# to the orchestrator for which of the four below legitimately fail until
+# then):
+#   main menu (split) -> Music (split):   push 190 ms, pop 190 ms
+#   Music (split) -> Songs (full-width):  push 250 + 120 ms, pop 120 + 290 ms
+#   (the parting and its header bar, 8b-4a)
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-nav-transitions.script
+#
+# The *_mid shots are taken ~50 ms into a slide and depend on timing:
+# kept out of the goldens.
+# golden: skip push1_mid push2_mid pop1_mid pop2_mid
+# needs: library
+# transitions: 190 370 410 190
+
+wait 4000           # boot to the main menu, "Music" selected
+wait_db 30000
+shot boot
+
+key SELECT 50       # push Music: main menu (split) -> Music (split)
+shot push1_mid
+wait 600
+shot music
+
+wheel +3            # "Songs"  [Compilations off: P11]
+wait 400
+key SELECT 50       # push Songs: Music (split) -> Songs (full-width)
+shot push2_mid
+wait 600
+shot songs
+
+key MENU 50         # pop: Songs (full-width) -> Music (split)
+shot pop1_mid
+wait 600
+shot music_back
+
+key MENU 50         # pop: Music (split) -> main menu (split)
+shot pop2_mid
+wait 600
+shot back
+
+quit

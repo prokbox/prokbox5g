@@ -1,0 +1,19 @@
+# Boot battery guard, drained latch: external power boots a drained cell
+# as always (to the charging flow) and clears the latch, the only thing
+# that does (no voltage escape). The sim boots at 3,570 mV with the
+# charger plugged (IPODUI_SIM_CHARGER=1) and a drained record
+# (IPODUI_SIM_DRAINED=1).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-bootbatt-drained-charger.script
+# env: IPODUI_SIM_BATT_MV=3570
+# env: IPODUI_SIM_DRAINED=1
+# env: IPODUI_SIM_CHARGER=1
+# golden: skip
+# log: bootbatt power mv=3570 thr=3400
+# log: bootbatt latch drained=1 power mv=3570
+# log: bootbatt latch cleared power rc=20
+# nolog: bootbatt refuse
+# nolog: sys deadbatt
+# nolog: splash-pass
+
+wait 4000
+shot main_menu

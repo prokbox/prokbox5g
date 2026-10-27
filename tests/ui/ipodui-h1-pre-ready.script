@@ -1,0 +1,84 @@
+# H1 (#41.1, #41.2; docs/phase-nav-brief.md Part 1 + Revision 1), DB state
+# "ready" (docs/process.md checklist item 10): the precompute and the art
+# builder's GC under constant playback.
+#  - Shell start reserves the precompute block from the database on disk
+#    + 25 % ("lib reserve entries=N").
+#  - A deleted-file pass while music plays (a new RAM cache generation)
+#    runs the precompute at once, in that block, while playing ("lib
+#    precompute done ... block=reserved playing=1"); it no longer waits
+#    for the stop, so the lists come from the file during playback.
+#  - The builder's pass, once the user is idle (#58: the backlight times
+#    out and the clock face comes up), ends with "art build gc deferred"
+#    (the dropped album's record stays: the GC streams the table and
+#    walks the whole index, kept off the playback path); after the stop a
+#    pass runs again and drops it ("art build commit ... gc=1
+#    playing=0"), then the panel set is built ("art build panels").
+# Playback never stops (expect_playing).
+# With library generations (#85, cache-persist): a deleted-file pass while
+# music plays builds a candidate whose RAM cache cannot be allocated
+# beside the playing audio buffer, so the new generation waits for the
+# stop ("RAM cache reload ... waits for playback to stop"); the active
+# library stays as it was (and browsable) meanwhile. The pass is started
+# with update_db and checked with expect_db_gen_same while playing and
+# expect_db_gen_change after the stop, instead of update_db_wait_change
+# during playback; the precompute then runs after the stop.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-h1-pre-ready.script
+# needs: library
+# golden: skip albums_playing stopped
+# log: art build commit
+#
+# The track is tests/ui/fixtures/refresh.mp3 (album "Refresh Fixture"),
+# added first and removed again, so the library is as before.
+
+wait 1000
+wait_db 30000
+remove /Music/refresh-fixture.mp3   # leftover of an interrupted run (if any)
+update_db_wait 30000
+copy fixtures/refresh.mp3 /Music/refresh-fixture.mp3
+update_db_wait_change 30000         # added (commit, reload, precompute)
+art_wait 120000
+
+wheel +4            # "Shuffle Songs"
+wait 500
+key SELECT          # plays
+wait 1500
+expect_playing 300
+db_gen_mark
+remove /Music/refresh-fixture.mp3
+update_db                           # the deleted-file pass, while playing
+wait 2000
+expect_db_gen_same 2000             # waits for the stop (generations)
+expect_playing 2000 # no stop, no gap
+key MENU            # main menu
+wait 1000
+wheel -10           # "Music"
+wait 800
+key SELECT
+wait 800
+wheel +2            # "Albums"
+wait 400
+key SELECT
+wait 1000
+shot albums_playing # the active library, while playing
+expect_playing 300
+backlight_expire    # the user idle (#58): the builder's pass
+art_wait 30000      # the pass, its GC deferred
+expect_playing 300
+key MENU            # wakes: the face goes (the key is swallowed)
+wait 1000
+key MENU            # Music
+wait 800
+key MENU            # main menu
+wait 1000
+wheel +10           # "Now Playing" (the last item)
+wait 800
+key SELECT          # WPS
+wait 1500
+audio_stop       # stop: the new generation, the GC and the panels
+expect_db_gen_change 60000
+wait 3000
+art_wait 60000
+expect_art art_manifest.txt
+shot stopped
+
+quit

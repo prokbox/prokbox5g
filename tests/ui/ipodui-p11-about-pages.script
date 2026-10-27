@@ -1,0 +1,59 @@
+# Phase 11 (docs/phase11-brief.md 3.6, 7 criterion 7): Settings > About,
+# three dark pages turned with NEXT / PREV (a 190 ms band slide), no wrap,
+# and our fourth (Save Diagnostics, release-plan 6.2; its save is
+# ipodui-diag-report.script); the wheel and SELECT do nothing on pages
+# 1 to 3; MENU returns to Settings.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p11-about-pages.script
+# needs: library
+# same: page2 page2_again
+# log: about page=1
+# log: about page=2
+# log: about page=3
+# log: about page=4
+# golden: skip slide_mid
+#
+# The counts come from lib_stats() (agent L): before L lands they read 0.
+# Serial and model are empty in a fresh config: page 3 shows Version only.
+
+wait 4000            # boot to the main menu
+wheel +3             # Settings
+wait 400
+key SELECT
+wait 1500
+key SELECT           # About (Settings' first row)
+wait 1500
+shot page1           # capacity capsule + legend, dots 1 of 3
+
+key RIGHT            # NEXT: page 2
+wait 60
+shot slide_mid       # (timing) the lower band mid-slide
+wait 600
+shot page2           # Songs / Videos / Podcasts | Photos / Games / Contacts
+
+wheel +3             # the wheel does nothing
+wait 300
+key SELECT           # nor does SELECT
+wait 300
+shot page2_again     # == page2
+
+key RIGHT
+wait 700
+shot page3           # Serial Number / Model (hidden when empty) / Version
+key RIGHT            # page 4 (ours): Save Diagnostics
+wait 700
+shot page4
+key RIGHT            # no wrap: stays on page 4
+wait 700
+shot page4_end
+key LEFT
+wait 700
+key LEFT
+wait 700
+key LEFT
+wait 700
+shot page1_back
+
+key MENU
+wait 900
+shot settings        # back to Settings, About selected
+quit

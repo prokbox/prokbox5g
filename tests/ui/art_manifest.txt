@@ -1,0 +1,25 @@
+# Expected cover-art state per album/show/book
+# (tests/ui/setup_library.py --art-manifest).
+# OK: a thumbnail should build. NOART: no source anywhere,
+# the note/podcast glyph forever. FAILED: a source exists
+# but 4b cannot decode it (same glyph; the Mac tool, Phase
+# 7b, adds PNG and progressive JPEG). Per-chapter audiobook
+# images are not generated (no easy way to author a
+# QuickTime chapter image track with ffmpeg): not a case
+# here, skipped outright (docs/phase4b-brief.md item 1).
+# path<TAB>state<TAB>note
+Library/Delta Static/Carrier Wave	FAILED	embedded progressive JPEG (unsupported in 4b; the Mac tool, Phase 7b, adds it)
+Library/Indigo Rail/Platform Nine	FAILED	folder.png only (PNG unsupported in 4b)
+Library/Mosaic Unit/Tesserae	OK	embedded baseline JPEG, non-square 600x400
+Library/Riverine/Meanders	NOART	no cover anywhere
+Library/The Bellwethers/Shepherd's Delight	NOART	no cover anywhere
+Library/The Bellwethers/Wool & Wire	OK	cover.jpg (baseline JPEG), no embedded art
+Library/Velvet Static/Soft Noise	NOART	no cover anywhere
+Library/Zoë Marchetti/Ritratti	NOART	no cover anywhere
+Library/Ångström Lane/Units of Light	OK	folder.jpg (baseline JPEG), no embedded art
+Library/Untagged Session	OK	folder cover.jpg; no album tag (directory-grouped, not a tagged album)
+Podcasts/Signal Hour	OK	embedded baseline JPEG (show art)
+Podcasts/Tone Talk Weekly	NOART	no show art
+Audiobooks/Imogen Thrale/The Lighthouse Keeper	OK	MP4 covr, baseline JPEG
+Audiobooks/Osric Pell/A Field Guide to Tones	FAILED	MP4 covr, PNG (unsupported in 4b; the Mac tool, Phase 7b, adds it)
+Audiobooks/Maren Solvik/Winter Stories	OK	MP4 covr, baseline JPEG

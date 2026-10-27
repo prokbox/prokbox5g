@@ -1,0 +1,59 @@
+# P19 19-5 (jobs.md section 5, "Shell recipe: the marquee"): Now Playing's
+# long title as the BCM2722's stepped PAN, the device's behaviour (jobs
+# on: bcm_drift on).  At F2's first step (1 s after the title settles) the
+# strip goes up once (ALLOC, upload) and one ANIM PAN draws F2's frames;
+# from then on the shell has no marquee wakeups and pushes nothing over
+# the title (no "update np:title").  Leaving stops it (ANIM_STOP, FENCE,
+# wait, and the frame the glass shows into the framebuffer).  Back on
+# Now Playing the same title finds its slot kept: no upload (up=0).  The frames themselves:
+# ipodui-p19-mq-parity.script.
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p19-mq-pan.script
+# needs: music
+# needs: np
+# needs: video
+# golden: skip
+# logbetween: start p0 np mq bcm start key=\S+ lap=\d+ w=1392 up=1
+# logbetween: p0 p1 no update np:title
+# logbetween: p1 p2 np mq bcm stop why=\S+ phase=\d+ rc=0
+# logbetween: p2 p3 np mq bcm start key=\S+ lap=\d+ w=1392 up=0
+# logbetween: p2 p3 no update np:title
+# nolog: np mq cpu why=
+# nolog: glass owned STALE
+# nolog: shot POISONED
+
+wait 3000
+bcm_drift on        # the developer switch: jobs (the model's auto: off)
+sim_clock 15:08
+clock_format 24
+repeat off
+wait_db 30000
+art_wait 60000
+mkdir /NPTest
+copy ../../build/np-fixtures/long_title.mp3 /NPTest/long_title.mp3
+play_files /NPTest/long_title.mp3
+wait 1000
+np_pin 8000 50
+key SELECT          # Music (the menu re-reads "Now Playing" after a push/pop)
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 1600           # past F2's first step: the PAN runs
+ab_mark p0
+wait 4000
+ab_mark p1
+shot pan
+key MENU            # leaving: the slide settles the title first
+wait 800
+ab_mark p2
+key SELECT          # back: the same title, its slot still there
+wait 1600
+wait 2000
+ab_mark p3
+key MENU
+wait 800
+audio_stop
+rm_file /NPTest/long_title.mp3
+quit

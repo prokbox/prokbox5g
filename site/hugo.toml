@@ -1,0 +1,45 @@
+# The ProkBox5g site and user guide (docs/release-plan.md section 3.4).
+# Content lives in docs/user/ (Markdown, shared with the PDF); this folder
+# holds only the layouts and the stylesheet. Build: scripts/docs_build.sh.
+baseURL = "https://prokbox.github.io/prokbox5g/"
+title = "ProkBox5g"
+locale = "en"
+disableKinds = ["taxonomy", "term", "RSS", "sitemap"]
+enableRobotsTXT = false
+
+[params]
+  description = "Free, open-source firmware for the iPod Video (5th generation and 5.5)."
+  version = "0.8"
+  repo = "https://github.com/prokbox/prokbox5g"
+  releases = "https://github.com/prokbox/prokbox5g/releases"
+  contact = "prokbox.project@gmail.com"
+  pdf = "downloads/ProkBox5g-User-Guide.pdf"
+
+[module]
+  [[module.mounts]]
+    source = "../docs/user"
+    target = "content"
+    files = ["! images/**", "! README.md"]
+  [[module.mounts]]
+    source = "../docs/user/images"
+    target = "static/images"
+  [[module.mounts]]
+    source = "static"
+    target = "static"
+
+[markup]
+  [markup.goldmark.renderer]
+    unsafe = false
+  [markup.goldmark.parser]
+    autoHeadingID = true
+  [markup.tableOfContents]
+    startLevel = 2
+    endLevel = 3
+
+[outputFormats]
+  [outputFormats.print]
+    mediaType = "text/html"
+    baseName = "index"
+    path = "print"
+    isHTML = true
+    permalinkable = false

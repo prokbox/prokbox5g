@@ -1,0 +1,38 @@
+# Phase 16-1 review (M2): a take frees what the caller then allocates,
+# headers included: right after maint_take(B) a core_alloc(B) fits the
+# free heap without shrinking the audio buffer again (the give adds a
+# margin for buflib's headers; a hole of exactly B was judged failed).
+# Then (M3) once the job is done its memory goes back to the buffer.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-take-boundary.script
+# needs: library
+# needs: ab
+# golden: skip
+# timeout: 200
+# fulls-extra: 2
+# log: maint try ok=1 alloc=1 shrink=0
+# nolog: maint try ok=0
+# nolog: shrink=1
+# logbetween: t1 end maint take job=regrow ok=1
+
+wait 4000
+wait_db 45000
+mkdir /Audiobooks/B16
+copy ../../build/ab-fixtures/pref.m4b /Audiobooks/B16/pref.m4b
+update_db_wait_change 60000
+play_files /Audiobooks/B16/pref.m4b
+wait_pos 3000 60000
+snapshot_pause
+expect_paused 500
+backlight_expire
+pause_age 200
+wait 2000
+maint_try 100000
+maint_try 1000000
+maint_try 4096
+ab_mark t1
+wait 3000                   # the jobs are done: the buffer grows back
+expect_paused 500
+shot after
+key MENU
+wait 1000
+quit

@@ -1,0 +1,34 @@
+# P18 18-A (M1): per-thread wakes. Three phases of 130 s each, one
+# "m0 wakes" line per minute in ipodui.log: idle and stopped, playing,
+# paused. The buffering thread's row is the point (K1: a deadline wait
+# instead of a HZ/2 poll while handles exist). The power thread has no
+# simulator counterpart (powermgmt-sim.c): device only.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p18a-wakes.script
+# needs: library
+# timeout: 600
+# log: m0 wakes
+# nolog: splash-pass
+# golden: skip
+
+wait 5000
+wait_db 30000
+wait 130000         # stopped, idle
+key SELECT          # Music
+wait 800
+wheel +1            # "Artists"
+wait 400
+key SELECT
+wait 800
+key SELECT
+wait 800
+key SELECT          # "All Songs"
+wait 800
+key SELECT          # its first song: Now Playing
+wait_pos 2000 30000
+wait 130000         # playing
+key PLAY
+wait 130000         # paused
+key MENU            # wake after the counts: the unlit face exits
+wait 1500
+shot end            # one shot so shots.sh counts the run
+quit

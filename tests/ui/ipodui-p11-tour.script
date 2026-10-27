@@ -1,0 +1,234 @@
+# Phase 11 owner-round tour (docs/phase11-brief.md section 8), about two
+# minutes at 10 fps through every new screen, for tests/review/p11-tour.sh.
+# NOT a gate script: no goldens, listed in tests/ui/PENDING. The order is
+# the integration brief's: Search -> hold menu -> On-The-Go (add, list,
+# save, clear) -> Settings checklists -> Volume Limit and the roller ->
+# About 1-3 -> Date & Time -> EQ -> Reset prompt -> Charging, OK to
+# Disconnect -> Now Playing track change (placeholder, then art) ->
+# Connect to Power (last: the low-battery shutdown ends the sim).
+# Every segment returns to the main menu with `hold MENU`, then clamps the
+# cursor (wheel -10) so one miscount doesn't derail the next.
+#   tests/review/p11-tour.sh
+# needs: library
+# timeout: 600
+
+wait 4000                 # boot to the main menu
+wait_db 30000
+sim_clock 15:04
+clock_format 24
+battery 100
+repeat off
+mkdir /NPArt
+copy ../../build/np-fixtures/art_169.mp3 /NPArt/art_169.mp3
+copy ../../build/np-fixtures/art_23.mp3 /NPArt/art_23.mp3
+update_db_wait_change 60000
+art_wait 120000
+
+# -- 1. Search: type, refine, delete, the result list ---------------------
+record 1000 10 tour       # main menu
+key SELECT                # Music
+record 800 10 tour
+wheel +8 300              # Search (the last Music row)
+record 600 10 tour
+key SELECT
+record 1200 10 tour       # the empty strip, A boxed
+wheel +7 100              # box on H
+record 800 10 tour
+type h
+record 1200 10 tour       # results for "h"
+type a
+record 1500 10 tour       # refined: "ha"
+key LEFT                  # PREV deletes the "a"
+record 1000 10 tour
+key MENU                  # the strip hides: the full result list
+record 1200 10 tour
+wheel +2 300
+record 1000 10 tour
+hold MENU 1000
+wait 1500
+wheel -12 120
+
+# -- 2. Hold SELECT menu, then On-The-Go: add two songs, list, save, clear -
+key SELECT                # Music
+wait 800
+wheel -12 120             # the Music menu keeps its row: back to the top
+record 600 10 tour
+wheel +3 300              # Songs (Compilations is off by default)
+record 600 10 tour
+key SELECT
+record 1000 10 tour
+wheel +2 300              # "Amber Garden"
+record 600 10 tour
+hold SELECT 1500          # the hold menu
+record 1500 10 tour       # Add to On-The-Go / Browse Album / Browse Artist / Cancel
+key SELECT                # Add to On-The-Go
+record 800 10 tour
+wheel +1 300              # "Amber Harbour"
+hold SELECT 1500
+record 1000 10 tour
+key SELECT
+record 800 10 tour
+key MENU                  # Music
+wait 800
+wheel -4 300              # Playlists
+wait 400
+key SELECT
+record 1000 10 tour       # Playlists: On-The-Go first
+key SELECT                # On-The-Go
+record 1500 10 tour       # 2 songs, Save Playlist, Clear Playlist
+wheel +2 300              # Save Playlist
+record 600 10 tour
+key SELECT
+record 1500 10 tour       # back in Playlists with New Playlist 1
+wheel -12 120
+key SELECT                # On-The-Go again
+record 1000 10 tour
+wheel +3 300              # Clear Playlist
+record 600 10 tour
+key SELECT
+record 1500 10 tour       # Clear On-The-Go?  Clear | Cancel
+wheel -1 300              # Clear
+record 600 10 tour
+key SELECT
+record 1500 10 tour       # cleared
+hold MENU 1000
+wait 1500
+wheel -12 120
+
+# -- 3. Settings: Main Menu and Music Menu checklists ---------------------
+wheel +3 300              # Settings
+wait 400
+key SELECT
+record 1200 10 tour
+wheel +3 300              # Main Menu
+record 600 10 tour
+key SELECT
+record 1500 10 tour       # the checklist
+wheel +1 300              # Playlists
+key SELECT                # tick
+record 1000 10 tour
+key SELECT                # untick (back to the default)
+record 800 10 tour
+key MENU
+wait 900
+wheel +1 300              # Music Menu
+key SELECT
+record 1500 10 tour
+wheel +6 200
+record 1000 10 tour
+key MENU
+wait 900
+
+# -- 4. Volume Limit and the roller ---------------------------------------
+wheel +1 300              # Volume Limit
+record 800 10 tour        # tile + "Set or Lock Volume Limit"
+key SELECT
+record 1500 10 tour       # the bar and its triangle
+wheel -30 40
+record 1200 10 tour
+key SELECT                # Enter Combination: the roller
+record 1200 10 tour
+wheel +1 300
+record 500 10 tour
+key SELECT
+record 500 10 tour
+wheel +2 300
+record 800 10 tour        # the box moved on, 1 2 _ _
+key MENU                  # leave without setting a code
+record 1000 10 tour
+
+# -- 5. About pages 1-3 ----------------------------------------------------
+wheel -12 120              # About
+key SELECT
+record 1500 10 tour       # page 1: capacity capsule
+key RIGHT
+record 1200 10 tour       # page 2: counts
+key RIGHT
+record 1200 10 tour       # page 3: version
+key MENU
+record 900 10 tour
+
+# -- 6. Date & Time --------------------------------------------------------
+wheel +12 200             # Date & Time
+record 600 10 tour
+key SELECT
+record 1500 10 tour       # Date / Time / Time Zone / 24 Hour Clock / Time in Title
+key SELECT                # Date: the dark roller
+record 1500 10 tour
+wheel +1 300
+record 800 10 tour
+key MENU                  # saves and returns
+record 1000 10 tour
+key MENU
+wait 900
+
+# -- 7. EQ -----------------------------------------------------------------
+wheel -12 120
+wheel +9 200              # EQ
+record 600 10 tour
+key SELECT
+record 1200 10 tour       # Off highlighted, the EQ tile
+wheel +2 300
+record 1200 10 tour       # the caption follows the highlight
+key MENU                  # nothing chosen
+record 900 10 tour
+
+# -- 8. Reset Settings prompt ----------------------------------------------
+wheel +7 200              # Reset Settings (the last row)
+record 600 10 tour
+key SELECT
+record 1500 10 tour       # Reset | Cancel, Cancel preselected
+key SELECT                # Cancel
+record 1000 10 tour
+hold MENU 1000
+wait 1500
+wheel -12 120
+
+# -- 9. Charging, OK to Disconnect -----------------------------------------
+charger on
+battery 60
+hold PLAY 1500            # hold PLAY on the charger: Charging
+record 2500 10 tour
+battery 100
+record 2000 10 tour       # Charged
+key SELECT
+record 1000 10 tour       # a key leaves it
+charger off
+usb_glyph usbc
+usb_connect
+record 2000 10 tour       # Connected
+usb_eject
+record 2000 10 tour       # OK to Disconnect
+usb_disconnect
+usb_eject off
+record 1200 10 tour
+
+# -- 10. Now Playing: a track change, placeholder then art -----------------
+play_files /NPArt/art_23.mp3 /NPArt/art_169.mp3 /NPArt/art_23.mp3
+wait 1000
+key SELECT                # Music (the menu re-reads "Now Playing")
+wait 700
+key MENU
+wait 700
+wheel +10 100             # Now Playing
+wait 500
+key SELECT
+record 2000 10 tour
+key NEXT                  # disk asleep: the placeholder, then the art
+record 3000 10 tour
+key NEXT
+record 2500 10 tour
+audio_stop
+record 1000 10 tour
+hold MENU 1000
+rm_file /NPArt/art_169.mp3  # leave the shared disk as primed (the gate's
+rm_file /NPArt/art_23.mp3   # library counts and positions depend on it)
+
+# -- 11. Connect to Power (the low-battery shutdown ends the sim) ---------
+battery 5
+charger off
+hold PLAY 1500            # sys_poweroff(): battery low
+wait 600
+shot connect_to_power     # tests/review/p11-tour.sh holds this still 2.5 s
+wait 2000
+quit

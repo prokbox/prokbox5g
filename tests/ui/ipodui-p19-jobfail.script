@@ -1,0 +1,57 @@
+# P19 forced job failure (developer hook; docs/bcm2722-reference/
+# host-driver.md 8a): the next N jobs of a kind fail as if the chip refused
+# them, to prove the loud CPU fallback and the return to the chip without
+# a broken chip.  The device's rows (Developer > Advanced > Video chip >
+# Fault injection) call the same hook as the script command below.
+#  start-f0  the visualiser's frames go to the chip (BARS, 0x34);
+#  f0-f1     the next visualiser jobs fail (two armed): the driver says
+#            so ("bcmjob fault ... why=failed") and the view says CPU
+#            FALLBACK once and draws on the CPU (a failed frame job takes
+#            the view off the chip: the op is marked at two failures);
+#  f1-f2     "bcm_jobfail viz 0" disarms and forgives the op (the rows'
+#            "off"): the view is on the chip again (BARS submitted), with
+#            no further fault.
+# Runs on sim-ui-video:
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p19-jobfail.script
+# logbetween: start f0 bcmjob submit op=0x34
+# logbetween: start f0 no CPU FALLBACK
+# logbetween: start f0 no bcmjob fault
+# logbetween: f0 f1 bcmjob inject op=0x34 n=2
+# logbetween: f0 f1 bcmjob fault op=0x34 why=failed
+# logbetween: f0 f1 viz CPU FALLBACK why=
+# logbetween: f1 f2 bcmjob inject op=0x34 n=0
+# logbetween: f1 f2 bcmjob submit op=0x34
+# logbetween: f1 f2 no bcmjob fault
+# np: viz-full
+# reset: viz
+wait 3000
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait 1500
+key SELECT          # Music
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 1500
+key SELECT          # Scrubber
+wait 400
+key SELECT          # Rating
+wait 600
+key SELECT          # Shuffle
+wait 600
+key SELECT          # Visualizer: its overlay owed, then on the BCM
+wait 2500
+shot bars
+ab_mark f0
+bcm_jobfail viz 2   # the next two visualiser frames fail
+wait 2000
+ab_mark f1
+shot after_fail
+bcm_jobfail viz 0   # off: disarmed, the op forgiven
+wait 2000
+ab_mark f2
+shot bars_again
+key SELECT          # back to Normal
+wait 1200

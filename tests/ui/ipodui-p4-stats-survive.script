@@ -1,0 +1,56 @@
+# Phase 4 second review N5 (#3): play counts and resume points survive a
+# database rebuild and a reboot. A book is played partway (its resume
+# position goes to the database), the database is rebuilt from scratch
+# (rebuild_db: the shell exports the statistics to the changelog first,
+# the new database imports them), and the sim boots again: the position
+# and the Audiobooks progress hint are still there.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p4-stats-survive.script
+# needs: library
+# fresh-db
+# golden: skip played after_reboot
+#
+# "fresh-db" starts without positions from earlier runs. shots.sh fails
+# the run on "expect_resume failed" or "rebuild_db timed out".
+
+wait 4000           # boot to the main menu, "Music" selected
+wait_db 45000       # the shell builds the database itself (fresh-db)
+
+key SELECT          # Music
+wait 800
+wheel +6 300        # "Audiobooks" (slow clicks: one row each) [Compilations off: P11]
+wait 400
+key SELECT
+wait 800
+wheel +1            # "The Lighthouse Keeper"
+wait 400
+key SELECT          # the book's page (P6 Rev 2: every book opens it)
+wait 1000
+key SELECT          # its first entry (no spot yet: no Resume row)
+wait_pos 3500 60000 Lighthouse  # over 3 s of playback: a position worth saving (tagtree.c)
+wait 300
+key PLAY            # pause
+wait 500
+audio_stop       # stop: the position goes to the database, and the
+wait 2000           # WPS returns to Audiobooks
+shot played         # progress hint on The Lighthouse Keeper
+expect_resume /Audiobooks/Imogen%20Thrale/The%20Lighthouse%20Keeper.m4b 1000
+
+hold MENU 1000      # main menu (no list open during the rebuild; the
+wait 1200           # page sits between Audiobooks and Now Playing now)
+rebuild_db 45000    # export, remove, scan, commit, import
+expect_resume /Audiobooks/Imogen%20Thrale/The%20Lighthouse%20Keeper.m4b 1000 10000
+
+reboot              # a new boot on the same disk
+
+wait 4000
+wait_db 45000
+expect_resume /Audiobooks/Imogen%20Thrale/The%20Lighthouse%20Keeper.m4b 1000
+key SELECT          # Music
+wait 800
+wheel +6 300        # "Audiobooks" [Compilations off: P11]
+wait 400
+key SELECT
+wait 1000
+shot after_reboot   # the progress hint survived the rebuild and the reboot
+
+quit

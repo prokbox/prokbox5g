@@ -1,0 +1,5 @@
+/* #106: preprocessed by modules.make; a line remains only in a target
+ * build with shell modules on (IPODUI_MODULES, not the simulator) */
+#if defined(IPODUI_MODULES) && !defined(SIMULATOR)
+on
+#endif

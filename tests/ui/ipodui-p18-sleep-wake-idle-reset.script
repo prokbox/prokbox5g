@@ -1,0 +1,34 @@
+# Phase 18 (§8; Rev 1 M1): a VBUS wake resets the idle timer, so
+# unplugging does not sleep again at once; the timer then runs from the
+# wake.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p18-sleep-wake-idle-reset.script
+# needs: library
+# golden: skip
+# fulls-extra: 3          (the Now Playing row appears: play_files; the VBUS wake's frame; p19-usboom: the USB storage buffer stops the paused song before the handover, as on the device, and the menu drops the row once)
+# timeout: 240
+# logbetween: v0 v1 no sim_sleep: sleep enter
+# logbetween: v1 end sim_sleep: sleep enter
+
+sleep_mode soft       # soft sleep is off by default (developer switch)
+wait 4000
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait_pos 3000 60000
+key PLAY
+wait 500                # the toggle lands (the expect does not wait)
+expect_paused 500
+idle_poweroff 1
+hold PLAY 1500          # the hold: dark at once, PLAY's release awaited
+expect_sleep asleep 8000
+wait 70000              # asleep longer than the timeout (the tick runs in
+                        # the sim; on the device it is frozen)
+usb_connect
+expect_sleep vbus 3000
+wait 2000
+usb_disconnect
+ab_mark v0
+wait 30000              # well inside a minute from the wake: still awake
+expect_sleep awake 100
+ab_mark v1
+expect_sleep asleep 60000
+shot end                # the gate needs one shot
+quit

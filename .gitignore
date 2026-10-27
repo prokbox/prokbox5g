@@ -334,3 +334,8 @@ __pycache__
 
 # /utils/time-sync/
 /utils/time-sync/time-sync
+
+# rockbox-for-me
+/out
+/.claude/worktrees
+/.claude/settings.local.json

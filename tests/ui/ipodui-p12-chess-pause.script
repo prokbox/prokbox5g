@@ -1,0 +1,72 @@
+# #132: a long MENU opens the pause menu (Resume, New Game, Settings,
+# Exit); Exit leaves with the game saved; Chess again resumes the same
+# position; a MENU tap takes your move and the engine's reply back.
+# Settings > Play As Black, then New Game: the board turns round and the
+# engine (White) moves first.
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-chess-pause.script
+# needs: modules
+# reset: mainmenu
+# log: sdk long menu chess pause
+# log: sdk chess resume plies=2 side=0
+# log: sdk chess take back 2 -> 0
+# log: sdk chess new game side=1
+# nolog: sdk viol chess
+# nolog: sdk kill chess
+
+wait 4000
+sdk_clear
+wheel +2             # Extras
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Games
+wait 600
+key SELECT
+wait 1200
+wheel +1             # Chess
+wait 800
+key SELECT
+wait 1000
+key SELECT           # e2 ...
+wait 300
+wheel -2 300
+wait 300
+key SELECT           # ... e4
+wait 2500            # the reply
+shot played
+hold MENU 900        # the pause menu
+wait 600
+shot paused
+wheel +3 300         # Exit
+wait 400
+key SELECT
+wait 1500
+shot games           # back in the Games list
+key SELECT           # Chess again
+wait 1500
+shot resumed         # the same position
+key MENU             # a tap: take back e4 and the reply
+wait 1200
+shot taken_back      # the start position, e2 under the cursor
+hold MENU 900
+wait 600
+wheel +2 300         # Settings
+wait 400
+key SELECT
+wait 1200
+shot settings        # Opponent: CPU, Difficulty: Medium, Play As: White
+wheel +2 300         # Play As
+wait 400
+key SELECT           # White -> Black
+wait 600
+shot play_as_black
+key MENU             # back to the game
+wait 1200
+hold MENU 900        # the pause menu again
+wait 600
+wheel +1 300         # New Game
+wait 400
+key SELECT
+wait 2500            # the engine opens as White
+shot as_black        # the board from Black's side, White has moved
+quit

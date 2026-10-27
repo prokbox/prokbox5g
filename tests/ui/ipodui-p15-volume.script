@@ -1,0 +1,56 @@
+# P15 (docs/phase15-brief.md 3.4, 7): the volume curve. In Now Playing each
+# wheel click is one step of apps/ipodui/volcurve.c (48 steps, 0 = mute ..
+# 47 = +6 dB); every click logs "vol step= db= bar=". check_trace.py's
+# p15vol rule checks bar == step*1024/47 and db == the table, per line.
+# First Settings > Volume Limit: the wheel moves the limit one step per
+# click from step 47 down 23 clicks (50% of the bar, step 24, -17 dB) and
+# MENU accepts without a code. Then in Now Playing a spin down to step 0
+# and a long spin up stops at the cap: the highest step logged is 24
+# (# vol-max), and no two neighbouring lines are more than one step apart
+# (# vol-walk: 1).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p15-volume.script
+# needs: music
+# timeout: 120
+# trace: p15vol
+# vol-max: 24
+# vol-walk: 1
+# log: vlimit set=-17
+# golden: skip np_low np_capped limit_half
+
+wait 4000
+wheel +3            # Settings
+wait 400
+key SELECT 50
+wait 1500
+wheel +5 300        # Volume Limit
+wait 600
+key SELECT 50
+wait 1500
+wheel -23 120       # step 47 -> 24: the half-way mark of the bar
+wait 600
+shot limit_half
+key SELECT 50       # -> Enter Combination
+wait 800
+key MENU 50         # MENU accepts with no code
+wait 1500
+hold MENU 1000      # main menu
+wait 1200
+repeat off
+wait_db 30000
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait 1000
+key SELECT          # Music (the menu re-reads "Now Playing" after a push/pop)
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 1500
+wheel -60 60        # to the bottom of the table: down to step 0
+wait 800
+shot np_low
+wheel +40 60        # up the table, one step per click, then the cap
+wait 800
+shot np_capped
+quit

@@ -1,0 +1,26 @@
+# P12 Q1(2), Q9 (review MEDIUM-2): the Sleep Timer's end goes to the
+# shell's sleep (SLEEP_TIMER); with an alarm due within 24 h and soft
+# sleep off that is the dark wait, not the power-off; the alarm then
+# rings out of the dark. The timer is started by the engine's test hook
+# (the menu's least is 15 min).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p12-alarm-sleeptimer-darkwait.script
+# golden: skip
+# timeout: 150
+# env: IPODUI_SIM_ALARM_IN=100 IPODUI_SIM_SLEEP_TIMER=1
+# Trace: sleep off held why=2, alarm darkwait, alarm ring i=0
+# alarm-rings: 1
+# log: ipodui: sleep off held why=2
+# log: ipodui: alarm darkwait next=
+# nolog: ipodui: sleep tier=off
+# nolog: ipodui: sleep off held why=1
+# trace: piezo
+# reset: mainmenu
+
+idle_poweroff 10        # the default: the idle timer stays out of it
+wait 70000              # the timer ends at ~60 s: dark, awake
+shot dark
+wait 35000              # the alarm at ~100 s
+shot ringing
+key MENU                # dismiss
+wait 1500
+quit

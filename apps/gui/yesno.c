@@ -31,6 +31,10 @@
 #include "splash.h"
 #include "backlight.h"
 #include "statusbar-skinned.h"
+#ifdef HAVE_IPOD_UI
+#include "ipodui/devmode.h" /* ipodui_stock_ui_allowed() */
+#include "ipodui/uilog.h"
+#endif
 
 struct gui_yesno
 {
@@ -230,6 +234,19 @@ enum yesno_res gui_syncyesno_run_w_tmo(int ticks, enum yesno_res tmo_default_res
     long talked_tick = current_tick - 1;
     long end_tick = current_tick + ticks;
 
+#ifdef HAVE_IPOD_UI
+    /* Phase 8a funnel: no stock prompt in the shell; log the first line and
+     * answer No, the non-destructive choice (D2). Only devmode passes. */
+    if (!ipodui_stock_ui_allowed())
+    {
+        const char *first = (main_message && main_message->nb_lines > 0)
+            ? P2STR((const unsigned char *)main_message->message_lines[0]) : "";
+        ui_log("yesno-suppressed", "%s", first);
+        return YESNO_NO;
+    }
+    ui_log("splash-pass", "yesno %s", (main_message && main_message->nb_lines > 0)
+        ? P2STR((const unsigned char *)main_message->message_lines[0]) : "");
+#endif
     if (ticks < HZ) /* Display a prompt with NO timeout to the user */
     {
         tmo_default_res = YESNO_TMO;
@@ -385,6 +402,9 @@ static bool yesno_pop_lines(const char *lines[], int line_cnt)
 {
     const struct text_message message={lines, line_cnt};
     bool ret = (gui_syncyesno_run(&message,NULL,NULL)== YESNO_YES);
+#ifdef HAVE_IPOD_UI
+    if (ipodui_stock_ui_allowed()) /* else nothing was drawn to clear */
+#endif
     FOR_NB_SCREENS(i)
         screens[i].clear_viewport();
     return ret;

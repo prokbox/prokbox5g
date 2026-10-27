@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2002 by Linus Nielsen Feltzing
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -370,7 +371,19 @@ cop_init:
     /* Exception vectors */
     .global vectors
 vectors:
+#if defined(HAVE_PANIC_RECORD) && !defined(BOOTLOADER)
+    /* ProkBox: a branch to address 0 once these vectors are in place (a
+     * NULL function pointer, a --wrap whose real body was never linked)
+     * used to land on "start" here, which links at 0 too: the core spun
+     * on this vector for ever, IRQs as they were, and froze the unit with
+     * no record.  No real start comes this way (the boot ROM, the
+     * bootloader and ROLO all enter the image before the remap, at
+     * DRAM_START, and a restart is DEV_RS's), so it is reported as an
+     * exception instead: a record, then the restart */
+    .word  reset_reentry_handler
+#else
     .word  start
+#endif
     .word  undef_instr_handler
     .word  software_int_handler
     .word  prefetch_abort_handler
@@ -405,6 +418,23 @@ prefetch_abort_handler:
     mov    r1, #1
     b      UIE
 
+#if defined(HAVE_PANIC_RECORD) && !defined(BOOTLOADER)
+/* ProkBox: the branch to 0 (vectors above). lr is the branching mode's:
+ * the caller's return address for a call through a NULL pointer. UIE()
+ * runs in Undefined mode on the exception stack, as for the others, and
+ * reads System mode's sp and lr itself; the mode the branch came from is
+ * kept for its message */
+    .global reset_reentry_handler
+reset_reentry_handler:
+    mov    r0, lr
+    mrs    r1, cpsr
+    ldr    r2, =uie_reentry_cpsr
+    str    r1, [r2]
+    msr    cpsr_c, #0xdb /* Undefined mode, IRQ/FIQ disabled */
+    mov    r1, #5
+    b      UIE
+#endif
+
 #if defined(HAVE_BOOTDATA) && !defined(BOOTLOADER)
 /* boot data structure */
 put_boot_data_here
@@ -415,6 +445,8 @@ put_boot_data_here
 
 /* 256 words of IRQ stack */
     .space 256*4
+    .global irq_stack           /* ProkBox: the hang watcher reads the
+                                   interrupted pc at its top word */
 irq_stack:
 
 /* 256 words of COP IRQ stack */

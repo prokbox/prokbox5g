@@ -1,0 +1,39 @@
+# P12 W4 (docs/design/sdk.md 13.3): game over. Each ball is launched and
+# the paddle sent to the far left, so all three are lost: the Game Over
+# panel with the score (and New Best), no ball on the field; a SELECT tap
+# starts a fresh game.
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-bricks-over.script
+# needs: modules
+# reset: mainmenu
+
+wait 4000
+sdk_clear            # a fresh game
+wheel +2             # Extras
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Games
+wait 600
+key SELECT
+wait 1200
+shot games           # the Games list, Bricks first
+wait 600
+key SELECT           # Bricks
+wait 800
+key SELECT           # launch
+wait 200
+wheel -40 15
+wait 4500
+key SELECT           # launch
+wait 200
+wheel -40 15
+wait 4500
+key SELECT           # launch
+wait 200
+wheel -40 15
+wait 4500
+shot over
+key SELECT           # a new game
+wait 800
+shot new_game
+quit

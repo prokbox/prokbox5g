@@ -1,0 +1,63 @@
+# Phase 4: Playlists (docs/phase4-brief.md, Agent B screens/playlists.c):
+# /Playlists/*.m3u[8] plus On-The-Go; selecting a playlist plays it;
+# holding SELECT on a song opens the hold menu (P11, holdmenu.c), whose
+# Add to On-The-Go fills the On-The-Go store (otg.h), never the queue.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p4-playlists.script
+# needs: library
+# golden: skip pl_wps otg_added otg
+#
+# /Playlists: "Accents & Symbols.m3u" (7), "Empty.m3u" (0), "Focus.m3u8"
+# (6, UTF-8 names), "Road Trip.m3u" (8), listed after On-The-Go.
+# Selecting a playlist plays it at once (docs/phase4-brief.md; the 7G
+# opens its song list first). On-The-Go opens its own list
+# (screens/otglist.c, P11): the song added from the hold menu.
+
+wait 4000           # boot to the main menu, "Music" selected
+wait_db 30000
+
+key SELECT          # Music
+wait 800
+# (Cover Flow hidden until Phase 7: "Playlists" is first)
+wait 400
+key SELECT
+wait 800
+shot playlists      # On-The-Go, Accents & Symbols, Empty, Focus, Road Trip
+
+key MENU            # Music
+wait 800
+wheel +3 300        # "Songs" (Playlists + 4)  [Compilations off: P11]
+wait 400
+key SELECT
+wait 800
+wheel +2 300        # third song, "Amber Garden"
+wait 400
+hold SELECT 1500    # the hold menu
+wait 600
+key SELECT          # Add to On-The-Go: back on Songs
+wait 800
+shot otg_added      # Songs, unchanged
+wait 1200
+shot otg_gone       # list unchanged, nothing playing
+
+key MENU            # Music
+wait 800
+wheel -4 300        # "Playlists"
+wait 400
+key SELECT
+wait 800
+key SELECT          # "On-The-Go": its list, the song added above
+wait 1500
+shot otg            # the On-The-Go list (L's store)
+key MENU            # back to Playlists
+wait 800
+
+wheel +3 300        # "Focus"
+wait 400
+key SELECT          # replaces the playlist with Focus and plays it
+wait 2000
+shot pl_wps         # Now Playing, "1 of 6" (timing-sensitive)
+key MENU            # back to Playlists
+wait 800
+shot pl_back        # header play glyph
+
+quit

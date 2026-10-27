@@ -1,0 +1,47 @@
+# 8b smoothness (owner device log 2026-10-11/12): Now Playing's clock
+# skipped a second and caught up ("np cadence sec=125 dpos=1858 lag=945
+# dt=1920", then "sec=126 dpos=92 lag=37"), every ~10-20 s, lit, nothing
+# else running. Cause: the wake for the next second is computed from a
+# second read of the elapsed time after the pass drew the label. When the
+# PCM position crossed the whole second during the pass (the device's
+# LCD push takes milliseconds, and the wake is aimed right at the
+# crossing), the label still showed the old second while the wake was
+# set a full second ahead. The fix: a pass that leaves a stale second on
+# screen comes back after one tick.
+# The sim's pass is atomic under its kernel lock, so the device's slow
+# push is modelled by a one-tick sleep after each pass's flush (the file
+# flag /.rockbox/.sim_np_slowpass, read at np_enter). Every one-second
+# step must come 1 s of playing time after the last (dpos) and be drawn
+# within 250 ms of the whole second (lag): a skipped second gives dpos
+# ~2000 and lag ~1000.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p8b-np-tick.script
+# needs: music
+# needs: np
+# nolog: audio shrink
+# logrange: 850 1150 np sec \d+ dpos=(\d+)
+# logrange: 0 250 np sec \d+ dpos=\d+ lag=(\d+)
+# golden: skip nowplaying
+# timeout: 120
+
+wait 3000
+repeat off
+wait_db 30000
+art_wait 60000
+mkdir /Cadence
+copy ../../build/np-fixtures/nolen.flac /Cadence/steady.flac
+copy ../../build/np-fixtures/cover_sq.jpg /.rockbox/.sim_np_slowpass
+play_files /Cadence/steady.flac
+wait 1000
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait_pos 3000       # past the start
+wait_pos 25000      # twenty-two steady seconds on screen
+shot nowplaying
+key MENU
+wait 500
+audio_stop
+wait 500
+rm_file /Cadence/steady.flac
+rm_file /.rockbox/.sim_np_slowpass
+quit

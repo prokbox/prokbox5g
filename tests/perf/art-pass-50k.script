@@ -1,0 +1,14 @@
+# The art builder's no-change pass at 50k tracks (#90): run through
+# tests/perf/artpass50k.sh (a cloned 50k disk), not validate.sh. After the
+# boot's passes settle, two requested passes over an unchanged library;
+# the last "art build done albums= ms= reads= read_kb=" line is the
+# no-change cost (reads = the builder thread's read() calls).
+# golden: skip done
+wait 4000
+wait_db 600000
+art_wait 900000
+art_request
+art_wait 900000
+art_request
+art_wait 900000
+shot done

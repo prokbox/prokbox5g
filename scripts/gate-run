@@ -1,0 +1,135 @@
+#!/bin/sh
+#***************************************************************************
+#               __________                   __    __________
+#    Open       \______   \_______    ____  |  | __\______   \  ____  ___  ___
+#    Source      |     ___/\_  __ \  /  _ \ |  |/ / |    |  _/ /  _ \ \  \/  /
+#    Player      |    |     |  | \/ (  <_> )|    <  |    |   \(  <_> ) >    <
+#    Firmware    |____|     |__|     \____/ |__|_ \ |______  / \____/ /__/\_ \
+#                                                \/        \/               \/
+#
+# Custom firmware for the iPod Video, 5th generation (5G and 5.5G).
+# Not affiliated with or endorsed by Apple Inc.
+#
+# Copyright (C) 2026 prokopto-dev
+#
+# This program is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation; either version 2
+# of the License, or (at your option) any later version.
+#
+# This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
+# KIND, either express or implied.
+#
+#***************************************************************************
+
+# gate-run: wraps scripts/validate.sh with the two hard stop conditions
+# from docs/process.md "Agent budgets and fix rounds" / "Gate":
+#
+#   scripts/gate-run                   same as: scripts/gate-run --quick --changed
+#   scripts/gate-run --quick
+#   scripts/gate-run --quick --changed
+#   scripts/gate-run --full            the plain full gate (validate.sh with
+#                                       no flags; --full itself is consumed
+#                                       here, validate.sh has no such flag)
+#   scripts/gate-run [any other args]  passed straight through to validate.sh
+#
+# 1. One gate at a time per worktree. A mkdir-based lock (atomic, no
+#    flock(1) dependency) at build/.gate-lock holds the runner's pid.
+#    A second run in the SAME worktree refuses at once:
+#        FAIL: gate-run: another gate is already running ...
+#    A lock left behind by a dead process (pid no longer running, e.g.
+#    a killed agent) is detected via `kill -0` and reclaimed. Other
+#    worktrees are unaffected: the lock lives under THIS worktree's own
+#    build/, never shared.
+#
+# 2. A per-task --quick budget. GATE_TASK names "one task" (an agent's
+#    fix-round, say); if unset, the worktree's own directory name is
+#    used, so distinct worktrees never share a counter by accident.
+#    Each --quick run appends a line to
+#    build/.gate-counts/<sanitized task id>. The THIRD --quick run for
+#    the same task refuses:
+#        FAIL: gate-run: this is --quick run #3 for task '...'
+#    and tells the agent to hand back rather than retry again, per
+#    "Hand-back budget" in docs/process.md. GATE_FORCE=1 overrides the
+#    refusal (for the orchestrator's own integration use only). A full
+#    gate (no --quick) is never counted or limited: there is exactly
+#    one of those per integration regardless.
+#
+# Exit status is validate.sh's own, except for a refusal above (exit 1)
+# or a usage error (exit 2, same as validate.sh's own).
+set -u
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+cd "$ROOT"
+
+LOCKDIR="build/.gate-lock"
+COUNTDIR="build/.gate-counts"
+mkdir -p build "$COUNTDIR"
+
+# No args => the agent default from docs/process.md: --quick --changed.
+if [ $# -eq 0 ]; then
+    set -- --quick --changed
+fi
+
+# --full requests the plain full gate; strip it (validate.sh takes no
+# flags for that) rather than forward a flag it would reject.
+is_quick=0; is_full=0; args=""
+for a in "$@"; do
+    case "$a" in
+        --full) is_full=1 ;;
+        *) [ "$a" = "--quick" ] && is_quick=1; args="$args $a" ;;
+    esac
+done
+set -- $args
+if [ $is_full -eq 1 ] && [ $is_quick -eq 1 ]; then
+    echo "usage: gate-run: --full and --quick are contradictory" >&2
+    exit 2
+fi
+
+acquire_lock() {
+    if mkdir "$LOCKDIR" 2>/dev/null; then
+        echo $$ >"$LOCKDIR/pid"
+        return 0
+    fi
+    lpid=$(cat "$LOCKDIR/pid" 2>/dev/null || true)
+    if [ -n "${lpid:-}" ] && kill -0 "$lpid" 2>/dev/null; then
+        return 1
+    fi
+    echo "note: reclaiming a stale gate lock (pid ${lpid:-?} is not running)" >&2
+    rm -rf "$LOCKDIR"
+    if mkdir "$LOCKDIR" 2>/dev/null; then
+        echo $$ >"$LOCKDIR/pid"
+        return 0
+    fi
+    return 1
+}
+
+if ! acquire_lock; then
+    lpid=$(cat "$LOCKDIR/pid" 2>/dev/null || echo "?")
+    echo "FAIL: gate-run: another gate is already running in this worktree" >&2
+    echo "      (pid $lpid, lock $ROOT/$LOCKDIR)." >&2
+    echo "      Wait for it; never start a second one in the same worktree" >&2
+    echo "      (other worktrees, including an H1 review, are unaffected)." >&2
+    exit 1
+fi
+trap 'rm -rf "$ROOT/$LOCKDIR"' EXIT INT TERM
+
+if [ $is_quick -eq 1 ]; then
+    task=${GATE_TASK:-$(basename "$ROOT")}
+    safe=$(printf '%s' "$task" | tr -c 'A-Za-z0-9._-' '_')
+    cfile="$COUNTDIR/$safe"
+    prior=0
+    [ -f "$cfile" ] && prior=$(wc -l <"$cfile" | tr -d ' ')
+    if [ "$prior" -ge 2 ] && [ "${GATE_FORCE:-0}" != 1 ]; then
+        echo "FAIL: gate-run: this is --quick run #$((prior + 1)) for task '$task'." >&2
+        echo "      Two --quick runs is the budget (docs/process.md 'Agent budgets" >&2
+        echo "      and fix rounds'). Hand back now with the current state and the" >&2
+        echo "      failing script(s) instead of retrying a third time." >&2
+        echo "      (The orchestrator can override this with GATE_FORCE=1.)" >&2
+        exit 1
+    fi
+    date -u +%Y-%m-%dT%H:%M:%SZ >>"$cfile"
+fi
+
+scripts/validate.sh "$@"
+rc=$?
+exit $rc

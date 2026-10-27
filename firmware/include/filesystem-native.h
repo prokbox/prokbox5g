@@ -54,6 +54,33 @@ ssize_t rbfs_read(int fildes, void *buf, size_t nbyte);
 ssize_t rbfs_write(int fildes, const void *buf, size_t nbyte);
 int     rbfs_remove(const char *path);
 int     rbfs_rename(const char *old, const char *new);
+#ifdef HAVE_IPOD_UI
+/* The last failed rbfs_rename(), for the shell's log: rc as returned, and
+ * undo: 1 when an overwrite's victim could not be removed and the source
+ * got its old name back (one entry per name), < 0 (fat_rename()'s rc) when
+ * that failed too and two entries share the new name; 0 otherwise. */
+struct rbfs_rename_fault { int rc, undo; };
+/* a copy of it, and rc cleared (a function: the shell's remote calls wrap
+ * functions only) */
+void rbfs_rename_fault_take(struct rbfs_rename_fault *out);
+/* #91: drop path if it is a second name on keep's cluster chain (a cut
+ * inside a rename); 1 dropped, 0 different files or one missing, -1 error */
+int     rbfs_remove_alias(const char *path, const char *keep);
+/* #91: resolve a rename a power cut interrupted (one name left on the
+ * chain); at boot, after the mount, before any app opens a file */
+void    rbfs_rename_intent_boot(void);
+/* #91 L: after a USB session: the record made again if the host removed
+ * it; a pending one retired (the host's tree wins) */
+void    rbfs_rename_intent_usb_exit(void);
+/* A one-sector record file (file.c), written in place: one storage write
+ * of its first data sector, no FAT or directory write, then a write
+ * barrier. read/write: n bytes from its start (n <= its sector size);
+ * returns n, or < 0 when missing, too small or failing. create: makes it
+ * (one zeroed sector) if missing; 0 when it exists. Not BOOTLOADER. */
+int     rbfs_record_read(const char *path, void *data, size_t n);
+int     rbfs_record_write(const char *path, const void *data, size_t n);
+int     rbfs_record_create(const char *path);
+#endif
 int     rbfs_modtime(const char *path, time_t modtime);
 off_t   rbfs_ffilesize(int fildes);
 int     rbfs_fsamefile(int fildes1, int fildes2);
@@ -82,6 +109,9 @@ struct dirinfo_native
     off_t        size;
     uint16_t     wrtdate;
     uint16_t     wrttime;
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+    uint32_t     fstclus;   /* ProkBox #89: first cluster (boot digest) */
+#endif
 };
 
 typedef struct {} DIR;

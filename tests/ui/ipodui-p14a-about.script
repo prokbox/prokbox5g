@@ -1,0 +1,35 @@
+# Phase 14a (#64, docs/phase14a-brief.md 7 A2): Settings > About: the Videos count and the capacity legend
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p14a-about.script
+# (ipodui-p14a-* default to build/sim-ui-video; the gate runs them there)
+# needs: video
+#
+# Disk: tests/fixtures/videos/mkvideos.sh (installed by the gate's prime
+# step, or by shots.sh for a standalone run):
+#   Movies/        Audio First  High Profile  Late Chapter  Short Film
+#   TV Shows/      Show A (S1 x2, S2 x2, tagged)  Show B (S1 x2, untagged)
+#   Misc/          Show.C.S01E02.m4v  S01E03.m4v (nameless)
+#   Podcasts/Pod One/  Audio Episode.m4a  Video Episode.m4v
+#   Music/         Fixture Singer/Audio Only.mp4 (a song)
+#                  Fixture Author/Image Book.m4b (a book)
+# Main menu with Videos on (T1 default): Music, Videos, Podcasts, Extras,
+# Settings, Shuffle Songs. Videos: Movies, TV Shows, Settings.
+
+# 12 videos in the fixtures: 4 movies + 8 TV episodes (video podcasts count
+# under Podcasts only, owner T5); the Video segment of the capacity capsule
+# is every video file's size, the podcast episode included.
+# log: about page=1 songs=6 episodes=2
+# logrange: 4096 16384 about videos=12 video_kib=(\d+)
+wait 4000
+wait_db 45000
+wheel +4 300        # Settings (Music, Videos, Podcasts, Extras, Settings)
+wait 600
+key SELECT
+wait 900
+key SELECT          # About
+wait 1500
+shot page1          # capsule: Audio / Video / Other, legend
+key RIGHT
+wait 700
+shot page2          # Songs, Videos 12, Podcasts 2 ...
+key MENU
+wait 700

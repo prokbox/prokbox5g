@@ -1,0 +1,27 @@
+# P12 W1-A1 (M9, 8 item 8): a damaged alarms.dat (the right magic, a bad
+# CRC) reads as no alarms, logged, never a splash; nothing rings or is
+# marked missed, and the file is not rewritten at boot. The PMU, armed by
+# the first part, is disarmed (review LOW-3: rtc_init()'s keep-alive could
+# have made it a daily match that wakes the unit with nothing to ring).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p12-alarm-corrupt.script
+# golden: skip
+# timeout: 120
+# env: IPODUI_SIM_ALARM_IN=3600
+# alarm-rings: 0
+# alarm-arms: 2
+# log: ipodui: alarm file bad rc=-3
+# log: expect_pmu ok
+# log: ipodui: alarm arm rtc=0 ok=1 (file bad)
+# nolog: expect_pmu failed
+# nolog: ipodui: alarm missed
+# nolog: splash
+# reset: mainmenu
+wait 4000
+ab_copy_at_exit fixtures/p12/alarms-badcrc.dat /.rockbox/ipodui/alarms.dat
+power_off_now
+wait 3000
+reboot
+wait 5000
+expect_pmu off
+shot booted
+quit

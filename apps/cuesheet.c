@@ -430,6 +430,7 @@ int cue_find_current_track(struct cuesheet *cue, unsigned long curpos)
     return i;
 }
 
+#ifndef IPODUI_TRIM_BROWSER /* P9: the cuesheet browser is browser UI */
 /* callback that gives list item titles for the cuesheet browser */
 static const char* list_get_name_cb(int selected_item,
                                     void *data,
@@ -563,6 +564,8 @@ bool display_cuesheet_content(char* filename)
     browse_cuesheet(cue);
     return true;
 }
+
+#endif /* !IPODUI_TRIM_BROWSER */
 
 /* skips backwards or forward in the current cuesheet
  * the return value indicates whether we're still in a cusheet after skipping

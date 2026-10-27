@@ -1,0 +1,69 @@
+# Phase 4b: two-line rows with mini art (docs/phase4b-brief.md, Agent C):
+# an artist's "Albums" list (All Songs + its albums), the top-level Albums
+# view, Podcasts and an episode list all use the two-line row (55 px
+# thumbnail or glyph, bold title, "N Songs"/"N Episodes" subtitle); the
+# blue unplayed dot on podcasts/episodes. Songs is two-line without art
+# (ipodui-p4-sort.script).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p4b-rows.script
+# needs: library
+# trace: lib art
+# golden: skip albums_glide
+#
+# Cover-art variety for the rows below is in tests/ui/art_manifest.txt
+# (tests/ui/setup_library.py); expect_art checks every album's state
+# (OK / NOART / FAILED) against it once the builder is idle. "The
+# Bellwethers" shows all three outcomes across its own three albums:
+# Flock Together (embedded, OK), Shepherd's Delight (NOART, note glyph),
+# Wool & Wire (cover.jpg, OK). Signal Hour has show art, Tone Talk Weekly
+# does not. Trace rules (check_trace.py, "# trace: art"): thumbnails are
+# read ("art get"), never mid-glide, at most once per newly visible row.
+
+wait 4000           # boot to the main menu, "Music" selected
+wait_db 30000
+art_wait 120000     # every thumbnail built before the rows are shown
+expect_art art_manifest.txt
+
+key SELECT          # Music
+wait 800
+wheel +1            # "Artists"
+wait 400
+key SELECT
+wait 800
+wheel +5 300        # "The Bellwethers" (one row each, no acceleration)
+wait 800
+key SELECT
+wait 800
+shot artist_albums  # "All Songs" (note glyph), then Flock Together
+                    # (mini art), Shepherd's Delight (note glyph), Wool &
+                    # Wire (mini art)
+
+key MENU            # back to Artists
+wait 800
+key MENU            # back to Music
+wait 800
+wheel +1            # "Albums"
+wait 400
+key SELECT
+wait 800
+shot albums         # the top-level Albums view, two-line rows throughout
+
+wheel +16 40        # a quick turn: the view glides; rows coming into
+shot albums_glide   # view show cached art or the glyph (timing)
+wait 1500
+shot albums_rest    # at rest: the new rows' art read and drawn
+
+key MENU            # back to Music
+wait 800
+key MENU            # main menu
+wait 800
+wheel +1            # "Podcasts"
+wait 400
+key SELECT
+wait 800
+shot podcasts       # Signal Hour (show art), Tone Talk Weekly (glyph)
+
+key SELECT          # "Signal Hour"'s episodes
+wait 800
+shot episodes       # blue unplayed dot, two-line rows
+
+quit

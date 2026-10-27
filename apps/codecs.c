@@ -50,6 +50,12 @@
 #include "general.h"
 #include "rbpaths.h"
 #include "panic.h"
+#ifdef HAVE_COP_CODEC
+#include "codec_cop.h"      /* Fit-2: the worker's stack at the slot's top */
+#define COP_RESERVE codec_cop_reserve()
+#else
+#define COP_RESERVE 0
+#endif
 
 #define LOGF_ENABLE
 #include "logf.h"
@@ -151,6 +157,10 @@ struct codec_api ci = {
     /* new stuff at the end, sort into place next time
        the API gets incompatible */
     panicf,
+#ifdef HAVE_IPOD_UI
+    false, /* cop_assist (P19 19-1c: the CPU-pinned default; codec_cop.c
+              sets it per run) */
+#endif
 
 };
 
@@ -164,7 +174,7 @@ void codec_get_full_path(char *path, const char *codec_root_fn)
 void *codec_get_buffer_callback(size_t *size)
 {
     void *buf = &codecbuf[codec_size];
-    ssize_t s = CODEC_SIZE - codec_size;
+    ssize_t s = CODEC_SIZE - codec_size - COP_RESERVE;
 
     if (s <= 0)
         return NULL;
@@ -174,6 +184,15 @@ void *codec_get_buffer_callback(size_t *size)
 
     return buf;
 }
+
+#ifdef HAVE_COP_CODEC
+/* Fit-2: the top of the codec slot, which codec_get_buffer_callback()
+ * keeps back while codec_cop_reserve() is non-zero */
+void *codec_slot_top(size_t size)
+{
+    return &codecbuf[CODEC_SIZE - size];
+}
+#endif
 
 /** codec loading and call interface **/
 static void *curr_handle = NULL;
@@ -195,7 +214,7 @@ static int codec_load_ram(struct codec_api *api)
         || hdr->target_id != TARGET_ID
 #if (CONFIG_PLATFORM & PLATFORM_NATIVE)
         || hdr->load_addr != codecbuf
-        || hdr->end_addr > codecbuf + CODEC_SIZE
+        || hdr->end_addr > codecbuf + CODEC_SIZE - COP_RESERVE
 #endif
         )
     {
@@ -229,7 +248,7 @@ static int codec_load_ram(struct codec_api *api)
 #if defined(HAVE_CODEC_BUFFERING)
 int codec_load_buf(int hid, struct codec_api *api)
 {
-    int rc = bufread(hid, CODEC_SIZE, codecbuf);
+    int rc = bufread(hid, CODEC_SIZE - COP_RESERVE, codecbuf);
 
     if (rc < 0) {
         logf("Codec: cannot read buf handle");
@@ -253,7 +272,7 @@ int codec_load_file(const char *plugin, struct codec_api *api)
 
     codec_get_full_path(path, plugin);
 
-    curr_handle = lc_open(path, codecbuf, CODEC_SIZE);
+    curr_handle = lc_open(path, codecbuf, CODEC_SIZE - COP_RESERVE);
 
     if (curr_handle == NULL) {
         logf("Codec: cannot read file");

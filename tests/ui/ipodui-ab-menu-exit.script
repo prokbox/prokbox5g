@@ -1,0 +1,70 @@
+# #58 device bug (owner 2026-10-10): Settings > Audiobooks, change Sort By,
+# MENU back to Settings: the panel must show Settings' highlighted row
+# (Audiobooks: book tile, "Set Speed and Sort Order" caption) whole, exactly as a
+# fresh entry into Settings with that row highlighted. A split-to-split
+# slide moves only the list column; before the fix the panel was redrawn
+# into the framebuffer but never pushed below the header, so the LCD kept
+# the Audiobooks panel with the new title's top 20 rows over it. Shots
+# read the framebuffer, so the "log:" line (the panel push at each such
+# slide) is the regression check; the "same:" pairs check the drawing.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-ab-menu-exit.script
+# needs: library
+# timeout: 90
+# golden: skip
+# log: update panel x=160 y=20 w=160 h=220
+# same: fresh_row popped_sort
+# same: fresh_row popped_plain
+# same: fresh_row popped_speed
+
+wait 4000
+wheel +3 300            # Settings
+wait 400
+key SELECT 50
+wait 1200
+wheel +8 40             # Audiobooks (row 8)
+wait 2500               # the scrollbar hides
+shot fresh_row
+
+# change Sort By, then back
+key SELECT 50
+wait 1200
+wheel +1 300            # Sort By
+wait 600
+key SELECT 50           # Title -> Author
+wait 800
+shot sortby_changed
+key MENU 50
+shot popped_now
+wait 120
+shot popped_mid
+wait 1200
+shot popped_sort
+
+# via Playback Speed (the full-screen prompt) first
+key SELECT 50
+wait 1200
+key SELECT 50           # Playback Speed prompt
+wait 1200
+key MENU 50
+wait 1000
+wheel +1 300            # Sort By
+wait 600
+key SELECT 50           # Author -> Title
+wait 800
+key MENU 50
+shot speed_now
+wait 120
+shot speed_mid
+wait 1200
+shot popped_speed
+
+# without a change
+key SELECT 50
+wait 1200
+wheel +1 300            # Sort By
+wait 800
+key MENU 50
+wait 1200
+shot popped_plain
+
+quit

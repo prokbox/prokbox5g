@@ -25,6 +25,11 @@
 #include "wps.h"
 #include "playback.h"
 #include "string-extra.h"
+#ifdef IPODUI_TRIM_BROWSER
+#include "playlist.h"
+#include "kernel.h"
+#include "ipodui/uilog.h"
+#endif
 
 /*
  * This macro is meant to be used inside an IAP mode message handler.
@@ -107,9 +112,25 @@ static void seek_to_playlist(unsigned long index)
                     get_playlist_name (selected_playlist + len + 1,
                                        index,
                                        MAX_PATH);
+#ifdef IPODUI_TRIM_BROWSER
+                    /* P9: filetree.c is trimmed in the shell; start the
+                     * playlist directly (no bookmark prompt, no splash). */
+                    if (playlist_create(global_settings.playlist_catalog_dir,
+                                        strrchr(selected_playlist, '/') + 1)
+                        != -1)
+                    {
+                        if (global_settings.playlist_shuffle)
+                            playlist_shuffle(current_tick, -1);
+                        playlist_start(0, 0, 0);
+                    }
+                    else
+                        ui_log("iap", "playlist_create failed %s",
+                               selected_playlist);
+#else
                     ft_play_playlist(selected_playlist,
                                      global_settings.playlist_catalog_dir,
                                      strrchr(selected_playlist, '/') + 1);
+#endif
 }
 
 static unsigned long nbr_total_playlists(void)

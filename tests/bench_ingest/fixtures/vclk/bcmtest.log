@@ -1,0 +1,11 @@
+    10 boot path: active: bcmvideo (default), first frame 30100 us; marker cleared
+  2000 vbv 46 MHz level 5: PASS (ran 46 MHz, fallbacks 0, shown 120, errors 0, concealed 0, misses 40)
+  3000 vbv 140 MHz level 13: FAIL (ran 27 MHz, fallbacks 1, shown 0, errors 0, concealed 0, misses 0)
+  4000 vbv: FAIL: 10 of 11 bands hold; flags written
+player: +900 vclk band from=150 to=87 lvl=8 why=floor util=420 floor=87
+player: +5000 vclk band from=87 to=150 lvl=15 why=floor util=430 floor=150
+player: +5100 vclk band from=150 to=27 lvl=11 why=fail util=400 floor=150
+player: +20000 vclk sum policy=top mhz=112 lvl=11.6 idle=0 bands=3 clocks=3 lvl_changes=3 fails=1 misses=0 s=20
+player: +20001 vclk time 27=100 87=4100 150=15800 ms
+  9000 vgov clip1: PASS (misses 0, A/V max 21000 us, hitches 0 vs 0 at 150, 3 changes in 20 s, top after the seek yes and the resume yes)
+  9001 vgov: PASS: 1 of 1 clips

@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and ideas
+    url: https://github.com/prokbox/prokbox5g/discussions
+    about: Ask how something works, or suggest a feature.
+  - name: Guide
+    url: https://prokbox.github.io/prokbox5g/
+    about: Install, recovery and everyday use.
+  - name: Security problem
+    url: https://github.com/prokbox/prokbox5g/security/advisories/new
+    about: Report privately, not in a public issue.

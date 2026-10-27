@@ -206,6 +206,7 @@ void icons_init(void)
     {
         load_icons(global_settings.icon_file, Iconset_user, SCREEN_MAIN);
 
+#ifndef IPODUI_TRIM_BROWSER /* P9: viewer icons are file-browser only */
         if (global_settings.viewers_icon_file[0] != '-' &&
             global_settings.viewers_icon_file[0] != '\0')
         {
@@ -213,6 +214,7 @@ void icons_init(void)
                     Iconset_viewers, SCREEN_MAIN);
             read_viewer_theme_file();
         }
+#endif
 #if defined(HAVE_REMOTE_LCD) && (NB_SCREENS > 1)
         load_icons(global_settings.remote_icon_file,
                 Iconset_user, SCREEN_REMOTE);

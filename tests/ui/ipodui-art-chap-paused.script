@@ -1,0 +1,47 @@
+# Owner, 2026-10-19 (#58): the 7G is hardly ever stopped, so the art
+# builder's chapter and book passes run while PAUSED with the user idle
+# (the backlight off here), not only once stopped. Paused, a book with
+# chapters but no images (nero_chapters.m4b) is marked done with no
+# allocation (the tables go in the idle decode block: an allocation would
+# stop and restart the paused queue); a book with chapter images
+# (rich_chapters.m4b) waits for the stop ("rc=-6", owed, not a failure),
+# and is built once audio stops.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-art-chap-paused.script
+# needs: library
+# golden: skip
+# log: paused=1
+# log: chapters=4 images=0 bundles=0 recs=0 rc=0
+# log: rc=-6
+# log: chapters=4 images=4 bundles=1 recs=3 rc=0
+# nolog: art retry
+# nolog: art fail
+# nolog: art chap fail
+# fulls-extra: 1   (the main menu gains its Now Playing row at play_files)
+# timeout: 240
+
+wait 1000
+wait_db 30000
+mkdir /Audiobooks/PAUSE1
+copy ../../tests/fixtures/plain.mp3 /Audiobooks/PAUSE1/plain.mp3
+mkdir /Audiobooks/PAUSE2
+copy ../../tests/fixtures/nero_chapters.m4b /Audiobooks/PAUSE2/nero.m4b
+mkdir /Audiobooks/PAUSE3
+copy ../../tests/fixtures/rich_chapters.m4b /Audiobooks/PAUSE3/rich.m4b
+update_db_wait_change 60000
+play_files /Audiobooks/PAUSE1/plain.mp3   # the pass waits ("lit")
+wait 1500
+key PLAY            # pause
+wait 500
+backlight_expire    # the user goes idle: the pass runs, paused
+art_wait 120000
+shot paused
+audio_stop          # the book with images, at the stop
+wait 1000
+art_wait 120000
+key MENU            # the user is back: the face goes
+wait 1000
+rm_file /Audiobooks/PAUSE1/plain.mp3
+rm_file /Audiobooks/PAUSE2/nero.m4b
+rm_file /Audiobooks/PAUSE3/rich.m4b
+update_db_wait_change 60000
+quit

@@ -1,0 +1,132 @@
+# The first-use check's unchecked plays (0.8.0 should-fix; docs/research/
+# bcm2722/first-use-check.md, "Unchecked plays")
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p19-vclkcap.script
+# needs: video
+# env: SIM_VCHECK=1
+# timeout: 260
+#
+# A play whose check can't decide (no token for this image, and the check
+# doesn't run or doesn't finish) plays at the gate's 150 MHz, Apple's stock
+# clock for every unit, with one log line saying why; the live
+# invalidation's step-down stays behind it.  An inconclusive check runs
+# again at the next play, at most twice a start.
+#   pass:     no token, the check passes -> top 150 MHz, no reason line
+#   missing:  the test stream gone -> unchecked (stream)
+#   wrong:    the stream's size right, its bytes wrong -> (stream wrong)
+#   nomem:    no memory for the check -> (no memory)
+#   nopic:    the image takes each packet with no picture -> INCONCLUSIVE,
+#             (inconclusive)
+#   again:    the next play checks again (still no picture): INCONCLUSIVE
+#             a second time, and the start gives up (logged)
+#   gaveup:   the next play: no check, no "Preparing Video...", (gave up)
+# All in one start, seven plays.  Every play still plays.  Movies: Audio First (row 1) each time.
+
+# trace: video
+# log: vck PASS band 11 150 MHz tried 1
+# nolog: play top 27 MHz
+# nolog: capped
+# logbetween: pass missing clock: play top 150 MHz
+# logbetween: pass missing no unchecked
+# logbetween: missing wrong unit check: unchecked \(stream\), 150 MHz \(stock\)
+# logbetween: missing wrong clock: play top 150 MHz
+# logbetween: missing wrong no video preparing
+# logbetween: wrong nomem unit check: unchecked \(stream wrong\), 150 MHz \(stock\)
+# logbetween: wrong nomem clock: play top 150 MHz
+# logbetween: nomem nopic unit check: unchecked \(no memory\), 150 MHz \(stock\)
+# logbetween: nomem nopic clock: play top 150 MHz
+# logbetween: nopic again vck INCONCLUSIVE
+# logbetween: nopic again unit check: unchecked \(inconclusive\), 150 MHz \(stock\)
+# logbetween: nopic again clock: play top 150 MHz
+# logbetween: nopic again no no more this start
+# logbetween: again gaveup video preparing due=1
+# logbetween: again gaveup unit check: due \(no token\)
+# logbetween: again gaveup vck INCONCLUSIVE
+# logbetween: again gaveup unit check: unchecked \(inconclusive\), 150 MHz \(stock\)
+# logbetween: again gaveup unit check: inconclusive 2 times, no more this start
+# logbetween: again gaveup clock: play top 150 MHz
+# logbetween: gaveup end unit check: unchecked \(gave up\), 150 MHz \(stock\)
+# logbetween: gaveup end clock: play top 150 MHz
+# logbetween: gaveup end no video preparing
+# logbetween: gaveup end no vck
+# nolog: video error
+# nolog: splash
+wait 4000
+wait_db 45000
+art_wait 60000
+copy ../../bcmfw/video/vcheck.bin /.rockbox/vcheck.bin
+rm_file /.rockbox/vcheck.tok
+rm_file /.rockbox/.sim_vcheck_band
+rm_file /.rockbox/.sim_vcheck_bad
+rm_file /.rockbox/.sim_vcheck_wrong
+rm_file /.rockbox/.sim_vcheck_nomem
+rm_file /.rockbox/.sim_vcheck_nopic
+wheel +1 300
+wait 600
+key SELECT          # Videos
+wait 900
+key SELECT          # Movies
+wait 1200
+
+ab_mark pass
+key SELECT          # no token: the check passes at the top band
+wait 4000
+expect_video 10 playing
+key MENU
+wait 1500
+rm_file /.rockbox/vcheck.tok
+
+rm_file /.rockbox/vcheck.bin
+ab_mark missing
+key SELECT          # the stream gone: unchecked
+wait 2500
+expect_video 10 playing
+key MENU
+wait 1500
+copy ../../bcmfw/video/vcheck.bin /.rockbox/vcheck.bin
+
+copy fixtures/refresh.mp3 /.rockbox/.sim_vcheck_wrong
+ab_mark wrong
+key SELECT          # the stream's bytes wrong
+wait 2500
+expect_video 10 playing
+key MENU
+wait 1500
+rm_file /.rockbox/.sim_vcheck_wrong
+
+copy fixtures/refresh.mp3 /.rockbox/.sim_vcheck_nomem
+ab_mark nomem
+key SELECT          # no memory for the check
+wait 2500
+expect_video 10 playing
+key MENU
+wait 1500
+rm_file /.rockbox/.sim_vcheck_nomem
+
+# the inconclusive cases in the same start: seven plays in one run (the
+# sim thread layer's leak that faulted a run's 7th play is fixed, p19-play7)
+copy fixtures/refresh.mp3 /.rockbox/.sim_vcheck_nopic
+ab_mark nopic
+key SELECT          # no picture from the image: inconclusive
+wait 4000
+expect_video 10 playing
+key MENU
+wait 1500
+
+ab_mark again
+key SELECT          # the next play checks again: inconclusive, gives up
+wait 4000
+expect_video 10 playing
+key MENU
+wait 1500
+rm_file /.rockbox/.sim_vcheck_nopic
+
+ab_mark gaveup
+key SELECT          # this start gave up: no check, the stock clock
+wait 400
+shot gaveup_start   # no "Preparing Video..."
+wait 2500
+expect_video 10 playing
+key MENU
+wait 1500
+storage_idle
+rm_file /.rockbox/vcheck.tok

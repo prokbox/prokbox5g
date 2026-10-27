@@ -1,0 +1,30 @@
+# #63 (owner): while a computer is connected the device stays on and
+# mounted. A software power-off (here sys_poweroff() itself, the same
+# broadcast the sleep timer, auto power-off, low battery and the held PLAY
+# key make, then a long PLAY hold) is refused and logged; the USB session
+# then ends normally, which an accepted power-off would have cut short
+# (the forced power_off() 20 s after it, or the clean shutdown).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-usb-nopoweroff.script
+# log: usb enter n=1
+# log: usb poweroff blocked
+# log: usb exit s=
+# expect-file: /.rockbox/ipodui.log usb poweroff blocked
+# expect-file: /.rockbox/ipodui.log usb exit s=
+# golden: skip connected after
+
+sim_clock 15:08
+wait 5000           # boot to the main menu
+rm_file /.rockbox/ipodui.log
+usb_connect
+wait 1500
+power_off_now       # refused: USB is inserted
+wait 1000
+hold PLAY 4000      # the button driver's power-off hold: refused too
+wait 1000
+shot connected
+usb_disconnect
+wait 2000
+storage_idle        # the flush the device runs as the disk goes idle
+wait 1500
+shot after
+quit

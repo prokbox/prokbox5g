@@ -1,0 +1,25 @@
+# P12 Q1(2) (review MEDIUM-2): the idle power-off with an alarm due within
+# 24 h and soft sleep off takes the dark wait, not the power-off; the
+# alarm then rings out of the dark, lit.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p12-alarm-idle-darkwait.script
+# golden: skip
+# timeout: 180
+# env: IPODUI_SIM_ALARM_IN=100
+# Trace: sleep off held why=1, alarm darkwait, alarm ring i=0
+# alarm-rings: 1
+# log: ipodui: sleep off held why=1
+# log: ipodui: alarm darkwait next=
+# nolog: ipodui: sleep tier=off
+# trace: piezo
+# reset: mainmenu
+
+wait 3000
+idle_poweroff 1         # 1 min, the setting's least
+wait 75000              # idle past the timeout: dark, awake
+shot dark
+wait 30000              # the alarm at ~100 s
+shot ringing
+key MENU                # dismiss
+wait 1500
+idle_poweroff 10        # the default again for the next script
+quit

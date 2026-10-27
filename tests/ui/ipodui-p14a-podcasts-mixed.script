@@ -1,0 +1,53 @@
+# Phase 14a (#64, docs/phase14a-brief.md 7 A2): Podcasts with a video episode beside an audio one
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p14a-podcasts-mixed.script
+# (ipodui-p14a-* default to build/sim-ui-video; the gate runs them there)
+# needs: video
+#
+# Disk: tests/fixtures/videos/mkvideos.sh (installed by the gate's prime
+# step, or by shots.sh for a standalone run):
+#   Movies/        Audio First  High Profile  Late Chapter  Short Film
+#   TV Shows/      Show A (S1 x2, S2 x2, tagged)  Show B (S1 x2, untagged)
+#   Misc/          Show.C.S01E02.m4v  S01E03.m4v (nameless)
+#   Podcasts/Pod One/  Audio Episode.m4a  Video Episode.m4v
+#   Music/         Fixture Singer/Audio Only.mp4 (a song)
+#                  Fixture Author/Image Book.m4b (a book)
+# Main menu with Videos on (T1 default): Music, Videos, Podcasts, Extras,
+# Settings, Shuffle Songs. Videos: Movies, TV Shows, Settings.
+
+# golden: skip video_playing now_playing
+# trace: video
+# Pod One: "Audio Episode" (m4a) and "Video Episode" (m4v, small screen
+# glyph, T4). The video episode opens the video screen; the audio one opens
+# Now Playing; an audio episode plays on past a video episode in the same
+# show without playing it (lib_play skips VIDEO rows, brief 3.2a).
+wait 4000
+wait_db 45000
+art_wait 60000
+wheel +2 300        # Podcasts (after Music, Videos)
+wait 600
+key SELECT
+wait 900
+shot shows
+key SELECT          # Pod One
+wait 1200
+shot episodes       # glyph on the video episode only
+wheel +1 300        # Video Episode (sorted after Audio Episode)
+wait 400
+key SELECT
+wait 2500
+expect_video 10 playing
+video_shot video_playing
+key MENU
+wait 1500
+expect_video 0 none
+shot after_video    # back on the episode list
+
+wheel -1 300        # Audio Episode
+wait 400
+key SELECT
+wait 2500
+shot now_playing    # Now Playing, no video
+expect_video 0 none
+wait_pos 11000 60000 Audio
+wait 4000           # the queue ends or moves on; it must not start the video
+expect_video 0 none

@@ -1,0 +1,32 @@
+# Boot battery guard, drained latch: a USB session (charging on a
+# computer, then ejected) clears the flag, so the next boot on battery
+# starts. The sim boots at 3,450 mV with a clear record, falls to 0 %
+# (3,250 mV from 2 s, IPODUI_SIM_DRAIN_AT_MS / _MV) and writes the flag;
+# the cell is then charged ("battery 80") and a host connects and lets
+# go: bootbatt_usb_exit() at the end of the session clears it (read back
+# 0), and with the cell over 0 % nothing sets it again. A boot on battery
+# with that clear record boots (ipodui-p16-bootbatt-above).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-bootbatt-usb-clear.script
+# env: IPODUI_SIM_BATT_MV=3450
+# env: IPODUI_SIM_DRAINED=0
+# env: IPODUI_SIM_DRAIN_AT_MS=2000
+# env: IPODUI_SIM_DRAIN_MV=3250
+# timeout: 180
+# golden: skip
+# log: bootbatt latch set zero rc=20
+# log: bootbatt latch readback=1
+# log: bootbatt latch cleared usb rc=20
+# log: bootbatt latch readback=0
+# nolog: sys deadbatt
+# nolog: splash-pass
+
+wait 4000
+shot main_menu
+wait 115000
+battery 80
+wait 3000
+usb_connect
+wait 3000
+usb_disconnect
+wait 4000
+shot after_usb

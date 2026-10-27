@@ -1,0 +1,50 @@
+# #109 (design 4.2.2 with #88, 7 "-dbq-commit-paused"): a library update
+# found while a database queue is paused publishes in #88's paused
+# window; the publish hook keeps the old snapshot (a passive reference,
+# no lock) and the rebase runs after it on the tagcache thread
+# (result=stamp); the queue stays paused and plays on.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-dbq-commit-paused.script
+# needs: library
+# timeout: 400
+# golden: skip plays_on
+# log: dbq build n=302
+# log: result=stamp n=302
+# nolog: dbq miss
+# nolog: splash-pass
+
+wait 4000
+wait_db 30000
+rm_file /zz-dbq-paused.mp3          # leftover of a cut run (if any)
+key SELECT          # Music
+wait 1000
+wheel -10 100
+wait 300
+wheel +3 300        # Songs
+wait 600
+key SELECT
+wait 1500
+key SELECT          # the whole list
+wait 2000
+expect_playing 300
+key PLAY            # pause
+wait 800
+expect_paused 300
+backlight_expire
+copy fixtures/refresh.mp3 /zz-dbq-paused.mp3
+db_mark
+update_db
+pause_age 200
+expect_db_grew 300000
+expect_paused 500
+wait 3000
+key MENU            # wake the screen (the backlight went out)
+wait 800
+key PLAY            # plays on
+wait 1500
+expect_playing 1000
+shot plays_on
+audio_stop
+wait 500
+rm_file /zz-dbq-paused.mp3
+update_db_wait_change 60000
+quit

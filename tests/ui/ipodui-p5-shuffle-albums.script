@@ -1,0 +1,37 @@
+# Phase 5 (#27): the shelf's Albums setting. On the Shuffle Songs library
+# source the next entries form album runs; on an ordinary queue (the mini
+# library) the queue is re-ordered by album group: expect_albums checks
+# that no album reappears after another began.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p5-shuffle-albums.script
+# needs: library
+# golden: skip lib_albums shelf
+# trace: shuf
+# timeout: 120
+
+wait 1000
+wait_db 30000
+sim_clock 15:08
+clock_format 24      # P11: the default is 12-hour; this golden shows 24
+repeat off
+art_wait 120000
+wheel +4
+wait 500
+key SELECT          # Shuffle Songs: a library source
+wait_pos 100 20000  # playback running (progress, not wall-clock: the sim's
+key PLAY            # audio is 0.1-0.8x real time); pause at once, the 2 s
+wait 300            # tracks would change track (dropping the mode to Normal)
+key SELECT
+wait 500
+key SELECT
+wait 500
+key SELECT          # Shuffle shelf
+wait 700
+wheel +2 300        # Albums
+wait 300
+shot shelf
+key SELECT          # commit
+wait 2500
+shot lib_albums
+expect_albums 12 6
+audio_stop
+quit

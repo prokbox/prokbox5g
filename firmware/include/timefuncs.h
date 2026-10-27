@@ -29,6 +29,11 @@
 time_t dostime_mktime(uint16_t dosdate, uint16_t dostime);
 void dostime_localtime(time_t time, uint16_t* dosdate, uint16_t* dostime);
 struct tm *get_time(void);
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+/* The shell (P12 W2-W): the next get_time() reads the RTC, not its copy
+ * of up to 1.2 s by the tick (the tick stops in a soft sleep) */
+void get_time_stale(void);
+#endif
 int set_time(const struct tm *tm);
 #if CONFIG_RTC
 bool valid_time(const struct tm *tm);

@@ -1,0 +1,124 @@
+# #85: every damaged-library boot still ends with a usable library, never
+# rewrites a retained generation, and retries only a few times a minute.
+# Damages only this simulator's test disk (sim_cmd_dbrec.h). Each part's
+# boot also runs the automatic update scan (tagcache_autoupdate: on), which
+# publishes into an unreferenced directory: the checks allow for that.
+# needs: library
+# timeout: 240
+# golden: skip recovered
+wait 4000
+wait_db 30000
+art_wait 60000
+# Two valid generations; the newest adds one track.
+dbrec mark
+copy_file /Library/Basalt/Columns/01%20Narrow%20Echo.mp3 /Library/Basalt/Columns/zz-recovery.mp3
+update_db_wait_change 60000
+dbrec expect_published 30000
+dbrec mark_files
+dbrec corrupt_newest
+reboot
+# A. Newest generation corrupt: the older one is selected, untouched; the
+# next update goes to the third directory and replaces only the bad slot.
+wait 4000
+wait_db 30000
+dbrec expect_selected older
+dbrec expect_count_ge
+dbrec expect_not_updating 30000
+dbrec expect_active unreferenced 30000
+dbrec expect_published 30000
+dbrec expect_unchanged older
+dbrec expect_slots_changed 1
+dbrec expect_retries 3
+dbrec mark
+dbrec truncate_newest_manifest
+reboot
+# B. Torn newest manifest: the older valid generation is used.
+wait 4000
+wait_db 30000
+dbrec expect_selected older
+dbrec expect_not_updating 30000
+dbrec expect_published 30000
+dbrec expect_unchanged older
+dbrec expect_retries 3
+dbrec mark
+dbrec foreign_manifests
+reboot
+# D. Both manifests foreign (another version, intact CRC): their
+# directories stay reserved; the newest valid one is salvaged and given a
+# manifest again by publishing a copy; no referenced directory's content
+# changes (a directory is reused only after its manifest was superseded:
+# the boot scan's clone may take the directory the salvaged copy's
+# manifest replaced, now that an update with nothing new is dropped
+# rather than published; expect_unchanged referenced allows exactly that).
+wait 4000
+wait_db 30000
+dbrec expect_selected newest
+dbrec expect_not_updating 30000
+dbrec expect_published 30000
+dbrec expect_unchanged referenced
+dbrec expect_retries 3
+rm_file /Library/Basalt/Columns/zz-recovery.mp3
+update_db_wait_change 60000
+dbrec expect_published 30000
+dbrec mark
+dbrec corrupt_referenced
+dbrec mark_files
+reboot
+# E. Both referenced generations bad, manifests intact: a fresh build in
+# the third directory; both old directories untouched; one slot rewritten.
+wait 4000
+wait_db 60000
+dbrec expect_not_updating 60000
+dbrec expect_active unreferenced 30000
+dbrec expect_published 30000
+dbrec expect_unchanged referenced
+dbrec expect_slots_changed 1
+dbrec expect_retries 3
+dbrec partial_legacy /Library/Basalt/Columns/04%20Tender%20River.mp3 6
+dbrec mark
+reboot
+# C. Partial legacy root (no manifests, idx + 0-3 only, a changelog with a
+# rating): root bytes untouched, gen0 built and published, rating imported.
+wait 4000
+wait_db 60000
+dbrec expect_not_updating 60000
+dbrec expect_active gen0 30000
+dbrec expect_published 30000
+dbrec expect_unchanged root
+expect_rating /Library/Basalt/Columns/04%20Tender%20River.mp3 6
+dbrec expect_prepares 2
+dbrec expect_retries 3
+rm_file /.rockbox/database_changelog.txt
+dbrec set_rating /Library/Basalt/Columns/03%20Jagged%20Lantern.mp3 6
+reboot
+# F. Statistics journal: damage its last full frame. Statistics resume,
+# the library still publishes, and earlier values survive two reboots.
+wait 4000
+wait_db 30000
+expect_rating /Library/Basalt/Columns/03%20Jagged%20Lantern.mp3 6
+dbrec set_rating /Library/Basalt/Columns/05%20Amber%20Mirror.mp3 2
+reboot
+wait 4000
+wait_db 30000
+dbrec corrupt_journal
+reboot
+wait 4000
+wait_db 30000
+dbrec expect_journal_bad
+expect_rating /Library/Basalt/Columns/03%20Jagged%20Lantern.mp3 6
+copy_file /Library/Basalt/Columns/01%20Narrow%20Echo.mp3 /Library/Basalt/Columns/zz-recovery.mp3
+update_db_wait_change 60000
+dbrec expect_published 30000
+dbrec expect_not_updating 30000
+dbrec expect_retries 3
+reboot
+wait 4000
+wait_db 30000
+expect_rating /Library/Basalt/Columns/03%20Jagged%20Lantern.mp3 6
+rm_file /Library/Basalt/Columns/zz-recovery.mp3
+update_db_wait_change 60000
+dbrec expect_published 30000
+dbrec expect_not_updating 30000
+dbrec expect_retries 3
+shot recovered
+quit

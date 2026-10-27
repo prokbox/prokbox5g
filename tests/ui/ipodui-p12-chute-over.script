@@ -1,0 +1,31 @@
+# P12 W4 (docs/design/sdk.md 13.3): game over. The boat stays in the
+# middle lane: jumpers there are caught, the others splash into the lake
+# and light a miss mark each; the third ends the game: the Game Over box
+# (and New Best if anything was caught), Best updated. A SELECT tap
+# starts a new game.
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-chute-over.script
+# needs: modules
+# reset: mainmenu
+
+wait 4000
+sdk_clear            # a fresh game
+wheel +2             # Extras
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Games
+wait 600
+key SELECT
+wait 1200
+wheel +2             # Chute, below Bricks and Chess
+wait 600
+key SELECT           # Chute
+wait 800
+wait 5000
+shot one_miss
+wait 25000
+shot over
+key SELECT           # a new game
+wait 800
+shot new_game
+quit

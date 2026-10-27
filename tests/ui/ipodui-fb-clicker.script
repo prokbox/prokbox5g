@@ -1,0 +1,38 @@
+# #58 (owner, device): Clicker clicks. The shell reads buttons itself
+# (input.c), so it calls keyclick_click() for every press, repeat and wheel
+# event (upstream only clicks from get_action()). The simulator has no
+# piezo: input.c traces each click keyclick_click() decides to sound as
+# "click n=<count> btn=<hex>". Owner 2026-10-20: Off or On (On = the
+# headphone click and the piezo together). Off (the default): no click
+# while navigating to Settings > Clicker (3 + 11 wheel events, 2 presses).
+# SELECT turns it On (the press came while Off: no click). Then 6 wheel
+# events click 6 times (n=1..6), the next SELECT press clicks (n=7) and
+# turns it Off, and the 3 wheel events after that are silent: exactly 7.
+# Device check (P10): the piezo and the haptic mod fire once per wheel
+# detent and per press.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-fb-clicker.script
+# golden: skip clicker_on clicker_off
+# log: click n=6 btn=
+# log: click n=7 btn=
+# nolog: click n=8 btn=
+wait 4000
+
+wheel +3 300            # Settings (silent: Clicker is Off)
+wait 400
+key SELECT 50
+wait 1200
+wheel +11 40            # Clicker (row 11)
+wait 800
+key SELECT 50           # On (pressed while Off: no click)
+wait 800
+shot clicker_on
+wheel +3 200            # 3 clicks
+wait 300
+wheel -3 200            # 3 clicks, back on Clicker
+wait 600
+key SELECT 50           # the press clicks (n=7); the release turns it Off
+wait 800
+shot clicker_off
+wheel +3 200            # silent
+wait 600
+quit

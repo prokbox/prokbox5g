@@ -9,6 +9,7 @@
  * Copyright (C) 2005-2007 Miika Pekkarinen
  * Copyright (C) 2007-2008 Nicolas Pennequin
  * Copyright (C) 2011      Michael Sevakis
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -33,6 +34,7 @@
 #include "voice_thread.h"
 #include "metadata.h"
 #include "cuesheet.h"
+#include "audiobook.h"
 #include "buffering.h"
 #include "talk.h"
 #include "playlist.h"
@@ -43,6 +45,10 @@
 #include "pcmbuf.h"
 #include "audio_thread.h"
 #include "playback.h"
+#ifdef HAVE_STORAGE_POWEROFF
+#include "stor_pwr.h"         /* #114: the refill margin */
+#include "tdspeed.h"
+#endif
 #include "storage.h"
 #include "misc.h"
 #include "settings.h"
@@ -92,6 +98,28 @@
 #define LOGF_ENABLE
 #endif
 #include "logf.h"
+#ifdef HAVE_IPOD_UI
+#include "ipodui/np_playback.h"    /* the chapter table seqlock (D2) */
+#include "ipodui/ab_book.h"        /* speed, resume authority, AB_TR_* */
+#include "ipodui/anim.h"           /* UPDATE_TRACE */
+#include "ipodui/dbqueue_core.h"    /* #109: dbq_is_sentinel() */
+#include "ipodui/uilog.h"          /* ui_log (fb-stall) */
+#include "quiet_wait_core.h"        /* P19 19-1a: qw_audio_wait() */
+#endif
+#ifdef HAVE_UI_THREAD_SPLIT
+#include "xcore.h"                  /* P19: XCORE_BSS */
+/* ProkBox P19 (ucop-fix): the words audio_status() reads, uncached, so the
+ * UI on the COP reads them directly (febe_rpc.list "direct:"), not by a
+ * remote call per read; one writer, the audio thread.  Only builds that
+ * can put the UI on the COP (ucop-fix2) */
+#define PLAY_STATUS_XCORE XCORE_BSS
+#else
+#define PLAY_STATUS_XCORE
+#endif
+#ifdef HAVE_DAC_STANDBY
+#include "dac_ext.h"              /* P15: DAC standby idle poll */
+#endif
+#include "devstats.h"   /* ProkBox Fit-1 M0: empty unless HAVE_DEVSTATS */
 
 /* Macros to enable logf for queues
    logging on SYS_TIMEOUT can be disabled */
@@ -141,7 +169,7 @@ static enum play_status
     PLAY_STOPPED = 0,
     PLAY_PLAYING = AUDIO_STATUS_PLAY,
     PLAY_PAUSED  = AUDIO_STATUS_PLAY | AUDIO_STATUS_PAUSE,
-} play_status = PLAY_STOPPED;
+} play_status PLAY_STATUS_XCORE = PLAY_STOPPED;
 
 /* Sizeable things that only need exist during playback and not when stopped */
 static struct audio_scratch_memory
@@ -149,6 +177,12 @@ static struct audio_scratch_memory
     struct mp3entry codec_id3; /* (A,C) */
     struct mp3entry unbuffered_id3;
     struct cuesheet *curr_cue; /* Will follow this structure */
+    struct audiobook_chapters *curr_ab;
+#ifdef HAVE_IPOD_UI
+    /* P6 Rev 1 item 3: two packed tables; the writer fills the one the
+     * playing id3 does not reference (curr_ab = slot 0, unused) */
+    struct audiobook_chapters *ab_slot[NP_AB_SLOTS];
+#endif
 } * audio_scratch_memory = NULL;
 
 /* These are used to store the current, next and optionally the peek-ahead
@@ -840,11 +874,31 @@ static size_t scratch_mem_size(void)
     if (global_settings.cuesheet)
         size += sizeof (struct cuesheet);
 
+#ifdef HAVE_IPOD_UI
+    size += NP_AB_SLOTS * AB_CH_TABLE_SIZE; /* 2 x 32,784 B (Rev 1 3) */
+#else
+    size += AB_CH_TABLE_SIZE;   /* stock: sizeof (struct audiobook_chapters) */
+#endif
+
     return size;
 }
 
 /* Initialize the memory area where data is stored that is only used when
    playing audio and anything depending upon it */
+#ifdef HAVE_IPOD_UI
+/* #88 review 3 (L): the slot whose table audio_on_give() has already
+ * moved to the new scratch area (the playing book's chapters, kept for
+ * Now Playing through the window's restart); -1 none. Audio thread. */
+static int ab_keep_slot = -1;
+
+/* where the chapter tables start in the scratch area */
+static size_t scratch_ab_offset(void)
+{
+    return sizeof (struct audio_scratch_memory)
+           + (global_settings.cuesheet ? sizeof (struct cuesheet) : 0);
+}
+#endif
+
 static void scratch_mem_init(void *mem)
 {
     audio_scratch_memory = (struct audio_scratch_memory *)mem;
@@ -852,16 +906,60 @@ static void scratch_mem_init(void *mem)
     id3_write(CODEC_ID3, NULL);
     ci.id3 = id3_get(CODEC_ID3);
     audio_scratch_memory->curr_cue = NULL;
+    audio_scratch_memory->curr_ab = NULL;
+
+    size_t offset = sizeof (struct audio_scratch_memory);
 
     if (global_settings.cuesheet)
     {
         audio_scratch_memory->curr_cue =
-            SKIPBYTES((struct cuesheet *)audio_scratch_memory,
-                      sizeof (struct audio_scratch_memory));
+            SKIPBYTES((struct cuesheet *)audio_scratch_memory, offset);
+        offset += sizeof (struct cuesheet);
     }
+
+    audio_scratch_memory->curr_ab =
+        SKIPBYTES((struct audiobook_chapters *)audio_scratch_memory, offset);
+#ifdef HAVE_IPOD_UI
+    /* the packed tables (chapters.h), both empty (count 0); the caller
+     * brackets this with np_pb_ab_write_begin/end(NP_AB_SLOT_ALL), so
+     * both seqs are even again afterwards (Rev 1 item 3) */
+    for (int i = 0; i < NP_AB_SLOTS; i++)
+    {
+        struct audiobook_chapters *ab =
+            SKIPBYTES((struct audiobook_chapters *)audio_scratch_memory,
+                      offset + i * AB_CH_TABLE_SIZE);
+        audio_scratch_memory->ab_slot[i] = ab;
+        if (i == ab_keep_slot)
+        {
+            /* already here (audio_on_give()): the playing id3 follows */
+            id3_get(PLAYING_ID3)->audiobook = ab;
+            continue;
+        }
+        ab_ch_init(ab, AB_MAX_CHAPTERS, AB_CH_POOL);
+    }
+#endif
 }
 
 static int audiobuf_handle;
+#ifdef HAVE_IPOD_UI
+static volatile bool audiobuf_regrow; /* audio_buffer_regrow() */
+/* #88: the paused window's restart (Q_AUDIO_GIVE, audio_on_give()): the
+ * stop, the buffer change and the restart run inside ONE audio-thread
+ * event, so nothing can come between them. Meanwhile playback_status()
+ * says paused, and the stop, finish, change, start and pause events, the
+ * fades, the iap notes, autoresume, resume rewind and the regrow are all
+ * left out (statistics, the book's resume record, Now Playing, the
+ * shell's wakes see nothing). Set and cleared in that one handler. */
+static volatile bool quiet_restart PLAY_STATUS_XCORE;
+/* a paused shrink's stop (shrink_callback, Q_AUDIO_STOP data 2): no
+ * finish event, so no statistics for a song that never ended */
+static bool quiet_stop;
+static size_t audiobuf_total;   /* the block's size (audio_buffer_give()) */
+/* #88 review 3 (M): a paused shrink from another thread is refused and
+ * this give is posted instead (one at a time; audio thread clears it) */
+static struct audio_give async_give;
+static volatile bool async_give_posted;
+#endif
 #define AUDIO_BUFFER_RESERVE (256*1024)
 static size_t filebuflen;
 
@@ -929,7 +1027,13 @@ static void audio_reset_buffer_noalloc(
     if (allocsize > filebuflen)
         goto bufpanic;
 
+#ifdef HAVE_IPOD_UI
+    np_pb_ab_write_begin(NP_AB_SLOT_ALL); /* the tables move (D2) */
+#endif
     scratch_mem_init(filebuf);
+#ifdef HAVE_IPOD_UI
+    np_pb_ab_write_end(NP_AB_SLOT_ALL);
+#endif
     filebuf += allocsize;
     filebuflen -= allocsize;
 
@@ -972,6 +1076,14 @@ static int shrink_callback(int handle, unsigned hints, void* start, size_t old_s
     static struct audio_resume_info resume;
 
     bool give_up = false;
+#ifdef HAVE_IPOD_UI
+    /* fb-stall: an allocation is taking memory from playback (playing: a
+     * stop and restart, a gap of seconds). Logged on the device too
+     * (ipodui.log), with the allocating thread. */
+    ui_log("audio", "shrink want=%u status=%d thread=%x",
+           (unsigned)(hints & BUFLIB_SHRINK_SIZE_MASK), audio_status(),
+           thread_self());
+#endif
 
     /* filebuflen is, at this point, the buffering.c buffer size,
      * i.e. the audiobuf except voice, scratch mem, pcm, ... */
@@ -992,12 +1104,52 @@ static int shrink_callback(int handle, unsigned hints, void* start, size_t old_s
     }
 
 
+#ifdef HAVE_IPOD_UI
+    /* #88 review 3 (M): a paused queue (another thread's allocation,
+     * also one arriving during a window restart, which reports paused)
+     * is never stopped inside buflib's walk: waiting here would block the
+     * allocating thread for the whole restart (seconds on an HDD) while
+     * it may hold what the restart needs (a storage job, id3_mutex, a
+     * FAT or cache lock), and another thread's core_alloc meanwhile
+     * would change the heap under the paused walk. So refuse: this
+     * allocation fails as any other out-of-memory, and the window's
+     * one-event restart (audio_on_give(): status paused throughout, no
+     * events, the spot kept) is posted to free the bytes for a retry. */
+    if (!give_up && thread_self() != audio_thread_id
+        && audio_status() == (AUDIO_STATUS_PLAY | AUDIO_STATUS_PAUSE))
+    {
+        bool post = !async_give_posted;
+
+        if (post)
+        {
+            async_give.bytes = wanted_size;
+            async_give.floor = 0;
+            async_give.back =
+                (hints & BUFLIB_SHRINK_POS_MASK) == BUFLIB_SHRINK_POS_BACK;
+            async_give.result = 0;
+            async_give.started = async_give.done = 0;
+            async_give_posted = true;
+            audio_queue_post(Q_AUDIO_GIVE, (intptr_t)&async_give);
+        }
+        ui_log("audio", "shrink refused paused want=%u give=%s",
+               (unsigned)wanted_size, post ? "posted" : "pending");
+        return BUFLIB_CB_CANNOT_SHRINK;
+    }
+#endif
     /* TODO: Do it without stopping playback, if possible */
     struct mp3entry *id3 = audio_current_track();
     unsigned long elapsed = id3->elapsed;
     unsigned long offset = id3->offset;
     /* resume if playing */
     bool playing = (audio_status() == AUDIO_STATUS_PLAY);
+#ifdef HAVE_IPOD_UI
+    /* ... and if paused: resumed paused, so a shell allocation while the
+     * queue is paused (a screen's state on a push) no longer stops it for
+     * good (P6 fix round, item 4: PLAY then seemed to stop the queue) */
+    bool paused = (audio_status() == (AUDIO_STATUS_PLAY | AUDIO_STATUS_PAUSE));
+    if (paused)
+        playing = true;
+#endif
     /* There's one problem with stoping and resuming: If it happens in a too
      * frequent fashion, the codecs lose the resume postion and playback
      * begins from the beginning.
@@ -1027,11 +1179,21 @@ static int shrink_callback(int handle, unsigned hints, void* start, size_t old_s
     if (thread_self() == audio_thread_id)
     {   /* inline case Q_AUDIO_STOP (audio_hard_stop() response
          * if we're in the audio thread */
+#ifdef HAVE_IPOD_UI
+        quiet_stop = paused;
+#endif
         audio_stop_playback();
+#ifdef HAVE_IPOD_UI
+        quiet_stop = false;
+#endif
         queue_clear(&audio_queue);
     }
     else
+#ifdef HAVE_IPOD_UI
+        audio_queue_send(Q_AUDIO_STOP, paused ? 2 : 1);
+#else
         audio_queue_send(Q_AUDIO_STOP, 1);
+#endif
 #ifdef PLAYBACK_VOICE
     voice_stop();
 #endif
@@ -1046,6 +1208,9 @@ static int shrink_callback(int handle, unsigned hints, void* start, size_t old_s
     /* set final buffer size before calling audio_reset_buffer_noalloc()
      * (now it's the total size, the call will subtract voice etc) */
     filebuflen = size;
+#ifdef HAVE_IPOD_UI
+    audiobuf_total = size;
+#endif
     switch (hints & BUFLIB_SHRINK_POS_MASK)
     {
         case BUFLIB_SHRINK_POS_BACK:
@@ -1061,10 +1226,143 @@ static int shrink_callback(int handle, unsigned hints, void* start, size_t old_s
     {
         /* post, to make subsequent calls not break the resume position */
         audio_queue_post(Q_AUDIO_PLAY, (intptr_t)&resume);
+#ifdef HAVE_IPOD_UI
+        if (paused)     /* handled before the restart can sound */
+            audio_queue_post(Q_AUDIO_PAUSE, true);
+#endif
     }
 
     return BUFLIB_CB_OK;
 }
+
+#ifdef HAVE_IPOD_UI
+static void audio_reset_buffer(void);
+#ifdef SIMULATOR
+static volatile long sim_give_hold;     /* give_hold <ms> (sim_cmd_maint) */
+void sim_audio_give_hold(long ms)
+{
+    sim_give_hold = ms;
+}
+#endif
+/* Q_AUDIO_GIVE (audio thread), one event: a paused queue gives g->bytes
+ * from the front of its buffer (or, bytes 0, grows back to all the free
+ * memory), and the song restarts at its spot, still paused, silently
+ * (quiet_restart). The stop comes first and no buflib walk is around it
+ * (another thread may allocate while the stop waits on the codec). The
+ * floor is checked again here, where nothing can change the buffer.
+ * g->result: 1 done, 0 refused, -1 the restart failed (stopped). */
+static void audio_on_give(struct audio_give *g)
+{
+    static struct audio_resume_info give_resume;
+    struct mp3entry *id3;
+    size_t bytes = ALIGN_UP(g->bytes, sizeof (intptr_t));
+    size_t extra, before = filebuflen;
+    long t0 = current_tick;
+
+    g->result = 0;
+    if (audiobuf_handle <= 0 || play_status != PLAY_PAUSED)
+        return;
+    extra = audiobuf_total - filebuflen;    /* scratch, PCM */
+    if (bytes && (audiobuf_total < bytes + extra + AUDIO_BUFFER_RESERVE
+                  || filebuflen - AUDIO_BUFFER_RESERVE < bytes + g->floor))
+    {
+        ui_log("audio", "give refused want=%lu audio=%lu floor=%lu",
+               (unsigned long)bytes,
+               (unsigned long)(filebuflen - AUDIO_BUFFER_RESERVE),
+               (unsigned long)g->floor);
+        return;
+    }
+    if (!bytes && core_allocatable() < g->floor)
+        return;                     /* regrow: too little to take back */
+    id3 = audio_current_track();
+    give_resume.elapsed = id3->elapsed;
+    give_resume.offset = id3->offset;
+    /* L: a shrink keeps the playing book's chapter table (moved with the
+     * scratch area below), so Now Playing woken mid-restart still shows
+     * chapter progress until the restart's sync. A regrow frees and
+     * reallocates the block (buflib may move other handles over it):
+     * the table goes, as before, and comes back with the sync. */
+    ab_keep_slot = bytes ? audio_ab_slot_of(id3_get(PLAYING_ID3)->audiobook)
+                         : -1;
+    quiet_restart = true;
+    g->started = 1;                 /* the reply may come early now */
+    audio_stop_playback();
+#ifdef PLAYBACK_VOICE
+    voice_stop();
+#endif
+    if (bytes)
+    {
+        char *start = core_get_data(audiobuf_handle);
+        size_t size = audiobuf_total - bytes;
+        char *base = g->back ? start : start + bytes;
+
+        if (ab_keep_slot >= 0)
+        {
+            /* before core_shrink(): the whole old block is still ours
+             * (stopped), and buflib's new headers then land in front of
+             * 'base' only; no yield until scratch_mem_init() repoints
+             * the playing id3 (inside its seqlock bracket) */
+            size_t at = scratch_ab_offset()
+                        + (size_t)ab_keep_slot * AB_CH_TABLE_SIZE;
+
+            np_pb_ab_write_begin(ab_keep_slot);
+            memmove(base + at, id3_get(PLAYING_ID3)->audiobook,
+                    AB_CH_TABLE_SIZE);
+            np_pb_ab_write_end(ab_keep_slot);
+        }
+        /* g->back: buflib's handle-table room */
+        core_shrink(audiobuf_handle, base, size);
+        audiobuf_total = filebuflen = size;
+        audio_reset_buffer_noalloc(base);
+    }
+    else
+        audio_reset_buffer();       /* all the free memory again */
+    ab_keep_slot = -1;
+    g->result = 1;
+#ifdef SIMULATOR
+    if (sim_give_hold)              /* events queue up meanwhile */
+    {
+        long ms = sim_give_hold;
+
+        sim_give_hold = 0;
+        ui_log("audio", "give held ms=%ld", ms);
+        sleep(ms * HZ / 1000);
+    }
+#endif
+    audio_start_playback(&give_resume, 0);  /* replies to the sender */
+    if (play_status == PLAY_STOPPED)
+        g->result = -1;             /* nothing playable: logged below */
+    quiet_restart = false;
+    if (g->result < 0)              /* readers see the stop (L) */
+        send_event(PLAYBACK_EVENT_STOP_OR_PAUSE, NULL);
+    ui_log("audio", "give %s want=%lu audio=%lu->%lu ms=%ld pos=%lu",
+           g->result < 0 ? "FAILED" : bytes ? "done" : "regrow",
+           (unsigned long)bytes, (unsigned long)(before - AUDIO_BUFFER_RESERVE),
+           (unsigned long)(filebuflen - AUDIO_BUFFER_RESERVE),
+           (current_tick - t0) * 1000 / HZ, (unsigned long)give_resume.elapsed);
+    g->done = 1;                    /* last write: the sender may go */
+}
+
+int audio_buffer_give(struct audio_give *g)
+{
+    g->result = 0;
+    g->started = g->done = 0;
+    audio_queue_send(Q_AUDIO_GIVE, (intptr_t)g);
+    /* refused (or audio idle: the event was dropped) before the restart
+     * began: done at the reply. Once begun, the restart replies early
+     * (audio_start_playback()): wait for its last write, no timeout, so
+     * the handler never writes into a frame that is gone (L) */
+    if (g->started)
+        while (!g->done)
+            sleep(HZ/50);
+    return g->result;
+}
+
+bool audio_quiet_restart(void)
+{
+    return quiet_restart;
+}
+#endif
 
 static struct buflib_callbacks ops = {
     .move_callback = NULL,
@@ -1081,6 +1379,9 @@ static void audio_reset_buffer(void)
     if (core_allocatable() < pcmbuf_size_reqd())
         talk_buffer_set_policy(TALK_BUFFER_LOOSE); /* back off voice buffer */
     audiobuf_handle = core_alloc_maximum(&filebuflen, &ops);
+#ifdef HAVE_IPOD_UI
+    audiobuf_total = filebuflen;
+#endif
 
     if (audiobuf_handle > 0)
         audio_reset_buffer_noalloc(core_get_data(audiobuf_handle));
@@ -1123,6 +1424,22 @@ static void audio_update_filebuf_watermark(int seconds)
         seconds += 5;
 
     seconds += buffer_margin;
+#elif defined(HAVE_STORAGE_POWEROFF)
+    /* ProkBox #114: the adapter may be powered off between refills, so the
+     * refill must start early enough for a power-up and full re-init
+     * (STOR_PWR_PWRUP_BUDGET_S) before the buffer runs dry, at the
+     * playback speed (pitch x time-stretch), counted as at least 2x so an
+     * audiobook sped up after this was set is still covered */
+    (void)seconds;
+    {
+        long pct = 100;
+#if defined(HAVE_PITCHCONTROL)
+        pct = (long)((int64_t)sound_get_pitch() * dsp_get_timestretch()
+                     / PITCH_SPEED_100 / PITCH_SPEED_PRECISION);
+#endif
+        seconds = stor_pwr_refill_secs(1, STOR_PWR_PWRUP_BUDGET_S,
+                                       pct < 200 ? 200 : (int)pct);
+    }
 #else
     /* flash storage */
     seconds = 1;
@@ -1411,6 +1728,10 @@ static void audio_playlist_track_change(void)
 {
     struct mp3entry *id3 = valid_mp3entry(id3_get(PLAYING_ID3));
 
+#ifdef HAVE_IPOD_UI
+    if (quiet_restart)
+        id3 = NULL;     /* the same track, restarted: no change event */
+#endif
     if (id3)
     {
         send_track_event(PLAYBACK_EVENT_TRACK_CHANGE,
@@ -1451,7 +1772,22 @@ static void playing_id3_sync(struct track_info *user_infop, struct audio_resume_
         id3->skip_resume_adjustments = skip_resume_adjustments;
     }
 
+#ifdef HAVE_IPOD_UI
+    /* P6: on a start the first sync runs before buf_read_audiobook() has
+     * read the table; when this sync gives the playing id3 its table, it
+     * is a write to what Now Playing reads (same track, new table): bump
+     * that slot's seq so a snapshot taken in between is re-taken */
+    const struct audiobook_chapters *ab_new = id3 ? id3->audiobook : NULL;
+    int ab_slot = ab_new != id3_get(PLAYING_ID3)->audiobook ?
+        audio_ab_slot_of(ab_new) : -1;
+    if (ab_slot >= 0)
+        np_pb_ab_write_begin(ab_slot);
+#endif
     id3_write(PLAYING_ID3, id3);
+#ifdef HAVE_IPOD_UI
+    if (ab_slot >= 0)
+        np_pb_ab_write_end(ab_slot);
+#endif
 
     if (!resume_info && id3)
     {
@@ -1579,6 +1915,80 @@ static void buf_read_cuesheet(int handle_id)
     bufread(handle_id, sizeof (struct cuesheet), cue);
 }
 
+/* Read the current track's chapter table into persistent scratch memory and
+   point the buffered id3 at it. The metadata parser only counted chapters;
+   the table is read here, into memory owned by the audio thread, so nothing
+   is shared with other get_metadata() callers (e.g. the tagcache thread). */
+#ifdef HAVE_IPOD_UI
+#define buf_read_audiobook buf_read_audiobook_table
+#endif
+#ifndef HAVE_IPOD_UI
+static void buf_read_audiobook(struct mp3entry *track_id3)
+{
+    struct audiobook_chapters *ab = audio_scratch_memory->curr_ab;
+#else
+static void buf_read_audiobook(struct mp3entry *track_id3,
+                               struct audiobook_chapters *ab)
+{
+#endif
+    track_id3->audiobook = NULL;
+    if (!ab)
+        return;
+
+    ab->chapter_count = 0;
+    ab->curr_chapter_idx = 0;
+
+    if (track_id3->chapter_count <= 0)
+        return;
+
+    int fd = open(track_id3->path, O_RDONLY);
+    if (fd < 0)
+        return;
+
+    if (metadata_read_chapters(fd, track_id3, ab) > 0)
+        track_id3->audiobook = ab;
+    else
+        ab->chapter_count = 0;
+
+    close(fd);
+}
+#ifdef HAVE_IPOD_UI
+#undef buf_read_audiobook
+int audio_ab_slot_of(const void *ab)
+{
+    if (ab && audio_scratch_memory)
+        for (int i = 0; i < NP_AB_SLOTS; i++)
+            if (ab == audio_scratch_memory->ab_slot[i])
+                return i;
+    return -1;
+}
+
+/* P6 Rev 1 item 3: fill the slot the playing id3 does NOT reference, so
+ * the table the user hears is never rewritten under Now Playing (the
+ * new id3 points at its slot only once id3_write(PLAYING_ID3) runs, after
+ * the yields in audio_start_codec() / id3_mutex_lock()). Readers check
+ * identity (the slot audio_current_track()->audiobook references, with
+ * the track id unchanged) first and this slot's seq (odd while it is
+ * rewritten) second. Only the user-current track is read (never buffer-
+ * ahead), so one spare slot is enough. */
+static void buf_read_audiobook(struct mp3entry *track_id3)
+{
+    static int last_slot = NP_AB_SLOTS - 1;
+    int slot = audio_ab_slot_of(id3_get(PLAYING_ID3)->audiobook);
+    /* the other one; with no table playing (a start or restart), either
+     * is free: alternate anyway, so consecutive writes never share one */
+    slot = (slot >= 0 ? slot : last_slot) ^ 1;
+    last_slot = slot;
+    struct audiobook_chapters *ab = audio_scratch_memory->ab_slot[slot];
+
+    np_pb_ab_write_begin(slot);
+    buf_read_audiobook_table(track_id3, ab);
+    np_pb_ab_write_end(slot);
+    if (ab && track_id3->audiobook)
+        UPDATE_TRACE(AB_TR_SLOT_W, slot, ab->chapter_count, ab->cut);
+}
+#endif
+
 /* Backend to peek/current/next track metadata interface functions -
    fill in the mp3entry with as much information as we may obtain about
    the track at the specified offset from the user current track -
@@ -1610,6 +2020,7 @@ static bool audio_get_track_metadata(int offset, struct mp3entry *id3)
     else if (bufreadid3(info.id3_hid, id3))
     {
         id3->cuesheet = NULL;
+        id3->audiobook = NULL;
         return true;
     }
 
@@ -1617,7 +2028,12 @@ static bool audio_get_track_metadata(int offset, struct mp3entry *id3)
        have and return that */
 
     char path[MAX_PATH+1];
-    if (playlist_peek(offset, path, sizeof (path)))
+    if (playlist_peek(offset, path, sizeof (path))
+#ifdef HAVE_IPOD_UI
+        /* #109: an unresolvable database slot has no name to show */
+        && !dbq_is_sentinel(path)
+#endif
+       )
     {
 #if defined(HAVE_TC_RAMCACHE) && defined(HAVE_DIRCACHE)
         /* Try to get it from the database */
@@ -1766,8 +2182,23 @@ static bool audio_start_codec(bool auto_skip)
         return false;
     }
 
+#ifdef HAVE_IPOD_UI
+    /* the window's restart: the spot given, no autoresume, no rewind */
+    if (quiet_restart)
+        cur_id3->skip_resume_adjustments = true;
+#endif
     #ifdef HAVE_TAGCACHE
-    bool autoresume_enable = !cur_id3->skip_resume_adjustments && global_settings.autoresume_enable;
+    bool autoresume_enable = !cur_id3->skip_resume_adjustments
+        && (global_settings.autoresume_enable || cur_id3->is_audiobook);
+#ifdef HAVE_IPOD_UI
+    /* P6 Rev 1 item 1: for a book queue the shell (books.dat) is the only
+     * resume authority: no position from the database's stats here, and
+     * none from tagtree's buffer event below (it resumes audiobooks on its
+     * own, so the position the shell gave is put back after it) */
+    bool shell_resume = ab_shell_owns_resume();
+    if (shell_resume)
+        autoresume_enable = false;
+#endif
 
     if (autoresume_enable && !(cur_id3->elapsed || cur_id3->offset))
     {
@@ -1825,6 +2256,12 @@ static bool audio_start_codec(bool auto_skip)
 
     /* Update the codec API with the metadata and track info */
     id3_write(CODEC_ID3, cur_id3);
+#ifdef HAVE_IPOD_UI
+    /* P6 Rev 1 item 6: the book speed, set before this track's first
+     * sample reaches the DSP (the codec thread is between tracks here),
+     * so the previous track's tail in the PCM buffer keeps its speed */
+    ab_speed_track_start(cur_id3);
+#endif
 
     ci.audio_hid = info.audio_hid;
     ci.filesize = buf_filesize(info.audio_hid);
@@ -1837,8 +2274,18 @@ static bool audio_start_codec(bool auto_skip)
     if (!autoresume_enable || cur_id3->elapsed || cur_id3->offset)
 #endif
     {
+#if defined(HAVE_IPOD_UI) && defined(HAVE_TAGCACHE)
+        unsigned long elapsed = cur_id3->elapsed, offset = cur_id3->offset;
+#endif
         /* Send the "buffer" event now */
         send_track_event(PLAYBACK_EVENT_TRACK_BUFFER, 0, cur_id3);
+#if defined(HAVE_IPOD_UI) && defined(HAVE_TAGCACHE)
+        if (shell_resume)
+        {
+            cur_id3->elapsed = elapsed;   /* the shell's (0: the start) */
+            cur_id3->offset = offset;
+        }
+#endif
     }
 
     buf_pin_handle(info.id3_hid, false);
@@ -2313,6 +2760,14 @@ static int audio_finish_load_track(struct track_info *infop)
     }
 #endif
 
+#if defined(HAVE_IPOD_UI) && defined(HAVE_TC_RAMCACHE)
+    /* S36 (C1): a track ahead (not the one about to start, whose lookup
+       would delay it): its database index now, while the disk is awake
+       for its file, not at its track change (tagtree_buffer_event()) */
+    if (infop->self_hid != cur_info.self_hid)
+        tagcache_ui_prefetch_index(track_id3->path);
+#endif
+
     /* All handles available to external routines are ready - audio and codec
        information is private */
 
@@ -2605,6 +3060,10 @@ static void audio_on_finish_load_track(int id3_hid)
     {
         /* Copy cuesheet */
         buf_read_cuesheet(info.cuesheet_hid);
+
+        struct mp3entry *track_id3 = bufgetid3(info.id3_hid);
+        if (track_id3)
+            buf_read_audiobook(track_id3);
     }
 
     if (audio_start_codec(track_event_flags & TEF_AUTO_SKIP))
@@ -2749,6 +3208,9 @@ static void audio_finalise_track_change(void)
     {
         buf_read_cuesheet(info.cuesheet_hid);
         track_id3 = bufgetid3(info.id3_hid);
+
+        if (track_id3)
+            buf_read_audiobook(track_id3);
 
         /* When pause_on_track_change is calculated, next track_info may be missing
          * (due to a low buffer or an automatic directory change),
@@ -3078,6 +3540,17 @@ static void audio_start_playback(const struct audio_resume_info *resume_info,
         if (flags & AUDIO_START_RESTART)
             return; /* Must already be playing */
 
+#ifdef HAVE_IPOD_UI
+        /* memory was freed since the buffer was sized: size it anew
+         * (audio_fill_file_buffer() resets a trashed buffer) */
+        if (audiobuf_regrow && !quiet_restart) /* not the window's restart */
+        {
+            audiobuf_regrow = false;
+            if (buffer_state == AUDIOBUF_STATE_INITIALIZED)
+                buffer_state = AUDIOBUF_STATE_TRASHED;
+        }
+#endif
+
         /* Cold playback start from a stopped state */
         logf("%s(%lu, %lu): starting", __func__, resume.elapsed,
              resume.offset);
@@ -3095,8 +3568,15 @@ static void audio_start_playback(const struct audio_resume_info *resume_info,
         pcmbuf_fade(false, true);
 
         /* Update our state */
+#ifdef HAVE_IPOD_UI
+        if (quiet_restart)
+            play_status = PLAY_PAUSED;  /* never sounds: no PCM start */
+        else
+#endif
+        {
         play_status = PLAY_PLAYING;
         iap_on_play_status(play_status);
+        }
     }
 
     /* Codec's position should be available as soon as it knows it */
@@ -3118,6 +3598,9 @@ static void audio_start_playback(const struct audio_resume_info *resume_info,
     if (old_status == PLAY_STOPPED)
     {
         /* Send coldstart event */
+#ifdef HAVE_IPOD_UI
+        if (!quiet_restart)
+#endif
         send_event(PLAYBACK_EVENT_START_PLAYBACK, NULL);
     }
 
@@ -3155,6 +3638,14 @@ static void audio_stop_playback(void)
         return;
 
     bool do_fade = global_settings.fade_on_stop && filling != STATE_ENDED;
+#ifdef HAVE_IPOD_UI
+    bool quiet = quiet_restart || quiet_stop;
+
+    if (quiet)
+        do_fade = false;            /* paused: silent already */
+    if (!quiet_restart)             /* a posted give may be dropped now */
+        async_give_posted = false;
+#endif
 
     pcmbuf_fade(do_fade, false);
 
@@ -3168,6 +3659,11 @@ static void audio_stop_playback(void)
 
     /* Save resume information  - "filling" might have been set to
        "STATE_ENDED" by caller in order to facilitate end of playlist */
+#ifdef HAVE_IPOD_UI
+    if (quiet)                  /* the same spot again in a moment */
+        playlist_update_resume_info(valid_mp3entry(id3_get(PLAYING_ID3)));
+    else
+#endif
     audio_playlist_track_finish();
 
     skip_pending = TRACK_SKIP_NONE;
@@ -3184,8 +3680,28 @@ static void audio_stop_playback(void)
     /* Update our state */
     ff_rw_mode = false;
     play_status = PLAY_STOPPED;
+#ifdef HAVE_IPOD_UI
+    if (!quiet_restart)         /* iap sees no transient stop */
+#endif
     iap_on_play_status(play_status);
 
+#ifdef HAVE_IPOD_UI
+    if (quiet_restart)
+    {
+        /* M-a: readers (Now Playing, header, panels) keep the song while
+         * it restarts; its chapter pointers go (the tables move) and come
+         * back with the restart's sync */
+        struct mp3entry *cur = id3_get(PLAYING_ID3);
+
+        id3_mutex_lock();
+        if (ab_keep_slot < 0)       /* a shrink keeps it (audio_on_give()) */
+            cur->audiobook = NULL;
+        cur->cuesheet = NULL;
+        id3_mutex_unlock();
+        wipe_track_metadata(false);
+    }
+    else
+#endif
     wipe_track_metadata(true);
 #ifdef HAVE_ALBUMART
     clear_last_folder_album_art();
@@ -3194,6 +3710,10 @@ static void audio_stop_playback(void)
     filling = STATE_IDLE;
     cancel_cpu_boost();
     add_playbacklog(NULL); /* flush playback log */
+#ifdef HAVE_IPOD_UI
+    if (!quiet)
+        send_event(PLAYBACK_EVENT_STOP_OR_PAUSE, NULL);
+#endif
 }
 
 /* Pause the playback of the current track
@@ -3223,6 +3743,10 @@ static void audio_on_pause(bool pause)
         /* Not in ff/rw mode - can actually change the audio state now */
         pcmbuf_pause(pause);
     }
+#ifdef HAVE_IPOD_UI
+    if (pause)
+        send_event(PLAYBACK_EVENT_STOP_OR_PAUSE, NULL);
+#endif
 }
 
 /* Skip a certain number of tracks forwards or backwards
@@ -3607,7 +4131,13 @@ void audio_playback_handler(struct queue_event *ev)
         case SYS_USB_CONNECTED:
         case Q_AUDIO_STOP:
             LOGFQUEUE("playback < Q_AUDIO_STOP");
+#ifdef HAVE_IPOD_UI
+            quiet_stop = ev->data == 2;     /* a paused shrink's stop */
             audio_stop_playback();
+            quiet_stop = false;
+#else
+            audio_stop_playback();
+#endif
             if (ev->data != 0)
                 queue_clear(&audio_queue);
             return; /* no more playback */
@@ -3668,6 +4198,16 @@ void audio_playback_handler(struct queue_event *ev)
             break;
 
         /** Miscellaneous messages **/
+#ifdef HAVE_IPOD_UI
+        case Q_AUDIO_GIVE:
+            LOGFQUEUE("playback < Q_AUDIO_GIVE");
+            audio_on_give((struct audio_give *)ev->data);
+            if (ev->data == (intptr_t)&async_give)
+                async_give_posted = false;
+            if (play_status == PLAY_STOPPED)
+                return;     /* the restart failed: stopped */
+            break;
+#endif
         case Q_AUDIO_REMAKE_AUDIO_BUFFER:
             /* buffer needs to be reinitialized */
             LOGFQUEUE("playback < Q_AUDIO_REMAKE_AUDIO_BUFFER");
@@ -3695,6 +4235,10 @@ void audio_playback_handler(struct queue_event *ev)
             /* LOGFQUEUE("audio < default : %08lX", ev->id); */
             break;
         } /* end switch */
+
+#ifdef HAVE_DAC_STANDBY
+        dac_idle_poll();    /* P15: codec standby once PCM has stopped */
+#endif
 
         switch (filling)
         {
@@ -3725,15 +4269,46 @@ void audio_playback_handler(struct queue_event *ev)
             }
             else
             {
+#if defined(HAVE_IPOD_UI)
+                /* P19 19-1a: no poll between tracks. The PCM side's
+                 * notice (audio_pcmbuf_track_change_post(), from the
+                 * FIQ, which can't post) exists only while an automatic
+                 * skip is pending, so that alone keeps the HZ/10 poll;
+                 * a paused stream keeps HZ/2 for dac_idle_poll() until
+                 * the codec's standby. Everything else here (watermark,
+                 * boost, fill state) follows an event that posts. */
+                struct qw_audio_in qa = {
+                    .skip_pending = skip_pending != TRACK_SKIP_NONE,
+                    .paused = play_status == PLAY_PAUSED,
+#ifdef HAVE_DAC_STANDBY
+                    .dac_pending = dac_idle_pending(),
+#endif
+                };
+                long tmo = qw_audio_wait(&qa, HZ);
+                if (tmo == QW_BLOCK)
+                    queue_wait(&audio_queue, ev);
+                else
+                    queue_wait_w_tmo(&audio_queue, ev, tmo);
+                DEVSTATS_POLL(DEVSTATS_POLL_AUDIO, ev->id == SYS_TIMEOUT);
+#else
                 /* If doing auto skip, poll pcmbuf track notifications a bit
                    faster to promply detect the transition */
                 queue_wait_w_tmo(&audio_queue, ev,
                     skip_pending == TRACK_SKIP_NONE ? HZ/2 : HZ/10);
+#endif
             }
             break;
 
         /* Idle states */
         default:
+#ifdef HAVE_DAC_STANDBY
+            /* P15: a timed wait only while a DAC standby is still due */
+            if (dac_idle_pending())
+            {
+                queue_wait_w_tmo(&audio_queue, ev, HZ/2);
+                break;
+            }
+#endif
             queue_wait(&audio_queue, ev);
         }
     } /* end while */
@@ -3971,6 +4546,7 @@ void audio_play(unsigned long elapsed, unsigned long offset)
 #endif
 
     LOGFQUEUE("audio >| audio Q_AUDIO_PLAY: %lu %lX", elapsed, offset);
+    DEVSTATS_REQUEST(DEVSTATS_REQ_PLAY);    /* ProkBox M0: tap to PCM */
     audio_queue_send(Q_AUDIO_PLAY,
                      (intptr_t)&(struct audio_resume_info){ elapsed, offset });
 }
@@ -3986,6 +4562,13 @@ void audio_stop(void)
 void audio_pause(void)
 {
     LOGFQUEUE("audio >| audio Q_AUDIO_PAUSE");
+#ifdef HAVE_IPOD_UI
+    if (quiet_restart)          /* M-a: queue behind the restart, return */
+    {
+        audio_queue_post(Q_AUDIO_PAUSE, true);
+        return;
+    }
+#endif
     audio_queue_send(Q_AUDIO_PAUSE, true);
 }
 
@@ -4009,6 +4592,14 @@ void audio_hard_stop(void)
 void audio_resume(void)
 {
     LOGFQUEUE("audio >| audio Q_AUDIO_PAUSE resume");
+    DEVSTATS_REQUEST(DEVSTATS_REQ_RESUME);
+#ifdef HAVE_IPOD_UI
+    if (quiet_restart)          /* M-a: queue behind the restart, return */
+    {
+        audio_queue_post(Q_AUDIO_PAUSE, false);
+        return;
+    }
+#endif
     audio_queue_send(Q_AUDIO_PAUSE, false);
 }
 
@@ -4054,6 +4645,7 @@ void audio_skip(int offset)
         /* Playback only needs the final state even if more than one is
            processed because it wasn't removed in time */
         queue_remove_from_head(&audio_queue, Q_AUDIO_SKIP);
+        DEVSTATS_REQUEST(DEVSTATS_REQ_SKIP);
         audio_queue_post(Q_AUDIO_SKIP, 0);
     }
     else
@@ -4081,6 +4673,7 @@ void audio_prev(void)
 void audio_next_dir(void)
 {
     LOGFQUEUE("audio > audio Q_AUDIO_DIR_SKIP 1");
+    DEVSTATS_REQUEST(DEVSTATS_REQ_SKIP);
     audio_queue_post(Q_AUDIO_DIR_SKIP, 1);
 }
 
@@ -4088,6 +4681,7 @@ void audio_next_dir(void)
 void audio_prev_dir(void)
 {
     LOGFQUEUE("audio > audio Q_AUDIO_DIR_SKIP -1");
+    DEVSTATS_REQUEST(DEVSTATS_REQ_SKIP);
     audio_queue_post(Q_AUDIO_DIR_SKIP, -1);
 }
 
@@ -4102,6 +4696,7 @@ void audio_pre_ff_rewind(void)
 void audio_ff_rewind(long time)
 {
     LOGFQUEUE("audio > audio Q_AUDIO_FF_REWIND");
+    DEVSTATS_REQUEST(DEVSTATS_REQ_SEEK);
     audio_queue_post(Q_AUDIO_FF_REWIND, time);
 }
 
@@ -4199,6 +4794,13 @@ size_t audio_get_filebuflen(void)
 {
     return buf_length();
 }
+
+#ifdef HAVE_IPOD_UI
+void audio_buffer_regrow(void)
+{
+    audiobuf_regrow = true;
+}
+#endif
 
 /* How many tracks exist on the buffer - full or partial */
 unsigned int audio_track_count(void)
@@ -4339,7 +4941,33 @@ void audio_set_playback_frequency(unsigned int sample_rate_hz)
 
 unsigned int playback_status(void)
 {
+#ifdef HAVE_UI_THREAD_SPLIT
+    /* ProkBox P19: read lock-free from the other core (febe_rpc.list
+     * "direct: audio_status"). The audio thread sets quiet_restart before
+     * the restart's stop and clears it after its start; one read of each
+     * can still pair a status from inside the window (the stop) with the
+     * flag read after the window closed. So: the status, the flag, the
+     * status again; a status that changed meanwhile retries (ucop-fix2) */
+    const volatile enum play_status *ps = &play_status;
+    unsigned int st = *ps;
+    int tries = 4;
+
+    while (1)
+    {
+        bool quiet = quiet_restart;
+        unsigned int again = *ps;
+
+        if (again == st || --tries == 0)
+            return quiet ? PLAY_PAUSED : again; /* paused throughout */
+        st = again;
+    }
+#else
+#ifdef HAVE_IPOD_UI
+    if (quiet_restart)
+        return PLAY_PAUSED;     /* the window's restart: paused throughout */
+#endif
     return play_status;
+#endif
 }
 
 /** -- Startup -- **/

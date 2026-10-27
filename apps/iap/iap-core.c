@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2002 by Alan Korr & Nick Robinson
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * All files in this archive are subject to the GNU General Public License.
  * See the file COPYING in the source tree root for full license agreement.
@@ -44,6 +45,9 @@
 #include "usb.h"
 
 #include "tuner.h"
+#ifdef HAVE_IPOD_UI
+#include "ipodui/uilog.h"
+#endif
 #if CONFIG_TUNER
 #include "ipod_remote_tuner.h"
 #endif
@@ -68,6 +72,27 @@
 #define IAP_EV_TICK         (1)     /* The regular task timeout */
 #define IAP_EV_MSG_RCVD     (2)     /* A complete message has been received from the device */
 #define IAP_EV_MALLOC       (3)     /* Allocate memory for the RX/TX buffers */
+
+#ifdef IAP_LAZY_THREAD
+#ifdef IAP_MALLOC_DYNAMIC
+#error "IAP_LAZY_THREAD keeps the static buffers"
+#endif
+/* ProkBox: nothing runs until an accessory sends a sync/start-of-frame
+ * pair (0xFF 0x55). The receive interrupt then asks the USB thread to
+ * make the iap thread (iap_bringup(); a thread cannot be made in
+ * interrupt context). At the session's end (USB unplugged,
+ * iap_reset_state()) the iap thread stops the receiver and the 100 ms
+ * tick (iap_end()); the next pair starts them again (IAP_EV_MALLOC).
+ * No message is load-bearing: a lost post is repeated (the interrupt at
+ * the next pair, at most every IAP_RETRY_TICKS; the end flag at the next
+ * tick). The buffers and the stack stay static, sized for this player
+ * (IAP_STACK_SIZE, iap.h RX_BUFLEN). */
+#define IAP_EV_END          (4)     /* The session ended: stop the receiver */
+#define IAP_RETRY_TICKS     (HZ/10)
+#define iap_log(...) ui_log("iap", __VA_ARGS__)
+static volatile long iap_post_tick;     /* the last bring-up/start post */
+static volatile bool iap_end_pending;
+#endif
 
 static bool iap_started = false;
 static bool iap_setupflag = false, iap_running = false;
@@ -96,7 +121,10 @@ int iap_repeatbtn = 0;
 unsigned int iap_timeoutbtn = 0;
 bool iap_btnrepeat = false, iap_btnshuffle = false;
 
-static long thread_stack[(DEFAULT_STACK_SIZE*8)/sizeof(long)];
+#ifndef IAP_STACK_SIZE
+#define IAP_STACK_SIZE (DEFAULT_STACK_SIZE*8)
+#endif
+static long thread_stack[IAP_STACK_SIZE/sizeof(long)];
 static struct event_queue iap_queue;
 
 /* These are pointer used to manage a dynamically allocated buffer which
@@ -208,6 +236,9 @@ static struct buflib_callbacks iap_buflib_callbacks = {
 #endif
 
 static void iap_malloc(void);
+#ifdef IAP_LAZY_THREAD
+static void iap_end(void);
+#endif
 
 static void iap_reset_buffers(void)
 {
@@ -316,6 +347,14 @@ void iap_reset_state(IF_IAP_MP_NONVOID(int port))
 
     iap_reset_device(&device);
     iap_bitrate_set(global_settings.serial_bitrate);
+#ifdef IAP_LAZY_THREAD
+    /* the session is over (USB unplugged): the iap thread stops the
+     * receiver (it may be inside a packet now); the flag survives a lost
+     * post, the next tick sees it */
+    iap_end_pending = true;
+    if (iap_started)        /* the queue exists only once bringup ran */
+        queue_post(&iap_queue, IAP_EV_END, 0);
+#endif
 
 #if 0  // XXX this is still screwed up
     memset(&frame_state, 0, sizeof(frame_state));
@@ -353,7 +392,7 @@ void iap_set_remote_volume(void)
     IAP_TX_INIT(0x03, 0x0D);
     IAP_TX_PUT(0x04);
     IAP_TX_PUT(0x00);
-    IAP_TX_PUT(0xFF & (int)((global_status.volume + 90) * 2.65625));
+    IAP_TX_PUT(0xFF & IAP_VOLUME_TO_REMOTE(global_status.volume));
     iap_send_tx();
 }
 
@@ -372,6 +411,15 @@ static void iap_thread(void)
              */
             case IAP_EV_TICK:
             {
+#ifdef IAP_LAZY_THREAD
+                if (iap_end_pending)
+                {
+                    iap_end();
+                    break;
+                }
+                if (!iap_running)       /* queued before the end */
+                    break;
+#endif
                 iap_periodic();
                 /* pick up packets whose IAP_EV_MSG_RCVD event was lost
                    to a queue overflow, they would otherwise sit in the
@@ -395,6 +443,14 @@ static void iap_thread(void)
                 iap_malloc();
                 break;
             }
+
+#ifdef IAP_LAZY_THREAD
+            case IAP_EV_END:
+            {
+                iap_end();
+                break;
+            }
+#endif
 
             /* Handle poweroff message */
             case SYS_POWEROFF:
@@ -454,6 +510,74 @@ void iap_setup(const int ratenum)
  */
 static void iap_start(void)
 {
+#ifdef IAP_LAZY_THREAD
+    /* one post per IAP_RETRY_TICKS while the receiver is off: a lost
+     * post is simply made again at a later pair */
+    if (iap_post_tick && !TIME_AFTER(current_tick,
+                                     iap_post_tick + IAP_RETRY_TICKS))
+        return;
+    iap_post_tick = current_tick | 1;
+    if (iap_started)
+        queue_post(&iap_queue, IAP_EV_MALLOC, 0);   /* after an end */
+    else
+        usb_iap_bringup_post();
+}
+
+/* USB thread (usb.c USB_IAP_BRINGUP), posted by iap_start(): the queue,
+ * the thread (its stack is static), the tick and the receiver. No
+ * allocation, so nothing here waits on the audio buffer. */
+void iap_bringup(void)
+{
+    unsigned int tid;
+
+    if (iap_started || !iap_setupflag)
+        return;
+
+    iap_reset_device(&device);
+    queue_init(&iap_queue, true);
+    tid = create_thread(iap_thread, thread_stack, sizeof(thread_stack),
+            0, "iap"
+            IF_PRIO(, PRIORITY_SYSTEM)
+            IF_COP(, CPU));
+    if (!tid)
+    {
+        /* logged; a later pair asks again */
+        queue_delete(&iap_queue);
+        iap_log("no thread slot");
+        return;
+    }
+    add_event(PLAYBACK_EVENT_TRACK_CHANGE, iap_track_changed);
+    iap_started = true;
+    iap_malloc();           /* the static buffers, the tick, the receiver */
+    iap_log("up");
+}
+
+/* iap thread: the session ended. The receiver stops first (the serial
+ * interrupt writes into the RX buffer), then the session's state and the
+ * tick; the next sync pair starts them again (iap_malloc()). */
+static void iap_end(void)
+{
+    int level;
+
+    iap_end_pending = false;
+    if (!iap_running)
+        return;
+
+    level = disable_irq_save();
+    iap_running = false;
+    frame_state.state = ST_SYNC;
+    restore_irq(level);
+
+    timeout_cancel(&iap_task_tmo);
+    /* nothing transmits now (iap_track_changed() checks do_notify) */
+    iap_reset_device(&device);
+    interface_state = IST_STANDARD;
+    iap_remotebtn = BUTTON_NONE;
+    iap_repeatbtn = 0;
+    iap_timeoutbtn = 0;
+    iap_log("session end");
+}
+#else
     unsigned int tid;
 
     if (iap_started)
@@ -476,6 +600,7 @@ static void iap_start(void)
     queue_post(&iap_queue, IAP_EV_MALLOC, 0);
     iap_started = true;
 }
+#endif /* IAP_LAZY_THREAD */
 
 static void iap_malloc(void)
 {
@@ -496,7 +621,22 @@ static void iap_malloc(void)
 #endif
 
     iap_reset_buffers();
+#ifdef IAP_LAZY_THREAD
+    {
+        int level;
+
+        /* (again after a session's end, which cancelled it) */
+        timeout_register(&iap_task_tmo, iap_task, MS_TO_TICKS(100),
+                         (intptr_t)NULL);
+        iap_end_pending = false;
+        level = disable_irq_save();
+        iap_running = true;
+        iap_post_tick = 0;
+        restore_irq(level);
+    }
+#else
     iap_running = true;
+#endif
 }
 
 void iap_bitrate_set(const int ratenum)
@@ -627,7 +767,13 @@ bool iap_getc(IF_IAP_MP(int port,) const unsigned char x)
              */
             if (!iap_running)
             {
+#ifdef IAP_LAZY_THREAD
+                /* ProkBox: a lone 0xFF (line noise) starts nothing; the
+                 * pair does (ST_SOF) */
+                s->state = ST_SOF;
+#else
                 iap_start();
+#endif
                 break;
             }
             iap_rxnext = iap_rxpayload;
@@ -636,6 +782,14 @@ bool iap_getc(IF_IAP_MP(int port,) const unsigned char x)
         break;
     case ST_SOF:
         if (x == 0x55) {
+#ifdef IAP_LAZY_THREAD
+            if (!iap_running)
+            {
+                iap_start();
+                s->state = ST_SYNC;
+                break;
+            }
+#endif
             /* received a valid sync/SOF pair */
             s->state = ST_LEN;
         } else {
@@ -916,7 +1070,7 @@ void iap_periodic(void)
         IAP_TX_INIT(0x03, 0x09);
         IAP_TX_PUT(0x04);
         IAP_TX_PUT(0x00);
-        IAP_TX_PUT(0xFF &(int)((global_status.volume + 90) * 2.65625));
+        IAP_TX_PUT(0xFF &IAP_VOLUME_TO_REMOTE(global_status.volume));
         device.changed_notifications |= BIT_N(4);
         iap_send_tx();
     }

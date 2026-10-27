@@ -1,0 +1,58 @@
+# Phase 8b-4a (owner 2026-10-20): the main menu's Now Playing row shows
+# the playing track's cover, still (no pan), from the panel set; a track
+# change while the row is highlighted redraws it once -- with storage
+# asleep (playing) it shows plain and reads at the next natural wake
+# (disk_active stands in for a refill), never waking it (8b-4a M1); a track
+# without art shows the plain panel (never empty, never another album's
+# cover). The trace lines "panel nowplaying cover|plain" say which; the
+# Now Playing art fallback is ipodui-p8b-np-art.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p8b-np-panel.script
+# needs: library
+# needs: np
+# trace: panelset driftrepeat
+# timeout: 200
+
+wait 1000
+wait_db 30000
+sim_clock 15:04
+clock_format 24
+battery 100
+repeat off
+mkdir /NPArt
+copy ../../build/np-fixtures/art_169.mp3 /NPArt/art_169.mp3
+copy ../../build/np-fixtures/art_23.mp3 /NPArt/art_23.mp3
+update_db_wait_change 60000
+art_wait 120000
+play_files /NPArt/art_23.mp3 /NPArt/art_169.mp3 /Music/Square%20Wave%20Quartet/Low%20Frequencies/01%20Hum.mp3
+wait 1000
+np_pin 3000 50
+key SELECT          # Music (the menu re-reads "Now Playing" after a push/pop)
+wait 700
+key MENU
+wait 700
+wheel +10 100       # Now Playing, the last row
+wait 2000           # rest + cross-fade
+shot np_tall        # "NP Tall"'s cover, centred
+wait 2000
+shot np_tall_still  # no pan: the same picture
+
+key RIGHT           # next track ("NP Wide") while the row is highlighted
+wait 1500
+shot np_wide_asleep # storage asleep: plain, no wake (deferred)
+disk_active 3000    # a refill wakes the disk: the read follows
+wait 1500
+shot np_wide
+
+key RIGHT           # a track with no art: the plain panel
+disk_active 3000
+wait 1500
+shot np_noart
+
+wheel -10 100       # "Music": the drift as before
+wait 2500
+shot music_drift
+
+audio_stop
+rm_file /NPArt/art_169.mp3  # leave the shared disk as primed
+rm_file /NPArt/art_23.mp3
+quit

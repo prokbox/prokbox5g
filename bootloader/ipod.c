@@ -46,6 +46,9 @@
 #include "hwcompat.h"
 #include "usb.h"
 #include "version.h"
+#ifdef HAVE_IPOD_BOOTSCREEN
+#include "bootscreen.h"
+#endif
 
 #define XSC(X) #X
 #define SC(X) XSC(X)
@@ -314,6 +317,11 @@ void* main(void)
     kernel_init();
 
     lcd_init();
+#ifdef HAVE_IPOD_BOOTSCREEN
+    /* the shared boot screen first, so the backlight comes on over it */
+    bootscreen_draw();
+    lcd_update();
+#endif
     font_init();
 #ifndef HAVE_BACKLIGHT_INVERSION
     backlight_init(); /* Turns on the backlight BUGFIX backlight_init MUST BE AFTER lcd_init */
@@ -322,7 +330,9 @@ void* main(void)
 #ifdef HAVE_LCD_COLOR
     lcd_set_foreground(LCD_WHITE);
     lcd_set_background(LCD_BLACK);
+#ifndef HAVE_IPOD_BOOTSCREEN
     lcd_clear_display();
+#endif
 #endif
 
 #if 0
@@ -342,6 +352,9 @@ void* main(void)
     printf("Rockbox boot loader");
     printf("Version: %s", rbversion);
     printf("IPOD version: 0x%08x", IPOD_HW_REVISION);
+#ifdef HAVE_IPOD_BOOTSCREEN
+    printf("bootscreen gen %08lx", (unsigned long)BOOTSCREEN_GEN);
+#endif
 
     i=ata_init();
     if (i==0) {

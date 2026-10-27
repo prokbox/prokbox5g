@@ -1,0 +1,13 @@
+boot build=4e57b3b9a1 rtc=2026-10-25 13:58:02
+1 bcmjob init allowed=1 verified=0
+2 bcmjob up epoch=1 ops=0000bfff
+3 bcmjob vpu=0x1 expect=0x3 why=degraded
+4 panel drift jobs mode=on
+5 panel drift upload us=58605 rc=0
+6 bcmjob fault op=0x22 st=21 why=failed
+7 bcmjob resync x=160 y=0 w=160 h=240
+8 bcmjob fault op=0x24 why=failed
+9 panel drift job fault at=blit errors=1
+10 panel drift still why=failed
+11 bcmjob resync x=160 y=0 w=160 h=240
+12 bcmjob inject op=0x26 n=2

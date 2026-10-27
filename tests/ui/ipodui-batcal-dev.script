@@ -1,0 +1,62 @@
+# Tracker #70: automatic battery calibration's developer rows
+# (apps/ipodui/batcal.c, docs/batcal-brief.md section 5). A fresh disk shows
+# "Built-in table" and "Run: waiting for a full charge". Two stored fits and
+# a cleanly stopped 3 h run (fixtures/batcal/, made by the same CRC as the
+# firmware) are copied in; after a reboot the rows read "Calibrated: 2 runs,
+# last 2026-10-11" and "Run: 3 h logged" (the run carries on: boot decision
+# KEEP, its file rewritten open at boot). "Reset battery calibration" asks
+# for a second press ("Select again within 5 s"); the second removes
+# both files and the rows go back to the built-in table. No file name on
+# screen.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-batcal-dev.script
+# timeout: 90
+# log: batcal boot fits=0 run n=0
+# log: batcal boot fits=2 run n=180
+# log: batcal reset
+# nolog: batcal table file ignored
+# nolog: batcal run dropped
+# golden-region: dev_builtin 0 8 320 240
+# golden-region: dev_calibrated 0 8 320 240
+# golden-region: dev_confirm 0 8 320 240
+# golden-region: dev_reset 0 8 320 240
+#   (the stock status bar's clock, rows 0-7, reads the host RTC: skipped,
+#   as in ipodui-p8a-devmode)
+
+wait 5000           # boot to the main menu (no calibration files)
+wheel +3            # Settings
+wait 400
+key SELECT
+wait 1500
+key SELECT          # About
+wait 1500
+chord SELECT+LEFT 3200
+wait 1000
+wheel +4            # Reset battery calibration (5th row: Status, Power log, every, the table)
+wait 600
+shot dev_builtin
+key LEFT            # leave developer mode (About again)
+wait 1500
+copy fixtures/batcal/batcal.dat /.rockbox/batcal.dat
+copy fixtures/batcal/batcal.run /.rockbox/batcal.run
+reboot
+wait 5000
+wheel +3            # Settings
+wait 400
+key SELECT
+wait 1500
+key SELECT          # About
+wait 1500
+chord SELECT+LEFT 3200
+wait 1000
+wheel +4            # Reset battery calibration
+wait 600
+shot dev_calibrated
+key SELECT          # first press: the row asks for a second
+wait 1000
+shot dev_confirm
+key SELECT          # second press, within 5 s: reset
+wait 1000
+shot dev_reset
+key LEFT
+wait 1000
+quit

@@ -1,0 +1,35 @@
+# Phase 6 (owner, Rev 3 addition): a book with no cover shows the book
+# glyph, not the music note, in Now Playing (np_placeholder_render_glyph,
+# NPG_BOOK; the list rows' book tile is in ipodui-p6-booklist). Then a
+# song with no art shows the note again (the placeholder is re-made when
+# song/book changes under the same empty key).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p6-book-noart.script
+# needs: library
+# needs: ab
+# timeout: 120
+
+wait 1000
+wait_db 30000
+sim_clock 15:08
+clock_format 24      # P11: the default is 12-hour; this golden shows 24
+repeat off
+mkdir /Audiobooks/NA
+copy ../../build/ab-fixtures/nochap.m4b /Audiobooks/NA/nochap.m4b
+update_db_wait_change 60000
+art_wait 60000
+play_files /Audiobooks/NA/nochap.m4b
+wait 1000
+np_pin 3000 50
+key SELECT          # Music (the menu re-reads "Now Playing" after a push/pop)
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 1200
+shot np_book        # the light-grey book on the slate placeholder
+audio_stop
+rm_file /Audiobooks/NA/nochap.m4b
+update_db_wait_change 60000
+quit

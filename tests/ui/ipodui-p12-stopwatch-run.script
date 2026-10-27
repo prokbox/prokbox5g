@@ -1,0 +1,59 @@
+# P12 W1-S: Extras > Stopwatch. The list (New Timer, Clear Logs), the
+# timer screen (PLAY starts, SELECT laps, PLAY stops), the log written at
+# the stop, the list again with Resume and the log row (date M/D/YY, time
+# in blue), the log's detail.
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-stopwatch-run.script
+# golden: skip
+# timeout: 120
+# log: ipodui: stopwatch timer n run=0
+# log: ipodui: stopwatch start
+# log: ipodui: stopwatch lap n=2
+# log: ipodui: stopwatch stop
+# log: ipodui: stopwatch log total=
+# nolog: stopwatch dat write failed
+# trace: modclass
+# needs: modules
+# reset: mainmenu
+
+wait 4000
+rm_file /.rockbox/stopwatch.dat   # no logs left by an earlier run
+rtc_at 2026-10-06 15:06:00
+sim_clock 15:06
+wheel +2              # Extras
+wait 400
+key SELECT
+wait 1200
+wheel +7              # Stopwatch
+wait 1000
+shot extras_row
+key SELECT
+wait 1500
+shot list_fresh       # New Timer, Clear Logs; the dial in the panel
+key SELECT            # New Timer
+wait 1200
+shot timer_zero
+key PLAY              # start
+wait 1500
+shot running
+key SELECT            # lap 1
+wait 1100
+key SELECT            # lap 2
+wait 1100
+shot laps
+key PLAY              # stop: the log is written
+wait 800
+shot stopped
+key MENU              # back to the list
+wait 1200
+shot list_logged      # Resume, New Timer, Clear Logs, 10/6/26 15:06
+wheel +3
+wait 600
+key SELECT            # the log's detail
+wait 1200
+shot detail
+key MENU
+wait 800
+key MENU              # out of Stopwatch
+wait 1000
+shot back_extras
+quit

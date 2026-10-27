@@ -1,0 +1,40 @@
+# Phase 5: the wheel's volume bar in Normal mode (pinned at 50 %, then at
+# 0 and 100 %), which leaves after NP_VOLUME_SHOW_MS (2 s) in place.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p5-volume.script
+# needs: music
+# golden: skip leaving
+
+wait 3000
+sim_clock 15:08
+clock_format 24      # P11: the default is 12-hour; this golden shows 24
+repeat off
+wait_db 30000
+art_wait 60000
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3 /Music/Tone%20Collective/Sine%20Studies/02%20Low%20E.mp3 /Music/Tone%20Collective/Sine%20Studies/03%20Warble.mp3
+wait 1000
+np_pin 12000 50
+key SELECT          # Music (the menu re-reads "Now Playing" after a push/pop)
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 1200
+wheel +2 300
+wait 300
+shot v50
+np_pin 12000 0
+wheel -2 300
+wait 300
+shot v0
+np_pin 12000 100
+wheel +2 300
+wait 300
+shot v100
+wait 1900
+shot leaving
+wait 1500
+shot gone
+audio_stop
+quit

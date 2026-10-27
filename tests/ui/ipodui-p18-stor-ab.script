@@ -1,0 +1,103 @@
+# #114 H3: the developer "Drive power A/B" test, time-compressed (a switch
+# every 3 s instead of 30/60 min; the stop grace 4 s instead of 2 min).
+#   1. Refusals (no splash, a row state and a log line): nothing playing,
+#      Repeat off, paused.
+#   2. Length 2 h at 30 min = 4 segments A1 B1 A2 B2: the switch on, off,
+#      on, off, then ab_end and the mode back to what it was (on).
+#   3. Length 10 h at 60 min (10 segments), stopped playing in segment 3:
+#      "ab paused" after the grace, the mode back (off).
+#   4. A run aborted by hand: "ab abort", the mode back (on).
+# The power log is off before and after (power.cfg gone), on in between.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p18-stor-ab.script
+# needs: music
+# needs: np
+# golden: skip
+# fulls-extra: 4   (the Now Playing push with each play_files)
+# timeout: 150
+# log: refused: not playing
+# log: refused: repeat off
+# log: start h=2 step_min=30 n=4
+# log: start h=10 step_min=60 n=10
+# log: ab_end allow=1
+# log: ab paused allow=0
+# log: ab abort allow=1
+# nolog: splash-pass
+# expect-file: /.rockbox/power.csv ,ab_A1
+# expect-file: /.rockbox/power.csv ,ab_B1
+# expect-file: /.rockbox/power.csv ,ab_A2
+# expect-file: /.rockbox/power.csv ,ab_B2
+# expect-file: /.rockbox/power.csv ,ab_end
+# expect-file: /.rockbox/power.csv ,ab paused
+# expect-file: /.rockbox/power.csv ,ab abort
+
+wait 3000
+rm_file /.rockbox/power.csv
+rm_file /.rockbox/power.cfg
+mkdir /StorAb
+copy ../../build/np-fixtures/nolen.flac /StorAb/a.flac
+copy ../../build/np-fixtures/nolen.flac /StorAb/b.flac
+copy ../../build/np-fixtures/nolen.flac /StorAb/c.flac
+drive_ab period 3000
+drive_ab grace 4000
+# 1. refusals
+repeat all
+drive_ab start             # nothing playing
+play_files /StorAb/a.flac /StorAb/b.flac /StorAb/c.flac
+wait 1500
+repeat off
+drive_ab start             # playing, Repeat off
+repeat all
+key PLAY                  # pause
+wait 300
+drive_ab start             # paused
+key PLAY                  # resume
+wait 500
+# 2. a full short run
+stor_switch on
+drive_ab length 2
+drive_ab step 30
+drive_ab start
+wait 1500
+stor_expect_switch on      # A1
+wait 3000
+stor_expect_switch off     # B1
+wait 3000
+stor_expect_switch on      # A2
+wait 3000
+stor_expect_switch off     # B2
+wait 3000
+stor_expect_switch on      # ended: back to what it was
+# 3. stopped mid-run
+stor_switch off
+drive_ab length 10
+drive_ab step 60
+drive_ab start
+wait 1500
+stor_expect_switch on      # A1
+wait 3000
+stor_expect_switch off     # B1
+wait 3000
+stor_expect_switch on      # A2
+audio_stop
+wait 6500
+stor_expect_switch off     # halted: back to what it was
+# 4. aborted by hand
+play_files /StorAb/a.flac /StorAb/b.flac /StorAb/c.flac
+wait 1500
+stor_switch on
+drive_ab length 4
+drive_ab start
+wait 1500
+stor_expect_switch on
+wait 3000
+stor_expect_switch off     # B1
+drive_ab stop
+stor_expect_switch on      # abort: back
+wait 500
+audio_stop
+wait 500
+shot done
+rm_file /StorAb/a.flac
+rm_file /StorAb/b.flac
+rm_file /StorAb/c.flac
+quit

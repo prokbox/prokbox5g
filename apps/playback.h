@@ -89,6 +89,37 @@ void set_albumart_mode(int setting);
 #endif
 
 size_t audio_get_filebuflen(void);
+#ifdef HAVE_IPOD_UI
+/* A transient block was freed: the next playback start from stopped
+ * sizes the audio buffer anew (an allocation while stopped shrinks it,
+ * and an initialised buffer is otherwise kept). Any thread. */
+void audio_buffer_regrow(void);
+/* #88 (apps/ipodui/maint.c): paused only, from any thread but the audio
+ * thread. One audio-thread event: frees 'bytes' at the front of the
+ * audio buffer if it stays >= 'floor' (the stop happens before the buflib
+ * shrink, never inside a buflib call), or with bytes 0 grows it back to
+ * all the free memory (if at least 'floor' is free), and restarts the
+ * paused song silently at its spot, reported paused throughout. Returns
+ * 1 done, 0 refused, -1 the restart failed (stopped, logged). */
+struct audio_give {
+    size_t bytes, floor;
+    int result;
+    volatile int started, done;     /* (playback.c's handshake) */
+    bool back;                      /* shrink at the back (buflib's hint) */
+};
+int audio_buffer_give(struct audio_give *g);
+/* The restart is running. Meanwhile audio_status() reports paused, and
+ * audio_pause() / audio_resume() post their event behind the restart
+ * and return at once: after audio_pause() the status reads paused (it
+ * was, and stays so); after audio_resume() it still reads paused until
+ * the restart ends and the queued resume runs (callers must not take
+ * that as the resume failing). Another thread's allocation that needs
+ * the paused buffer is refused (shrink_callback) and a give is posted. */
+bool audio_quiet_restart(void);
+/* P6: the chapter-table slot (0..NP_AB_SLOTS-1) a table pointer (an
+ * mp3entry's audiobook) refers to, or -1. RAM only, no lock, any thread. */
+int audio_ab_slot_of(const void *ab);
+#endif
 
 unsigned int playback_status(void);
 

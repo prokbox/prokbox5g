@@ -1,0 +1,73 @@
+# P12 W2-W (item 5, owner-approved): with Hold on, a wake that is not a
+# key lights the screen once (backlight_on_through_hold() in
+# ui_sleep_lit()): a charger, USB, an alarm. Keys under Hold wake nothing
+# and light nothing (the sim drops them, as the wheel's classifier does).
+# A plain button wake (Hold off) keeps today's backlight_on().
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p12-hold-wake.script
+# golden: skip
+# timeout: 150
+# env: IPODUI_SIM_ALARM_IN=900
+# alarm-rings: 1
+# log: sleep wake why=2
+# log: sleep wake why=3
+# logbetween: s_chg w_chg sleep lit through hold=1
+# logbetween: s_usb w_usb sleep lit through hold=1
+# logbetween: s_alarm w_alarm sleep lit through hold=1
+# logbetween: s_key w_key no sleep lit through
+# logbetween: s_key w_key sleep lit ms=
+# reset: mainmenu
+
+sleep_mode soft         # soft sleep is off by default (developer switch)
+wait 4000
+# 1. a charger, Hold on
+ab_mark s_chg
+hold PLAY 1500          # the hold: dark, then asleep
+expect_sleep asleep 8000
+hold_switch on
+key SELECT              # under Hold: no wake
+expect_sleep asleep 200
+charger on
+expect_sleep vbus 3000
+wait 1500
+ab_mark w_chg
+shot charger_hold       # lit, the screen it left
+charger off
+hold_switch off
+wait 1500
+# 2. USB, Hold on
+ab_mark s_usb
+hold PLAY 1500
+expect_sleep asleep 8000
+hold_switch on
+usb_connect
+expect_sleep vbus 3000
+wait 2000
+ab_mark w_usb
+shot usb_hold
+usb_disconnect
+wait 3000
+hold_switch off
+wait 1500
+# 3. a button wake, Hold off: backlight_on() as before
+ab_mark s_key
+hold PLAY 1500
+expect_sleep asleep 8000
+key MENU
+expect_sleep button 3000
+wait 500
+ab_mark w_key
+# 4. an alarm (900 s after boot), Hold on
+ab_mark s_alarm
+hold PLAY 1500
+expect_sleep asleep 8000
+hold_switch on
+sleep_warp 900           # past the alarm (the sim RTC moves the whole warp)
+expect_sleep alarm 3000
+wait 1000
+ab_mark w_alarm
+shot ring_hold          # the ring, lit through Hold
+hold_switch off
+wait 500
+key MENU                # dismiss
+wait 1500
+quit

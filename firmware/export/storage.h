@@ -61,6 +61,12 @@ enum
     Q_STORAGE_MEDIUM_INSERTED,
     Q_STORAGE_MEDIUM_REMOVED,
 #endif
+#ifdef HAVE_STORAGE_JOBS
+    Q_STORAGE_JOB,
+#endif
+#ifdef STORAGE_QUIET_WAIT
+    Q_STORAGE_KICK,     /* P19 19-1a: wake a thread with no deadline */
+#endif
 };
 
 #define STG_EVENT_ASSERT_ACTIVE(type) \
@@ -122,6 +128,13 @@ struct storage_info
 int storage_init(void) STORAGE_INIT_ATTR;
 void storage_close(void);
 void storage_post_event(long event, intptr_t data);
+#ifdef HAVE_STORAGE_JOBS
+/* ProkBox (#106): runs fn(arg-less) on the storage thread, an existing
+ * worker, in order with its other events (a USB connect queued after it
+ * waits for it). The job may use the file system; it must not wait for
+ * the thread that posted it. False: no storage thread. */
+bool storage_post_job(void (*fn)(void));
+#endif
 
 #ifdef HAVE_HOSTFS
 #include "hostfs.h"

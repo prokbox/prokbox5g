@@ -1,0 +1,57 @@
+# Owner, Phase 6 Revision 3: the main menu's "Now Playing" row stays while
+# the queue is paused mid-track. After a reboot it is hidden until
+# something plays in this boot (owner, #58: the Rev 3 default is
+# overturned); PLAY resumes the restored queue and the row comes back.
+# The row is read when the menu builds ("np row visible=N",
+# ui_now_playing_visible()).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-np-row-paused.script
+# needs: music
+# timeout: 90
+# logrange: 1 1 after=paused until=leaving np row visible=(\d)
+# logrange: 0 0 after=booted until=resuming np row visible=(\d)
+# logrange: 1 1 after=played np row visible=(\d)
+# golden: skip paused_menu rebooted_menu
+
+wait 3000
+sim_clock 15:08
+clock_format 24      # P11: the default is 12-hour; this golden shows 24
+repeat off
+wait_db 30000
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait 1000
+key SELECT          # Music (the menu re-reads "Now Playing" after a push/pop)
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 1500
+key PLAY            # pause mid-track (45 s track), from Now Playing
+wait 800
+ab_mark paused
+hold MENU 1000      # the main menu rebuilds
+wait 1200
+shot paused_menu    # "Now Playing" still listed
+ab_mark leaving     # (the shutdown itself stops audio)
+reboot
+
+ab_mark rebooted
+wait 3000
+wait_db 30000
+ab_mark booted
+key SELECT          # Music, then back: the main menu rebuilds
+wait 700
+key MENU
+wait 900
+shot rebooted_menu  # nothing played since the boot: no row
+ab_mark resuming
+key PLAY            # resumes the restored queue from the menu
+wait 1500
+expect_playing 1000
+ab_mark played
+key SELECT          # Music, then back: the main menu rebuilds
+wait 700
+key MENU
+wait 900
+quit

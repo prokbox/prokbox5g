@@ -1,0 +1,107 @@
+# #91 (docs/phase16-brief.md 4.3): a boot finds what cut safe replaces
+# leave behind and recovers each one at its site. A: a book with a spot
+# (books.dat) and a library queue playing; books.old (a set-aside store)
+# appears after the clean shutdown, as a cut leaves it. B: ab_store_load()
+# at boot dropped it (books.dat stays: the book is still started); then a
+# set-aside control file, three temps in /Playlists and a save marker
+# (installed after the shutdown: playlist_init() reads it at boot). C: the
+# marker's whole temp took its free name (zzmark.m3u) and the marker went;
+# PLAY resumes the queue and drops the set-aside control file; the first
+# Playlists listing deletes the stray temps (L1: never rolled forward) and
+# keeps the user's zzkept.m3u. Checked with rm_file: "not removed" means
+# recovery already took it, a plain "rm_file <path>" line means it was
+# there. A shared-cluster alias pair (H1) needs the native FAT layer: the
+# simulator's host files never share a chain (tests/fatcrash safetest).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-recover-leftovers.script
+# needs: library
+# timeout: 240
+# golden: skip
+# log: rm_file /.rockbox/artcache/books.old: not removed
+# log: rm_file /.rockbox/.playlist_save: not removed
+# log: rm_file /.rockbox/.playlist_control_prev: not removed
+# log: rm_file /Playlists/zzgone.m3u_temp: not removed
+# log: rm_file /Playlists/zzgone.m3u: not removed
+# log: rm_file /Playlists/zzkept.m3u_temp: not removed
+# log: rm_file /Playlists/zzmark.m3u_temp: not removed
+# log: sim_script: rm_file /Playlists/zzmark.m3u
+# log: sim_script: rm_file /Playlists/zzkept.m3u
+
+wait 4000
+wait_db 30000
+rm_file /Playlists/zzkept.m3u      # an aborted run's leftovers
+rm_file /Playlists/zzmark.m3u
+
+key SELECT          # Music
+wait 800
+wheel +6 300        # "Audiobooks"
+wait 400
+key SELECT
+wait 800
+wheel +1            # "The Lighthouse Keeper"
+wait 400
+key SELECT          # its page
+wait 1000
+key SELECT          # its first entry
+wait_pos 3500 60000 Lighthouse
+key PLAY            # pause: the spot goes to books.dat
+wait 800
+audio_stop
+wait 1500
+expect_ab_store ge1 -1 3000
+
+hold MENU 1000      # main menu
+wait 1200
+key SELECT          # Music
+wait 800
+wheel +3 300        # "Songs"
+wait 400
+key SELECT
+wait 800
+wheel +2 300
+wait 400
+key SELECT          # plays the library from here
+wait 2000
+expect_playing 300
+ab_copy_at_exit fixtures/safefile/leftover.bin /.rockbox/artcache/books.old
+reboot
+
+# B
+wait 4000
+wait_db 30000
+rm_file /.rockbox/artcache/books.old
+expect_ab_store ge1 -1 3000
+mkdir /Playlists
+copy fixtures/safefile/zzkept.m3u /Playlists/zzkept.m3u
+copy fixtures/safefile/zzkept.m3u_temp /Playlists/zzkept.m3u_temp
+copy fixtures/safefile/zzgone.m3u_temp /Playlists/zzgone.m3u_temp
+copy fixtures/safefile/zzmark.m3u_temp /Playlists/zzmark.m3u_temp
+copy fixtures/safefile/leftover.bin /.rockbox/.playlist_control_prev
+ab_copy_at_exit fixtures/safefile/playlist_save /.rockbox/.playlist_save
+reboot
+
+# C
+wait 4000
+wait_db 30000
+rm_file /.rockbox/.playlist_save
+key PLAY            # resume: playlist_resume()'s recovery first
+wait 1500
+expect_playing 500
+rm_file /.rockbox/.playlist_control_prev
+audio_stop
+wait 1000
+hold MENU 1000
+wait 1200
+key SELECT          # Music
+wait 800
+wheel -6 300        # "Playlists"
+wait 400
+key SELECT          # the first listing: /Playlists recovery
+wait 1200
+shot playlists      # zzkept and zzmark listed; no zzgone
+rm_file /Playlists/zzgone.m3u_temp
+rm_file /Playlists/zzgone.m3u
+rm_file /Playlists/zzkept.m3u_temp
+rm_file /Playlists/zzmark.m3u_temp
+rm_file /Playlists/zzmark.m3u
+rm_file /Playlists/zzkept.m3u
+quit

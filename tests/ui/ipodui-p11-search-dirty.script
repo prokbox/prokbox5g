@@ -1,0 +1,29 @@
+# Phase 11 Search, DB state "dirty" (docs/phase11-brief.md section 6
+# item 10): after a power cut mid-commit the next boot rebuilds in the
+# background; Search works from the last loaded database meanwhile (or
+# says "Updating Library..." until one is loaded), and once the rebuilt
+# database commits, the open Search reloads its rows (one
+# lib_search_begin per commit, not per key) and its results stay.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p11-search-dirty.script
+# needs: library
+# golden: skip
+
+wait 4000
+wait_db 30000
+dirty_db            # the power cut mid-commit
+reboot
+
+wait 2000
+key SELECT          # Music
+wait 800
+wheel +8 300        # "Search"
+wait 400
+key SELECT
+wait 800
+type h
+wait 600
+shot during         # results, or Updating Library... while none is loaded
+wait_db 45000
+wait 2500           # the commit's new generation: rows reloaded
+shot after          # Results for: h, rows
+quit

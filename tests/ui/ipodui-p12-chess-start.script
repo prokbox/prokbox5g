@@ -1,0 +1,40 @@
+# #132 (docs/design/sdk.md 13.5): Extras > Games lists Chess between Bricks
+# and Chute, its cover in the panel; SELECT opens a new game from White's
+# side at Medium: the cursor on e2. SELECT picks the pawn up (its squares
+# marked), the wheel steps through those squares only (e3, then e4),
+# SELECT plays e4, and the engine answers within the level's time.
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-chess-start.script
+# needs: modules
+# reset: mainmenu
+# log: sdk chess new game side=0 level=1
+# log: sdk wheel pos chess
+# log: sdk chess engine d=
+# nolog: sdk viol chess
+# nolog: sdk kill chess
+
+wait 4000
+sdk_clear            # a fresh game (the simulator seeds from a fixed value)
+wheel +2             # Extras
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Games
+wait 600
+key SELECT
+wait 1200
+wheel +1             # Chess, below Bricks
+wait 800
+shot games           # the Games list: the Chess cover in the panel
+key SELECT
+wait 1000
+shot start           # the board, the cursor on e2, "Your Move"
+key SELECT           # pick up the e2 pawn
+wait 400
+shot picked          # e2 lit, e3 and e4 marked
+wheel -2 300         # e3, then e4
+wait 400
+shot to_e4
+key SELECT           # e4
+wait 2500            # the engine's reply (Medium, depth 4)
+shot replied         # its move marked, your move again
+quit

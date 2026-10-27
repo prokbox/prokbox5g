@@ -58,6 +58,13 @@
 #define PRIORITY_PLAYBACK_MAX    5   /* Maximum allowable playback priority */
 #define PRIORITY_SYSTEM          18  /* All other firmware threads */
 #define PRIORITY_BACKGROUND      20  /* Normal application threads */
+#ifdef HAVE_SCHED_BANDS
+/* ProkBox (Fit-1 C2): fixed bands, no dynamic codec boost; time-bounded
+ * aging (sched_age.h) keeps every lower band within 20 ms of a slice.
+ * Order: codec > video feed > buffering/audio (15) > UI (16). */
+#define PRIORITY_CODEC           13  /* codec thread, always */
+#define PRIORITY_VIDEO_FEED      14  /* the video player's feed thread */
+#endif
 #define NUM_PRIORITIES           32
 #define PRIORITY_IDLE            32  /* Priority representative of no tasks */
 

@@ -80,4 +80,15 @@ void pcmbuf_sync_position_update(void);
 bool pcmbuf_is_lowdata(void);
 void pcmbuf_set_low_latency(bool state);
 
+#ifdef HAVE_BCMFW_VIDEO
+unsigned long pcmbuf_underruns(void);
+#endif
+#ifdef HAVE_IPOD_UI
+/* times the playing PCM fell under the boost watermark (S36, C6) */
+unsigned long pcmbuf_rescues(void);
+/* P19 19-1c (D): how long the codec may sleep on a full buffer, in ticks:
+ * until the level drains to the low watermark (codec_place_core.c) */
+long pcmbuf_full_wait_ticks(void);
+#endif
+
 #endif /* PCMBUF_H */

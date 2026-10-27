@@ -1,0 +1,62 @@
+# Phase 8b-3 (docs/phase8b-brief.md 4.3, 7): every Settings row's panel
+# for the side-by-sides against the owner's settings-NN-*.jpg photos
+# (tests/review/p8b-sxs.txt): metallic tiles on the reflective surface,
+# the Date & Time calendar page (no tile), the capacity capsule, the
+# split shadow at the seam. The panel clock is pinned (Tuesday 6 Oct).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p8b-settings.script
+
+wait 4000            # boot to the main menu
+wheel +3             # Settings
+wait 400
+key SELECT
+wait 1500
+shot about
+wheel +1 300
+wait 900
+shot shuffle
+wheel +1 300
+wait 900
+shot repeat
+wheel +1 300
+wait 900
+shot main_menu
+wheel +1 300
+wait 900
+shot music_menu
+wheel +1 300
+wait 900
+shot volume_limit
+wheel +1 300
+wait 900
+shot backlight
+wheel +1 300
+wait 900
+shot brightness
+wheel +1 300
+wait 900
+shot audiobooks
+wheel +1 300
+wait 900
+shot eq
+wheel +1 300
+wait 900
+shot sound_check
+wheel +1 300
+wait 900
+shot clicker
+wheel +1 300
+wait 900
+shot date_time
+wheel +1 300
+wait 900
+shot sort_by
+wheel +1 300
+wait 900
+shot language
+wheel +1 300
+wait 900
+shot legal
+wheel +1 300
+wait 900
+shot reset_settings
+quit

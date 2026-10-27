@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2002 by Linus Nielsen Feltzing
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -124,6 +125,9 @@ enum
     USB_REQUEST_REBOOT,      /* Event */
 #endif
     USB_QUIT,                /* Event */
+#if defined(IAP_LAZY_THREAD) && !defined(BOOTLOADER)
+    USB_IAP_BRINGUP,         /* Event - ProkBox: iap_bringup() (iap.h) */
+#endif
 #if defined(HAVE_USB_CHARGING_ENABLE) && defined(HAVE_USBSTACK)
     USB_CHARGER_UPDATE,      /* Event */
 #endif
@@ -200,6 +204,11 @@ int usb_wait_for_disconnect_w_tmo(struct event_queue *q, int ticks);
 /* check whether USB is plugged, note that this is the official value which has
  * been reported to the thread */
 bool usb_inserted(void);
+#ifdef HAVE_IPOD_UI
+/* ProkBox: a host (not a charger) has addressed the device and storage
+ * may be handed to it; usb_inserted() is also true on VBUS alone */
+bool usb_storage_host_present(void);
+#endif
 /* check whether USB is plugged, note that this is the raw hardware value */
 int usb_detect(void);
 #ifdef USB_STATUS_BY_EVENT
@@ -255,6 +264,23 @@ static inline void usb_signal_class_notify(int8_t class_num, uint32_t data) {
 bool usb_driver_enabled(int driver);
 /* returns whether exclusive storage is available for USB */
 bool usb_exclusive_storage(void);
+#ifdef HAVE_USB_STATS
+/* ProkBox (#81): the latest storage handover, in ticks (0: not yet) */
+struct usb_handover_info {
+    long req;           /* exclusive storage asked for (SET_CONFIGURATION) */
+    long last_ack;      /* the latest acknowledgement of that request */
+    long ok;            /* granted (all acknowledged, host present) */
+    int acks;           /* acknowledgements it waited for */
+    int pending;        /* still missing now */
+    int n;              /* requests since boot */
+    int late;           /* acknowledgements of an older request, ignored */
+#define USB_HANDOVER_ACKERS 8
+    int ack_n;          /* acknowledgements sent for this request */
+    unsigned int acker[USB_HANDOVER_ACKERS];    /* their threads, in order */
+    long acker_at[USB_HANDOVER_ACKERS];         /* and when (ticks) */
+};
+void usb_get_handover_info(struct usb_handover_info *out);
+#endif
 #endif /* HAVE_USBSTACK */
 
 /* broadcast usb insertion event to enable exclusive storage */

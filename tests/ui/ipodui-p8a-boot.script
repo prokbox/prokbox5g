@@ -1,0 +1,24 @@
+# Phase 8a (docs/phase8a-brief.md 3.1, 7.2, 8): the boot hand-off. The sim's
+# show_logo_boot() draws the boot screen (bootscreen_draw()) and calls
+# sim_capture_screen("boot-fw"), which writes boot-fw.png the moment it is
+# on the LCD; the first shell frame follows.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p8a-boot.script
+# boot_shot
+# needs: library
+# trace: boot
+# nolog: splash-pass
+# golden: skip first
+#
+# Needs P: "ipodui: boot screen gen=<hex>" from apps/main.c, the committed
+# firmware/export/bootscreen_data.h (BOOTSCREEN_GEN) and the capture call.
+# check_trace.py's p8a-boot rule: exactly one gen line, equal to
+# BOOTSCREEN_GEN. boot-fw.png is a golden candidate (the golden loop
+# compares it like any shot); the review sheet is
+# tests/review/p8a-sheets.sh: [boot-bl (host) | boot-fw (sim) | diff (must
+# be empty) | first shell frame], and boot.mp4 comes from the "record"
+# below (frames from power-on; scripts/make_video.sh).
+
+record 3000 15 boot     # the script thread starts with the sim: power-on
+wait 1500
+shot first              # the first shell frame (main menu)
+quit

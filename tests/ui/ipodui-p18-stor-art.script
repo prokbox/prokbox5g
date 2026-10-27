@@ -1,0 +1,37 @@
+# #114: Now Playing and its art opened while the adapter is powered off:
+# the art read powers it up transparently; the screen shows the cover.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p18-stor-art.script
+# needs: music
+# needs: np
+# golden: skip nowplaying
+# fulls-extra: 1   (the main menu gains its Now Playing row at play_files)
+# timeout: 120
+# log: stor pwr off ms=
+# log: reason=access
+# nolog: pcm underrun
+# nolog: splash-pass
+
+wait 3000
+mkdir /StorArt
+copy ../../build/np-fixtures/art_23.mp3 /StorArt/art.mp3
+update_db_wait 30000
+art_wait 60000
+play_files /StorArt/art.mp3
+stor_tune 2000 1000
+wait 1000
+stor_expect off 20000
+stor_mark
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 3000
+shot nowplaying
+stor_status
+expect_playing 500
+key MENU
+wait 500
+audio_stop
+wait 500
+remove /StorArt/art.mp3
+update_db_wait 30000
+quit

@@ -1,0 +1,78 @@
+# #109 H2 (docs/design/queue-by-index.md 4.2.2-3, 7): a renumbering
+# commit under a database queue whose current position has history
+# behind it. The whole Songs list plays, six songs in; a fixture sorting
+# into the first scanned folder is added and the library rebuilt
+# (renumbered): the rebase covers every slot (history included) and the
+# block goes SEEK, then PATH (dbqpath.dat). After a restart PREV three
+# times walks back through the history slots: every name resolves (no
+# lost or io miss) and playback never stops.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-dbq-rebase-history.script
+# needs: library
+# timeout: 400
+# golden: skip back3
+# log: dbq rebase block=
+# log: result=seek
+# log: dbq materialize n=
+# log: dbq resume n=
+# nolog: why=lost
+# nolog: why=io
+# nolog: dbq resume fail
+# nolog: lib play fail
+# nolog: splash-pass
+
+wait 4000
+wait_db 30000
+rm_file /Audiobooks/0-dbq-h2.mp3    # leftover of a cut run (if any)
+key SELECT          # Music
+wait 1000
+wheel -10 100
+wait 300
+wheel +3 300        # Songs
+wait 600
+key SELECT
+wait 1500
+key SELECT          # row 0: the whole list (dbq build)
+wait 2000
+expect_playing 300
+key NEXT
+wait 500
+key NEXT
+wait 500
+key NEXT
+wait 500
+key NEXT
+wait 500
+key NEXT
+wait 500
+key NEXT            # the 7th song: six history slots
+wait 1500
+expect_playing 300
+key PLAY            # pause (the resume point is written)
+wait 800
+audio_stop
+wait 500
+copy fixtures/refresh.mp3 /Audiobooks/0-dbq-h2.mp3
+rebuild_db 180000   # renumbers: rebase -> SEEK -> materialize -> PATH
+wait 3000
+reboot
+
+wait 4000
+wait_db 30000
+key PLAY            # resume the same queue at the 7th song
+wait 1500
+expect_playing 500
+key PREV
+wait 300
+key PREV            # back to the song's start, then the history slots
+wait 800
+key PREV
+wait 800
+key PREV
+wait 1500
+expect_playing 1000
+shot back3
+audio_stop
+wait 500
+rm_file /Audiobooks/0-dbq-h2.mp3
+update_db_wait_change 60000
+quit

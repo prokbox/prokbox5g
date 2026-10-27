@@ -52,6 +52,15 @@ void buffering_init(void) INIT_ATTR;
 
 /* Reset the buffering system */
 bool buffering_reset(char *buf, size_t buflen);
+#ifdef HAVE_IPOD_UI
+bool buffering_is_filling(void);    /* npfix: a fill under way */
+#endif
+
+#ifdef HAVE_IPOD_UI
+/* ProkBox P18: sleep entry holds background fills (true), the wake or an
+ * abandoned entry releases them (false); UI thread */
+void buffering_sleep_hold(bool hold);
+#endif
 
 
 /***************************************************************************
@@ -82,6 +91,9 @@ off_t bufftell(int handle_id);
 ssize_t bufread(int handle_id, size_t size, void *dest);
 off_t bufstripsize(int handle_id, off_t size);
 ssize_t bufgetdata(int handle_id, size_t size, void **data);
+#ifdef HAVE_BCMFW_VIDEO
+ssize_t bufpeek_at(int handle_id, off_t file_pos, size_t size, void *dest);
+#endif
 
 /***************************************************************************
  * SECONDARY FUNCTIONS

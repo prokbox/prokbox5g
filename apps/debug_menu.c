@@ -1980,7 +1980,15 @@ static int database_callback(int btn, struct gui_synclist *lists)
              stat->initialized ? "Yes" : "No");
     simplelist_addline("DB %s: %s", "Ready",
              stat->ready ? "Yes" : "No");
+#ifdef HAVE_IPOD_UI
+    /* the hidden system folder is never named on screen, debug screens
+     * included: the path from inside it */
+    simplelist_addline("DB Path: %s", stat->db_path +
+             (strncmp(stat->db_path, ROCKBOX_DIR, sizeof(ROCKBOX_DIR) - 1)
+              ? 0 : sizeof(ROCKBOX_DIR) - 1));
+#else
     simplelist_addline("DB Path: %s", stat->db_path);
+#endif
     simplelist_addline("RAM Cache: %s",
              stat->ramcache ? "Yes" : "No");
     simplelist_addline("RAM: %d/%d B",
@@ -2507,6 +2515,7 @@ static bool dbg_scrollwheel(void)
 }
 #endif
 
+#ifndef IPODUI_TRIM_VOICE
 static bool dbg_talk(void)
 {
     struct simplelist_info list;
@@ -2552,6 +2561,7 @@ static bool dbg_talk(void)
 
     return simplelist_show_list(&list);
 }
+#endif /* !IPODUI_TRIM_VOICE */
 
 #ifdef HAVE_USBSTACK
 #if (defined(ROCKBOX_HAS_LOGF) && defined(USB_ENABLE_SERIAL))
@@ -2958,7 +2968,9 @@ static const struct {
 #ifndef APPLICATION
         { "Screendump", dbg_screendump },
 #endif
+#ifndef IPODUI_TRIM_SKIN /* P9: no skin engine in the shell */
         { "Skin Engine RAM usage", dbg_skin_engine },
+#endif
 #if ((CONFIG_PLATFORM & PLATFORM_NATIVE) || defined(SONY_NWZ_LINUX) || defined(HIBY_LINUX) || defined(FIIO_M3K_LINUX)) && !defined(SIMULATOR)
         { "View HW info", dbg_hw_info },
 #endif
@@ -3027,7 +3039,9 @@ static const struct {
 #if defined(IPOD_ACCESSORY_PROTOCOL)
         {"Debug IAP", dbg_iap },
 #endif
+#ifndef IPODUI_TRIM_VOICE /* P9: no voice engine in the shell */
         {"Talk engine stats", dbg_talk },
+#endif
 #if defined(HAVE_BOOTDATA) && !defined(SIMULATOR)
         {"Boot data", dbg_boot_data },
 #endif
@@ -3054,6 +3068,7 @@ static int menu_action_callback(int btn, struct gui_synclist *lists)
         FOR_NB_SCREENS(i)
             viewportmanager_theme_undo(i, false);
     }
+#ifndef IPODUI_TRIM_BROWSER /* P9: no shortcuts (favourites) in the shell */
     else if (btn == ACTION_STD_CONTEXT)
     {
         MENUITEM_STRINGLIST(menu_items, "Debug", NULL, ID2P(LANG_ADD_TO_FAVES));
@@ -3061,6 +3076,7 @@ static int menu_action_callback(int btn, struct gui_synclist *lists)
             shortcuts_add(SHORTCUT_DEBUGITEM, menuitems[selection].desc);
         return ACTION_STD_CANCEL;
     }
+#endif
     return btn;
 }
 

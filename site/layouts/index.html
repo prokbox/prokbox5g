@@ -1,0 +1,27 @@
+{{ define "bodyclass" }}home{{ end }}
+{{ define "main" }}
+<main id="main">
+  <section class="hero">
+    <div class="wrap hero-grid">
+      <div>
+        <p class="eyebrow">Free firmware for the iPod Video · pre-release {{ site.Params.version }}</p>
+        <h1>{{ with .Params.headline }}{{ . }}{{ else }}{{ site.Title }}{{ end }}</h1>
+        {{ with .Params.lede }}<p class="lede">{{ . }}</p>{{ end }}
+        <p class="actions">
+          {{ with site.GetPage "/guide" }}<a class="btn primary" href="{{ .RelPermalink }}">Read the guide</a>{{ end }}
+          <a class="btn" href="{{ site.Params.releases }}">Download</a>
+          <a class="btn ghost" href="{{ site.Params.repo }}">Source code</a>
+        </p>
+      </div>
+      {{ with .Params.hero_image }}<figure class="device"><img src="{{ . | relURL }}" alt="{{ $.Params.hero_alt }}" width="320" height="240"></figure>
+      {{ else }}<figure class="device" aria-hidden="true"><div class="body"><div class="screen"><div class="hdr">ProkBox</div><span class="sel">Music</span><span>Audiobooks</span><span>Videos</span><span>Extras</span><span>Settings</span><span>Shuffle Songs</span></div><div class="wheel"><i></i></div></div></figure>{{ end }}
+    </div>
+  </section>
+  {{ with .Params.features }}
+  <section class="features"><div class="wrap"><ul>
+    {{ range . }}<li><strong>{{ .title }}</strong><span>{{ .text }}</span></li>{{ end }}
+  </ul></div></section>
+  {{ end }}
+  <section class="home-body"><div class="wrap article" data-pagefind-body>{{ .Content }}</div></section>
+</main>
+{{ end }}

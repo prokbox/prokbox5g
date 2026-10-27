@@ -1,0 +1,28 @@
+# Phase 4b-1 end-review fix (LOW 2): a power-off the art builder heard
+# but that was then aborted (misc.c clean_shutdown() refuses while the
+# database is busy, and calls cancel_shutdown()) must not stop the
+# builder until the next reboot. The builder stops at the power-off
+# (closes its fds) and, still alive STOP_HOLD (25 s) later, takes it as
+# aborted and builds again: "art build resume power-off aborted". Before
+# the fix 'stopped' was never cleared, so this build never ran and
+# art_wait timed out. "art_poweroff_abort" posts SYS_POWEROFF to the
+# builder's queue only: nothing else shuts down.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p4b1-art-offabort.script
+# needs: library
+# golden: skip resumed
+
+wait 1000
+wait_db 30000
+art_wait 120000     # a complete cache
+art_poweroff_abort  # the builder stops, closing its fds
+rm_file /.rockbox/artcache/index.dat
+rm_file /.rockbox/artcache/index.prev
+rm_file /.rockbox/artcache/index.tmp
+rm_file /.rockbox/artcache/thumbs.pak
+art_request         # remembered, not run while stopped
+wait 2000
+art_wait 40000      # not idle while stopped: resumes ~25 s after the
+                    # power-off, then builds every album again
+expect_art art_manifest.txt
+shot resumed
+quit

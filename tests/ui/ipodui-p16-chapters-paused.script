@@ -1,0 +1,50 @@
+# Phase 16-1 (#88): the chapter-image books that waited for a stop
+# (artcache.c CHAP_LATER, ipodui-art-chap-paused) build inside the paused
+# window instead: paused and dark but young, the book with images waits
+# ("rc=-6"); once the pause is 3 min old (pause_age) the window opens,
+# the builder is woken, the book is built with its chapter block taken
+# inside the window, and the queue is still paused, never stopped.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-chapters-paused.script
+# needs: library
+# golden: skip
+# log: rc=-6
+# log: maint window open
+# logbetween: p0 p1 maint window open
+# logbetween: p0 p1 art chapter block window bytes=
+# logbetween: p0 p1 chapters=4 images=4 bundles=1 recs=3 rc=0
+# logbetween: p0 p1 maint job=chapters ok=1
+# logbetween: start p0 no chapters=4 images=4 bundles=1
+# nolog: art retry
+# nolog: art fail
+# nolog: art chap fail
+# fulls-extra: 1   (the main menu gains its Now Playing row at play_files)
+# timeout: 240
+
+wait 1000
+wait_db 30000
+mkdir /Audiobooks/C16A
+copy ../../tests/fixtures/plain.mp3 /Audiobooks/C16A/plain.mp3
+mkdir /Audiobooks/C16B
+copy ../../tests/fixtures/rich_chapters.m4b /Audiobooks/C16B/rich.m4b
+update_db_wait_change 60000
+play_files /Audiobooks/C16A/plain.mp3   # the pass waits ("lit")
+wait 1500
+snapshot_pause
+expect_paused 500
+backlight_expire    # idle: the pass runs, the image book waits (young)
+art_wait 120000
+ab_mark p0
+pause_age 200       # the window opens at the next poll
+wait 2500
+art_wait 120000
+expect_paused 500   # never stopped
+ab_mark p1
+shot built
+key MENU            # the user is back: the face goes
+wait 1000
+rm_file /Audiobooks/C16A/plain.mp3
+rm_file /Audiobooks/C16B/rich.m4b
+update_db_wait_change 90000   # lands in the window once dark again
+key MENU
+wait 1000
+quit

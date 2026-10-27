@@ -1,0 +1,134 @@
+# P19 19-6, the end state (album-render.md sections 6 and 14): np-sharp's
+# 300 x 300 panel stays resident on the BCM.  The model offers DECODE
+# (bcm_decode panel) and the drift's jobs (bcm_drift on), the screen is lit:
+#  m1-m2  the Now Playing row shows the stretched thumbnail; paused and
+#         idle, the panel decodes into a J_CLS_DRIFT slot, which becomes
+#         the resident panel; the row swaps to its BLIT (the glass is the
+#         model's) and the file's read-back waits (read=later): nothing is
+#         read back while the row shows it;
+#  m2-m3  off the row (settled: the CPU's own picture), the background
+#         read-back writes npcover.pak from the slot (a hit: no second
+#         decode), bit for bit the CPU's panel (crc=5ac79827);
+#  m3-m4  back on the row from the Shuffle Songs slideshow: it slides out
+#         over the CPU's picture (the spec's slideshow-to-fixed slide),
+#         then the row swaps to the slot's BLIT; arriving by a fade (m1-m2,
+#         when the render lands) it is the BCM's FADE to the slot, nothing
+#         read on the UI's path;
+#  m4-m5  a cut (a new epoch) loses the slot and the merged image's
+#         DECODE overlay: the re-decode (why=resident) loads the overlay
+#         again (the art thread reads, the pass puts it), the BCM
+#         decodes it again (nothing written, nothing uploaded) and the row
+#         swaps to it;
+#  m5-m6  another album: the old resident leaves the pool first.
+# The proof lines: "FAULT art bcm read off thread|while shown" never.
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p19-panel-resident.script
+# env: IPODUI_NP_NO_PANEL=built
+# reset: mainmenu
+# needs: library
+# needs: np
+# needs: video
+# golden: skip
+# fulls-extra: 1 the main menu's Now Playing row appears (play_files)
+# logbetween: m1 m2 art bcm decode key=6a1b2f700f283f50 dw=534 dh=300 cw=300 ch=300 rc=0 v=0
+# logbetween: m1 m2 art bcm resident key=6a1b2f700f283f50
+# logbetween: m1 m2 art panel bcm dec_ms=\d+ read=later
+# logbetween: m1 m2 no art panel crc key=6a1b2f700f283f50 crc=\w+ bcm=1
+# logbetween: m1 m2 panel resident set key=6a1b2f700f283f50
+# logbetween: m1 m2 panel nowplaying resident key=6a1b2f700f283f50 how=(swap|fade)
+# logbetween: m2 m3 panel nowplaying resident settle key=6a1b2f700f283f50
+# logbetween: m2 m3 art panel crc key=6a1b2f700f283f50 crc=5ac79827 bcm=1
+# logbetween: m2 m3 art npcover build key=6a1b2f700f283f50 slot=0 state=1
+# logbetween: m1 m2 panel nowplaying resident key=6a1b2f700f283f50 how=fade step=6
+# logbetween: m3 m4 panel nowplaying resident key=6a1b2f700f283f50 how=swap
+# logbetween: m4 m5 nowplaying resident lost epoch=\d+
+# logbetween: start m1 bcmjob overlay load k=1 bytes=23884 at=0012b000
+# logbetween: m4 m5 bcmjob overlay load k=1 bytes=23884 at=0012b000 epoch=\d+
+# logbetween: m4 m5 art bcm overlay load by=art pieces=\d ok=1
+# logbetween: m4 m5 art npcover queue key=6a1b2f700f283f50 why=resident
+# logbetween: m4 m5 art npcover resident key=6a1b2f700f283f50 from=npcover ok=1
+# logbetween: m4 m5 art panel resident dec_ms=\d+
+# logbetween: m4 m5 panel nowplaying resident key=6a1b2f700f283f50 how=swap
+# logbetween: m5 m6 drift resident drop key=6a1b2f700f283f50
+# logbetween: m5 m6 panel resident set key=d041e5ce04cedfc7
+# nolog: FAULT art bcm read
+# nolog: art bcm readback bad
+# nolog: FAULT bcm decode overlay
+# nolog: bcmjob decode why=nowork
+# nolog: bcmjob fault op=0x30
+# nolog: glass owned STALE
+# nolog: shot POISONED
+# nolog: drift job fault
+# timeout: 300
+
+wait 1000
+bcm_decode panel    # (the model starts with the shell; the panel too)
+bcm_drift on
+wait_db 30000
+sim_clock 15:04
+clock_format 24
+battery 100
+charger off
+repeat one
+rm_file /.rockbox/artcache/index.dat     # every album's art again (the
+rm_file /.rockbox/artcache/index.prev    # fixtures' albums are in it)
+mkdir /NPDec
+copy ../../build/np-fixtures/art_169.mp3 /NPDec/art_169.mp3
+copy ../../build/np-fixtures/art_big.mp3 /NPDec/art_big.mp3
+update_db_wait_change 60000
+art_wait 240000
+play_files /NPDec/art_169.mp3
+wait 1000
+np_pin 3000 50
+key SELECT          # Music (the menu re-reads "Now Playing" after a push/pop)
+wait 700
+key MENU
+wait 700
+wheel +10 100       # Now Playing: none built, the thumbnail, queued
+disk_active 3000
+wait 2000
+shot row_thumb_169
+ab_mark m1
+audio_pause on      # paused, lit, idle: the decode on the BCM
+disk_active 8000
+wait 6000
+ab_mark m2
+shot row_resident_169
+wheel -1            # off the row: the read-back may run now
+wait 500
+disk_active 8000
+wait 6000
+ab_mark m3
+wheel +1            # back: the slide, then the swap to the slot
+wait 1500
+shot row_arrive_169
+ab_mark m4
+bcm_fault cut       # a new epoch: the slot is gone
+wait 2500
+disk_active 8000
+wait 6000
+shot row_redecoded_169
+ab_mark m5
+audio_stop
+wait 500
+play_files /NPDec/art_big.mp3
+wait 1000
+wheel -20 100       # to Music: audio_stop took the Now Playing row away
+                    # and the cursor fell to Shuffle Songs (SELECT there
+                    # shuffles the library instead of art_big)
+key SELECT
+wait 700
+key MENU
+wait 700
+wheel +10 100
+disk_active 3000
+wait 2000
+audio_pause on
+disk_active 8000
+wait 6000
+ab_mark m6
+shot row_resident_big
+audio_stop
+rm_file /NPDec/art_169.mp3      # leave the shared disk as primed
+rm_file /NPDec/art_big.mp3
+rm_file /.rockbox/artcache/npcover.pak
+quit

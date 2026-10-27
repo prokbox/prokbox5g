@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2006-2007 Robert Keevil
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -24,11 +25,21 @@
 #include "usb.h"
 #include "logf.h"
 #include "piezo.h"
+#include "xcore.h"
 
 static long piezo_stack[DEFAULT_STACK_SIZE/sizeof(long)];
 static const char piezo_thread_name[] = "piezo";
-static struct event_queue piezo_queue;
+/* posted by the UI (clicks) on either core (P19 S0: uncached under
+ * HAVE_COP_COHERENCE, xcore.h) */
+static struct event_queue piezo_queue XCORE_BSS;
+/* the click's length: written by the poster (the UI, on either core),
+ * read by the piezo thread on the CPU: uncached with the queue
+ * (ucop-fix, 2026-10-26), in builds that can put the UI on the COP */
+#ifdef HAVE_UI_THREAD_SPLIT
+static unsigned int duration XCORE_BSS;
+#else
 static unsigned int duration;
+#endif
 static bool beeping;
 
 enum {
@@ -192,6 +203,19 @@ void piezo_init(void)
             IF_COP(, CPU));
 }
 
+/* Click pulse (Phase 9, #23): the haptic clicker mod gets its own
+ * constants, equal to the piezo's until a device check sets them
+ * (P10 H8, V4). */
+#ifdef HAVE_IPOD_HAPTICS
+#define HAPTIC_TICK_INV_FREQ  91
+#define HAPTIC_TICK_FORM      0x80
+#define HAPTIC_TICK_USEC      4000
+#else
+#define HAPTIC_TICK_INV_FREQ  91
+#define HAPTIC_TICK_FORM      0x80
+#define HAPTIC_TICK_USEC      4000
+#endif
+
 void piezo_button_beep(bool beep, bool force)
 {
     /* old on clickwheel action - piezo_play_for_usec(50, 0x80, 400);
@@ -205,6 +229,7 @@ void piezo_button_beep(bool beep, bool force)
         if (beep)
             piezo_play_for_tick(40, 0x80, HZ/5);
         else
-            piezo_play_for_usec(91, 0x80, 4000);
+            piezo_play_for_usec(HAPTIC_TICK_INV_FREQ, HAPTIC_TICK_FORM,
+                                HAPTIC_TICK_USEC);
     }
 }

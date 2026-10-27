@@ -1,0 +1,77 @@
+# #58: Now Playing's snapshot must follow the track's database entry when
+# it arrives after the snapshot. A song chosen from a list pushes Now
+# Playing at once; the first snapshot can copy the placeholder id3
+# (tagcache_idx 0, rating 0) that TRACK_CHANGE installs before the track's
+# load copies the real one over it with no seq move. np_pb_entry_moved()
+# notices (np entry id=.. tc=0 -> N) and the screen re-snaps the same track
+# (identity: track id; validity: the entry), so the stars, the
+# audiobook/podcast class and the rating target are right from then on.
+# Here: the song is rated 3 stars, a second song is started from the list
+# (fresh snapshot race), then the first song is chosen again: its stars
+# show, and the rating written while the race window was open lands on the
+# right file. Before the fix the same-track re-snap left the screen's
+# rating at the placeholder's 0: the info stars stayed stale until some
+# other redraw and the Rating page started from no stars (the owner's
+# "stars keep disappearing").
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-fb-np-entry.script
+# needs: library
+# trace: np
+# golden: skip first_rated again_stars again_rating
+# log: np rating tc=18 stars=3 ok
+# The re-snap line ("np entry tc=18 stars=3") appears only when the race
+# is hit; since #109 queues by index the third play's snapshot usually
+# has the entry already, so the stars are checked on again_stars instead.
+wait 4000
+wait_db 30000
+sim_clock 15:08
+key SELECT          # Music
+wait 800
+wheel +1            # Artists
+wait 400
+key SELECT
+wait 800
+wheel +5 300        # The Bellwethers
+wait 1500
+key SELECT
+wait 800
+wheel +1            # Flock Together
+wait 400
+key SELECT
+wait 800
+key SELECT          # first song: Now Playing pushes at once
+wait 300
+key SELECT          # Scrubber
+wait 300
+key SELECT          # Rating, right away (the race window)
+wait 200
+wheel -6 100        # 0
+wheel +3 300        # 3 stars
+wait 300
+key SELECT          # rated: Normal, committed
+wait 1200
+shot first_rated
+key MENU            # back to the album
+wait 800
+wheel +1            # second song
+wait 400
+key SELECT
+wait 1500
+key MENU
+wait 800
+wheel -1            # the first song again
+wait 400
+key SELECT
+wait 1500
+shot again_stars    # 3 stars
+# leave the database as found
+key SELECT
+wait 300
+key SELECT          # Rating: the row starts from the 3 stars
+wait 600
+shot again_rating
+wheel -6 100
+wait 300
+key SELECT
+wait 1500
+audio_stop
+quit

@@ -1,0 +1,55 @@
+# P12 W1-F (docs/phase12-brief.md 3.2, 9 "-extras-list"): Main Menu >
+# Extras opens the resident Extras list: split, the eight Extras in stock
+# order (Clocks, Calendars, Contacts, Alarms, Games, Notes, Screen Lock,
+# Stopwatch; owner photos 1191/1197), each row's panel arriving after
+# the icon rest (Clocks: map + clock + date; Calendars: time, calendar
+# page, weekday; Contacts, Alarms, Notes, Screen Lock their icons,
+# -extras-icons; Stopwatch the dial). On
+# a resident build no game can run (L3), so the Games row is absent, as
+# on the 7G, which lists only what the unit has (-extras-games-row).
+# Calendars (W3-C, MOD_CALENDARS) opens its list: one
+# accountant line, no viol; MENU comes back to the list with the same
+# row, then to the main menu.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p12-extras-list.script
+# reset: mainmenu
+
+wait 4000            # boot to the main menu, "Music" selected
+sim_clock 15:06      # the panels' time and date (Oct 6 2026)
+wheel +2             # "Extras"
+wait 800
+shot mm_extras
+key SELECT
+wait 1200            # the push, then the Clocks row's panel
+shot clocks
+wheel +1
+wait 800
+shot calendars
+wheel +1
+wait 800
+shot contacts
+wheel +1
+wait 800
+shot alarms
+wheel +1             # row 5: Notes on a resident build (no Games row,
+wait 800             # L3), Games in a module build
+shot row5
+wheel +1
+wait 800
+shot row6
+wheel +1
+wait 800
+shot row7            # Stopwatch (resident), Screen Lock (modules)
+wheel -10            # the top (Clocks; the list does not wrap)
+wait 600
+wheel +1             # "Calendars"
+wait 800
+key SELECT
+wait 1000
+shot calendars_open  # the Calendars module's first screen
+key MENU
+wait 1000
+shot back_list       # the list again, Calendars still selected
+key MENU
+wait 1000
+shot back_main
+quit

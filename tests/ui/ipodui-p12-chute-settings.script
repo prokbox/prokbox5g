@@ -1,0 +1,41 @@
+# P12 W4 (docs/design/sdk.md 9, 13.3): Chute's Settings: Speed
+# (Slow, Normal, Fast; Normal by default). SELECT steps it to Fast; MENU
+# comes back to the pause menu; New Game starts at the faster beat.
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-chute-settings.script
+# needs: modules
+# reset: mainmenu
+
+wait 4000
+sdk_clear            # a fresh game
+wheel +2             # Extras
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Games
+wait 600
+key SELECT
+wait 1200
+wheel +2             # Chute, below Bricks and Chess
+wait 600
+key SELECT           # Chute
+wait 800
+key MENU             # the pause menu
+wait 600
+shot paused
+wheel +2 300         # Settings
+wait 400
+key SELECT
+wait 1200
+shot settings
+key SELECT           # Speed: Fast
+wait 600
+shot fast
+key MENU             # back: the pause menu again
+wait 1200
+shot back
+wheel +1 300         # New Game
+wait 400
+key SELECT
+wait 2000
+shot fast_game
+quit

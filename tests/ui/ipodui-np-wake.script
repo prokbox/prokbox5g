@@ -1,0 +1,52 @@
+# #58 device report (owner, 2026-10-10): after a while listening with the
+# screen dark (several track changes while dark), the wake press showed
+# Now Playing with the song from before the screen slept, for ~5 s,
+# before it caught up. Now Playing plays a queue of short library tracks
+# (2-5 s, a different album and cover each); the backlight times out
+# (the unlit face), at least two tracks change while dark, then SELECT
+# wakes it. From the first lit frame the screen must show the playing
+# track: its title and art (np-wake rule in check_trace.py: the first
+# np:body push after "unlit exit" carries the id of the last "np snap").
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-np-wake.script
+# needs: library
+# trace: np
+# np-wake
+# log: unlit enter
+# log: unlit exit key
+# nolog: splash-pass
+# fulls-extra: 2   (the main menu gains its Now Playing row at play_files and loses it at audio_stop)
+# golden: skip before face wake_100 wake_500 wake_1000
+# timeout: 120
+
+wait 1000
+wait_db 30000
+art_wait 60000
+charger off
+repeat off
+play_files /Library/The%20Bellwethers/Flock%20Together/04%20Upper%20Echo.mp3 /Library/Basalt/Columns/01%20Narrow%20Echo.mp3 /Library/Mosaic%20Unit/Tesserae/01%20Quiet%20Meadow.mp3
+wait 300
+key SELECT          # Music
+wait 300
+key MENU            # back: the main menu gains its Now Playing row
+wait 400
+wheel +10           # "Now Playing"
+wait 300
+key SELECT
+wait 700
+shot before         # Now Playing, lit, track 1
+backlight_expire
+wait_index 3 60000  # tracks 2 and 3 start while dark
+wait 300
+shot face
+key SELECT          # wakes: dismissed and swallowed
+wait 100
+shot wake_100
+wait 400
+shot wake_500
+wait 500
+shot wake_1000
+key MENU
+wait 500
+audio_stop
+wait 500
+quit

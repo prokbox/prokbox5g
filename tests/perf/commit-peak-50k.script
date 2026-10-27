@@ -1,0 +1,17 @@
+# Commit peak memory per phase (Phase 16-0): the free core heap while a
+# 50k library update commits (audio stopped, so nothing is borrowed from
+# playback). "floor_tl ms= free= audio=" lines mark each 256 KB move of the
+# free heap; the tagcache lines around them in sim.log name the phase
+# (scan, "commit of N entries needs", "numeric indices", "committed in",
+# "RAM cache"). Run through tests/perf/commit_peak.sh.
+# golden: skip published
+wait 4000
+wait_db 300000
+snapshot_stress_begin
+floor_watch begin timeline
+copy ../../tests/ui/fixtures/refresh.mp3 /zz-commit-peak.mp3
+update_db
+expect_snapshot_stress_switch 300000
+floor_watch end commit_peak free
+shot published
+quit

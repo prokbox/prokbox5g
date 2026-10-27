@@ -1,0 +1,71 @@
+# Phase 14a (#64, docs/phase14a-brief.md 7 A2): Video playback: pictures, pause overlay, MENU, resume
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p14a-play.script
+# (ipodui-p14a-* default to build/sim-ui-video; the gate runs them there)
+# needs: video
+#
+# Disk: tests/fixtures/videos/mkvideos.sh (installed by the gate's prime
+# step, or by shots.sh for a standalone run):
+#   Movies/        Audio First  High Profile  Late Chapter  Short Film
+#   TV Shows/      Show A (S1 x2, S2 x2, tagged)  Show B (S1 x2, untagged)
+#   Misc/          Show.C.S01E02.m4v  S01E03.m4v (nameless)
+#   Podcasts/Pod One/  Audio Episode.m4a  Video Episode.m4v
+#   Music/         Fixture Singer/Audio Only.mp4 (a song)
+#                  Fixture Author/Image Book.m4b (a book)
+# Main menu with Videos on (T1 default): Music, Videos, Podcasts, Extras,
+# Settings, Shuffle Songs. Videos: Movies, TV Shows, Settings.
+
+# golden: skip playing playing_video paused overlay list_after reopened
+# trace: video
+# Videos > Movies > Short Film (13 s, 3 chapters). Resume is the audio's
+# position (existing autoresume), within 1 s.
+wait 4000
+wait_db 45000
+art_wait 60000
+repeat off
+# a song plays first: opening a movie stops it before the player takes its
+# block (no core_alloc under other audio, end review M1)
+wheel +5 300        # Shuffle Songs
+wait 400
+key SELECT
+wait_pos 500 20000
+key MENU            # back to the main menu, the song playing
+wait 900
+wheel -4 300        # Videos
+wait 600
+key SELECT
+wait 900
+key SELECT          # Movies
+wait 1200
+wheel +3 300        # Short Film (last of 4: Audio First, High Profile, Late Chapter)
+wait 400
+key SELECT
+wait_pos 3000 30000 Film.m4v
+expect_video 30 playing     # at least 30 pictures went up, no errors
+video_shot playing_video
+shot playing
+key PLAY            # pause
+wait 600
+expect_paused 400
+key SELECT          # the pause brought the strip up: SELECT scrubs
+wait 700
+video_shot paused
+shot overlay
+key SELECT
+wait 300
+key PLAY            # resume
+wait_pos 4000 30000 Film.m4v
+audio_pause on
+wait 300
+key MENU            # stop with the resume position kept
+wait 1500
+shot list_after
+expect_video 0 none
+
+key SELECT          # reopen (the list still has Short Film selected)
+wait 700
+expect_pos 3000 5400        # resumed near 4.0-4.3 s (from 0 it would be < 1 s)
+wait 1800
+expect_video 5 playing
+video_shot reopened
+key MENU
+wait 1200

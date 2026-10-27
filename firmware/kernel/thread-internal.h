@@ -121,6 +121,10 @@ struct thread_entry
                                     base priority */
     int skip_count;              /* Number of times skipped if higher priority
                                     thread was running */
+#ifdef HAVE_SCHED_BANDS
+    long ready_tick;             /* ProkBox: tick it last ran or became
+                                    runnable (time-bounded aging) */
+#endif
     unsigned char base_priority; /* Base priority (set explicitly during
                                   creation or thread_set_priority) */
     unsigned char priority;      /* Scheduled priority (higher of base or

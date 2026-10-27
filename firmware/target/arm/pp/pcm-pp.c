@@ -27,6 +27,7 @@
 #include "pcm_sampr.h"
 #include "pcm-internal.h"
 #include "pcm_sink.h"
+#include "devstats.h"   /* Fit-3 step 0: empty unless HAVE_DEVSTATS */
 
 /** DMA **/
 
@@ -213,7 +214,13 @@ void fiq_playback(void)
     }
     else if (pcm_play_dma_complete_callback(PCM_DMAST_OK, &dma_play_data.p_r,
                                             &dma_play_data.size)) {
+#ifdef HAVE_DEVSTATS
+        uint32_t ds_t0 = USEC_TIMER;    /* the write-back: adds only */
+#endif
         dma_play_data.addr = dma_tx_buf_prepare(dma_play_data.p_r);
+#ifdef HAVE_DEVSTATS
+        DEVSTATS_PCM_WB(USEC_TIMER - ds_t0);
+#endif
         dma_tx_start(false);
         pcm_play_dma_status_callback(PCM_DMAST_STARTED);
     }

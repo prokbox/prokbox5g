@@ -1,0 +1,15 @@
+# Boot battery guard: a flat cell with the charger present boots as
+# always, to the charging flow (the shell; Hold PLAY then sleeps it). The
+# sim boots at 3,250 mV, under the 3,400 mV floor, with the charger
+# plugged (IPODUI_SIM_CHARGER=1, powermgmt-sim.c).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-bootbatt-charger.script
+# env: IPODUI_SIM_BATT_MV=3250
+# env: IPODUI_SIM_CHARGER=1
+# golden: skip
+# log: bootbatt power mv=3250 thr=3400
+# nolog: bootbatt refuse
+# nolog: sys deadbatt
+# nolog: splash-pass
+
+wait 4000
+shot main_menu

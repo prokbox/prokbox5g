@@ -1,0 +1,19 @@
+# P18 18-A review: the LCD sleeps about 60 s after the backlight goes off
+# (the deadline-waiting backlight thread counts its timers by the ticks it
+# really waited; a timer started by the PWM fade's callback must not be
+# shortened by the wait before it). Fails if it sleeps before 59 s or is
+# still awake at 66 s.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p18a-lcd-sleep-timing.script
+# needs: library
+# timeout: 200
+# golden: skip asleep
+# nolog: splash-pass
+
+wait 4000
+wait_db 30000
+backlight_expire
+expect_lcd_sleep 59000 66000
+shot asleep
+key SELECT          # wake: the unlit face exits (check_trace pairs enter/exit)
+wait 1500
+quit

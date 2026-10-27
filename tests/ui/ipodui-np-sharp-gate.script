@@ -1,0 +1,78 @@
+# np-sharp: where the queued Now Playing cover may render (npr_place()).
+# The row queues it (why=row); then it waits, kept queued, through
+#  A. Now Playing up and lit (on a charger, the disk awake);
+#  B. the screen dark on a charger with the disk asleep (no spin-up of
+#     its own);
+#  C. dark playback on battery with the disk awake (P19 D-3);
+# and lands once on the charger, dark, with the disk awake (D).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-np-sharp-gate.script
+# env: IPODUI_NP_NO_PANEL=built
+# reset: mainmenu
+# needs: library
+# needs: np
+# trace: panelset
+# golden: skip
+# logbetween: start g0 art npcover queue key=\S+ why=row
+# logbetween: g0 g3 no art npcover build
+# logbetween: g0 end no art npcover drop
+# logbetween: g3 g4 art npcover build key=\S+ slot=0 state=1 ms=\d+
+# timeout: 300
+
+wait 1000
+wait_db 30000
+sim_clock 15:04
+clock_format 24
+battery 100
+charger off
+repeat one
+mkdir /NPSharp
+copy ../../build/np-fixtures/art_big.mp3 /NPSharp/art_big.mp3
+update_db_wait_change 60000
+art_wait 120000
+play_files /NPSharp/art_big.mp3
+wait 1000
+np_pin 3000 50
+key SELECT          # Music (the menu re-reads "Now Playing" after a push/pop)
+wait 700
+key MENU
+wait 700
+wheel +10 100       # Now Playing: none built, the thumbnail, queued
+disk_active 3000
+wait 2000
+ab_mark g0
+# A: Now Playing lit, on the charger, the disk awake (the charger after
+# the key: plugged on the idle, lit menu with the disk awake the render
+# may run there, which A is not about)
+key SELECT          # the Now Playing screen
+charger on
+play_files /NPSharp/art_big.mp3     # (its refill's wake now)
+wait 1000
+disk_active 5000
+wait 7000           # ... and on until the disk sleeps
+shot np_lit
+ab_mark g1
+# B: dark on the charger, the disk asleep
+backlight_expire
+wait 4000
+ab_mark g2
+# C: dark playback on battery, the disk awake
+charger off         # (a charger change lights the screen)
+wait 1500
+disk_active 5000
+backlight_expire
+wait 3000
+ab_mark g3
+# D: on the charger, dark, the disk awake: it lands
+charger on
+wait 1500
+disk_active 5000
+backlight_expire
+wait 4000
+ab_mark g4
+key MENU            # the unlit face away
+wait 1000
+charger off
+audio_stop
+rm_file /NPSharp/art_big.mp3    # leave the shared disk as primed
+rm_file /.rockbox/artcache/npcover.pak
+quit

@@ -1,0 +1,39 @@
+# Phase 16-1 (#88, Q1): the paused maintenance window opens only after
+# the queue has been paused for 3 minutes (pause_age stands in for the
+# wait) with the user idle (the backlight off or the unlit face up, no
+# key). Dark but young: closed; old but lit: closed; old and dark: open.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-paused-window.script
+# needs: library
+# needs: ab
+# golden: skip
+# timeout: 200
+# log: maint window open
+# logbetween: y0 y1 no maint window open
+# logbetween: y1 l1 no maint window open
+# logbetween: l1 end maint window open
+
+wait 4000
+wait_db 45000
+mkdir /Audiobooks/W16
+copy ../../build/ab-fixtures/pref.m4b /Audiobooks/W16/pref.m4b
+update_db_wait_change 60000
+play_files /Audiobooks/W16/pref.m4b
+wait_pos 3000 60000
+snapshot_pause              # pause
+expect_paused 500
+ab_mark y0
+backlight_expire            # dark, but paused only seconds
+wait 3000
+ab_mark y1
+key MENU                    # the user is back (lit)
+wait 500
+pause_age 200               # paused 3 min 20 s
+wait 3000
+ab_mark l1
+backlight_expire            # dark and old: the window opens
+wait 3000
+expect_paused 500
+shot window_open
+key MENU                    # the user is back
+wait 1000
+quit

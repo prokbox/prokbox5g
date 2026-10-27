@@ -1,0 +1,10 @@
+# Changelog import timing on the synthetic 50k library: run through
+# tests/perf/import50k.sh (build/sim-50k, after tests/perf/lib50k.sh), not
+# validate.sh. Imports database_changelog.txt (tests/perf/make_changelog.py)
+# on the script thread and logs "import_changelog ... in N ms".
+
+wait 3000
+wait_db 600000
+wait 5000           # let the boot-time background update finish
+import_changelog
+quit

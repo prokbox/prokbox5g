@@ -1,0 +1,65 @@
+# Phase 4 round-3 review H1 (#3): a rebuild while music plays. The new
+# database's commit waits for playback to stop (it would take memory from
+# the audio buffer); the Music menu says "Updating Library..." meanwhile.
+# Once playback stops, the tagcache thread commits within 1 s and the
+# library comes back in the SAME boot (it used to stay gone until the next
+# boot, which threw the scan away and walked the disk again).
+# DB state covered: fresh (remove_files() ran). The ready state is
+# ipodui-p4-commit-playing.script, the dirty one
+# ipodui-p4-dirty-playing.script (docs/process.md, checklist item 10).
+# With library generations (#85, cache-persist) the rebuild builds a
+# candidate beside the active library, which stays browsable all along:
+# no "Updating Library..." (expect_lib_browsable instead of
+# expect_lib_updating). While audio holds the memory the candidate cannot
+# even begin (its clone buffer and RAM cache would shrink the audio
+# buffer), so the rebuild waits, retried with backoff, and runs after the
+# stop; the new generation lands in the same boot (expect_db_gen_change).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p4-rebuild-playing.script
+# needs: library
+# golden: skip updating restored
+#
+# shots.sh fails the run on "expect_* failed" and on "wait_db commit
+# delayed" (the commit still waiting after the stop: the H1 bug).
+
+wait 4000           # boot to the main menu
+wait_db 30000
+
+wheel +4            # "Shuffle Songs"
+wait 500
+key SELECT          # whole library, 2-5 s tracks: plays across tracks
+wait 2000
+expect_playing 300
+
+db_gen_mark
+rebuild_db_start    # waits for the stop (generations: the active stays)
+expect_playing 6000 # no stop
+key MENU            # WPS -> main menu ("Shuffle Songs" selected)
+wait 1000
+wheel -10           # "Music"
+wait 800
+key SELECT          # Music: the active library, browsable
+wait 1000
+expect_lib_browsable 2000
+shot updating
+key MENU            # main menu
+wait 1000
+wheel +5            # "Now Playing"
+wait 800
+key SELECT          # WPS
+wait 1500
+
+key PLAY            # pause: still holds the audio buffer, still waits
+expect_lib_browsable 2500
+expect_db_gen_same 1000
+audio_stop       # stop; the rebuild begins at its next retry
+expect_db_gen_change 60000  # the rebuilt library, in this boot
+wait_db 30000
+key MENU
+wait 1000
+wheel -10           # "Music"
+wait 800
+key SELECT
+wait 1000
+shot restored
+
+quit

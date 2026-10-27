@@ -1,0 +1,78 @@
+# ProkBox hardware manual: data paths, (a) the overview.
+# The chips, their memories, the outside world, and only the main paths. Detail lives in three
+# focused diagrams: data-paths-pp.d2 (PP side), data-paths-bcm.d2 (BCM side), data-paths-audio.d2.
+# Facts: docs/data-paths.md (every edge is a matrix cell there, with its evidence).
+...@paths-style
+
+direction: down
+
+title: |md
+  # iPod Video 5.5G: data paths at a glance
+  Chips, memories, what plugs in, and the main ways bytes move (status as of S37)
+| {class: title; near: top-center}
+
+computer: "Computer\n(USB-C, in place of the dock)" {class: out}
+flash: "1 TB flash\n(seen as an ATA disk)" {class: out}
+
+pp: "PP5022" {
+  class: chip_pp
+  label.near: top-left
+  direction: down
+  cores: "CPU + COP (the host)\n2 × ARM7TDMI, 30/80 MHz" {class: pp}
+  iram: "IRAM 128 KB" {class: mem}
+  port: "Host port\n16-bit window\n0x3000_0000" {class: pp}
+}
+
+sdram: "SDRAM 64 MB" {class: mem}
+
+bcm: "BCM2722 (video)" {
+  class: chip_bcm
+  label.near: top-left
+  direction: down
+  core: "VideoCore II\ncore + vector unit" {class: bcm}
+  sram: "SRAM 1.25 MB" {class: mem}
+  bsdram: "SDRAM 4 MB" {class: mem}
+}
+
+wm: "WM8758" {
+  class: chip_wm
+  label.near: top-left
+  dac: "Audio codec: DAC,\nheadphone amp,\nI2S clock master" {class: wm}
+}
+
+screen: "LCD panel 320 × 240\n(wired to the BCM only)" {class: out}
+jack: "Headphone jack\n3.5 mm" {class: out}
+dock: "Line out\n(dock connector)\nnot on this unit" {class: absent}
+
+# ---- main paths --------------------------------------------------------------
+computer <-> pp.cores: "USB 2.0 · ≈ 18.5 MB/s" {class: e_si}
+flash -> pp.cores: "IDE, UDMA2 · 21 MB/s" {class: e_si}
+pp.cores <-> sdram {class: e_si}
+pp.cores -> pp.iram {class: e_si}
+pp.cores -> pp.port {class: e_si}
+pp.port -> bcm.sram: "5.7–16 MB/s" {class: e_si}
+pp.port -> bcm.bsdram {class: e_si}
+bcm.core -> bcm.sram {class: e_si}
+bcm.core -> bcm.bsdram {class: e_si}
+bcm.sram -> screen: "LCD DMA · 14.26 ms/frame" {class: e_si}
+pp.cores -> wm.dac: "I2S audio + I2C control" {class: e_si}
+wm.dac -> jack: "analogue" {class: e_si}
+wm.dac -> dock {class: e_absent}
+
+key: "" {
+  near: bottom-center
+  style: {fill: transparent; stroke: transparent}
+  grid-columns: 2
+  horizontal-gap: 40
+  legend: @paths-legend
+  note: |md
+    - The host port is the **only** data path between the chips,\
+      and only the PP drives it.
+    - Into the port: the CPU's copy (5.7 MB/s at 30 MHz, 16 at 80)\
+      or the PP's **second DMA engine** (S37). The general DMA\
+      engine is a dead end there.
+    - Detail: data-paths-pp, -bcm and -audio.
+
+    Sources: docs/data-paths.md §2–§4. Our own drawing.
+  | {class: note}
+}

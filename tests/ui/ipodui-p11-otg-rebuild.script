@@ -1,0 +1,45 @@
+# Phase 11 On-The-Go, DB state "ready" after a rebuild (docs/phase11-brief.md
+# section 6 item 10): two songs added; a full rebuild keeps the store's
+# files byte-identical (db_rebuild_keep_otg); opening On-The-Go then
+# resolves the store once against the new database and shows the same
+# titles.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p11-otg-rebuild.script
+# needs: library
+# golden: skip
+
+wait 4000
+wait_db 30000
+key SELECT          # Music
+wait 800
+wheel +3 300        # "Songs"  [Compilations off: P11]
+wait 400
+key SELECT
+wait 800
+wheel +2 300        # "Amber Garden"
+wait 400
+hold SELECT 1500
+wait 600
+key SELECT          # Add to On-The-Go
+wait 800
+wheel +1 300        # "Amber Harbour"
+wait 400
+hold SELECT 1500
+wait 600
+key SELECT
+wait 800
+key MENU            # Music
+wait 800
+key MENU            # main menu
+wait 800
+
+db_rebuild_keep_otg 45000
+wait_db 45000
+key SELECT          # Music
+wait 800
+key SELECT          # Playlists
+wait 800
+key SELECT          # On-The-Go: resolves, then shows
+wait 1500
+shot otg_rebuilt    # Amber Garden, Amber Harbour, Save, Clear
+otg_dump
+quit

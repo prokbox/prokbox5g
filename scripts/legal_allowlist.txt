@@ -1,0 +1,20 @@
+# Reviewed exceptions for scripts/legal_audit.py.  Format: kind|glob-or-id|reason
+# kinds: deleted, header, image, lang, name.  A reason is mandatory.
+lang|LANG_IPODUI_LEGAL*|Settings > Legal states the trademark notice, so it must name the marks
+lang|LANG_IPODUI_NOTICE*|First-boot notice names iPod to identify the hardware (docs/legal.md section 2)
+# Stripped from the public tree: whole directories of code ProkBox5g never compiles.
+# Reviewed 2026-10-24: no kept file lives under or includes these paths.
+deleted|utils/rbutilqt/*|Rockbox Utility (Qt installer) sources; never compiled into the firmware, simulator or zip; its licence text covers only itself
+deleted|utils/themeeditor/*|Theme editor host app; not part of the firmware build; its licence covers only itself
+deleted|utils/hwstub/*|hwstub host tool; not built for this target; covers only itself
+deleted|utils/regtools/*|register-description host tools; not built for this target; covers only itself
+deleted|utils/cmake/*|CMake helpers for the stripped host utilities; covers only them
+deleted|utils/zenutils/*|Creative ZEN host utility with a bundled LGPL library; stripped together with the whole tool
+deleted|utils/MTP/*|MTP host tool; stripped
+deleted|utils/jz4740_tools/*|Ingenic host tools; stripped
+deleted|utils/ipodnano3g/*|Nano 3G host tools; stripped
+deleted|utils/editors/*|Editor syntax files for theme authors; stripped
+deleted|utils/CMakeLists.txt|Top-level CMake for the stripped host utilities
+deleted|utils/parse_testcodec.rb|Ruby helper for the stripped utilities
+deleted|android/*|Android port sources; never compiled for this target; their licence text covers only them
+deleted|firmware/target/arm/tms320dm320/*|Other-target DM320 DSP code; not compiled; licence only for that code

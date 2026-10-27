@@ -1,0 +1,2 @@
+/* #106: preprocessed by modules.make with -imacros modload.h */
+MOD_ARENA_SIZE

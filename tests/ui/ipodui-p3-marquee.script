@@ -1,0 +1,58 @@
+# Phase 3: marquee for a selected row whose text is wider than its space
+# (starts after ~1 s, steady speed, pause, repeat; redraws only that row).
+# docs/phase3-brief.md, agent A "Marquee".
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p3-marquee.script
+#
+# #38 (docs/phase-nav-brief.md, "C: verification") retargets this from the
+# Settings stub (now a split screen, no longer a plain long list) to
+# Music > Songs, a full-width list that survives the split. Songs has no
+# title long enough to overflow a row on its own (tests/ui/setup_library.py
+# titles are short, by design, for other scripts' determinism), so
+# setup_library.py's SPECIAL_TITLES grew one entry ("Ölfus ...") into the
+# marquee fixture: the single song title in the library wide enough to
+# marquee. It sorts under 'O' (mid-list, rank 161 of 297 by title), far
+# from any row another script's golden shows (songs_top is 'A...', Songs'
+# songs_end is the '#' group): tests/ui/golden/ipodui-p4-sort and
+# ipodui-p4-qscroll keep their goldens; Songs' total count is unchanged
+# (the entry replaces, not adds, a SPECIAL_TITLES slot).
+#
+# "wheel +165 100" (10 clicks/s, below the no-acceleration threshold,
+# scripts/check comment in ui_wheel_steps: WHEEL_ACCEL_V0=12) reaches
+# that row deterministically: empirically 165 single-row clicks land on
+# it (a handful short of the raw rank 161, swallowed while wheel velocity
+# is still ramping up from a standing start -- the same margin a real
+# clickwheel's startup would need, so it is kept rather than trimmed).
+#
+# marquee_0 is taken 500 ms after the selection lands, before the ~1 s
+# start delay, so the row is still static and truncated: deterministic.
+# marquee_2s is mid-scroll and depends on timing: kept out of the goldens.
+# golden: skip marquee_2s
+# needs: library
+#
+# Trace: marquee frames are low rate and must not boost (no "anim start"
+# for the marquee itself is expected; whatever is logged must balance).
+
+wait 4000           # boot to the main menu, "Music" selected
+wait_db 30000
+
+key SELECT          # Music
+wait 800
+wheel +3            # "Songs"  [Compilations off: P11]
+wait 400
+key SELECT
+wait 800
+shot songs_top      # at rest, no marquee (deterministic: "Amber ..." first)
+
+wheel +165 100      # the long-titled row ("Ölfus and the Long Quiet
+                    # Hours Before the Harbour Signal Fades", rank 161)
+wait 500
+shot marquee_0      # selected, truncated, not yet moving
+
+wait 1500           # ~2 s after the selection landed
+shot marquee_2s     # text scrolled part way (timing-sensitive)
+
+wheel -1            # leave the row: its text snaps back to the start
+wait 500
+shot marquee_left
+
+quit

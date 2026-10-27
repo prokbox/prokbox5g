@@ -1,0 +1,36 @@
+# P16 #84 review fix: USB then Play. The commit that waits for playback
+# to stop is not the scan: the header glyph ends when the scan ends, not
+# after the 10-minute cap, and no "scan ran" count is logged for a scan
+# that was deferred.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-usb-busy-play.script
+# needs: library
+# timeout: 150
+# expect-file: /.rockbox/ipodui.log usb busy end
+# golden: skip glyph after
+# fulls-extra: 2   (the main menu gains its Now Playing row at play_files; the #84 tip 4091f9c42f logs the same 3 full frames. p19-usboom: the USB storage buffer now stops playback before the handover, as on the device, and the menu drops the row once before the USB screen)
+
+sim_clock 15:08
+wait 4000
+wait_db 30000
+remove /Music/P16Busy/play.mp3
+update_db_wait 30000
+repeat all
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait 1500
+rm_file /.rockbox/ipodui.log
+
+usb_connect
+wait 2500
+mkdir /Music/P16Busy
+copy fixtures/refresh.mp3 /Music/P16Busy/play.mp3
+usb_disconnect
+wait 150
+shot glyph
+wait 8000           # playing: the commit waits, the glyph must not
+storage_idle
+wait 1500
+shot after          # glyph gone while playback continues
+audio_stop
+remove /Music/P16Busy/play.mp3
+update_db_wait 30000
+quit

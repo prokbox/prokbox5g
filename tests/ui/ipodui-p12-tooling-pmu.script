@@ -1,0 +1,46 @@
+# P12 W1-T: the sim's PMU alarm stub, the piezo trace and rtc_at, with no
+# shell code in the loop (docs/phase12-brief.md 3.6). Part 1 arms the PMU
+# for 07:00:00 daily, lets the clock pass it (INT1 latches), re-arms,
+# queues an alarm_boot and powers off; part 2 is the alarm boot: the
+# registers and RTCWAK-at-power-off survived, the RTC is 30 s past the
+# armed time, INT1 is clear (the boot ROM clears it).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p12-tooling-pmu.script
+# golden: skip boot
+# timeout: 120
+# log: sim_pmu: int1 alarm armed=
+# log: sim_pmu: alarm_boot armed=846054000 +30s
+# log: ipodui: piezo play hz=2027 ms=100
+# log: expect_pmu ok
+# nolog: expect_pmu failed
+# nolog: expect_piezo failed
+# piezo: free the piezo is driven by hand (piezo_test), no alarm rings
+# reset: mainmenu
+
+wait 3000
+shot boot
+rtc_at 2026-10-23 06:59:50
+pmu_arm 07:00:00
+expect_pmu on hms=07:00:00 date=daily rtcwak=1 int1=0 next=846054000
+pmu_disarm
+expect_pmu off rtcwak=0
+pmu_arm 07:00:00 2026-10-24
+expect_pmu on hms=07:00:00 date=2026-10-24 rtcwak=1 next=846140400
+pmu_arm 07:00:00
+sleep_warp 30
+wait 1500
+pmu_dump
+piezo_mark
+piezo_test 2000 100
+expect_piezo 1 1
+rtc_at 2026-10-23 06:59:00
+pmu_arm 07:00:00
+expect_pmu on rtcwak=1 next=846054000
+alarm_boot 30
+power_off_now
+reboot
+wait 3000
+# the boot ROM latched the alarm wake (bootwake) and cleared INT1; the
+# alarm engine then finds no alarms (every run starts without alarms.dat)
+# and disarms the PMU, as on the device (P12 integration)
+expect_pmu off bootwake=1 rtcwak=0 int1=0
+quit

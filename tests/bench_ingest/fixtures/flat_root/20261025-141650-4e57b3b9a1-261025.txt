@@ -1,0 +1,6 @@
+session build=4e57b3b9a1-261025 date=2026-10-25 14:16 steps=39
+step=s05 result=start
+step=s05 log=stage 5 PASS
+step=s05 result=pass answer=Yes ms=301000 note=stage 5 PASS
+step=s4b result=start
+step=s4b result=pass answer=- ms=92000 note=stage 4b PASS

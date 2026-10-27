@@ -25,6 +25,10 @@
 #endif
 
 int rolo_load(const char* file);
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+/* Why the last rolo_load() refused its image (a static string), or NULL */
+const char *rolo_error_text(void);
+#endif
 
 #ifdef CPU_PP
 void rolo_restart_cop(void);

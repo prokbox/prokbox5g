@@ -1,0 +1,57 @@
+# #47: opening an artist's albums at 50k tracks (tests/perf/lib50k.sh's
+# library, build/sim-50k):
+#   SIM_BUILD=build/sim-50k scripts/shots.sh tests/perf/artist-open-50k.script
+# Opens five artists from Music > Artists (top, middle, end of the list,
+# then the first again after MENU). Each "lib open albums" line has
+# n= (albums), us= (host CPU), src= (slice: the precomputed per-artist
+# range; scan: the RAM walk) and cmds= (storage commands of the open: the
+# sim counts every read() and open(), no sector cache, an upper bound).
+# trace: lib
+
+wait 3000
+wait_db 1500000     # first run: the database builds (minutes)
+wait 15000          # let the boot-time background update finish
+
+key SELECT          # Music
+wait 1000
+wheel +1 300        # Artists
+wait 600
+key SELECT
+wait 1500
+key SELECT          # the first artist
+wait 1500
+shot artist_first
+key MENU
+wait 1000
+
+wheel +300 20       # an artist a quarter down
+wait 1500
+key SELECT
+wait 1500
+shot artist_q
+key MENU
+wait 1000
+
+wheel +300 20       # half way
+wait 1500
+key SELECT
+wait 1500
+key MENU
+wait 1000
+
+wheel +700 20       # the end of the list
+wait 1500
+key SELECT
+wait 1500
+shot artist_last
+key MENU
+wait 1000
+
+wheel -1300 20      # back to the first: the same open again
+wait 1500
+key SELECT
+wait 1500
+key MENU
+wait 1000
+
+quit

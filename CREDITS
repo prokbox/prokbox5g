@@ -1,0 +1,35 @@
+ProkBox credits
+===============
+
+ProkBox, a custom firmware for the iPod Video (5th generation, 5G and 5.5G):
+  Copyright (C) 2026 prokopto-dev
+  Released under the GNU General Public License, version 2 or (at your
+  option) any later version (docs/COPYING).  Every file the project adds
+  carries the header in docs/templates/prokbox-header.txt.
+
+Not affiliated with or endorsed by Apple Inc.  iPod and related names are
+trademarks of Apple Inc., used only to describe compatibility.
+
+Based on Rockbox (https://www.rockbox.org) and its contributors
+  ProkBox is a fork of Rockbox, GPL version 2 or later.  The full upstream
+  history is kept in this repository (git log); files taken from upstream
+  keep their original headers and copyright lines, and the codecs, the
+  kernel, the drivers and the libraries are the work of the Rockbox
+  contributors and the authors named in those files.
+
+Fonts
+  TeX Gyre Heros, (c) the TeX Gyre project and GUST e-foundry, under the
+  GUST Font License (LPPL-based, free); shipped as "ShellSans"
+  (apps/ipodui/fonts/, licence text GUST-FONT-LICENSE.txt).
+  Source Sans 3 (SIL Open Font License 1.1) is the documented fallback
+  face and is not shipped.
+
+Other third-party components
+  The codec libraries and helpers under lib/ (for example the libraries in
+  lib/rbcodec/codecs/, lib/utf8proc, lib/microtar, lib/tlsf) keep their own
+  licences; see the COPYING, LICENSE and README files in each directory.
+  Test footage: an excerpt of the Sintel trailer, (c) Blender Foundation |
+  durian.blender.org, CC BY 3.0 (see README.md).
+
+Artwork
+  All glyphs, gradients and images are original to this project.

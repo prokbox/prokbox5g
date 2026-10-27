@@ -1,0 +1,30 @@
+# P12 W2-W (5.1, D-A4's sim half): an alarm due while soft-asleep wakes
+# the sleep on time (WAKE_ALARM: the poll is programmed for min(poll,
+# alarm - now) from sleep_req.alarm_rtc) and rings at once, though the
+# tick stood still for the whole sleep.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p12-alarm-softsleep-wake.script
+# golden: skip
+# timeout: 120
+# env: IPODUI_SIM_ALARM_IN=90
+# Trace: sim_sleep: sleep enter ... alarm=8x, wake why=3 (alarm), alarm
+#        wake alarm=1, alarm ring i=0
+# alarm-rings: 1
+# log: sleep wake why=3
+# log: alarm wake alarm=1
+# nolog: alarm late
+# nolog: alarm missed
+# nolog: sleep tier=off
+# trace: piezo
+# reset: mainmenu
+
+sleep_mode soft         # soft sleep is off by default (developer switch)
+wait 4000
+hold PLAY 1500          # the hold: dark, then asleep
+expect_sleep asleep 8000
+sleep_warp 120          # past the alarm: the poll wakes at it
+expect_sleep alarm 3000
+wait 2000               # the first loop pass rings it
+shot ringing
+key MENU                # dismiss
+wait 1500
+quit

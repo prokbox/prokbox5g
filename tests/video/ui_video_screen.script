@@ -1,0 +1,49 @@
+# Phase 14a V6 (docs/phase14a-brief.md 3.7): the video screen.
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/video/ui_video_screen.script
+# Needs a --bcmfw-video sim and /Videos/clip.mp4 on its disk
+# (cp bcmfw/video/stage6-clip.mp4 build/sim-ui-video/simdisk/Videos/clip.mp4).
+# "video_screen" calls ui_video_play(); until the Movies list (V5) lands it
+# is the only way to reach the screen: sim_cmd_video.c needs
+#   video_screen <path> [tc_idx]   -> ui_video_play(path, tc_idx)
+#   setvideos                      -> ui_setvideos_push()
+# (proposed to the tooling owner; not part of the V6 commit).
+# needs: library
+# (kept under tests/video, not tests/ui: the gate runs ui/ against build/sim-ui, which has no video commands; move to tests/ui once the Movies list can reach the screen)
+# log: video
+# env: IPODUI_SIM_VIDEO=1
+
+wait 4000
+video_screen /Videos/clip.mp4
+wait 2500
+expect_video 20 playing
+shot playing             # BCM owns the panel: nothing of the shell shows
+video_shot picture
+wheel +3                 # volume, silent
+wait 300
+key PLAY                 # pause
+wait 600
+shot paused
+wheel +3                 # the strip shows the volume bar
+wait 300
+shot volume
+key SELECT               # overlay: progress, elapsed, remaining
+wait 400
+shot overlay
+key SELECT               # the wheel is on the scrubber
+wait 300
+wheel +4
+wait 800
+shot scrub
+key SELECT               # seek applied, wheel back on the volume
+wait 300
+key PLAY                 # resume
+wait 1500
+expect_video 40 playing
+key RIGHT                # no chapters: NEXT ends the video
+wait 3000
+shot after_next          # the screen below
+video_screen /Videos/clip.mp4
+wait 2000
+key MENU                 # stops, back to the list
+wait 1500
+shot after_menu

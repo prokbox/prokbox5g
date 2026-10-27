@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2006 by Thom Johansen
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -26,21 +27,52 @@
 
 #include <get_sp.h>
 #include <backtrace.h>
+#ifdef HAVE_PANIC_RECORD
+#include "panic_record.h"
+#endif
 
 static const char* const uiename[] = {
     "Undefined instruction",
     "Prefetch abort",
     "Data abort",
     "Divide by zero",
-    "SWI"
+    "SWI",
+#if defined(HAVE_PANIC_RECORD) && !defined(BOOTLOADER)
+    "Jump to 0"         /* ProkBox: crt0-pp.S reset_reentry_handler (the
+                           same guard, so the stock bootloader's bytes
+                           stay upstream's) */
+#endif
 };
+
+#ifdef HAVE_PANIC_RECORD
+/* ProkBox: the interrupted r0-r12 at a data abort (ARM7TDMI has no fault
+ * address register, so the base register is the next best thing), saved
+ * before the handler uses any; UIE() puts r0-r7 in the record's message */
+uint32_t uie_abort_regs[13];
+bool uie_abort_regs_ok;
+/* ProkBox: the CPSR a branch to address 0 arrived with (crt0-pp.S) */
+uint32_t uie_reentry_cpsr;
+#endif
 
 void __attribute__((weak,naked)) data_abort_handler(void)
 {
     asm volatile(
+#ifdef HAVE_PANIC_RECORD
+        "stmfd  sp!, {r0}           \n"
+        "ldr    r0, =uie_abort_regs \n"
+        "stmia  r0, {r0-r12}        \n"    /* r0's slot fixed below */
+        "ldmfd  sp!, {r1}           \n"
+        "str    r1, [r0]            \n"
+        "ldr    r0, =uie_abort_regs_ok \n"
+        "mov    r1, #1              \n"
+        "strb   r1, [r0]            \n"
+#endif
         "sub    r0, lr, #8  \n"
         "mov    r1, #2      \n"
         "b      UIE         \n"
+#ifdef HAVE_PANIC_RECORD
+        ".ltorg             \n"
+#endif
         );
 }
 
@@ -96,6 +128,53 @@ void NORETURN_ATTR UIE(unsigned int pc, unsigned int num)
      */
     static bool triggered = false;
 
+#ifdef HAVE_PANIC_RECORD
+    {   /* ProkBox: the interrupted thread's lr and sp are System mode's
+         * banked pair (an exception taken in IRQ mode shows the thread the
+         * IRQ interrupted). ARM7TDMI has no fault address register. */
+        uint32_t lr, sp;
+        asm volatile("mrs   r2, cpsr        \n"
+                     "msr   cpsr_c, #0xdf   \n"
+                     "mov   %0, lr          \n"
+                     "mov   %1, sp          \n"
+                     "msr   cpsr_c, r2      \n"
+                     : "=&r"(lr), "=&r"(sp) : : "r2", "lr");
+        if (num == 2 && uie_abort_regs_ok)
+        {
+            /* the base register of the faulting load or store is among
+             * r0-r7 for Thumb code (fits the 120-byte message) */
+            static char msg[120];
+            const uint32_t *g = uie_abort_regs;
+            snprintf(msg, sizeof(msg), "%s %lx %lx %lx %lx %lx %lx %lx %lx",
+                     uiename[num], (unsigned long)g[0], (unsigned long)g[1],
+                     (unsigned long)g[2], (unsigned long)g[3],
+                     (unsigned long)g[4], (unsigned long)g[5],
+                     (unsigned long)g[6], (unsigned long)g[7]);
+            panic_record_save(num + 1, pc, lr, sp, msg);
+        }
+        else if (num == 5)
+        {
+            /* a branch to 0: pc is the branching mode's lr, the caller's
+             * return address; the mode it ran in, and whose stack System
+             * mode's sp is in (an overflow shows as another's) */
+            static char msg[120];
+            const char *own = panic_stack_owner(sp);
+            snprintf(msg, sizeof(msg), "%s from lr=%08lx mode=%02lx "
+                     "irq=%s sp=%08lx stack=%s", uiename[num],
+                     (unsigned long)pc,
+                     (unsigned long)(uie_reentry_cpsr & 0x1f),
+                     (uie_reentry_cpsr & 0x80) ? "off" : "on",
+                     (unsigned long)sp, own ? own : "-");
+            panic_record_save(num + 1, pc, lr, sp, msg);
+        }
+        else
+            panic_record_save(num + 1, pc, lr, sp, uiename[num]);
+    }
+#endif
+
+#ifdef HAVE_PANIC_RECORD    /* ProkBox: no screen, the record has it */
+    (void)triggered;
+#else
 #if LCD_DEPTH > 1
     lcd_set_backdrop(NULL);
     lcd_set_drawinfo(DRMODE_SOLID, LCD_BLACK, LCD_WHITE);
@@ -153,9 +232,13 @@ void NORETURN_ATTR UIE(unsigned int pc, unsigned int num)
 #endif
 
     lcd_update();
+#endif /* !HAVE_PANIC_RECORD */
 
     disable_interrupt(IRQ_FIQ_STATUS);
 
+#if defined(HAVE_IPOD_UI) && defined(HAVE_PANIC_RECORD)
+    panic_shell_exit();             /* ProkBox: restart, never a halt */
+#endif
     system_exception_wait(); /* If this returns, try to reboot */
     system_reboot();
     while (1);       /* halt */

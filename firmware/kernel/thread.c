@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2002 by Ulf Ralberg
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -28,6 +29,9 @@
 #endif
 
 #include "thread-internal.h"
+#ifdef HAVE_SCHED_BANDS
+#include "sched_age.h"  /* ProkBox Fit-1 C2: time-bounded aging */
+#endif
 #include "kernel.h"
 #include "cpu.h"
 #include "string.h"
@@ -35,6 +39,17 @@
 #include <profile.h>
 #endif
 #include "core_alloc.h"
+#include "devstats.h"   /* ProkBox Fit-1 M0: empty unless HAVE_DEVSTATS */
+#if defined(HAVE_IPOD_UI) && defined(SIMULATOR)
+/* ProkBox (p19-art-yield): the simulator's stand-in for devstats'
+ * slice_max_us: a thread's run ends (out) or begins (!out) here; the art
+ * builder's slice meter (apps/ipodui/artcache.c) */
+extern void (*sim_run_hook)(unsigned int id, bool out);  /* thread-common.c */
+#define SIM_RUN(t, o) \
+    do { if (sim_run_hook) sim_run_hook((t)->id, (o)); } while (0)
+#else
+#define SIM_RUN(t, o) do { } while (0)
+#endif
 
 #if (CONFIG_PLATFORM & PLATFORM_HOSTED)
 #include <errno.h>
@@ -357,6 +372,9 @@ static void new_thread_base_init(struct thread_entry *thread,
     tmo_set_dequeued(thread);
 #ifdef HAVE_PRIORITY_SCHEDULING
     thread->skip_count    = 0;
+#ifdef HAVE_SCHED_BANDS
+    thread->ready_tick    = current_tick;
+#endif
     thread->blocker       = NULL;
     thread->base_priority = priority;
     thread->priority      = priority;
@@ -383,8 +401,12 @@ static inline void core_rtr_add(struct core_entry *corep,
     rtr_add_entry(corep, thread->priority);
 #ifdef HAVE_PRIORITY_SCHEDULING
     thread->skip_count = thread->base_priority;
+#ifdef HAVE_SCHED_BANDS
+    thread->ready_tick = current_tick;
+#endif
 #endif
     thread->state = STATE_RUNNING;
+    DEVSTATS_THREAD_WAKE(THREAD_ID_SLOT(thread->id));
     RTR_UNLOCK(corep);
 }
 
@@ -1018,6 +1040,8 @@ void switch_thread(void)
 #ifdef RB_PROFILE
         profile_thread_stopped(THREAD_ID_SLOT(thread->id));
 #endif
+        DEVSTATS_SWITCH_OUT(core, THREAD_ID_SLOT(thread->id));
+        SIM_RUN(thread, true);
 #ifdef BUFLIB_DEBUG_CHECK_VALID
         /* Check core_ctx buflib integrity */
         core_check_valid();
@@ -1047,6 +1071,7 @@ void switch_thread(void)
         /* Enter sleep mode to reduce power usage */
         RTR_UNLOCK(corep);
         core_sleep(IF_COP(core));
+        DEVSTATS_IDLE_END(core);
 
         /* Awakened by interrupt or other CPU */
     }
@@ -1063,7 +1088,9 @@ void switch_thread(void)
     for (;;)
     {
         int priority = thread->priority;
+#ifndef HAVE_SCHED_BANDS
         int diff;
+#endif
 
         /* This ridiculously simple method of aging seems to work
          * suspiciously well. It does tend to reward CPU hogs (under
@@ -1079,17 +1106,32 @@ void switch_thread(void)
          * thus are not subject to switchout due to lower-priority
          * processes aging; they must give up the processor by going
          * off the run list. */
+#ifdef HAVE_SCHED_BANDS
+        /* ProkBox (Fit-1 C2): count aging plus a time bound, so a lower
+           runnable thread gets a slice within sched_age_limit() ticks
+           whatever the gap (sched_age.h) */
+        if (LIKELY(priority <= max) ||
+            sched_may_run(priority, max, ++thread->skip_count,
+                          current_tick - thread->ready_tick))
+        {
+            break;
+        }
+#else
         if (LIKELY(priority <= max) ||
             (priority > PRIORITY_REALTIME &&
              (diff = priority - max, ++thread->skip_count > diff*diff)))
         {
             break;
         }
+#endif
 
         thread = RTR_THREAD_NEXT(thread);
     }
 
     thread->skip_count = 0; /* Reset aging counter */
+#ifdef HAVE_SCHED_BANDS
+    thread->ready_tick = current_tick;
+#endif
 #endif /* HAVE_PRIORITY_SCHEDULING */
 
     rtr_queue_make_first(&corep->rtr, thread);
@@ -1102,6 +1144,7 @@ void switch_thread(void)
     profile_thread_started(THREAD_ID_SLOT(thread->id));
 #endif
 
+    SIM_RUN(thread, false);
     /* And finally, give control to the next thread. */
     thread_load_context(thread);
 }
@@ -1274,6 +1317,9 @@ void thread_exit_final(struct thread_entry *current)
     UNLOCK_THREAD(current);
     corelock_unlock(&current->waiter_cl);
 
+#ifdef THREAD_EXIT_FREE_CONTEXT
+    THREAD_EXIT_FREE_CONTEXT(current);  /* ProkBox: host context (sim) */
+#endif
     thread_free(current);
 
     switch_thread();

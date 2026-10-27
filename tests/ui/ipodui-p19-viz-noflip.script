@@ -1,0 +1,50 @@
+# #126: Mirror's last resort (sim-ui-video): the model stands in an
+# overlay before J_BARS_FLIP (bcm_flip 0), so Bars stays on the BCM and
+# Mirror is drawn on the CPU, logged once.
+# log: np mode shuffle -> visualizer ev=0
+# log: viz light hold=1
+# log: viz start style=1
+# log: np mode visualizer -> normal ev=0
+# log: viz light hold=0
+# log: viz FALLBACK mirror on CPU why=noflip
+# nolog: CPU FALLBACK why=noop
+# nolog: CPU FALLBACK why=bars
+# np: viz-full
+# reset: viz
+bcm_flip 0
+wait 3000
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait 1500
+key SELECT          # Music
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 1500
+shot normal
+key SELECT          # Scrubber
+wait 400
+key SELECT          # Rating
+wait 600
+key SELECT          # Shuffle
+wait 600
+key SELECT          # Visualizer
+wait 1500
+shot bars
+wait 700
+shot bars2
+hold SELECT 1200    # the style list
+wait 1200
+shot styles
+wheel -5            # the top (Bars), whatever was kept
+wait 300
+wheel +1            # Mirror
+wait 400
+key SELECT
+wait 1800
+shot mirror
+key SELECT          # back to Normal
+wait 1200
+shot back_normal

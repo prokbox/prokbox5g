@@ -1,0 +1,31 @@
+# Phase 4b-1 (docs/phase4b-brief.md, Revision 1 decision 8): USB connects
+# in the middle of a build. The builder closes its fds, acks
+# SYS_USB_CONNECTED ("art build stop usb"), waits for the disconnect and
+# starts its pass again (re-checking image-file sources); the cache is
+# complete afterwards, every album in its manifest state.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p4b1-art-usb.script
+# needs: library
+
+wait 1000
+wait_db 30000
+art_wait 120000
+rm_file /.rockbox/artcache/index.dat
+rm_file /.rockbox/artcache/index.prev
+rm_file /.rockbox/artcache/index.tmp
+rm_file /.rockbox/artcache/thumbs.pak
+reboot
+
+wait 1000           # boot 2: a full build starts (~100 ms per album)
+wait_db 30000
+wait 1500           # partway through the 69 albums
+usb_connect
+wait 2000
+shot usb
+usb_disconnect
+wait 1000
+wait_db 30000
+art_wait 120000
+expect_art art_manifest.txt
+shot after_usb
+
+quit

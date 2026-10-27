@@ -1,0 +1,93 @@
+# ProkBox hardware manual: data paths, (d) audio.
+# The PP's I2S out to the WM8758; the WM8758 as the I2S clock master (BCLK/LRCK to the PP and to the
+# BCM's GPIO 2/3, only while its PLL runs); I2C control; the BCM's audio block; and the outputs.
+# Facts: docs/data-paths.md §2 (M7, M12, M13), §3 "The WM8758", §4 cells 6, 7, 10, 22, 26, 27, 29, R6, R9, D6;
+# docs/pp5022-reference/audio.md §2–§6 (OUT1 = headphone amp, OUT2 = line out, MCLK 24 MHz);
+# docs/pp5022-reference/gpio-i2c.md §3 (GPIOA bit 7 = headphone detect, 1 = plugged).
+# Not grounded, so not drawn as fact: which WM8758 pins reach the jack; how the BCM's GPIO 1 reaches DACDAT.
+# Edges written "a <- b" keep a to the left of b (they still run from b to a).
+...@paths-style
+
+direction: down
+
+title: |md
+  # Audio: from memory to the headphone jack
+  The WM8758 makes every audio clock; (n) is a cell in docs/data-paths.md §4 (status as of S37)
+| {class: title; near: top-center}
+
+pp: "PP5022" {
+  class: chip_pp
+  label.near: top-left
+  direction: right
+
+  hpd: "GPIOA bit 7\nheadphone detect" {class: pp}
+  i2c: "I2C 0x7000_C000" {class: pp}
+  dma0: "General DMA, channel 0\nfrom SDRAM, 176 KB/s" {class: pp}
+  i2s: "I2S block 0x7000_2800\nclock slave, 16-entry FIFO" {class: pp}
+  mclk: "MCLK out, 24 MHz\n(external device clock)" {class: pp}
+}
+
+bcm: "BCM2722" {
+  class: chip_bcm
+  label.near: top-left
+  direction: right
+
+  dma5: "DMA ch 5\nfrom SRAM" {class: bcm}
+  aud: "Audio block 0x1000_4800\nclock slave [hypothesis, strong]\ndata out on GPIO 1 (27): S37 heard\na recognisable tone (layout 2);\nits join to DACDAT is unknown" {class: bcm}
+}
+
+wm: "WM8758" {
+  class: chip_wm
+  label.near: top-left
+  direction: down
+
+  regs: "Registers, I2C address 0x1A\nwrite-only: keep a shadow" {class: wm}
+  dac: "DACs and mixers" {class: wm}
+  pll: "PLL: the I2S clock master\nmakes BCLK and LRCK\noff in our DAC standby" {class: wm}
+  out1: "OUT1: headphone amp" {class: wm}
+  out2: "OUT2: line out" {class: wm}
+}
+
+jack: "Headphone jack\n3.5 mm" {class: out}
+dock: "Line out on the\ndock connector's audio pins\nnot on this unit (USB-C there)" {class: absent}
+
+# ---- data ---------------------------------------------------------------------
+pp.dma0 -> pp.i2s: "(10)" {class: e_si}
+pp.i2s -> wm.dac: "I2S data (6)" {class: e_si}
+bcm.dma5 -> bcm.aud: "(26)" {class: e_si}
+bcm.aud -> wm.dac {class: e_si}
+wm.dac -> wm.out1 {class: e_si}
+wm.dac -> wm.out2 {class: e_absent}
+wm.out1 -> jack: "analogue\n(pins unconfirmed)" {class: e_si}
+wm.out2 -> dock {class: e_absent}
+
+# ---- control --------------------------------------------------------------------
+pp.i2c -> wm.regs: "write-only (7)" {class: e_si}
+pp.hpd <- jack: "detect: 1 = plugged" {class: e_si}
+
+# ---- clocks ---------------------------------------------------------------------
+pp.mclk -> wm.pll {class: e_clk}
+pp.i2s <- wm.pll: "BCLK, LRCK (29)" {class: e_clk}
+bcm.aud <- wm.pll: "BCLK to GPIO 2,\nLRCK to GPIO 3 (29)" {class: e_clk}
+
+key: "" {
+  near: bottom-center
+  style: {fill: transparent; stroke: transparent}
+  grid-columns: 2
+  horizontal-gap: 40
+  legend: @paths-legend
+  note: |md
+    **No PLL, no clocks:** in DAC standby (5 s after PCM stops)\
+    BCLK and LRCK stop for the PP and the BCM alike. Hold the\
+    codec awake and keep PCM playing before any BCM audio.
+
+    **Not drawn:** the BCM writing the codec's registers\
+    (22, unknown; probably no path: Apple's BCM writer is empty).
+
+    **Outputs:** OUT1 (headphone amp) and OUT2 (line out) follow\
+    Rockbox's driver; which codec pins reach the jack is unconfirmed.
+
+    Sources: docs/data-paths.md §4, R6, R9, D6;\
+    pp5022-reference/audio.md, gpio-i2c.md. Our own drawing.
+  | {class: note}
+}

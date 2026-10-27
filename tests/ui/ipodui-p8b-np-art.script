@@ -1,0 +1,45 @@
+# Phase 8b-4a (review NEW, M1): an album that is in no panel set (played
+# since the last precompute) shows its flat cover on the main menu's Now
+# Playing row: the 55 px list thumbnail scaled up to fill the panel, with
+# the split shadow. Second review M2: back from Now Playing with the disk
+# asleep, the row's first draw is direct (no strip: no read) and must not
+# spend the user's one wake; the follow-up arrival reads and shows it. IPODUI_NP_NO_PANEL makes every album miss the panel sets, so
+# the fallback shows deterministically ("panel nowplaying art" in the
+# trace).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p8b-np-art.script
+# env: IPODUI_NP_NO_PANEL=1
+# needs: library
+# needs: np
+# trace: panelset
+# timeout: 200
+
+wait 1000
+wait_db 30000
+sim_clock 15:04
+clock_format 24
+battery 100
+repeat off
+mkdir /NPArt
+copy ../../build/np-fixtures/art_23.mp3 /NPArt/art_23.mp3
+update_db_wait_change 60000
+art_wait 120000
+play_files /NPArt/art_23.mp3
+wait 1000
+np_pin 3000 50
+key SELECT          # Music (the menu re-reads "Now Playing" after a push/pop)
+wait 700
+key MENU
+wait 700
+wheel +10 100       # Now Playing: the user's highlight may wake storage
+wait 2000
+shot np_art
+
+key SELECT          # the Now Playing screen
+wait 7000           # the disk model falls asleep (playing)
+key MENU            # back: a direct draw, then the arrival reads
+wait 2000
+shot np_art_back
+
+audio_stop
+rm_file /NPArt/art_23.mp3   # leave the shared disk as primed
+quit

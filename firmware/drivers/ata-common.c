@@ -237,6 +237,16 @@ int ata_write_sectors(IF_MD(int drive,)
 
     if (count) /* all complete physical sectors */
     {
+#ifdef HAVE_USB_SECTOR_XLATE
+        /* ProkBox (#63): this write bypasses the cache, so a cached copy of
+         * one of these physical sectors would go stale, and the next partial
+         * write would flush its old half back over the new data. With the
+         * 512-byte USB view the host's single-sector writes reach the
+         * partial path, so this is no longer theoretical. */
+        if (sector_cache.inuse && sector_cache.sectornum >= start
+            && sector_cache.sectornum < start + count)
+            sector_cache.inuse = false;
+#endif
         rc = ata_transfer_sectors(start, count, (void*)buf, true);
         if (rc)
         {
@@ -318,6 +328,15 @@ static int ata_get_phys_sector_mult(void)
 
 void ata_set_phys_sector_mult(unsigned int mult)
 {
+#if defined(HAVE_USB_SECTOR_XLATE) && defined(HAVE_FLASH_STORAGE)
+    /* ProkBox (#63): keep the drive's own multiplier. Raising it to the
+     * 2048-byte virtual sector only pays on a disk with large physical
+     * sectors (it saves the drive's internal read-modify-write); a flash
+     * adapter takes 512-byte I/O natively, and the 512-byte USB view would
+     * turn every single-sector host write into a 1024-byte RMW here. The
+     * filesystem's own I/O is whole 2048-byte sectors either way. */
+    (void)mult;
+#else
     unsigned int max = MAX_PHYS_SECTOR_SIZE/log_sector_size;
     /* virtual sector could be larger than pyhsical sector */
     if (!mult || mult > max)
@@ -325,6 +344,7 @@ void ata_set_phys_sector_mult(unsigned int mult)
     /* It needs to be at _least_ the size of the real multiplier */
     if (mult > phys_sector_mult)
         phys_sector_mult = mult;
+#endif
 }
 
 #endif  /* MAX_PHYS_SECTOR_SIZE */

@@ -79,7 +79,11 @@
  * when this happens please take the opportunity to sort in
  * any new functions "waiting" at the end of the list.
  */
+#ifdef HAVE_IPOD_UI
+#define CODEC_API_VERSION 51    /* ProkBox P19 19-1c: cop_assist */
+#else
 #define CODEC_API_VERSION 50
+#endif
 
 /* reasons for calling codec main entrypoint */
 enum codec_entry_call_reason {
@@ -224,6 +228,14 @@ struct codec_api {
     /* new stuff at the end, sort into place next time
        the API gets incompatible */
     void (*panicf)(const char *msg, ...);
+#ifdef HAVE_IPOD_UI
+    /* ProkBox P19 19-1c (iii): this run may put the codec's helper work
+       on the second core (MP3's synthesis filter). Set by playback before
+       each run, read by the codec at the run's start. False by default
+       (decoding is pinned to the CPU, owner 2026-10-24); true only in a
+       developer A/B mode that decodes on the COP */
+    bool cop_assist;
+#endif
 };
 
 /* codec header */

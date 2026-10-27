@@ -1,0 +1,44 @@
+# P12 W1-A2 (Q17): an alarm that could not ring says "Missed at ..." in its
+# row, inline, with no splash; the mark is cleared once the list was
+# shown, so a second visit shows the ordinary row. The missed alarm comes
+# from the engine's test seed (IPODUI_SIM_ALARM_IN: one daily alarm 600 s
+# after boot) and a power-on 200 s after it (as -alarm-boot-late): not
+# rung late, marked missed.
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-alarms-missed.script
+# golden: skip
+# timeout: 120
+# env: IPODUI_SIM_ALARM_IN=600
+# alarm-rings: 0
+# log: ipodui: alarm missed i=0 at=
+# log: ipodui: alarms open count=1 missed=1
+# log: ipodui: alarms open count=1 missed=0
+# trace: modclass
+# needs: modules
+# reset: mainmenu
+
+wait 4000
+alarm_boot 200
+power_off_now
+wait 3000
+reboot
+wait 6000
+wheel +2              # Extras
+wait 400
+key SELECT
+wait 1200
+wheel +3              # Alarms
+wait 800
+key SELECT
+wait 1500
+shot list_missed      # the alarm's row: Missed at <time>
+key MENU
+wait 1000
+key SELECT
+wait 1500
+shot list_seen        # the mark is gone
+key SELECT            # (Create Alarm) then back, nothing saved
+wait 1000
+key MENU
+wait 800
+shot editor_cancel
+quit

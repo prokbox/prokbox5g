@@ -1,0 +1,41 @@
+# P12 W4 (docs/design/sdk.md 13.2): Extras > Games lists Quadrus; SELECT
+# starts a game at level 1: the 12 x 18 well in a metal frame, the first
+# piece at the top with its ghost on the floor, the Next and (empty) Hold
+# boxes and the Score, Level, Lines and Best panel. The wheel moves the
+# piece (three columns left), a SELECT tap turns it at once, a double tap
+# (owner, 2026-10-24) takes that second turn back and drops it hard (the
+# score counts two a row), and gravity brings the next one down.
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-quadrus-start.script
+# needs: modules
+# reset: mainmenu
+
+wait 4000
+sdk_clear            # a fresh game (the simulator seeds from a fixed value)
+wheel +2             # Extras
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Games
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Quadrus
+wait 600
+shot games
+key SELECT
+wait 800
+shot start
+wheel -3 120         # three columns left
+wait 300
+shot moved
+key SELECT           # a quarter turn
+wait 500             # past the double-tap window
+shot turned
+key SELECT           # a double tap: turned, turned back, dropped
+wait 100
+key SELECT
+wait 400
+shot dropped
+wait 3000            # gravity: the next piece three rows down
+shot falling
+quit

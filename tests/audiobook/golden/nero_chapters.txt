@@ -1,0 +1,9 @@
+Audiobook: yes
+Chapter count: 4
+Chapters read: 4
+Chapter 1: 0 ms "Intro"
+Chapter 2: 2500 ms "Part 1 – Beginnings"
+Chapter 3: 5000 ms "Part 2"
+Chapter 4: 7250 ms "Credits"
+Lyrics: none
+Chapter art: 0

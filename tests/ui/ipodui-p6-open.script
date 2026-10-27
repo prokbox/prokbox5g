@@ -1,0 +1,66 @@
+# Phase 6 (#5, Rev 2 AB-1): every book opens its page first. The page is the
+# full-width single-line list: "Resume" only when a spot is saved, then the
+# chapters. In the Preface fixture entry 2 is "Chapter 1". SELECT on a
+# chapter plays from it.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p6-open.script
+# needs: library
+# needs: ab
+# timeout: 90
+# trace: ab
+# log: ab open book=
+# log: ab resume book=
+# golden: skip page_after_play np_chapter1 np_resume
+# DB state: ready. Needs B (ab_page_*, books.dat) and U (screens/audiobooks.c).
+# Books (rows in Audiobooks): 0 A Field Guide, 1 AB Preface Book, 2 Lighthouse...
+
+wait 4000
+wait_db 45000
+mkdir /Audiobooks/AB
+copy ../../build/ab-fixtures/pref.m4b /Audiobooks/AB/pref.m4b
+update_db_wait_change 60000
+art_wait 60000
+
+key SELECT          # Music
+wait 800
+wheel +6 300        # Audiobooks (Compilations off: P11)
+wait 400
+key SELECT
+wait 900
+wheel +1 300        # AB Preface Book
+wait 400
+key SELECT          # opens its page; never plays directly
+wait 1000
+shot page_nospot    # no spot yet: no Resume. Preface / Chapter 1 / 2 / 3
+wheel +1 300
+wait 300
+shot page_ch1       # entry 2, "Chapter 1", selected
+key SELECT          # play from Chapter 1 (15 s into the file)
+wait 3500
+expect_pos 14500 22000
+shot np_chapter1
+key PLAY            # pause: the shell writes the resume record now
+wait 800
+expect_ab_store 1 0 3000
+
+hold MENU 1000      # back to the main menu from anywhere
+wait 1200
+key SELECT          # Music
+wait 800
+wheel +6 300   # Audiobooks (Compilations off: P11)
+wait 400
+key SELECT          # Audiobooks
+wait 900
+# (#67: AB Preface Book, paused, is pinned on top: row 0, no step)
+wait 400
+key SELECT          # the page again
+wait 1000
+shot page_resume    # "Resume" is now the first row, entries below it
+key SELECT          # Resume
+wait 2500
+expect_pos 14500 30000
+shot np_resume
+audio_stop
+wait 800
+expect_ab_store 1 0 3000     # still one started book, never a duplicate
+remove /Audiobooks/AB/pref.m4b
+quit

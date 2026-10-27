@@ -20,6 +20,13 @@
 #include "kernel-internal.h"
 #include "system.h"
 
+#if defined(HAVE_IPOD_UI) && defined(SIMULATOR)
+/* ProkBox (p19-art-yield): the art builder's slice meter hook; defined here
+ * so SDL-thread sims (the UBSan builds) link too, where kernel/thread.c
+ * isn't built and the hook simply never fires */
+void (*sim_run_hook)(unsigned int id, bool out);
+#endif
+
 /* Unless otherwise defined, do nothing */
 #ifndef YIELD_KERNEL_HOOK
 #define YIELD_KERNEL_HOOK() false

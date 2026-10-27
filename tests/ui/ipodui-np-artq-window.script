@@ -1,0 +1,54 @@
+# Main-menu Now Playing art quality (owner 2026-10-23: "kind of pixelated
+# at times"): the Now Playing row's panel for a 1000 px and a 160 px
+# detailed cover, next to the Now Playing screen's own art.
+# IPODUI_NP_NO_PANEL=shown: the shown set (slot, bank, set read) misses,
+# so the row reads the panel's window by key (an album rotated out of
+# the shown set, or in the pool: np-art-quality).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-np-artq-window.script
+# env: IPODUI_NP_NO_PANEL=shown
+# reset: mainmenu
+# needs: library
+# needs: np
+# trace: panelset
+# logbetween: start end panel nowplaying window key=
+# logbetween: start end art panel window key=\S+ from=(pool|default) res=0
+# nolog: panel nowplaying art key=
+# timeout: 240
+
+wait 1000
+wait_db 30000
+sim_clock 15:04
+clock_format 24
+battery 100
+repeat off
+mkdir /NPArtQ
+copy ../../build/np-fixtures/art_big.mp3 /NPArtQ/art_big.mp3
+copy ../../build/np-fixtures/art_small.mp3 /NPArtQ/art_small.mp3
+update_db_wait_change 60000
+art_wait 120000
+play_files /NPArtQ/art_big.mp3 /NPArtQ/art_small.mp3
+wait 1000
+np_pin 3000 50
+key SELECT          # Music (the menu re-reads "Now Playing" after a push/pop)
+wait 700
+key MENU
+wait 700
+wheel +10 100       # Now Playing, the last row
+disk_active 3000
+wait 2000           # rest + cross-fade
+shot big_row
+key SELECT          # the Now Playing screen's art, for comparison
+wait 2000
+shot big_np
+key RIGHT           # the 160 px cover
+wait 2000
+shot small_np
+key MENU
+disk_active 3000
+wait 2500
+shot small_row
+
+audio_stop
+rm_file /NPArtQ/art_big.mp3     # leave the shared disk as primed
+rm_file /NPArtQ/art_small.mp3
+quit

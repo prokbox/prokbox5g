@@ -1,0 +1,14 @@
+# A computer leaves the disk alone (owner, 2026-10-11): at boot the shell
+# creates the markers macOS honours, /.metadata_never_index (no Spotlight
+# index of the library over USB) and /.fseventsd/no_log (no change log).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-host-markers.script
+# expect-exists: /.metadata_never_index
+# expect-exists: /.fseventsd/no_log
+# golden: skip booted
+
+rm_file /.metadata_never_index
+rm_file /.fseventsd/no_log
+reboot
+wait 5000
+shot booted
+quit

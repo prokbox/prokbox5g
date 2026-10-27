@@ -1,0 +1,36 @@
+# Phase 5: a track whose length is unknown (a streamed FLAC: total_samples 0): no
+# progress fill, no remaining time (never "-0:00"), the elapsed time still
+# counts. The log shows the length as 0 in "np snap len=".
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p5-nolen.script
+# needs: music
+# needs: np
+# golden: skip nolen_late
+# log: len=0 ch=0
+# trace: np
+# timeout: 60
+
+wait 3000
+sim_clock 15:08
+clock_format 24      # P11: the default is 12-hour; this golden shows 24
+repeat off
+wait_db 30000
+art_wait 60000
+mkdir /NPTest
+copy ../../build/np-fixtures/nolen.flac /NPTest/nolen.flac
+play_files /NPTest/nolen.flac
+wait 1000
+key SELECT          # Music (the menu re-reads "Now Playing" after a push/pop)
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+np_pin 5000 50
+wait 1500
+shot nolen
+wait 4000
+shot nolen_late
+audio_stop
+rm_file /NPTest/nolen.flac
+quit

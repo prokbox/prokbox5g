@@ -1,0 +1,29 @@
+# #126: an audiobook's Now Playing never offers the Visualizer (owner,
+# 2026-10-24): six SELECTs cycle the book's views only.
+# nolog: -> visualizer
+# nolog: viz start
+# reset: viz
+wait 3000
+play_files /Music/Fixture%20Author/Mini%20Audiobook/Mini%20Audiobook.m4b
+wait 1500
+key SELECT          # Music
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 1500
+key SELECT
+wait 500
+key SELECT
+wait 500
+key SELECT
+wait 500
+key SELECT
+wait 500
+key SELECT
+wait 500
+key SELECT
+wait 800
+shot book_cycle

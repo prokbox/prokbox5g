@@ -1,0 +1,5 @@
+boot build=4e57b3b9a1 rtc=2026-10-25 13:58:02
+1 fat empty slot total=3818963462
+2 ata barrier flush fail=3852451844 nosup=19922716
+3 fat slot prev a c09fe51cff2f0178fdffea44770f0006
+4 video clock bands verified: fff

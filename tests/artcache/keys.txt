@@ -1,0 +1,33 @@
+# albumartist	artist	album	first_track_path	key (tests/artcache/gen_keys.py; do not edit by hand)
+Signalfire	Signalfire	OK Compass	/Music/Signalfire/OK Compass/01 Opener.mp3	4fa804b01e326130
+\N	signalfire	ok compass	/Music/x/01.mp3	4fa804b01e326130
+\N	  SIGNALFIRE 	OK   Compass\t	\N	4fa804b01e326130
+<Untagged>	Signalfire	OK\nCompass	\N	4fa804b01e326130
+Various Artists	Tidal Drift	Now 100	/Music/Comp/Now 100/03.mp3	fc08bc8aa86a3b06
+ various  artists 	Harbour Lights	NOW 100	\N	fc08bc8aa86a3b06
+	Björvik	Homestead	/Music/Björvik/Homestead/01.flac	62c2c3fc9bd0c64d
+	BJÖRVIK	Homestead	\N	62c2c3fc9bd0c64d
+Élan	\N	Dune	\N	e53c7876feb18bcf
+ÉLAN	\N	DUNE	\N	e53c7876feb18bcf
+Elan	\N	Dune	\N	1dd1e3790b4605d2
+Straße	\N	Lied	\N	b870c8a93a469467
+Север	\N	Тихий берег	\N	33129aad17958386
+СЕВЕР	\N	ТИХИЙ БЕРЕГ	\N	33129aad17958386
+ΩMEGA	\N	Ἀλφα	\N	113465eaf314ee20
+ĐẠI	\N	Việt	\N	baa9e14c86333eda
+đại	\N	VIỆT	\N	baa9e14c86333eda
+\N	\N	Mystery Album	\N	9a7850f905311ce4
+<untagged>	<UNTAGGED>	Mystery Album	\N	9a7850f905311ce4
+Someone	Someone	\N	/Music/Rips/Disc 1/track01.mp3	5af5136bb890646d
+\N	\N		/music/rips/disc 1/track02.mp3	5af5136bb890646d
+\N	\N	<Untagged>	/MUSIC/RIPS/DISC 1/x.wav	5af5136bb890646d
+\N	\N	  	/root.mp3	ca40cf67578bec71
+\N	\N	\N	noslash.mp3	ca40cf67578bec71
+\N	\N	\N	\N	0000000000000000
+\N	\N	The Daily Show Podcast	/Podcasts/Daily/ep1.mp3	8b5681cc8200af1d
+AC/DC	AC/DC	Back in Black	/Music/AC_DC/Back in Black/01.mp3	9b13ed11a5872131
+AB	\N	C	\N	c9ddc9381a0939ab
+日本語アーティスト	\N	アルバム	\N	3ac735223dbe95a3
+Silfur Rós	\N	( )	\N	b45368972688902d
+The Beckons	\N	Ashen Road	\N	1907af5279c379c7
+Beckons, The	\N	Ashen Road	\N	9088d3f24c75011b

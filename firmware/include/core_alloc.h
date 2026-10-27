@@ -24,6 +24,7 @@
 #include "config.h"
 #include "buflib.h"
 #include "chunk_alloc.h"
+#include "xcore.h"      /* ProkBox P19 S0: XCORE_ASSERT_CPU */
 
 /* All functions below are wrappers for functions in buflib.h, except
  * they have a predefined context
@@ -42,6 +43,13 @@ size_t core_allocatable(void);
 
 #ifdef BUFLIB_DEBUG_CHECK_VALID
 void core_check_valid(void);
+#endif
+
+#if defined(HAVE_IPOD_UI) && defined(SIMULATOR)
+/* The shell's trace checks (#38): allocations made by one watched thread
+ * (core_alloc_watch(thread id), 0 stops), counted while it is set. */
+void core_alloc_watch(unsigned int thread_id);
+unsigned long core_alloc_watched(void);
 #endif
 
 /* DO NOT ADD wrappers for buflib_buffer_out/in. They do not call
@@ -66,12 +74,14 @@ static inline void* core_get_data(int handle)
 static inline void* core_get_data_pinned(int handle)
 {
     extern struct buflib_context core_ctx;
+    XCORE_ASSERT_CPU("core_get_data_pinned");
     return buflib_get_data_pinned(&core_ctx, handle);
 }
 
 static inline void core_put_data_pinned(void *data)
 {
     extern struct buflib_context core_ctx;
+    XCORE_ASSERT_CPU("core_put_data_pinned");
     buflib_put_data_pinned(&core_ctx, data);
 }
 

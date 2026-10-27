@@ -1,0 +1,57 @@
+# Tracker #68: the native "New Software" prompt after USB. A new firmware
+# file copied over USB (its mtime changes while the computer has the disk)
+# shows the shell's own light prompt, Restart | Later, Restart preselected,
+# in place of the stock yes/no. Later leaves the shell as it was; Restart
+# traces the choice (the simulator has no second image to load).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-68-newsw.script
+# needs: library
+# log: bootfile changed choice=later
+# log: bootfile changed choice=restart
+# nolog: splash
+# golden: skip
+#
+# The boot file is a stand-in (any file) at /.rockbox/rockbox.ipod; the
+# 2.5 s waits keep the two writes in different seconds (mtime resolution).
+
+wait 4000
+mkdir /.rockbox
+copy fixtures/refresh.mp3 /.rockbox/rockbox.ipod
+wait 1200
+shot before
+
+# 1. unchanged during USB: no prompt
+usb_connect
+wait 2500
+usb_disconnect
+wait 2000
+shot unchanged       # the main menu, no prompt
+
+# 2. changed during USB: prompt, Later
+usb_connect
+wait 2500
+copy_file /.rockbox/rockbox.ipod /.rockbox/rockbox.new
+rm_file /.rockbox/rockbox.ipod
+copy_file /.rockbox/rockbox.new /.rockbox/rockbox.ipod
+usb_disconnect
+wait 2000
+shot prompt          # Restart selected
+wheel +1
+wait 500
+shot later_selected
+key SELECT
+wait 1500
+shot after_later     # back on the main menu
+
+# 3. changed again: Restart
+usb_connect
+wait 2500
+rm_file /.rockbox/rockbox.ipod
+copy_file /.rockbox/rockbox.new /.rockbox/rockbox.ipod
+usb_disconnect
+wait 2000
+key SELECT           # Restart preselected
+wait 1500
+shot after_restart
+rm_file /.rockbox/rockbox.ipod
+rm_file /.rockbox/rockbox.new
+quit

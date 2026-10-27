@@ -1,0 +1,80 @@
+# P12 integration H1: the module arena after a sync build. Notes and
+# Contacts copied over USB are indexed at the post-USB moment (the
+# indexer, MOD_XINDEX, 24,720 B on the target, is the largest tenant);
+# right after it, Notes, Contacts and a game each open with their full
+# working blocks (16 KB, 16 KB, 12 KB): on the target the idle indexer is
+# evicted at the next pass (mod_discard()) or for the block
+# (mod_work_alloc() -> mod_room_find()), so no "reduced view" and no
+# "init refused nomem". The simulator links modules statically (no
+# placement: tests/modload's room policy covers that); this script holds
+# the flow and the blocks' grants.
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-arena-after-build.script
+# needs: modules
+# needs: library
+# timeout: 200
+# golden: skip
+# log: xidx build kind=1
+# log: xidx build kind=2
+# log: mod work id=notes bytes=16384 ok=1
+# log: mod work id=contacts bytes=16384 ok=1
+# log: mod work id=solitaire bytes=12288 ok=1
+# nolog: init refused
+# nolog: screen unavailable
+# nolog: no room
+# nolog: modclass viol
+# reset: mainmenu
+
+sim_clock 15:06
+wait 4000
+wait_db 30000
+sdk_clear
+rm_file /Notes/Shopping.txt
+rm_file /Notes/Welcome.txt
+rm_file /.rockbox/notes.idx
+rm_file /Contacts/family.vcf
+rm_file /Contacts/work.vcf
+rm_file /.rockbox/contacts.idx
+rm_file /.rockbox/xindex.owe
+
+usb_connect
+wait 2500
+mkdir /Notes
+mkdir /Contacts
+copy fixtures/notes/Shopping.txt /Notes/Shopping.txt
+copy fixtures/notes/Welcome.txt /Notes/Welcome.txt
+copy fixtures/contacts/family.vcf /Contacts/family.vcf
+copy fixtures/contacts/work.vcf /Contacts/work.vcf
+usb_disconnect
+wait 150
+wait_db 45000
+wait 3500           # the grace and gap windows end the busy moment: the
+storage_idle        # indexer runs there (xidx build)
+wait 1500
+wheel +2            # Main Menu: "Extras"
+wait 800
+key SELECT
+wait 1200
+wheel +5            # Extras: "Notes"
+wait 800
+key SELECT
+wait 1200
+shot notes          # Shopping, Welcome: the full list
+key MENU
+wait 1000
+wheel -3            # Extras: "Contacts"
+wait 800
+key SELECT
+wait 1200
+shot contacts       # the full list
+key MENU
+wait 1000
+wheel +2            # Extras: "Games"
+wait 800
+key SELECT
+wait 1200
+wheel +5            # Games: "Solitaire"
+wait 600
+key SELECT
+wait 1500
+shot solitaire      # a fresh deal
+quit

@@ -1,0 +1,64 @@
+# Phase 8a (docs/phase8a-brief.md 3.2, 7.3, 8): the native USB screen.
+# Idle with each connector glyph (usb_glyph pins it in the sim), the arrows
+# while storage is busy (disk_active), and the return to the screen that
+# was up before the host connected.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p8a-usb.script
+# needs: library
+# trace: usb
+# same: before after
+# nolog: splash-pass
+# golden: skip io0 io3 io6 io9
+#
+# The io* shots are one 10 fps frame apart while the arrows spin: they
+# depend on timing, so they are never compared with a golden (the
+# acceptance is >= 3 distinct frames; check_trace.py's p8a-usb rule
+# asserts only usb:frame y=68 h=80 and io=1). The review sheet is
+# tests/review/p8a-sheets.sh (idle USB-C, idle 30-pin, frames 0/3/6/9,
+# after disconnect, next to photo 1226 / photo 1165); usb-io.mp4 is the
+# "record" below (2 s at 10 fps).
+#
+# Needs U1 (usbscreen.c reading sim_usb_glyph_pin, uisimulator/common/
+# sim_cmd_sys.h) and P (the usb_screen.c hook).
+
+sim_clock 15:08     # the USB header shows the clock (Time in Title): pinned
+clock_format 24      # P11: the default is 12-hour; this golden shows 24
+wait 4000           # boot to the main menu
+shot before
+
+usb_glyph usbc
+usb_connect
+wait 1500
+shot idle_usbc      # the USB-C connector glyph, "Connected"
+usb_disconnect
+wait 1500
+shot after          # pixel-identical to "before" (# same)
+
+usb_glyph dock30
+usb_connect
+wait 1500
+shot idle_dock30    # the 30-pin glyph
+usb_disconnect
+wait 1500
+
+usb_glyph usbc
+usb_connect
+wait 1000
+disk_active 5000    # storage busy for 5 s: a sustained transfer, so
+                    # the arrows spin at 10 fps once ~1 s of it has been
+                    # seen (#58: UI_USB_IO_MIN of UI_USB_IO_WINDOW slots,
+                    # up to ~1.5 s after the start with the idle poll)
+wait 1700
+shot io0
+wait 300
+shot io3
+wait 300
+shot io6
+wait 300
+shot io9
+record 2000 10 usb-io
+wait 1500           # I/O stops: back to the idle glyph 0.5 s later
+shot idle_after_io
+usb_disconnect
+wait 1500
+shot after_io
+quit

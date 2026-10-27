@@ -1,0 +1,53 @@
+# Phase 14a (#64, docs/phase14a-brief.md 7 A2): Videos > Settings: Start Playing and Fit to Screen, kept across a reboot
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p14a-settings.script
+# (ipodui-p14a-* default to build/sim-ui-video; the gate runs them there)
+# needs: video
+#
+# Disk: tests/fixtures/videos/mkvideos.sh (installed by the gate's prime
+# step, or by shots.sh for a standalone run):
+#   Movies/        Audio First  High Profile  Late Chapter  Short Film
+#   TV Shows/      Show A (S1 x2, S2 x2, tagged)  Show B (S1 x2, untagged)
+#   Misc/          Show.C.S01E02.m4v  S01E03.m4v (nameless)
+#   Podcasts/Pod One/  Audio Episode.m4a  Video Episode.m4v
+#   Music/         Fixture Singer/Audio Only.mp4 (a song)
+#                  Fixture Author/Image Book.m4b (a book)
+# Main menu with Videos on (T1 default): Music, Videos, Podcasts, Extras,
+# Settings, Shuffle Songs. Videos: Movies, TV Shows, Settings.
+
+# Start Playing: Where Left Off (default) / From Beginning. Fit to Screen:
+# On / Off. Hidden: TV Out, TV Signal, Widescreen, Captions, Subtitles,
+# Alternate Audio (spec: brief 3.8).
+wait 4000
+wheel +1 300
+wait 600
+key SELECT
+wait 900
+wheel +2 300        # Settings (third)
+wait 400
+key SELECT
+wait 1200
+shot rows           # defaults
+key SELECT          # Start Playing
+wait 900
+shot start_playing
+wheel +1 300        # From Beginning
+wait 400
+key SELECT
+wait 900
+shot start_beginning
+wheel +1 300        # Fit to Screen (second row)
+wait 400
+key SELECT          # toggle Off
+wait 700
+shot fit_off
+reboot
+wait 4000
+wheel +1 300
+wait 600
+key SELECT
+wait 900
+wheel +2 300
+wait 400
+key SELECT
+wait 1200
+shot after_reboot   # both changes survive

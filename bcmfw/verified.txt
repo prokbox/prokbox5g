@@ -1,0 +1,28 @@
+# Embedded VideoCore images verified on a device: the default boot path
+# (HAVE_BCMFW_DEFAULT) takes the DMA image without a pass flag only if its
+# FNV-1a is listed here.  One line per image: name, FNV-1a (hex), and the
+# session and log line that verified it.  An image is listed only after it
+# passed stage 5 on a real unit (docs/research/bcm2722/pipeline.md, "The
+# everyday path").  bcmfw/mkdevtest.py compiles this into
+# bcm-devtest-images.c.
+#
+# Clock tokens: a line named clock150 attests that the video image with
+# that FNV-1a (bcmvideo.bin as the player loads it) played stage 6 at
+# 150 MHz on a real unit, after stage 4c (the clock switch with the panel
+# on) passed in the same session.  The bench's re-verify writes the line
+# ("verified clock150 ...") when s4c and s6 both pass.  The player runs the
+# chip at 150 MHz only for an image with a token, or (developer builds)
+# with the unit's stage 4b and 4c pass flags; anything else plays at 27
+# MHz.  bcmfw/mkvideo.py compiles the tokens into apps/video/bcmvideo_clock.h;
+# mkdevtest.py leaves them out of the boot path's list.
+#
+# name        fnv       verified by
+hello_dma     4326f8dc  stage 5 PASS on the owner's 5.5G: session 17 (session log, session 17, bcmtest.log lines 3714 and 4646: "boot hello_dma: 8016 bytes, fnv 4326f8dc" ... "stage 5 PASS"); also sessions 7 and 14; device pass flag bcmpass5.txt "5 hello_dma 00001f50 4326f8dc"
+hello_dma     28768994  stage 5 PASS on the owner's 5.5G: bench 2026-10-25, build 799ff0f8d7 (session log, bench-20261025, bcmtest.1.log line 604 "stage 5 PASS", "boot hello_dma: 8016 bytes, fnv 28768994"); device pass flag bcmpass5.txt "5 hello_dma 00001f50 28768994"
+# bcmvideo_jobs 80bc8611: accepted by the owner (2026-10-25) under the corrected re-verify rule: B13 (the warm swap from the display-only image into the video image) is not this merged image's path, so it no longer gates its line; B13 FAILED in this session (PARK st=0 f=3, warm word 0 after 60 ms; tracked on branch p19-b13). Note: J_VPU's MAC bit was 0 (J_VPU 3) and the display-only image read 0x23.
+bcmvideo_jobs 80bc8611  stage 6 PASS (merged, 218692 bytes), B5 PASS, jobs self-test PASS, J_VPU 3 PASS, drift B3 and drill 2 PASS on the owner's 5.5G: re-verify session 2026-10-25, build 799ff0f8d7-261026
+clock150      80bc8611  bcmvideo_jobs (merged, 218692 bytes): stage 4c PASS and stage 6 PASS at 150 MHz on the owner's 5.5G: sitting 2, 2026-10-25, build 799ff0f8d7 (session log, bench-20261025: 20261025-224345-799ff0f8d7-261026.txt "step=s4c result=pass" and "step=s6 result=pass ... 3 Clip 2 PASS: 303 shown, 0 skipped"; bcmtest.log line 41 "video image: 218692 bytes, fnv 80bc8611", line 1265 "clock 150-150 MHz")
+# bcmvideo_jobs 2c6dc03a (image batch 3): sitting 3, 2026-10-26, build 7e8c140e40-261026, earned the clock token only. No bcmvideo_jobs line: the job self-test never ran on this image (rc 1, unavailable). The 09:47 attempt's s05 left the chip on Apple's vmcs; its boot step was marked done without a restart, and the 10:12 session's pre-flight passed on the flags alone in that same start. jobs therefore skipped as a NEED step. J_VPU 3, s6, b5 and b3 passed after a later restart. The RESPANEL panel was decoded on the PP (art panel cpu ms=20320), so DECODE on the chip was not exercised. B13 9 of 10 (warm 9 "to display by CPU: never ready").
+clock150      2c6dc03a  bcmvideo_jobs (merged, 214772 bytes): stage 4c PASS and stage 6 PASS at 150 MHz on the owner's 5.5G: sitting 3, 2026-10-26, build 7e8c140e40-261026 (session log, bench-20261026: 20261026-101229-7e8c140e40-261026.txt "step=s4c result=pass" and "step=s6 result=pass ... 3 Clip 2 PASS: 311 shown, 0 skipped"; bcmtest.1.log line 453 "stage 4c passed", line 464 "video image: 214772 bytes, fnv 2c6dc03a", line 565 "clock 150-150 MHz")
+# bcmvideo_jobs 23693ff4 (image batch 4): sitting 4c, 2026-10-26, build fa3d8edb58-261026, earned the clock token. The session was stopped before its end (so the session itself wrote no token line); its results file has s4c and s6 PASS in one session. No bcmvideo_jobs line yet: jvpu was skipped in 4c ("no probe image"); it passed on the same image in sitting 4b (session log 20261026-171854-1663b48a25-261026.txt).
+clock150      23693ff4  bcmvideo_jobs (merged, 214356 bytes): stage 4c PASS and stage 6 PASS at 150 MHz on the owner's 5.5G: sitting 4c, 2026-10-26, build fa3d8edb58-261026 (session log 20261026-202750-fa3d8edb58-261026.txt "step=s4c result=pass" and "step=s6 result=pass ... 3 Clip 2 PASS: 311 shown, 0 skipped"; bcmtest.log line 481 "stage 4c passed", line 514 "video image: 214356 bytes, fnv 23693ff4", line 618 "clock 150-150 MHz", line 1639 "auto: s6 pass")

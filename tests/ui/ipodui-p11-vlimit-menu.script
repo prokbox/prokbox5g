@@ -1,0 +1,40 @@
+# P11 U2a (docs/phase11-brief.md 3.5): the no-code path. Move the limit,
+# SELECT to Enter Combination, MENU accepts with no code: the limit is
+# set and applied at once (trace "vlimit set=-60 code=0 applied=-60"; P15's
+# volume curve: 46 clicks down from +6 dB is step 1, -60 dB; the
+# output volume drops to the new limit without touching the wheel),
+# and reopening Volume Limit goes straight to the limit screen (no code),
+# with the triangle where it was left. PLAY on that screen previews (the
+# queue plays or pauses); MENU leaves with nothing saved.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p11-vlimit-menu.script
+# golden: skip limit_set limit_reopened limit_cancelled
+wait 4000
+
+wheel +3 300            # Settings
+wait 400
+key SELECT 50
+wait 1200
+wheel +5 300            # Volume Limit
+wait 600
+key SELECT 50
+wait 1500
+wheel -46 40            # below the current volume (-60 < -25): clamps at once
+wait 600
+key SELECT 50           # Enter Combination
+wait 800
+key MENU 50             # accept with no code
+wait 1200
+shot limit_set          # back in Settings
+key SELECT 50           # reopen: the limit screen (no code)
+wait 1500
+shot limit_reopened     # the triangle where it was left
+wheel -10 40
+wait 500
+shot limit_moved_again
+key MENU 50             # leave: nothing saved
+wait 1200
+key SELECT 50
+wait 1500
+shot limit_cancelled    # the triangle is back at the saved limit
+
+quit

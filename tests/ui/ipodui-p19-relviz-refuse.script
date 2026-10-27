@@ -1,0 +1,40 @@
+# 0.8.0: the visualizer's last-resort net.  The overlay's file missing
+# (bcm_viz ovl refuse: why=nofile): the art thread's two reads in this
+# epoch are refused, the view held meanwhile, then the CPU draws, said
+# loudly once ("CPU FALLBACK"), never a silent CPU path.  The same view
+# with the file (ipodui-p19-relviz) never falls back.
+#   SIM_BUILD=build/sim-rel-bcm scripts/shots.sh tests/ui/ipodui-p19-relviz-refuse.script
+# log: bcm_viz ovl refuse
+# log: viz start style=0 path=bcm n=512 owed
+# log: bcmjob overlay refused why=nofile
+# log: FAULT bcm viz overlay not loaded
+# log: CPU FALLBACK why=lost
+# nolog: bcmjob overlay ok ops=01e3bfff
+# nolog: bcmjob submit op=0x34
+# nolog: why=nojob
+# np: viz-full
+# reset: viz
+wait 3000
+bcm_viz ovl refuse
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait 1500
+key SELECT          # Music
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 1500
+key SELECT          # Scrubber
+wait 400
+key SELECT          # Rating
+wait 600
+key SELECT          # Shuffle
+wait 600
+key SELECT          # Visualizer: refused, the CPU's
+wait 2000
+shot cpu_bars
+key SELECT          # back to Normal
+wait 1200
+bcm_viz ovl on

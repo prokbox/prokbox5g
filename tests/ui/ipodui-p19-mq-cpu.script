@@ -1,0 +1,56 @@
+# P19 19-5: the title's marquee falls back to F2 on the CPU whenever the
+# BCM can't take the stepped PAN: an image older than jobs rev 0.3 (its
+# minor 2 would run the record as a linear pan: "why=minor"), and an image
+# without ANIM ("why=nojob").  F2 then steps and pushes the title band
+# itself, as without the BCM.
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p19-mq-cpu.script
+# needs: music
+# needs: np
+# needs: video
+# golden: skip
+# logbetween: start p0 np mq cpu why=minor
+# logbetween: start p0 update np:title
+# logbetween: p1 p2 np mq cpu why=nojob
+# logbetween: p1 p2 update np:title
+# nolog: np mq bcm start
+# nolog: glass owned STALE
+# nolog: shot POISONED
+
+wait 3000
+bcm_drift on
+bcm_minor 2         # an image before the stepped PAN
+sim_clock 15:08
+clock_format 24
+repeat off
+wait_db 30000
+art_wait 60000
+mkdir /NPTest
+copy ../../build/np-fixtures/long_title.mp3 /NPTest/long_title.mp3
+play_files /NPTest/long_title.mp3
+wait 1000
+np_pin 8000 50
+key SELECT          # Music (the menu re-reads "Now Playing" after a push/pop)
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 3000
+ab_mark p0
+shot minor
+key MENU
+wait 800
+bcm_minor 4
+bcm_fault clear 0x2a    # the image lacks ANIM
+ab_mark p1
+key SELECT
+wait 3000
+ab_mark p2
+shot nojob
+key MENU
+wait 800
+bcm_fault none
+audio_stop
+rm_file /NPTest/long_title.mp3
+quit

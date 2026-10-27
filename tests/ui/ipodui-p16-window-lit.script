@@ -1,0 +1,34 @@
+# Phase 16-1 review (M4): on the charger the builder's idle test is true
+# with the screen lit (no key for 2 s), but the paused window needs the
+# screen dark too: lit on the charger, old pause, no key: closed; then
+# the backlight goes off: open.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-window-lit.script
+# needs: library
+# needs: ab
+# golden: skip
+# timeout: 200
+# fulls-extra: 2
+# logbetween: l0 l1 no maint window open
+# logbetween: l1 end maint window open
+
+wait 4000
+wait_db 45000
+mkdir /Audiobooks/L16
+copy ../../build/ab-fixtures/pref.m4b /Audiobooks/L16/pref.m4b
+update_db_wait_change 60000
+charger on
+play_files /Audiobooks/L16/pref.m4b
+wait_pos 3000 60000
+snapshot_pause
+expect_paused 500
+pause_age 200
+ab_mark l0
+wait 5000                   # lit, charging, no key for 5 s
+shot lit
+ab_mark l1
+backlight_expire            # dark: the window opens
+wait 3000
+key MENU
+wait 1000
+charger off
+quit

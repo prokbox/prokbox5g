@@ -404,7 +404,10 @@ void dsp_set_timestretch(int32_t percent)
 
     struct dsp_config *dsp = dsp_get_config(CODEC_IDX_AUDIO);
     dsp_configure(dsp, TIMESTRETCH_SET_FACTOR, percent);
-#if defined(ROCKBOX) && !defined(WARBLE) /* filter out invalid by grabbing the value actually set */
+#if defined(ROCKBOX) && !defined(WARBLE) && !defined(HAVE_IPOD_UI) /* filter out invalid by grabbing the value actually set */
+    /* (the iPod UI shell sets the speed per track from its own setting,
+     * P6 Rev 1 item 6: global_status is not touched, so nothing of it
+     * is saved) */
     global_status.resume_speed = st->factor;
 #endif
 }

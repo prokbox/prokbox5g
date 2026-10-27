@@ -1,0 +1,59 @@
+# P19 19-1a review H1: with Backlight set to Off the tagcache thread sees
+# the panel dark (is_backlight_on(true)) while the maintenance window
+# stays shut (maint reads is_backlight_on(false): lit, MAINT_NO_LIT), so
+# the paused window's age deadline passes with its work still blocked.
+# The thread must not poll that past deadline: paused over 3 min, then
+# 60 s of wakes, at most the old 1/s. Backlight is put back to 10 s.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p19a-wakes-bloff.script
+# needs: music
+# needs: np
+# golden: skip
+# timeout: 420
+# nolog: splash-pass
+
+wait 4000
+repeat off          # a shared disk may hold "repeat: one" (np-sharp)
+wheel +3            # Settings
+wait 400
+key SELECT
+wait 1200
+wheel +6            # Backlight
+wait 400
+key SELECT
+wait 800
+wheel -3            # 10 Seconds (the default) -> Off
+wait 400
+key SELECT
+wait 800
+key MENU
+wait 800
+mkdir /P19
+copy ../../build/np-fixtures/book_held.mp3 /P19/long.mp3
+play_files /P19/long.mp3
+wait 3000
+key PLAY            # pause
+wait 2000
+expect_paused 500
+wait 185000         # past the window's 3 min pause age
+wakes start
+wait 60000
+wakes paused_bl_off
+expect_wakes_le tagcache 60
+key MENU
+wait 800
+wheel +3            # Settings
+wait 400
+key SELECT
+wait 1200
+wheel +6            # Backlight
+wait 400
+key SELECT
+wait 800
+wheel +3            # Off -> 10 Seconds
+wait 400
+key SELECT
+wait 800
+key MENU
+wait 800
+shot end
+quit

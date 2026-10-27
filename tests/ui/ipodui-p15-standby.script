@@ -1,0 +1,70 @@
+# P15 (docs/phase15-brief.md 3.2, 6 item 10): the codec's idle standby, as
+# the sim keeps it (firmware/drivers/audio/sdl.c: standby once
+# !pcm_is_playing() for DAC_IDLE_MS = 5 s, a wake on any PCM start). The
+# shell logs "dac standby= sleeps= wakes= wake_us=" whenever a count
+# changes. States walked, in this order:
+#   1 boot idle            nothing ever played: standby after ~5 s
+#   2 play                 wake; never standby while playing
+#   3 pause                the mixer's ~3 s DMA tail runs first, so NOT in
+#                          standby at 6 s (3 + 5 = 8 s is the earliest;
+#                          measured: logged between 8 and 10 s), in
+#                          standby by 12 s
+#   4 resume               wake
+#   5 end of playlist      a 25 s queue plays out: not in standby 3.5 s
+#                          after the position reached 23 s (the pcm buffer
+#                          drains, then the tail and 5 s), in by 17 s
+# Not walkable in the sim (checked, reported to the orchestrator):
+#   - "stopped by the user": the shell has no stop control (the 7G has
+#     none either); the same armed-after-stop path is the end of playlist
+#     above, and power-off from standby is ipodui-p15-standby-poweroff.
+#   - headphone click while in standby: the simulator's keyclick callback
+#     (apps/ipodui/input.c click_trace) replaces the sound, so no mixer
+#     channel starts and no wake is counted; device check 3 only.
+# Wall-clock waits for the idle windows (nothing plays, so no position).
+# The trace line comes from the shell's main loop (ui_main.c dac_trace), so
+# the script pauses from the main menu, whose idle wakes log it promptly;
+# Now Playing sleeps until the next key and would log it late.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p15-standby.script
+# needs: music
+# timeout: 120
+# trace: p15dac
+# dac: sleeps>=3 wakes>=2
+# logbetween: start idle dac standby=1 sleeps=1 wakes=0
+# logbetween: idle playing dac standby=0 sleeps=1 wakes=1
+# logbetween: playing paused no dac standby=1
+# logbetween: paused p6 no dac standby=1
+# logbetween: p6 p12 dac standby=1 sleeps=2 wakes=1
+# logbetween: p12 resumed dac standby=0 sleeps=2 wakes=2
+# logbetween: resumed ended_early no dac standby=1
+# logbetween: ended_early end dac standby=1 sleeps=3 wakes=2
+# fulls-extra: 2 the main menu redraws in full when its Now Playing row appears and goes
+# golden: skip idle playing paused resumed ended
+
+wait 7500
+ab_mark idle
+shot idle
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait_pos 2000 20000 Concert
+wait 500
+ab_mark playing
+shot playing
+key PLAY            # pause, from the main menu (its idle wakes keep the
+                    # trace timely; Now Playing sleeps until a key)
+ab_mark paused
+wait 6000
+ab_mark p6
+shot paused
+wait 6000
+ab_mark p12
+key PLAY            # resume
+wait 1500
+ab_mark resumed
+shot resumed
+# a new 25 s queue plays out
+play_files /Music/Tone%20Collective/Sine%20Studies/03%20Warble.mp3
+wait_pos 23000 60000 Warble
+wait 3500           # the track ended at 25 s: not yet 5 s of silence
+ab_mark ended_early
+wait 14000
+shot ended
+quit

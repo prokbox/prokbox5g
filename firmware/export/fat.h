@@ -146,6 +146,22 @@ int fat_rename(struct fat_file *parent, struct fat_file *file,
 int fat_modtime(struct fat_file *parent, struct fat_file *file,
                 time_t modtime);
 
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER) && !defined(FAT_NO_BARRIER)
+/* ProkBox (#91 H2): write orders are enforced with a drive cache flush
+ * (fat.c); fat_barrier() makes every write so far durable */
+#define FAT_WRITE_BARRIER
+#ifndef FAT_BARRIER_AUTO_ONLY           /* tests/fatcrash: a control */
+void fat_barrier(IF_MV_NONVOID(int volume));
+#else
+#define fat_barrier(...) do {} while (0)
+#endif
+#ifdef FAT_BARRIER_COUNT                /* tests/fatcrash */
+extern unsigned long fat_barrier_count;
+#endif
+#else
+#define fat_barrier(...) do {} while (0)
+#endif
+
 #if defined(MAX_VARIABLE_LOG_SECTOR)
 int fat_file_sector_size(IF_MV_NONVOID(const struct fat_file *file));
 #else
@@ -182,7 +198,39 @@ int fat_get_bytes_per_sector(IF_MV_NONVOID(int volume));
 #endif /* MAX_VIRT_SECTOR_SIZE || MAX_VARIABLE_LOG_SECTOR */
 unsigned int fat_get_cluster_size(IF_MV_NONVOID(int volume));
 void fat_recalc_free(IF_MV_NONVOID(int volume));
+#ifdef HAVE_IPOD_UI
+bool fat_get_fsinfo(IF_MV(int volume,) unsigned long *freecount,
+                    unsigned long *nextfree, unsigned long *clusters);
+void fat_recalc_free_commit(IF_MV_NONVOID(int volume));
+bool fat_get_dirty(IF_MV(int volume,) unsigned int *bsflags,
+                   unsigned long *fat1);
+#endif
 bool fat_size(IF_MV(int volume,) sector_t *size, sector_t *free);
+
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+/* ProkBox (2026-10-23 device freeze): a close whose directory entry is
+ * empty or deleted returns an error instead of panicking (nothing is
+ * written; at worst the file's clusters leak). The last such case, for
+ * ipodui.log (apps/ipodui/uilog.c logs it when seq moves) */
+#define FAT_SOFT_EMPTY_SLOT
+struct fat_slot_fault
+{
+    unsigned long count;            /* since boot */
+    unsigned long seq;              /* bumped after each capture */
+    char thread[16];
+    long dircluster;
+    long firstcluster;
+    unsigned long entry;
+    unsigned long size;
+    bool from_disk;                 /* the sector was read, not cached */
+    uint8_t raw[3][32];             /* entry - 1, entry, entry + 1 */
+    bool have[3];
+};
+/* Its seq, and a copy of the last case into out unless NULL (a function,
+ * not the object: the shell's remote-call --wrap redirects a function's
+ * callers only; a wrapped data object reads the stub's code, p19-bssfix) */
+unsigned long fat_slot_fault_get(struct fat_slot_fault *out);
+#endif
 
 /** Misc. **/
 void fat_empty_fat_direntry(struct fat_direntry *entry);

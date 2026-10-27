@@ -1,0 +1,39 @@
+# Phase 4b: the art builder keeps running during playback (docs/
+# phase4b-brief.md Revision 1 Decision 1 and Revision 2 D1): its decode
+# buffer and the thumbnail LRU are reserved at shell start, never
+# allocated once playback starts; it is unboosted, background priority,
+# and (#58 idle build) touches storage during playback only while the
+# user is idle (clock face up, backlight off), never while they are on.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p4b-art-playing.script
+# needs: library
+# fresh-db
+#
+# Trace rule "artio" (scripts/check_trace.py) fails if any "art io" line
+# has playing=1 and idle=0 (storage touched with the user on).
+# expect_art checks every album's state (OK / NOART / FAILED) against
+# tests/ui/art_manifest.txt once the builder is done, none pending.
+
+wait 4000
+wait_db 45000       # the shell builds the database itself (fresh-db)
+
+wheel +4            # "Shuffle Songs" (main menu)
+wait 500
+key SELECT          # plays across tracks
+wait 2000
+expect_playing 300
+shot playing_start  # the builder is mid-run behind the WPS
+
+wait 5000
+expect_playing 6000 # no stop, no gap: the builder never boosts or
+                    # stalls playback
+shot playing_mid
+
+audio_reload        # a real refill (a playlist change), no key: since
+                    # #58 the builder ignores refills (no fill windows)
+art_wait 40000      # block until the builder is idle (background,
+                    # unboosted)
+expect_playing 300
+expect_art art_manifest.txt
+shot playing_done   # still playing once the builder has finished
+
+quit

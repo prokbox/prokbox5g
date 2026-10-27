@@ -1,0 +1,38 @@
+# Phase 6 (Rev 2 AB-1): a single-file book WITHOUT chapters still opens its
+# page (no direct play from the list). The page has the one file entry, and
+# no Resume until a spot is saved. Playing it from the entry starts at 0.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p6-nochap.script
+# needs: library
+# needs: ab
+# timeout: 90
+# trace: ab
+# log: ab open book=
+# golden: skip np_start
+# DB state: ready. Needs B and U. Rows: 0 A Field Guide, 1 AB No Chapters.
+
+wait 4000
+wait_db 45000
+mkdir /Audiobooks/AB
+copy ../../build/ab-fixtures/nochap.m4b /Audiobooks/AB/nochap.m4b
+update_db_wait_change 60000
+art_wait 60000
+
+key SELECT
+wait 800
+wheel +6 300   # Audiobooks (Compilations off: P11)
+wait 400
+key SELECT          # Audiobooks
+wait 900
+wheel +1 300        # AB No Chapters
+wait 400
+key SELECT
+wait 1000
+shot page           # the page opens: one entry, no Resume
+key SELECT          # the entry: play from 0
+wait 2500
+expect_pos 0 4500
+shot np_start
+audio_stop
+wait 500
+remove /Audiobooks/AB/nochap.m4b
+quit

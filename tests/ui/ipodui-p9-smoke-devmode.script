@@ -1,0 +1,44 @@
+# Phase 9 smoke (docs/phase9-brief.md 7.8, 7.11b): developer mode with
+# the trims on: the About chord opens the stock list (unthemed under
+# IPODUI_TRIM_SKIN, M2), Debug opens, Back leaves developer mode.
+# ipodui-p9-devmode-debug (A) opens every debug screen; this is the short
+# path for the --ram=32 smoke set.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p9-smoke-devmode.script
+# nolog: splash-pass
+# golden: skip developer debug about_after
+# env: SIM_TRACE_LCD_PUSH=1
+# logbetween: dev_in dev_shown \bsim lcd push x=0 y=0 w=320 h=240\b
+
+wait 5000           # boot to the main menu
+wheel +3            # Settings
+wait 400
+key SELECT
+wait 1500
+key SELECT          # About
+wait 1500
+ab_mark dev_in       # #57: the stock list must reach the panel
+chord SELECT+LEFT 3200
+wait 1000
+shot developer
+ab_mark dev_shown
+wheel -2            # Advanced (above Back; the list wraps)
+wait 400
+key SELECT
+wait 800
+wheel -1            # System debug (its last row)
+wait 400
+key SELECT          # System debug
+wait 1000
+shot debug
+key LEFT            # back to Advanced
+wait 800
+key LEFT            # Advanced
+wait 600
+key LEFT            # Developer, on Advanced
+wait 600
+wheel +1            # the Back row
+wait 400
+key SELECT
+wait 1500
+shot about_after
+quit

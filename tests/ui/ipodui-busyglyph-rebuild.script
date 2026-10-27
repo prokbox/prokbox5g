@@ -1,0 +1,40 @@
+# 3.20 (owner, device, 2026-10-25): any library update shows the header's
+# 8-dot activity glyph, not only the post-USB scan. Rebuild Cache (the
+# Music hold menu's rebuild, tagcache_rebuild_maintenance()) runs scan,
+# commit, reload and the lists' precompute: the glyph comes up once the
+# work has run a second and goes at least a second after it ends. An
+# update that only probes (nothing changed) never shows it. Lit work
+# only (owner, 2026-10-25): going dark drops it ("busyglyph off dark"),
+# and lit again the 1 s count starts afresh, so it is back a second after
+# the wake, never at once (two "on" runs).
+# check_trace.py busyglyph: every "busyglyph on" after a run of 1 s or
+# more and its "off" 1 s or more later; no step or header push dark.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-busyglyph-rebuild.script
+# needs: library
+# timeout: 180
+# trace: busyglyph
+# busyglyph-ons: 2
+# golden: skip before during darkback relit after
+
+sim_clock 15:08
+wait 4000
+wait_db 30000
+update_db_wait 30000    # a probe only (nothing changed): no glyph
+wait 2500
+shot before             # no glyph
+scan_slow 3             # ~0.6 s per 20 folders: the rebuild lasts ~6 s
+rebuild_db_start
+wait 2200
+shot during             # the glyph, a second into the rebuild
+backlight_expire        # dark (stopped: the unlit face): no step, no draw
+wait 1500
+key MENU                # lit again (the face's swallowed wake key)
+wait 400
+shot darkback           # no glyph yet: the wake restarts the count
+wait 1000
+shot relit              # the glyph again, a second after the wake
+wait 8000               # the scan's end; the gap and minimum windows
+storage_idle
+wait 1000
+shot after              # glyph gone
+quit

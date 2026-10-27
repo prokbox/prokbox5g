@@ -21,6 +21,7 @@
 #ifndef __SCREENDUMP_H__
 #define __SCREENDUMP_H__
 
+#include <stdbool.h>
 #include "config.h"
 
 /* Make BMP colour map entries from R, G, B triples, without and with blending. */
@@ -56,6 +57,9 @@
 /* Save a .BMP file containing the current screen contents. */
 void screen_dump(void);
 
+/* Same, but to the given file name. Returns false on failure. */
+bool screen_dump_to(const char *filename);
+
 void screen_dump_set_hook(void (*hook)(int fd));
 
 #ifdef HAVE_REMOTE_LCD
@@ -66,6 +70,7 @@ void remote_screen_dump(void);
 #else /* !HAVE_SCREENDUMP */
 
 #define screen_dump() do { } while(0)
+#define screen_dump_to(filename) ((void)(filename), false)
 #define remote_screen_dump() do { } while(0)
 
 #endif /* HAVE_SCREENDUMP */

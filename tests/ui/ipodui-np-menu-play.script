@@ -1,0 +1,59 @@
+# P6 fix round: PLAY on the main menu pauses a 1-file queue, and PLAY
+# again resumes it, with Now Playing not on the stack: first never pushed
+# (the file is queued by play_files from the main menu), then pushed from
+# the "Now Playing" row and popped with MENU. Cause of the reported stop:
+# opening Music while paused allocated the menu's state, playback shrank
+# its buffer for it, and a shrink stopped a paused queue for good (only a
+# playing one was resumed); PLAY then restarted it. Now a paused queue is
+# resumed paused, and the menus under the main menu use static slots. The
+# queue must stay paused through Music and a list under it.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-np-menu-play.script
+# needs: music
+# timeout: 90
+# log: sim_script: expect_paused ok
+# log: sim_script: expect_playing ok
+# logrange: 1 1 after=paused until=resumed np row visible=(\d)
+# golden: skip paused_menu resumed_menu popped_paused
+
+wait 3000
+sim_clock 15:08
+clock_format 24      # P11: the default is 12-hour; this golden shows 24
+repeat off
+wait_db 30000
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait 1500
+expect_playing 500
+key PLAY            # pause, from the main menu
+wait 800
+expect_paused 1000
+ab_mark paused
+key SELECT          # Music (a menu push), then a list under it (a
+wait 900            # browse push), then back: both allocated while paused
+expect_paused 300
+key SELECT
+wait 900
+expect_paused 300
+key MENU
+wait 900
+key MENU
+wait 900
+shot paused_menu    # "Now Playing" still listed
+ab_mark resumed
+key PLAY            # resume, from the main menu
+wait 800
+expect_playing 1500
+shot resumed_menu
+wheel +10           # "Now Playing": pushed, then popped
+wait 500
+key SELECT
+wait 1500
+key MENU
+wait 1200
+key PLAY            # pause again, Now Playing popped
+wait 800
+expect_paused 1000
+shot popped_paused
+key PLAY
+wait 800
+expect_playing 1000
+quit

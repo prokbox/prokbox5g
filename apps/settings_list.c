@@ -75,6 +75,10 @@
 #include "iap-usb.h"
 
 #include "voice_thread.h"
+#ifdef HAVE_IPOD_UI
+#include "ipodui/menucfg.h"         /* P11 checklist defaults */
+#include "ipodui/tzcity.h"          /* P11 default city */
+#endif
 
 #if defined(DX50) || defined(DX90)
 #include "governor-ibasso.h"
@@ -694,6 +698,36 @@ struct eq_band_setting eq_defaults[EQ_NUM_BANDS] = {
     { EQ_FILTER_HIGH_SHELF, 16000, 7, 0 },
 };
 
+#ifdef IPODUI_TRIM_STOCK_MENUS
+/* Phase 9: apps/menus/eq_menu.c is compiled out of the shell, but the shell's
+ * own EQ (ipodui/screens/eq.c) keeps these two settings. Same bodies as
+ * eq_menu.c's eq_enabled_option_callback() / eq_precut_format(). */
+static void p9_eq_enabled_cb(bool enabled)
+{
+    (void)enabled;
+    dsp_eq_enable(global_settings.eq_enabled);
+    dsp_set_eq_precut(global_settings.eq_precut);
+    /* Update all bands */
+    for(int i = 0; i < EQ_NUM_BANDS; i++) {
+        dsp_set_eq_coefs(i, &global_settings.eq_band_settings[i]);
+    }
+}
+
+static const char* p9_eq_precut_format(char* buffer, size_t buffer_size,
+                                       int value, const char* unit)
+{
+    snprintf(buffer, buffer_size, "%s%d.%d %s", value == 0 ? " " : "-",
+        value / EQ_USER_DIVISOR, value % EQ_USER_DIVISOR, unit);
+    return buffer;
+}
+#define EQ_ENABLED_CB    p9_eq_enabled_cb
+#define EQ_PRECUT_FORMAT p9_eq_precut_format
+#else
+#define EQ_ENABLED_CB    eq_enabled_option_callback
+#define EQ_PRECUT_FORMAT eq_precut_format
+#endif
+
+#ifndef IPODUI_TRIM_BROWSER
 static const int wps_context_menu_default =
     HK_CTX_SET(0, HOTKEY_VIEW_PLAYLIST) /* hotkey*/
   | HK_CTX_SET(1, HOTKEY_SHOW_TRACK_INFO)
@@ -704,6 +738,7 @@ static const int wps_context_menu_default =
   | HK_CTX_SET(3, HOTKEY_DELETE)
 #endif
   | HK_CTX_SET(4, HOTKEY_ALBUMART);
+#endif
 
 #ifdef HAVE_HOTKEY
 static const int tree_hotkey_default = HOTKEY_OFF;
@@ -880,7 +915,9 @@ static void repeat_mode_callback(int repeat)
 static void treesort_callback(int value)
 {
     (void) value;
+#ifndef IPODUI_TRIM_BROWSER /* P9: no file browser to reload */
     reload_directory();
+#endif
 }
 
 #ifdef HAVE_QUICKSCREEN
@@ -1031,8 +1068,12 @@ static void list_kinetic_set_default(void *setting, void *defaultval)
 
 static void start_in_callback(int var)
 {
+#ifdef IPODUI_TRIM_PLUGINS /* P9: no plugins; the shell has its own start */
+    (void)var;
+#else
     if (var - 2 == GO_TO_PLUGIN)
         open_plugin_browse(ID2P(LANG_START_SCREEN));
+#endif
 }
 
 /* volume limiter */
@@ -1068,6 +1109,24 @@ static void hp_lo_select_apply(int arg)
 #endif
 
 #endif /* __PCTOOL__ */
+
+/* iPod UI shell defaults (docs/phase8a-brief.md hooks H1a-H1c): LCD
+ * power-down 60 s after the backlight (90 s until 2026-10-12), USB HID off, and no erase-playlist
+ * prompt (the shell answers prompts No). P11 (owner): the 12-hour clock,
+ * as stock 7G (timeformat 1). Stock values otherwise. */
+#ifdef HAVE_IPOD_UI
+#define LCD_SLEEP_DEFAULT           60  /* owner 2026-10-12: 90 -> 60 s, battery */
+#define USB_HID_DEFAULT             false
+#define WARNON_ERASE_DYNPL_DEFAULT  false
+#define TIMEFORMAT_DEFAULT          1
+#define UNPLUG_MODE_DEFAULT         1   /* pause on unplug, no resume (7G) */
+#else
+#define LCD_SLEEP_DEFAULT           5
+#define USB_HID_DEFAULT             true
+#define WARNON_ERASE_DYNPL_DEFAULT  true
+#define TIMEFORMAT_DEFAULT          0
+#define UNPLUG_MODE_DEFAULT         0
+#endif
 
 const struct settings_list settings[] = {
 /* system_status settings .resume.cfg */
@@ -1228,6 +1287,70 @@ const struct settings_list settings[] = {
     /* playback */
     OFFON_SETTING(F_CB_ON_SELECT_ONLY|F_CB_ONLY_IF_CHANGED, playlist_shuffle,
                   LANG_SHUFFLE, false, "shuffle", shuffle_playlist_callback),
+#ifdef HAVE_IPOD_UI
+    OFFON_SETTING(0, ipodui_shuffle_albums, LANG_IPODUI_ALBUMS, false,
+                  "shuffle albums", NULL),
+    /* P6 D14: 0 Slower, 1 Normal, 2 Faster (enum ab_speed in ab_book.h) */
+    INT_SETTING(0, ipodui_ab_speed, LANG_IPODUI_AUDIOBOOKS, 1,
+                "ipodui audiobook speed", UNIT_INT, 0, 2, 1,
+                NULL, NULL, NULL),
+    /* #59: 0 Title, 1 Author (enum lib_book_order in ipodui/library.h) */
+    INT_SETTING(0, ipodui_ab_sort, LANG_IPODUI_SORT_BY, 0,
+                "ipodui audiobook sort", UNIT_INT, 0, 1, 1,
+                NULL, NULL, NULL),
+    /* P11 (docs/phase11-brief.md section 4.7); hidden from stock menus
+     * (the shell never calls root_menu()) */
+    INT_SETTING(0, ipodui_main_menu, LANG_IPODUI_MAIN_MENU, UI_MM_DEFAULT,
+                "ipodui main menu", UNIT_INT, 0, UI_MM_MASK, 1,
+                NULL, NULL, NULL),
+    INT_SETTING(0, ipodui_music_menu, LANG_IPODUI_MUSIC_MENU, UI_MU_DEFAULT,
+                "ipodui music menu", UNIT_INT, 0, UI_MU_MASK, 1,
+                NULL, NULL, NULL),
+    INT_SETTING(0, ipodui_vlimit_code, LANG_IPODUI_VOLUME_LIMIT, -1,
+                "ipodui volume code", UNIT_INT, -1, 9999, 1,
+                NULL, NULL, NULL),
+    /* P12 Screen Lock (apps/ipodui/lock.h, brief 3.4) */
+    INT_SETTING(0, ipodui_lock_code, LANG_IPODUI_X_SCREEN_LOCK, -1,
+                "ipodui lock code", UNIT_INT, -1, 9999, 1,
+                NULL, NULL, NULL),
+    OFFON_SETTING(0, ipodui_locked, LANG_IPODUI_X_SCREEN_LOCK, false,
+                  "ipodui locked", NULL),
+    OFFON_SETTING(0, ipodui_time_in_title, LANG_IPODUI_DATE_TIME, false,
+                  "ipodui time in title", NULL),
+    INT_SETTING(0, ipodui_tz_city, LANG_IPODUI_DATE_TIME, UI_TZ_CITY_DEFAULT,
+                "ipodui time zone", UNIT_INT, 0, UI_TZ_CITIES_MAX - 1, 1,
+                NULL, NULL, NULL),
+    OFFON_SETTING(0, ipodui_sort_last, LANG_IPODUI_SORT_BY, false,
+                  "ipodui sort by last", NULL),
+    INT_SETTING(0, ipodui_eq_preset, LANG_IPODUI_EQ, 0,
+                "ipodui eq preset", UNIT_INT, 0, 22, 1,
+                NULL, NULL, NULL),
+    /* the first-boot notice's acknowledged build (ipodui/notice.h) */
+    INT_SETTING(0, ipodui_notice_ack, LANG_IPODUI_LEGAL, 0,
+                "ipodui notice ack", UNIT_INT, 0, 0x7fffffff, 1,
+                NULL, NULL, NULL),
+    /* #126: the Now Playing visualizer's style (ipodui/viz_core.h) and
+     * the face on a charger while music plays (0 Clock, 1 Visualizer) */
+    INT_SETTING(0, ipodui_viz_style, LANG_IPODUI_VISUALIZER, 0,
+                "ipodui viz style", UNIT_INT, 0, 6, 1,
+                NULL, NULL, NULL),
+    INT_SETTING(0, ipodui_charge_face, LANG_IPODUI_CHARGE_FACE, 0,
+                "ipodui charge face", UNIT_INT, 0, 1, 1,
+                NULL, NULL, NULL),
+    /* P19 19-9: the UI's core from the next boot (hidden; fe_be.h) */
+    INT_SETTING(0, ipodui_ui_core, LANG_IPODUI_ABOUT, 0,
+                "ipodui ui core", UNIT_INT, 0, 3, 1,
+                NULL, NULL, NULL),
+#ifdef HAVE_BCMFW_VIDEO
+    /* Videos > Settings (Phase 14a, screens/setvideos.c): Start Playing
+     * 0 Where Left Off, 1 From Beginning; Fit to Screen (stored) */
+    INT_SETTING(0, ipodui_video_start, LANG_IPODUI_START_PLAYING, 0,
+                "ipodui video start", UNIT_INT, 0, 1, 1,
+                NULL, NULL, NULL),
+    OFFON_SETTING(0, ipodui_video_fit, LANG_IPODUI_FIT_TO_SCREEN, true,
+                  "ipodui video fit", NULL),
+#endif
+#endif
 
     CHOICE_SETTING(F_CB_ON_SELECT_ONLY|F_CB_ONLY_IF_CHANGED, repeat_mode,
                    LANG_REPEAT, REPEAT_OFF, "repeat", "off,all,one,shuffle"
@@ -1366,7 +1489,7 @@ const struct settings_list settings[] = {
     CHOICE_SETTING(F_THEMESETTING, battery_display, LANG_BATTERY_DISPLAY, 0,
                    "battery display", graphic_numeric, NULL, 2,
                    ID2P(LANG_DISPLAY_GRAPHIC), ID2P(LANG_DISPLAY_NUMERIC)),
-    CHOICE_SETTING(0, timeformat, LANG_TIMEFORMAT, 0,
+    CHOICE_SETTING(0, timeformat, LANG_TIMEFORMAT, TIMEFORMAT_DEFAULT,
         "time format", "24hour,12hour", NULL, 2,
         ID2P(LANG_24_HOUR_CLOCK), ID2P(LANG_12_HOUR_CLOCK)),
     OFFON_SETTING(0,show_icons, LANG_SHOW_ICONS ,true,"show icons", NULL),
@@ -1641,6 +1764,12 @@ const struct settings_list settings[] = {
 #endif /* HAVE_DISK_STORAGE */
     /* browser */
     TEXT_SETTING(0, start_directory, "start directory", "/", NULL, NULL),
+#ifdef HAVE_IPOD_UI
+    TEXT_SETTING(0, ipodui_device_name, "device name", "", NULL, NULL),
+    TEXT_SETTING(0, ipodui_serial, "ipodui serial", "", NULL, NULL),
+    TEXT_SETTING(0, ipodui_model, "ipodui model", "", NULL, NULL),
+    TEXT_SETTING(0, ipodui_clocks, "ipodui clocks", "", NULL, NULL),
+#endif
     SYSTEM_STATUS_TEXT_SETTING(0, browse_last_folder, "last folder", "/", NULL, NULL),
     OFFON_SETTING(0, keep_directory, LANG_KEEP_DIRECTORY, false, "keep directory", NULL),
 
@@ -1707,7 +1836,12 @@ const struct settings_list settings[] = {
     TABLE_SETTING_LIST(F_TIME_SETTING | F_ALLOW_ARBITRARY_VALS, peak_meter_clip_hold,
                   LANG_PM_CLIP_HOLD, 60, "peak meter clip hold", "eternal",
                   UNIT_SEC, formatter_time_unit_0_is_eternal,
-                  getlang_time_unit_0_is_eternal, peak_meter_set_clip_hold,
+                  getlang_time_unit_0_is_eternal,
+#if defined(HAVE_RECORDING) || !defined(IPODUI_TRIM_SKIN) /* peakmeter.c */
+                  peak_meter_set_clip_hold,
+#else
+                  NULL,
+#endif
                   31, &timeout_sec_common[1]), /* skip -1 entry */
     TABLE_SETTING(F_TIME_SETTING | F_ALLOW_ARBITRARY_VALS, peak_meter_hold,
                   LANG_PM_PEAK_HOLD, 500, "peak meter hold", off, UNIT_MS,
@@ -1893,7 +2027,13 @@ const struct settings_list settings[] = {
     TEXT_SETTING(0, autoresume_paths, "autoresume next track paths",
                  "/podcast:/podcasts", NULL, NULL),
 
-    OFFON_SETTING(0, runtimedb, LANG_RUNTIMEDB_ACTIVE, false,
+#ifdef HAVE_IPOD_UI
+    /* the 7G keeps play counts and ratings (Phase 5, Revision 1 item 1) */
+#define RUNTIMEDB_DEFAULT true
+#else
+#define RUNTIMEDB_DEFAULT false
+#endif
+    OFFON_SETTING(0, runtimedb, LANG_RUNTIMEDB_ACTIVE, RUNTIMEDB_DEFAULT,
                   "gather runtime data", NULL),
     TEXT_SETTING(0, tagcache_scan_paths, "database scan paths",
                  DEFAULT_TAGCACHE_SCAN_PATHS, NULL, NULL),
@@ -1903,7 +2043,13 @@ const struct settings_list settings[] = {
 
     /* replay gain */
     CHOICE_SETTING(F_SOUNDSETTING, replaygain_settings.type,
-                   LANG_REPLAYGAIN_MODE, REPLAYGAIN_SHUFFLE, "replaygain type",
+                   LANG_REPLAYGAIN_MODE,
+#ifdef HAVE_IPOD_UI
+                   REPLAYGAIN_OFF, /* Sound Check: off by default, as on the 7G */
+#else
+                   REPLAYGAIN_SHUFFLE,
+#endif
+                   "replaygain type",
                    "track,album,track shuffle,off", NULL, 4, ID2P(LANG_TRACK_GAIN),
                    ID2P(LANG_ALBUM_GAIN), ID2P(LANG_SHUFFLE_GAIN), ID2P(LANG_OFF)),
     OFFON_SETTING(F_SOUNDSETTING, replaygain_settings.noclip,
@@ -1966,10 +2112,10 @@ const struct settings_list settings[] = {
 
     /* equalizer */
     OFFON_SETTING(F_EQSETTING, eq_enabled, LANG_EQUALIZER_ENABLED, false,
-                  "eq enabled", eq_enabled_option_callback),
+                  "eq enabled", EQ_ENABLED_CB),
 
     INT_SETTING_NOWRAP(F_EQSETTING, eq_precut, LANG_EQUALIZER_PRECUT, 0,
-                       "eq precut", UNIT_DB, 0, 240, 1, eq_precut_format,
+                       "eq precut", UNIT_DB, 0, 240, 1, EQ_PRECUT_FORMAT,
                        get_precut_talkid, dsp_set_eq_precut),
 
 
@@ -2051,8 +2197,13 @@ const struct settings_list settings[] = {
                        1, db_format, NULL, dsp_pbe_precut),
 #ifdef HAVE_PITCHCONTROL
     /* timestretch */
+#ifdef HAVE_IPOD_UI     /* P6 §3.5: audiobook speed (forced on at shell init) */
+    OFFON_SETTING(F_SOUNDSETTING, timestretch_enabled, LANG_TIMESTRETCH, true,
+                  "timestretch enabled", dsp_timestretch_enable),
+#else
     OFFON_SETTING(F_SOUNDSETTING, timestretch_enabled, LANG_TIMESTRETCH, false,
                   "timestretch enabled", dsp_timestretch_enable),
+#endif
 #endif
 
     /* compressor */
@@ -2096,18 +2247,36 @@ const struct settings_list settings[] = {
 #endif
 #ifdef HAVE_DIRCACHE
     /*enable dircache for all targets > 2MB of RAM by default*/
-    OFFON_SETTING(F_BANFROMQS,dircache,LANG_DIRCACHE_ENABLE,true,"dircache",NULL),
+#ifdef HAVE_IPOD_UI
+    /* off: the shell browses the database, and on a 1 TB disk dircache
+     * costs MBs of RAM and a full rescan at every boot (docs/hardware.md) */
+#define DIRCACHE_DEFAULT false
+#else
+#define DIRCACHE_DEFAULT true
+#endif
+    OFFON_SETTING(F_BANFROMQS,dircache,LANG_DIRCACHE_ENABLE,DIRCACHE_DEFAULT,
+                  "dircache",NULL),
     SYSTEM_STATUS(0, dircache_size, 0, "DSZ"),
 #endif
 
 #ifdef HAVE_TAGCACHE
 #ifdef HAVE_TC_RAMCACHE
+    /* the iPod UI shell browses from the RAM cache and keeps the
+     * library up to date by itself */
+#ifdef HAVE_IPOD_UI
+#define TAGCACHE_RAM_DEFAULT        1   /* on */
+#define TAGCACHE_AUTOUPDATE_DEFAULT true
+#else
+#define TAGCACHE_RAM_DEFAULT        0
+#define TAGCACHE_AUTOUPDATE_DEFAULT false
+#endif
     CHOICE_SETTING(F_BANFROMQS, tagcache_ram, LANG_TAGCACHE_RAM,
-                   0, "tagcache_ram", "off,on,quick",
+                   TAGCACHE_RAM_DEFAULT, "tagcache_ram", "off,on,quick",
                    NULL, 3,
                    ID2P(LANG_OFF), ID2P(LANG_ON), ID2P(LANG_QUICK_IGNORE_DIRACHE)),
 #endif
-    OFFON_SETTING(F_BANFROMQS, tagcache_autoupdate, LANG_TAGCACHE_AUTOUPDATE, false,
+    OFFON_SETTING(F_BANFROMQS, tagcache_autoupdate, LANG_TAGCACHE_AUTOUPDATE,
+                  TAGCACHE_AUTOUPDATE_DEFAULT,
                   "tagcache_autoupdate", NULL),
 #endif
     CHOICE_SETTING(F_TEMPVAR, default_codepage, LANG_DEFAULT_CODEPAGE, 14,
@@ -2129,7 +2298,7 @@ const struct settings_list settings[] = {
                    ID2P(LANG_CODEPAGE_TRADITIONAL), ID2P(LANG_CODEPAGE_UTF8)),
 
     OFFON_SETTING(0, warnon_erase_dynplaylist, LANG_WARN_ERASEDYNPLAYLIST_MENU,
-                  true, "warn when erasing dynamic playlist",NULL),
+                  WARNON_ERASE_DYNPL_DEFAULT, "warn when erasing dynamic playlist",NULL),
     OFFON_SETTING(0, keep_current_track_on_replace_playlist, LANG_KEEP_CURRENT_TRACK_ON_REPLACE,
                   true, "keep current track when replacing playlist",NULL),
     OFFON_SETTING(0, show_shuffled_adding_options, LANG_SHOW_SHUFFLED_ADDING_OPTIONS, true,
@@ -2156,7 +2325,7 @@ const struct settings_list settings[] = {
 #ifdef HAVE_LCD_SLEEP_SETTING
     TABLE_SETTING_LIST(F_TIME_SETTING | F_ALLOW_ARBITRARY_VALS,
                     lcd_sleep_after_backlight_off, LANG_LCD_SLEEP_AFTER_BACKLIGHT_OFF,
-                    5, "lcd sleep after backlight off",
+                    LCD_SLEEP_DEFAULT, "lcd sleep after backlight off",
                     off_on, UNIT_SEC, formatter_time_unit_0_is_always,
                     getlang_time_unit_0_is_always, lcd_set_sleep_after_backlight_off,
                     23, timeout_sec_common),
@@ -2193,7 +2362,8 @@ const struct settings_list settings[] = {
 #endif
 #endif
 #ifdef HAVE_HEADPHONE_DETECTION
-    CHOICE_SETTING(0, unplug_mode, LANG_HEADPHONE_UNPLUG, 0,
+    CHOICE_SETTING(0, unplug_mode, LANG_HEADPHONE_UNPLUG,
+                   UNPLUG_MODE_DEFAULT,
                    "pause on headphone unplug", "off,pause,pause and resume",
                    NULL, 3, ID2P(LANG_OFF), ID2P(LANG_PAUSE),
                    ID2P(LANG_HEADPHONE_UNPLUG_RESUME)),
@@ -2374,8 +2544,14 @@ const struct settings_list settings[] = {
     OFFON_SETTING(0, keypress_restarts_sleeptimer, LANG_KEYPRESS_RESTARTS_SLEEP_TIMER, false,
                   "keypress restarts sleeptimer", set_keypress_restarts_sleep_timer),
 
+#ifdef HAVE_IPOD_UI
+    /* the 7G shows no message at power-off (native illusion) */
+    OFFON_SETTING(0, show_shutdown_message, LANG_SHOW_SHUTDOWN_MESSAGE, false,
+                  "show shutdown message", NULL),
+#else
     OFFON_SETTING(0, show_shutdown_message, LANG_SHOW_SHUTDOWN_MESSAGE, true,
                   "show shutdown message", NULL),
+#endif
 
 #ifdef HAVE_TOUCHPAD_SENSITIVITY_SETTING
 /* If specific values are set for touchpad sensitivity setting we use those */
@@ -2466,7 +2642,7 @@ const struct settings_list settings[] = {
 #endif
 
 #ifdef USB_ENABLE_HID
-    OFFON_SETTING(0, usb_hid, LANG_USB_HID, true, "usb hid", usb_set_hid),
+    OFFON_SETTING(0, usb_hid, LANG_USB_HID, USB_HID_DEFAULT, "usb hid", usb_set_hid),
     CHOICE_SETTING(0, usb_keypad_mode, LANG_USB_KEYPAD_MODE, 0,
             "usb keypad mode", "multimedia,presentation,browser"
 #ifdef HAVE_USB_HID_MOUSE
@@ -2504,11 +2680,13 @@ const struct settings_list settings[] = {
 #ifdef HAVE_MORSE_INPUT
     OFFON_SETTING(0, morse_input, LANG_MORSE_INPUT, false, "morse input", NULL),
 #endif
+#ifndef IPODUI_TRIM_BROWSER /* P9: onplay.c owns the handlers */
    CUSTOM_SETTING(0, context_wps,
                   LANG_ONPLAY_MENU_TITLE, /* lang string here is never actually used */
                   &wps_context_menu_default, "context_wps",
                   wps_context_menu_load_from_cfg, wps_context_menu_write_to_cfg,
                   wps_context_menu_is_changed, wps_context_menu_set_default),
+#endif
 
 #ifdef HAVE_HOTKEY
    CUSTOM_SETTING(0, hotkey_tree,
@@ -2522,11 +2700,13 @@ const struct settings_list settings[] = {
     INT_SETTING(F_TIME_SETTING, resume_rewind, LANG_RESUME_REWIND, 0,
                 "resume rewind", UNIT_SEC, 0, 60, 5,
                 formatter_time_unit_0_is_off, getlang_time_unit_0_is_off, NULL),
+#ifndef IPODUI_TRIM_STOCK_MENUS /* P9: root_menu.c owns the handlers */
    CUSTOM_SETTING(0, root_menu_customized,
                   LANG_ROCKBOX_TITLE, /* lang string here is never actually used */
                   NULL, "root menu order",
                   root_menu_load_from_cfg, root_menu_write_to_cfg,
                   root_menu_is_changed, root_menu_set_default),
+#endif
 
 #if defined(DX50) || defined(DX90)
     CHOICE_SETTING(0,

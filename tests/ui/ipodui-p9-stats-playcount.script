@@ -1,0 +1,30 @@
+# Phase 9 Rev 1 H1: tagtree.c's playback handlers survive the trims (the
+# shell build keeps only tagtree_buffer_event / tagtree_track_finish_event
+# and their registration). A 1-track queue (03 Warble, 25 s) plays to its
+# end with no key: the finish event (TEF_AUTO_SKIP) adds 1 to the track's
+# playcount and gives it a fresh lastplayed (the tagcache serial, which
+# only grows). Path: audio thread, PLAYBACK_EVENT_TRACK_FINISH ->
+# tagtree_track_finish_event() -> tagcache_update_numeric().
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p9-stats-playcount.script
+# needs: music
+# timeout: 90
+# golden: skip after_end
+# fulls-extra: 4   (the main menu gains its Now Playing row at each of the two play_files and loses it at each track end: Phase 6 Revision 3)
+
+wait 3000
+repeat off
+wait_db 30000
+stat_mark /Music/Tone%20Collective/Sine%20Studies/03%20Warble.mp3 playcount
+play_files /Music/Tone%20Collective/Sine%20Studies/03%20Warble.mp3
+wait_pos 23000 60000 Warble
+wait 4000           # past the end (25 s): no key, no stop
+expect_stat_delta /Music/Tone%20Collective/Sine%20Studies/03%20Warble.mp3 playcount=1..1 5000
+# lastplayed is the tagcache serial, and the first one on a fresh database
+# is 0: a second play to the end must give the track a newer one
+stat_mark /Music/Tone%20Collective/Sine%20Studies/03%20Warble.mp3 lastplayed
+play_files /Music/Tone%20Collective/Sine%20Studies/03%20Warble.mp3
+wait_pos 23000 60000 Warble
+wait 4000
+expect_stat_delta /Music/Tone%20Collective/Sine%20Studies/03%20Warble.mp3 lastplayed=1..max 5000
+shot after_end      # state, not pixels (no golden)
+quit

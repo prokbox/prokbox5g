@@ -1,0 +1,9 @@
+boot build=0123abcd-261025 rtc=2026-10-25 09:00:00
+1 boot variant flash-64-3000-usbc-haptic
+2 art pub Velvet Lanterns (Live).jpg st=1 e=0
+3 video start /Videos/Glass Harbor/Brisket Tempo.mp4: 120 samples, 3 keys
+4 np title=Marrowind Orchard
+5 usb marker /Music/Ophelian Nocturnes/x failed
+6 ab mark "Zephyrine Overture" pos=3
+7 maint job=art ok=1 ms=40 play_during=0 audio=1234
+8 db saw Quornish Tallow, Vol. 3.flac n=2

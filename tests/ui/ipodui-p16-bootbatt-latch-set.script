@@ -1,0 +1,29 @@
+# Boot battery guard, drained latch: written when the display reaches
+# 0 % (owner decision 2026-10-22, second round: this unit can hard-cut
+# before the low-battery shutdown, so that is only a backup). The sim
+# boots at 3,450 mV (over the floor) with a clear record
+# (IPODUI_SIM_DRAINED=0); 2 s after power-on the cell falls slowly to
+# 3,250 mV (IPODUI_SIM_DRAIN_AT_MS, IPODUI_SIM_DRAIN_MV; powermgmt-sim.c).
+# The 64 s filter crosses the sim table's 0 % point (3,300) in about a
+# minute, still over the sim's disk-safe (3,200): bootbatt_service()
+# waits up to 30 s for the disk to be awake anyway, then writes the
+# record once (read back as drained). Nothing shuts down.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-bootbatt-latch-set.script
+# env: IPODUI_SIM_BATT_MV=3450
+# env: IPODUI_SIM_DRAINED=0
+# env: IPODUI_SIM_DRAIN_AT_MS=2000
+# env: IPODUI_SIM_DRAIN_MV=3250
+# timeout: 180
+# golden: skip
+# log: bootbatt latch drained=0 boot mv=3450
+# log: bootbatt latch set zero rc=20
+# log: bootbatt latch readback=1
+# nolog: bootbatt latch set shutdown
+# nolog: sys lowbatt empty=1
+# nolog: sys deadbatt
+# nolog: splash-pass
+
+wait 4000
+shot main_menu
+wait 120000
+shot main_menu_zero

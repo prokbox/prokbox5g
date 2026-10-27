@@ -31,6 +31,30 @@ target/hosted/debug-hosted.c
 
 #endif
 system.c
+#ifdef HAVE_PLL_IDLE
+pll_idle.c
+#endif
+#ifdef HAVE_PP_GOV
+/* ProkBox: the band governor (docs/design/pp-governor.md) */
+pgov_core.c
+pgov.c
+#endif
+#if defined(HAVE_BCM_JOBS) || defined(HAVE_BCM_JOBS_MODEL)
+/* ProkBox P19: the display jobs' CPU path (the device and the sim) */
+target/arm/ipod/video/bcmjob-ref.c
+target/arm/ipod/video/bcmjob-cpu.c
+target/arm/ipod/video/bcmjob-viz.c   /* #126: the line ops, PP side */
+#endif
+#ifdef HAVE_BCM_JOBS
+target/arm/ipod/video/bcmjob-core.c
+#endif
+#ifdef HAVE_STORAGE_POWEROFF
+common/stor_pwr_core.c
+#endif
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+common/quiet_wait_core.c   /* P19 19-1a */
+common/usb_buf_alloc.c     /* USB buffer at SET_CONFIGURATION, no panic */
+#endif
 usb.c
 #if defined(ROCKBOX_HAS_LOGF) || defined(ROCKBOX_HAS_LOGDISKF)
 logf.c
@@ -339,8 +363,30 @@ common/strnatcmp.c
 common/strlcat.c
 common/strlcpy.c
 common/strmemccpy.c
+#ifdef HAVE_DEVSTATS
+common/devstats.c
+#endif
+#ifdef HAVE_PANIC_RECORD
+common/panic_record.c
+#endif
+#ifdef HAVE_HANG_RECORD
+common/hang_watch.c
+#endif
+#ifdef HAVE_IPOD_UI
+common/sleep_wake_core.c    /* Phase 18: soft sleep's pure classifier */
+#endif
+#ifdef HAVE_COP_COHERENCE
+common/fe_fb_stub.c         /* P19 MF-4: the pixel hand-off's default */
+#endif
+#ifdef HAVE_COP_JOBS
+common/cop_job_core.c
+common/cop_job.c
+#endif
 common/timefuncs.c
 common/unicode.c
+#ifdef IPODUI_TRIM_UTF8PROC
+common/nfc.c
+#endif
 common/vuprintf.c
 common/zip.c
 common/adler32.c
@@ -411,6 +457,10 @@ drivers/lcd-16bit.c
 drivers/lcd-24bit.c
 #endif /* LCD_DEPTH */
 common/diacritic.c
+#ifdef HAVE_IPOD_BOOTSCREEN
+common/bootscreen.c
+common/bootscreen_data.c
+#endif
 
 #ifdef HAVE_REMOTE_LCD
 #if LCD_REMOTE_DEPTH == 1
@@ -863,6 +913,10 @@ target/arm/pp/uart-pp.c
 #elif defined CPU_PP502x
 target/arm/pp/usb-fw-pp502x.c
 target/arm/pp/system-pp502x.c
+#ifdef HAVE_POWER_SLEEP
+target/arm/pp/power_sleep-pp502x.c  /* ProkBox Phase 18-1: soft sleep */
+target/arm/pp/pmu_raw-pp502x.c      /* its kernel-free PMU reads */
+#endif
 # ifdef HAVE_SERIAL
 target/arm/pp/uart-pp.c
 # endif /* HAVE_SERIAL */
@@ -963,6 +1017,9 @@ target/arm/s5l8702/lcd-asm-s5l8702.S
 usbstack/usb_core.c
 #ifdef USB_ENABLE_STORAGE
 usbstack/usb_storage.c
+#ifdef HAVE_USB_SECTOR_XLATE
+usbstack/usb_storage_xlate.c
+#endif
 #endif
 #ifdef USB_ENABLE_SERIAL
 usbstack/usb_serial.c
@@ -1448,9 +1505,20 @@ target/arm/ipod/backlight-nano_video.c
 target/arm/ipod/button-clickwheel.c
 target/arm/ipod/video/lcd-as-video.S
 target/arm/ipod/video/lcd-video.c
+#if defined(HAVE_LCD_E2) || defined(HAVE_BCMFW_VIDEO)
+target/arm/ipod/video/e2-port.c
+#endif
 #ifndef BOOTLOADER
 target/arm/ipod/video/battery-video.c
+target/arm/ipod/video/lcd-fb-xcore.c
 #endif /* BOOTLOADER */
+#if (defined(HAVE_BCMFW_DEVTEST) || defined(HAVE_BCMFW)) && !defined(BOOTLOADER)
+/* the device test, or only the boot path (HAVE_BCMFW without the device
+ * test: the swap, the ladder, the video boot and the DMA image; the
+ * stages are left to --gc-sections, the other images are #ifdef'd out) */
+target/arm/ipod/video/bcm-devtest-core.c
+target/arm/ipod/video/bcm-devtest-images.c
+#endif
 #endif /* IPOD_VIDEO */
 
 #ifdef IPOD_3G

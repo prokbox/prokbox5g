@@ -1,0 +1,23 @@
+# A 50k library update cannot steal the playing or paused audio buffer.
+# golden: skip updated
+wait 4000
+wait_db 300000
+repeat all
+snapshot_play
+wait 2000
+expect_playing 500
+audio_buf mark
+db_mark
+copy ../../tests/ui/fixtures/refresh.mp3 /zz-snapshot-playing.mp3
+update_db
+expect_playing 5000
+expect_snapshot_deferred 1000
+audio_buf expect
+snapshot_pause
+expect_snapshot_deferred 2500
+audio_buf expect
+audio_stop
+expect_snapshot_after_playback 300000
+expect_db_grew 300000
+shot updated
+quit

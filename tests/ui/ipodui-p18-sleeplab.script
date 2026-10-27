@@ -1,0 +1,110 @@
+# P18 D2: the developer Sleep lab over the simulator's sleep stub
+# (sim_sleep_run(): blocks until a scripted wake; refuses while a
+# pll_hold stands or PCM runs). The lab quiesces as the real entry does
+# and every exit restores the same way (sleeplab.c):
+#   1. Busy: a pll_hold standing past SLEEPLAB_QUIESCE_S (30 s): the wait
+#      logs what is busy, then "lab busy ..." and no sleep; the row reads
+#      "Didn't sleep: busy (boost)", the screen lit, the list live (the
+#      next press acts at once).
+#   2. Idle: the sleep runs (sim_sleep: sleep enter), 45 s pass, SELECT
+#      wakes it: "Slept 45 s, woke: button". The waking SELECT is
+#      swallowed (no second run), the next press acts.
+#   3. A key in the wait: the run is abandoned, no sleep.
+#   4. Hold on through a busy run: the backlight still comes back
+#      (backlight_on_through_hold(); "lab end lit=1 hold=1", which reads
+#      lit=0 with a plain backlight_on(): Hold's "backlight Off" rule).
+#      The first press after the lab (LEFT) acts: back to Developer.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p18-sleeplab.script
+# needs: library
+# golden: skip
+# timeout: 180
+# log: sleep lab test=2 start
+# log: sleep lab t=1 boost=1 holds=0 disk=0 pcm=0 art=0 maint=0
+# log: sleep lab busy boost=1 holds=0 disk=0 pcm=0 art=0 maint=0
+# log: sleep lab test=2 keys=0 waited=
+# log: sim_sleep: sleep enter
+# log: sleep wake why=1 refused=0 NONE s=45
+# log: sleep wake polls=
+# log: sleep wake hold_edges=0 mv=
+# log: sleep lab abandoned why=key
+# log: sleep lab end lit=1 hold=0
+# log: sleep lab end lit=1 hold=1
+# nolog: sim_sleep: sleep refused
+# nolog: splash-pass
+
+wait 5000
+wheel +3                  # Settings
+wait 400
+key SELECT
+wait 1500
+key SELECT                # About
+wait 1500
+chord SELECT+LEFT 3200    # Developer
+wait 1000
+wheel -2                  # Advanced (above Back; the list wraps)
+wait 500
+key SELECT
+wait 800
+wheel +2                  # Labs
+wait 500
+key SELECT
+wait 800
+key SELECT                # Sleep lab, its first row
+wait 1000
+wheel +3                  # Wake test (after the result row and two polls)
+wait 500
+shot lab_before
+
+# 1. busy for the whole wait
+pll_hold 40000
+key SELECT
+wait 33000
+expect_sleep awake 500
+shot busy                 # "Didn't sleep: busy (boost)", lit
+pll_hold 0
+wheel +1                  # the first turn after the run moves the bar
+wait 500
+shot busy_next
+wheel -1
+wait 500
+
+# 2. quiet: the sleep runs
+key SELECT
+expect_sleep asleep 5000
+sleep_warp 45
+wait 500
+key SELECT                # wakes; swallowed to its release
+expect_sleep button 3000
+wait 1500
+expect_sleep awake 500
+shot slept                # "Slept 45 s, woke: button"
+
+# 3. a key during the wait abandons it
+pll_hold 40000
+key SELECT
+wait 2500
+key LEFT                  # abandons; swallowed
+wait 1500
+expect_sleep awake 500
+shot abandoned            # "Didn't sleep: key pressed"
+pll_hold 0
+
+# 4. Hold on through a busy run: lit at the end anyway
+pll_hold 40000
+key SELECT
+wait 1000
+hold_switch on
+wait 33000
+shot hold_lit
+hold_switch off
+wait 1000
+key LEFT                  # the first press after the lab: back to Labs
+wait 1000
+shot dev_back
+key LEFT                  # Advanced
+wait 600
+key LEFT                  # Developer
+wait 600
+key LEFT                  # out of developer mode
+wait 1500
+quit

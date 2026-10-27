@@ -1,0 +1,84 @@
+# Phase 4 review F1 (#28): a library update while music plays must not
+# stop playback. The commit's buffer would have to come out of the audio
+# buffer, so the commit waits until playback stops; the old library stays
+# browsable meanwhile. Then it lands, and a second update removes the
+# test file again (other scripts' lists stay as they were).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p4-commit-playing.script
+# needs: library
+# golden: skip playing stopped reload_waits reloaded
+#
+# shots.sh fails the run on "expect_playing failed" / "expect_db_grew
+# failed" / "expect_db_same failed" / "update_db_wait_change failed"
+# (sim_script.c). The commit's reload check includes the RAM cache and the
+# library view pool growth (12 B per new entry); neither is allocated
+# while audio plays or is paused.
+# #87: no boot hold here (the device's boot check outlasts it; the sim's would finish inside it)
+# env: SIM_BOOT_NOHOLD=1
+
+wait 4000           # boot to the main menu
+wait_db 30000
+rm_file /Library/Basalt/Columns/zz-commit-test.mp3  # an aborted run's copy
+
+wheel +4            # "Shuffle Songs"
+wait 500
+key SELECT          # whole library, 2-5 s tracks: plays across tracks
+wait 2000
+expect_playing 300
+shot playing
+
+db_mark
+copy_file /Library/Basalt/Columns/01%20Narrow%20Echo.mp3 /Library/Basalt/Columns/zz-commit-test.mp3
+update_db           # scans, finds the new file, commit waits for playback
+expect_playing 6000 # no stop, not even one the audio thread resumes from
+expect_db_same 100  # ... and the commit did wait: not committed yet
+
+key PLAY            # pause: still holds the audio buffer, still waits
+expect_db_same 2500 # nothing commits (or reloads) while paused either
+audio_stop       # stop (WPS); the commit runs at the tagcache
+                    # thread's next timeout (1 s)
+expect_db_grew 20000
+wait 1000
+shot stopped
+
+rm_file /Library/Basalt/Columns/zz-commit-test.mp3
+update_db_wait_change 30000 # marks the copy deleted (audio stopped): one
+                    # new generation for the whole reverse scan
+wheel -10           # top of the main menu
+wait 300
+wheel +4            # "Shuffle Songs" again: playing at the power-off,
+wait 500            # so the next boot can resume it
+key SELECT
+wait 1500
+expect_playing 300
+
+# Round-3 review M1: the RAM cache load at boot (about 2 s in) waits too
+# when music already plays: the Music menu says "Updating Library..."
+# (lib_state() LIB_UPDATING), not an empty menu, until playback stops.
+reboot
+
+wait 800            # main menu up, "Music" selected
+key PLAY            # resume at once: before the tagcache thread's load
+wait 500
+expect_playing 1000
+expect_lib_updating 2500    # the reload waits (ui_reload_pending)
+key SELECT          # Music
+wait 1000
+shot reload_waits
+key MENU            # main menu
+wait 1000
+wheel +10           # "Now Playing" (the last item)
+wait 800
+key SELECT          # WPS
+wait 1500
+audio_stop       # stop: the reload runs at the thread's next timeout
+wait 3000
+wait_db 30000
+key MENU
+wait 1000
+wheel -10           # "Music"
+wait 800
+key SELECT
+wait 1000
+shot reloaded       # the library, no "Updating Library..."
+
+quit

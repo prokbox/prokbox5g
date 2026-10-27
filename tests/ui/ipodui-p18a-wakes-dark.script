@@ -1,0 +1,60 @@
+# P18 18-A (M1): wakes per thread in the states that matter, 40 s each,
+# read from the "sim_script: wakes <state> <thread> <n>" lines (the "wakes"
+# command, uisimulator/common/sim_cmd_sys.c: counts since the last call):
+# lit and playing, then dark (backlight expired) playing, paused, and the
+# unlit face stopped. Everything is on the simulator's SDL threads: the
+# power thread's rows are real, the ARM-only holders are not.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p18a-wakes-dark.script
+# needs: library
+# timeout: 400
+# golden: skip
+# nolog: splash-pass
+
+repeat all
+wait 4000
+wait_db 30000
+key SELECT          # Music
+wait 800
+wheel +1
+wait 400
+key SELECT
+wait 800
+key SELECT
+wait 800
+key SELECT
+wait 800
+key SELECT          # first song: Now Playing
+wait_pos 2000 30000
+wait 5000
+wakes start
+wait 40000
+wakes lit_playing
+backlight_expire
+wait 3000
+wakes skip
+wait 40000
+wakes dark_playing
+key SELECT          # dismiss the face (swallowed)
+wait 1000
+key PLAY            # pause
+wait 1000
+backlight_expire
+wait 3000
+wakes skip
+wait 40000
+wakes dark_paused
+key SELECT
+wait 500
+key MENU            # back to a menu, stopped
+wait 500
+key PLAY
+wait 500
+backlight_expire
+wait 3000
+wakes skip
+wait 40000
+wakes face_paused
+key MENU            # wake after the counts: the unlit face exits
+wait 1500
+shot end            # one shot so shots.sh counts the run
+quit

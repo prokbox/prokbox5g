@@ -12,6 +12,7 @@
  * Adapted for Rockbox in January 2006
  * Original file: podzilla/usb.c
  * Copyright (C) 2005 Adam Johnston
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -113,6 +114,15 @@ static unsigned int usb_thread_entry = 0;
 static bool usb_monitor_enabled = false;
 static bool exclusive_storage_enabled = false;
 static bool exclusive_storage_requested = false;
+#ifdef HAVE_USB_STATS
+/* ProkBox (#81): the storage handover's timing for the device log. The
+ * host's first command waits for it (usb_storage.c holds the CBW), so a
+ * slow handover reads, on the host, as a deaf device it keeps resetting */
+static struct usb_handover_info hand;
+#define HAND_STAT(x) (x)
+#else
+#define HAND_STAT(x)
+#endif
 static struct event_queue usb_queue SHAREDBSS_ATTR;
 #ifdef USB_ENABLE_HID
 static bool usb_hid = true;
@@ -441,10 +451,15 @@ static void NORETURN_ATTR usb_thread(void)
 #endif
             /* intentional fallthrough */
         case USB_NOTIFY_SET_CONFIG:
-        case USB_NOTIFY_BUS_RESET:
         case USB_NOTIFY_CLASS_DRIVER:
             if(usb_state <= USB_EXTRACTED)
                 break;
+            usb_core_handle_notify(ev.id, ev.data);
+            break;
+        case USB_NOTIFY_BUS_RESET:
+            /* Even when extracted: a reset that raced the cable pull must
+             * still clear usb_core's bus_reset_pending (harmless if the
+             * core has already exited). */
             usb_core_handle_notify(ev.id, ev.data);
             break;
         case USB_TRANSFER_COMPLETION:
@@ -498,8 +513,10 @@ static void NORETURN_ATTR usb_thread(void)
         case SYS_USB_CONNECTED_ACK:
             if((uint32_t)ev.data != usb_broadcast_seqnum) {
                 DEBUGF("usb: late ack %lX < %lX", ev.data, usb_broadcast_seqnum);
+                HAND_STAT(hand.late++);
                 break;
             }
+            HAND_STAT(hand.last_ack = current_tick);
             if(usb_num_acks_to_expect == 0) {
                 DEBUGF("usb: unexpected ack");
                 break;
@@ -513,6 +530,7 @@ static void NORETURN_ATTR usb_thread(void)
             if(usb_host_present && exclusive_storage_requested) {
                 usb_slave_mode(true);
                 exclusive_storage_enabled = true;
+                HAND_STAT(hand.ok = current_tick);
 #ifdef USB_ENABLE_STORAGE
                 usb_signal_class_notify(USB_DRIVER_MASS_STORAGE, 0);
 #endif
@@ -573,9 +591,27 @@ static void NORETURN_ATTR usb_thread(void)
             thread_exit();
             break;
 #endif
+
+#if defined(IPOD_ACCESSORY_PROTOCOL) && defined(IAP_LAZY_THREAD) \
+    && !defined(BOOTLOADER)
+        /* ProkBox: an accessory's first sync byte (iap-core.c) */
+        case USB_IAP_BRINGUP:
+            iap_bringup();
+            break;
+#endif
         } /* switch */
     } /* while */
 }
+
+#if defined(IPOD_ACCESSORY_PROTOCOL) && defined(IAP_LAZY_THREAD) \
+    && !defined(BOOTLOADER)
+/* From the serial receive interrupt: the USB thread makes the iap thread
+ * and its memory (neither can be made in interrupt context) */
+void usb_iap_bringup_post(void)
+{
+    queue_post(&usb_queue, USB_IAP_BRINGUP, 0);
+}
+#endif
 
 #if defined(HAVE_USB_CHARGING_ENABLE) && defined(HAVE_USBSTACK)
 void usb_charger_update(void)
@@ -734,6 +770,16 @@ void usb_start_monitoring(void)
 
 void usb_acknowledge(long id, intptr_t seqnum)
 {
+#ifdef HAVE_USB_STATS
+    if (id == SYS_USB_CONNECTED_ACK && (uint32_t)seqnum == usb_broadcast_seqnum) {
+        /* who acknowledged when (the acking thread runs this) */
+        int i = hand.ack_n++;
+        if (i < USB_HANDOVER_ACKERS) {
+            hand.acker[i] = thread_self();
+            hand.acker_at[i] = current_tick;
+        }
+    }
+#endif
     queue_post(&usb_queue, id, seqnum);
 }
 #endif /* USB_FULL_INIT */
@@ -822,11 +868,34 @@ bool usb_inserted(void)
 }
 
 #if defined(USB_FULL_INIT)
+#ifdef HAVE_USB_STATS
+void usb_get_handover_info(struct usb_handover_info *out)
+{
+    *out = hand;
+    out->pending = usb_num_acks_to_expect;
+}
+#endif
+
 bool usb_exclusive_storage(void)
 {
     /* Storage isn't actually exclusive until slave mode has been entered */
     return exclusive_storage_enabled;
 }
+
+#ifdef HAVE_IPOD_UI
+/* ProkBox: a host has addressed the device and may take its storage.
+ * usb_inserted() is true for USB_POWERED too, which is VBUS alone: with
+ * USB_DETECT_BY_REQUEST a wall charger or a charge-only cable stays there
+ * for as long as it is plugged in, and no SYS_USB_CONNECTED ever comes. */
+bool usb_storage_host_present(void)
+{
+#ifdef HAVE_USB_POWER
+    if (usb_power_only)
+        return false;           /* charging only: storage stays ours */
+#endif
+    return usb_host_present;
+}
+#endif
 
 /* exclusive storage mode transision
  * HAVE_USBSTACK:
@@ -878,12 +947,24 @@ void usb_request_exclusive_storage(void)
         return;
 
     exclusive_storage_requested = true;
+#ifdef HAVE_USB_STATS
+    /* Initialise before the broadcast: an idle thread can acknowledge as
+     * soon as it is queued, while queue_broadcast() is still returning. */
+    hand.req = current_tick;
+    hand.ok = hand.last_ack = 0;
+    hand.ack_n = 0;
+    hand.n++;
+#endif
     usb_broadcast_seqnum += 1;
     usb_num_acks_to_expect = queue_broadcast(SYS_USB_CONNECTED, usb_broadcast_seqnum) - 1;
     DEBUGF("usb: waiting for %d acks...\n", usb_num_acks_to_expect);
+#ifdef HAVE_USB_STATS
+    hand.acks = usb_num_acks_to_expect;
+#endif
     if(usb_num_acks_to_expect == 0 && usb_host_present) {
         usb_slave_mode(true);
         exclusive_storage_enabled = true;
+        HAND_STAT(hand.ok = current_tick);
 #ifdef USB_ENABLE_STORAGE
         usb_signal_class_notify(USB_DRIVER_MASS_STORAGE, 0);
 #endif

@@ -1,0 +1,52 @@
+# Phase 16-1 re-review (M-b): after the window's one regrow, more
+# allocations in the same pause (floor_reserve churn: another thread's
+# core_alloc beside the paused buffer) are refused at once and post the
+# same one-event restart (review 3: shrink_callback never waits in
+# buflib's walk; status paused, no events), and never start a second
+# regrow in that pause.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-regrow-churn.script
+# needs: library
+# needs: ab
+# golden: skip
+# timeout: 240
+# fulls-extra: 2
+# log: maint take job=regrow ok=1
+# logbetween: r1 end no maint take job=regrow
+# logbetween: r1 end audio give done
+# logbetween: r1 r2 no stats finish
+# logbetween: r1 end no audio give FAILED
+
+wait 4000
+wait_db 45000
+mkdir /Audiobooks/G16
+copy ../../build/ab-fixtures/pref.m4b /Audiobooks/G16/pref.m4b
+update_db_wait_change 60000
+play_files /Audiobooks/G16/pref.m4b
+wait_pos 17000 90000
+snapshot_pause
+expect_paused 500
+backlight_expire
+pause_age 200
+wait 2000
+maint_try 1000000           # a job takes, then ends
+wait 3000                   # the pause's one regrow
+ab_mark r1
+floor_reserve 0 400000
+wait 1000
+floor_release 0
+wait 2000
+floor_reserve 1 600000
+wait 1000
+floor_release 1
+wait 2000
+floor_reserve 2 300000
+wait 1000
+floor_release 2
+wait 3000
+expect_paused 500
+expect_pos 16000 21000
+shot churned
+ab_mark r2
+key MENU
+wait 1000
+quit

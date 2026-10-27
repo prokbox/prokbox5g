@@ -1,0 +1,88 @@
+# np-sharp review H1: a build request or a USB session that arrives while
+# the Now Playing cover renders (outside a pass) is not lost. The render
+# is held before its header write ("art_panel_hold"); the write's I/O
+# check (io_go()) takes the event, the render stays queued, and the
+# builder runs the pass the event asks for right after, then renders.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-np-sharp-events.script
+# env: IPODUI_NP_NO_PANEL=built
+# reset: mainmenu
+# needs: library
+# needs: np
+# trace: panelset
+# golden: skip
+# logbetween: e0 e1 art npcover held ms=3000
+# logbetween: e1 e2 art npcover build key=d041e5ce04cedfc7 slot=0 state=-2
+# logbetween: e1 e2 art build resume idle-io ev=1
+# logbetween: e1 e2 art pass start
+# logbetween: e1 e2 art npcover build key=d041e5ce04cedfc7 slot=0 state=1
+# logbetween: e2 e3 art npcover held ms=3000
+# logbetween: e3 e4 art npcover build key=53bfce87f54fa498 slot=\d state=-2
+# logbetween: e3 e4 art npcover reset why=usb
+# logbetween: e3 e4 art build resume idle-io ev=2
+# logbetween: e3 e4 art pass start
+# timeout: 400
+
+wait 1000
+wait_db 30000
+sim_clock 15:04
+clock_format 24
+battery 100
+charger off
+repeat one
+mkdir /NPSharp
+copy ../../build/np-fixtures/art_big.mp3 /NPSharp/art_big.mp3
+copy ../../build/np-fixtures/art_23.mp3 /NPSharp/art_23.mp3
+update_db_wait_change 60000
+art_wait 120000
+play_files /NPSharp/art_big.mp3
+wait 1000
+np_pin 3000 50
+key SELECT          # Music (the menu re-reads "Now Playing" after a push/pop)
+wait 700
+key MENU
+wait 700
+wheel +10 100       # the row, on battery: queued (why=row), no render
+disk_active 3000
+wait 2000
+ab_mark e0
+art_panel_hold 3000 # the render waits before its header
+charger on
+wait 1500           # (a charger change lights the screen)
+disk_active 30000
+backlight_expire    # dark on the charger: the render runs
+wait 1000
+ab_mark e1
+art_request         # while it is held
+wait 9000
+ab_mark e2
+key MENU            # the screen back
+wait 700
+charger off
+wait 1500
+play_files /NPSharp/art_23.mp3
+wait 1000
+key SELECT          # Now Playing and back: the row arrives again
+wait 1000
+key MENU
+disk_active 3000
+wait 2500           # the row for it: queued
+art_panel_hold 3000
+charger on
+wait 1500
+disk_active 30000
+backlight_expire
+wait 1000
+ab_mark e3
+usb_connect         # while it is held
+wait 4000
+usb_disconnect
+wait 8000
+ab_mark e4
+key MENU            # the screen back
+wait 1000
+shot back           # lit after the USB session, the held render done (one shot so shots.sh counts the run)
+charger off
+audio_stop
+rm_file /NPSharp/art_big.mp3    # leave the shared disk as primed
+rm_file /NPSharp/art_23.mp3
+quit

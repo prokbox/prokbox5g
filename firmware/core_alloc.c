@@ -22,6 +22,10 @@
 #include "system.h"
 #include "core_alloc.h"
 #include "buflib.h"
+#include "xcore.h"      /* ProkBox P19 S0: buflib is CPU-only */
+#ifdef HAVE_PANIC_RECORD
+#include "panic_record.h"
+#endif
 
 /* not static so it can be discovered by core_get_data() */
 struct buflib_context core_ctx;
@@ -67,6 +71,9 @@ void core_allocator_init(void)
     {
         audiobufend -= (32<<20);
     }
+#ifdef HAVE_PANIC_RECORD
+    audiobufend -= PANIC_REC_RESERVE;   /* panic_record_area() */
+#endif
 #endif
 
     buflib_init(&core_ctx, start, audiobufend - start);
@@ -82,13 +89,43 @@ void core_allocator_init(void)
  * Note: Buffers allocated by this functions are movable.
  *       Don't pass them to functions that call yield()
  *       like disc input/output. */
+#if defined(HAVE_IPOD_UI) && defined(SIMULATOR)
+#include "thread.h"
+static unsigned int watch_thread;
+static unsigned long watch_count;
+
+void core_alloc_watch(unsigned int thread_id)
+{
+    watch_thread = thread_id;
+}
+
+unsigned long core_alloc_watched(void)
+{
+    return watch_count;
+}
+
+#define WATCH_NOTE() \
+    do { if (watch_thread && thread_self() == watch_thread) \
+             watch_count++; } while (0)
+#else
+#define WATCH_NOTE() do { } while (0)
+#endif
+
+#ifdef XCORE_CHECKS
+volatile unsigned xcore_offcore XCORE_BSS;
+#endif
+
 int core_alloc(size_t size)
 {
+    XCORE_ASSERT_CPU("core_alloc");
+    WATCH_NOTE();
     return buflib_alloc_ex(&core_ctx, size, NULL);
 }
 
 int core_alloc_ex(size_t size, struct buflib_callbacks *ops)
 {
+    XCORE_ASSERT_CPU("core_alloc_ex");
+    WATCH_NOTE();
     return buflib_alloc_ex(&core_ctx, size, ops);
 }
 
@@ -104,26 +141,32 @@ size_t core_allocatable(void)
 
 int core_free(int handle)
 {
+    XCORE_ASSERT_CPU("core_free");
     return buflib_free(&core_ctx, handle);
 }
 
 int core_alloc_maximum(size_t *size, struct buflib_callbacks *ops)
 {
+    XCORE_ASSERT_CPU("core_alloc_maximum");
+    WATCH_NOTE();
     return buflib_alloc_maximum(&core_ctx, size, ops);
 }
 
 bool core_shrink(int handle, void* new_start, size_t new_size)
 {
+    XCORE_ASSERT_CPU("core_shrink");
     return buflib_shrink(&core_ctx, handle, new_start, new_size);
 }
 
 void core_pin(int handle)
 {
+    XCORE_ASSERT_CPU("core_pin");
     buflib_pin(&core_ctx, handle);
 }
 
 void core_unpin(int handle)
 {
+    XCORE_ASSERT_CPU("core_unpin");
     buflib_unpin(&core_ctx, handle);
 }
 

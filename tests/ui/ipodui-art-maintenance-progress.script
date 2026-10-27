@@ -1,0 +1,20 @@
+# Verify real worker progress: requested covers, preparation, panels, album
+# walk, chapter/book work and finalization. Counters must remain bounded.
+# needs: library
+# timeout: 240
+wait 1000
+wait_db 30000
+art_wait 120000
+rm_file /.rockbox/artcache/index.dat
+rm_file /.rockbox/artcache/index.prev
+rm_file /.rockbox/artcache/index.tmp
+rm_file /.rockbox/artcache/thumbs.pak
+art_progress_request
+art_wait 120000
+expect_art_progress
+expect_art art_manifest.txt
+art_request
+art_wait 120000
+expect_art art_manifest.txt
+shot maintenance_complete
+quit

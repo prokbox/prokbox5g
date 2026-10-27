@@ -1,0 +1,20 @@
+# Phase 9 smoke (docs/phase9-brief.md 7.8, 7.11): USB connect and
+# disconnect with the trims on (MSC only; the post-USB rescan runs from
+# misc.c's system_restore_db(), H2). The opens after the disconnect are
+# logged for the review (p9 opens=).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p9-smoke-usb.script
+# log: p9 opens=
+# nolog: splash-pass
+# golden: skip before connected after
+
+sim_clock 15:08     # the USB screen shows the clock: pinned
+wait 5000           # boot to the main menu
+shot before
+usb_connect
+wait 1500
+shot connected
+usb_disconnect
+wait 2000
+shot after
+open_count
+quit

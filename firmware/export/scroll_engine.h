@@ -153,9 +153,20 @@ struct scroll_screen_info
 };
 
 /** main lcd **/
+#ifdef HAVE_IPOD_UI
+/* ProkBox: the shell scrolls its own text (marquee); only the developer
+ * mode's stock lists use this engine, one selected line (and at most a
+ * title) at a time. 4 lines instead of 32 saves 28 x 416 B; a line past
+ * the limit is drawn without scrolling (lcd-bitmap-common.c) */
+#define LCD_SCROLLABLE_LINES 4
+#else
 #define LCD_SCROLLABLE_LINES ((LCD_HEIGHT+4)/5 < 32 ? (LCD_HEIGHT+4)/5 : 32)
+#endif
 
 extern struct scroll_screen_info lcd_scroll_info;
+#ifdef HAVE_IPOD_UI
+void scroll_thread_kick(void); /* P18 18-A: a scrolling line was added */
+#endif
 
 /** remote lcd **/
 #ifdef HAVE_REMOTE_LCD

@@ -1,0 +1,79 @@
+# 0.8.0 (owner, device sitting 4b): after the Visualizer, Now Playing's
+# scrolling title did not show.  The device's case: jobs off (a stage play
+# left the chip on Apple's vmcs: "viz CPU FALLBACK why=nojobs"), so the
+# view and the title's marquee are the CPU's.  In the view, hold SELECT
+# (its style list) and pick a style: the list's push and pop take the
+# strip, the view's next frame takes it back.  That claim must tell Now
+# Playing its title there is gone ("np strip lost by=viz"), so the
+# marquee renders it again ("np mq render") before its first step; it
+# used to blit what the list left there (a black band).  Out of the view
+# the title comes back at rest, the same frame as on entry (same:).
+# The jobs-on twin: ipodui-p19-npviz-title-bcm.script.
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p19-npviz-title-cpu.script
+# needs: music
+# needs: np
+# needs: video
+# golden: skip
+# reset: viz
+# np: viz-full
+# log: viz start style=0 path=cpu n=256
+# log: viz CPU FALLBACK why=nojobs
+# logbetween: p0 p1 np strip lost by=viz
+# logbetween: p2 p3 np mq render w=\d+
+# logbetween: p2 p3 update np:title
+# nolog: np mq bcm start
+# same: rest back_rest
+
+wait 3000
+bcm_suspend on      # the device after a stage play: no jobs
+sim_clock 15:08
+clock_format 24
+repeat off
+wait_db 30000
+art_wait 60000
+mkdir /NPTest
+copy ../../build/np-fixtures/long_title.mp3 /NPTest/long_title.mp3
+play_files /NPTest/long_title.mp3
+wait 1000
+np_pin 8000 50
+key SELECT          # Music (the menu re-reads "Now Playing" after a push/pop)
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 700
+shot rest           # the title at rest (its first step is 1 s in)
+wait 2500
+ab_mark p0
+shot scroll
+key SELECT          # Scrubber
+wait 400
+key SELECT          # Rating
+wait 600
+key SELECT          # Shuffle
+wait 600
+key SELECT          # Visualizer
+wait 1500
+hold SELECT 1200    # the style list
+wait 1200
+wheel +1            # Mirror
+wait 400
+key SELECT          # back to the view
+wait 1800
+ab_mark p1
+shot viz
+key SELECT          # Normal
+wait 400
+ab_mark p2
+shot back_rest      # at rest again
+wait 2500
+shot back_scroll    # the title scrolling, not a black band
+ab_mark p3
+key MENU
+wait 800
+bcm_suspend off
+audio_stop
+rm_file /NPTest/long_title.mp3
+quit

@@ -117,6 +117,61 @@ int usb_drv_port_speed(void);
 void usb_drv_cancel_all_transfers(void);
 void usb_drv_set_test_mode(int mode);
 bool usb_drv_connected(void);
+#if defined(IPOD_VIDEO) && defined(HAVE_IPOD_UI)
+/* USB-C diagnostic: the legacy Video workaround resets ARC once more at
+ * attach. It is deliberately volatile and affects the next cable session. */
+void usb_drv_set_attach_reinit(bool enabled);
+bool usb_drv_attach_reinit(void);
+#endif
+#ifdef HAVE_USB_STATS
+/* ProkBox (USB resets): what the controller's interrupts were, per
+ * session (zeroed by usb_drv_init(), kept after usb_drv_exit()); the ARC
+ * driver keeps them (usb-drv-arc.c, usb-arc-reset.h for the byte forms) */
+#define USB_DRV_RST_EVENTS 8
+struct usb_drv_rst_event {
+    uint16_t sts;           /* USBSTS at the interrupt, low 16 bits */
+    uint8_t portsc;         /* arc_portsc_byte() */
+    uint8_t addr;           /* DEVICEADDR then, bit 7: we had assigned it */
+    uint8_t kind;           /* enum arc_reset_kind */
+    uint8_t prime;          /* arc_ep_byte(ENDPTSTATUS) */
+    uint8_t in_td;          /* status byte of a bulk IN dTD in progress */
+    uint8_t pend;           /* arc_ep_byte(ENDPTPRIME): a prime pending */
+    uint8_t cmpl;           /* arc_ep_byte(ENDPTCOMPLETE): bits not yet served */
+    uint8_t ov;             /* status byte of that IN endpoint's dQH overlay */
+    uint8_t ovlen;          /* its overlay's remaining length, in 512s (cap 255) */
+    uint16_t in_off;        /* first buffer pointer's offset within its 4 KiB page */
+    uint8_t nak;            /* arc_ep_byte(ENDPTNAK): endpoints NAKed since */
+    uint16_t fr_d;          /* microframes (FRINDEX) since the last bulk IN
+                               completion, mod 16384: the host's SOFs went on */
+    uint32_t gap_ms;        /* since the previous reset (or the init) */
+    uint32_t in_ms;         /* since the last bulk IN completion */
+    uint32_t out_ms;        /* since the last bulk OUT completion (a CBW) */
+};
+struct usb_drv_stats {
+    uint32_t uri, pci, sli, uei;    /* interrupts seen, by USBSTS bit */
+    uint32_t rst_real, rst_fake;    /* URIs torn down / only acknowledged */
+    uint32_t gaps[4];               /* arc_gap_bucket() of each reset */
+    uint32_t addr_set;              /* SET_ADDRESS applied */
+    uint32_t td_halt, td_buf, td_txn; /* bulk dTDs retired with an error */
+    uint32_t lost_skip;             /* completions deferred: dTD still active */
+    uint32_t lost_stale;            /* completion bit already set at a prime */
+    uint32_t prime_to;              /* primes that timed out (endpoint flushed) */
+    uint32_t prime_miss;            /* prime was dropped without becoming active */
+    uint32_t prime_retry;           /* dropped primes recovered by a retry */
+    uint32_t prime_stale;           /* primes of an endpoint still primed */
+    uint32_t flush_retry, flush_fail; /* flush retries / gave up after 100 */
+    uint32_t td_err_reset;          /* endpoints reset after a dTD error */
+    uint32_t rst_dbl;               /* resets seen again during bus_reset */
+    uint32_t ev_n;                  /* resets seen; the first 8 kept */
+    struct usb_drv_rst_event ev[USB_DRV_RST_EVENTS];
+    uint32_t usbmode;               /* USBMODE as read back at init */
+    /* #81 bus experiment 1, read only, sampled at init while the core is
+     * clocked: ARC SBUSCFG (0x090, may not exist: 0), BURSTSIZE (0x160),
+     * TXFILLTUNING (0x164); PP CACHE_PRIORITY, DEV_TIMING1, XMB_RAM_CFG */
+    uint32_t bus[6];
+};
+void usb_drv_get_stats(struct usb_drv_stats *out);
+#endif
 #ifdef USB_HAS_ISOCHRONOUS
 /* returns the last received frame number (the 11-bit number contained in the last SOF):
  * - full-speed: the host sends one SOF every 1ms (so 1000 SOF/s)

@@ -25,6 +25,7 @@
 #define __SIM_TASKS_H__
 
 void sim_tasks_init(void);
+void sim_script_init(void);
 void sim_trigger_screendump(void);
 void sim_trigger_usb(bool inserted);
 #ifdef HAVE_HOTSWAP

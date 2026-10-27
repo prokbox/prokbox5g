@@ -1,0 +1,7 @@
+boot build=4e57b3b9a1 rtc=2026-10-25 13:58:02
+1 bcmjob up epoch=1 ops=00003fff
+2 bcmjob vpu=0x3 expect=0x3
+3 panel drift jobs mode=on
+4 bcmjob fault op=0x27 why=failed
+5 panel drift job fault at=wait rc=-5
+6 panel drift still why=failed

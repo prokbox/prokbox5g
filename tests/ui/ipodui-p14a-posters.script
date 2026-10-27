@@ -1,0 +1,71 @@
+# Phase 14a V4 (docs/phase14a-brief.md 3.5, 3.6): the main menu's Videos
+# panel and portrait art in the drift.
+#  - Videos with no posters: our film strip and "No Videos" (owner photo
+#    mov-main-panel-videos.jpg; the count is About's, movies + TV).
+#  - A 2:3 cover (np fixture art_23.mp3) is built into panels.pak fitted
+#    to the slot's height, 200 px wide ("art panel cw ... cw=200" in the
+#    trace), and the drift pans inside those 200 px (+-20 px across, +-30
+#    px down): never a black bar at either side. The same path carries
+#    the video posters (ARTCACHE_PSET_VIDEOS, chosen by aspect, not by
+#    "video"). The fixture album is copied in, built and removed again.
+# Needs the main menu's Videos row (V5, menu.c) pointing at
+# ui_preview_videos: run against the video build only.
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p14a-posters.script
+# needs: np
+# golden: skip live_1 live_2 live_3 live_4 live_5 live_6
+# timeout: 150
+
+wait 1000
+wait_db 30000
+sim_clock 15:05
+clock_format 24
+battery 100
+# the video fixtures (every ipodui-p14a-* disk has them) go first, so
+# the Videos panel has no poster: the film strip
+rm_file /Movies/Short%20Film.m4v
+rm_file /Movies/Late%20Chapter.m4v
+rm_file /Movies/Late%20Chapter.jpg
+rm_file /Movies/High%20Profile.m4v
+rm_file /Misc/Audio%20First.m4v
+rm_file /Misc/Show.C.S01E02.m4v
+rm_file /Misc/S01E03.m4v
+rm_file /Podcasts/Pod%20One/Video%20Episode.m4v
+rm_file /TV%20Shows/Show%20A/Season%201/Show%20A%20S01E01.m4v
+rm_file /TV%20Shows/Show%20A/Season%201/Show%20A%20S01E02.m4v
+rm_file /TV%20Shows/Show%20A/Season%202/Show%20A%20S02E01.m4v
+rm_file /TV%20Shows/Show%20A/Season%202/Show%20A%20S02E02.m4v
+rm_file /TV%20Shows/Show%20B/Season%201/Show%20B%20S01E01.m4v
+rm_file /TV%20Shows/Show%20B/Season%201/Show%20B%20S01E02.m4v
+mkdir /V4Art
+copy ../../build/np-fixtures/art_23.mp3 /V4Art/art_23.mp3
+update_db_wait_change 60000
+art_wait 120000
+
+key MENU            # repaint the main menu over the new library
+wait 1500
+shot music          # "Music": the drift's first cover (frozen phase)
+wheel +1            # "Videos": no posters (fixtures removed above)
+wait 1500
+shot videos_empty
+wheel -1            # back to "Music"
+wait 1500
+
+# -- live: the two covers of the mini library's music set alternate every
+# 7 s (square "Sine Studies", portrait art_23); shots in mid-pan
+drift_phase 0
+wait 3500
+shot live_1
+wait 3500
+shot live_2
+wait 3500
+shot live_3
+wait 3500
+shot live_4
+wait 3500
+shot live_5
+wait 3500
+shot live_6
+
+rm_file /V4Art/art_23.mp3
+update_db_wait_change 60000
+quit

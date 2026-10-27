@@ -410,8 +410,8 @@ void lcd_mono_bitmap(const unsigned char *src, int x, int y, int width, int heig
 #define BLEND_OUT(acc) do {} while (0)
 #endif
 
-/* Blend the given two colors */
-static inline unsigned blend_two_colors(unsigned c1, unsigned c2, unsigned a)
+/* Blend the given two colors (the general case; see blend_two_colors()) */
+static unsigned blend_two_colors_mix(unsigned c1, unsigned c2, unsigned a)
 {
     a += a >> (ALPHA_BPP - 1);
 #if (LCD_PIXELFORMAT == RGB565SWAPPED)
@@ -431,6 +431,25 @@ static inline unsigned blend_two_colors(unsigned c1, unsigned c2, unsigned a)
 #else
     return p;
 #endif
+}
+
+/* Blend the given two colors.
+ * Exact endpoints first: ALPHA_MASK gives c1 and 0 gives c2, the same
+ * values the blend produces. Most anti-aliased text pixels are one or the
+ * other (empty cell space or solid stroke), so this skips the blend for
+ * them in every draw mode. The test is forced inline so the common pixels
+ * never leave the caller's loop (the blend itself is not inlined at -Os).
+ * These returns must stay ahead of the swap16() in the blend: c1/c2 arrive
+ * in framebuffer format, so returning them unswapped is exact on
+ * RGB565SWAPPED targets. */
+static FORCE_INLINE unsigned blend_two_colors(unsigned c1, unsigned c2,
+                                              unsigned a)
+{
+    if (a == ALPHA_MASK)
+        return c1;
+    if (a == 0)
+        return c2;
+    return blend_two_colors_mix(c1, c2, a);
 }
 
 static void ICODE_ATTR lcd_alpha_bitmap_part_mix(

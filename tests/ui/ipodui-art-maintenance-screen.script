@@ -1,0 +1,20 @@
+# Main-menu Music hold menu: a deliberately slow panel exposes its real phase
+# and bounded counter rather than the main album walk's zero/completed count.
+# needs: library
+# timeout: 120
+wait 1000
+wait_db 30000
+art_wait 120000
+rm_file /.rockbox/artcache/panels.pak
+art_panel_hold 8000
+hold SELECT 1500
+wait 300
+shot music_hold
+wheel +1 200
+key SELECT
+wait 1500
+shot artwork_panels
+art_wait 120000
+wait 1500
+shot artwork_finished
+quit

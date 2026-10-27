@@ -38,6 +38,26 @@
 #define USE_JPEG_COVER
 #endif
 
+#if defined(HAVE_IPOD_UI) && !defined(PLUGIN)
+/* iPod UI shell: the art builder's pace point before each probe (a probe
+ * may block and switch anyway; up to ~19 path lookups per album) */
+static void (*probe_hook)(void);
+
+void albumart_set_probe_hook(void (*fn)(void))
+{
+    probe_hook = fn;
+}
+
+static bool probe_exists(const char *path)
+{
+    if (probe_hook)
+        probe_hook();
+    return file_exists(path);
+}
+#else
+#define probe_exists(path) file_exists(path)
+#endif
+
 #ifdef PLUGIN
     #define strmemccpy strlcpy
     /* Note we don't use the return value so this works */
@@ -90,7 +110,7 @@ static bool try_exts(char *path, int len)
         if (extension_lens[i] + len > MAX_PATH)
             continue;
         strcpy(path + len, extensions[i]);
-        if (file_exists(path))
+        if (probe_exists(path))
             return true;
     }
     return false;
@@ -98,7 +118,7 @@ static bool try_exts(char *path, int len)
 #define EXT
 #else
 #define EXT "bmp"
-#define try_exts(path, len) file_exists(path)
+#define try_exts(path, len) probe_exists(path)
 #endif
 
 /* Look for the first matching album art bitmap in the following list:
@@ -188,7 +208,7 @@ bool search_albumart_files(const struct mp3entry *id3, const char *size_string,
         if (!found && !*size_string)
         {
             snprintf (path, sizeof(path), "%sfolder.jpg", dir);
-            found = file_exists(path);
+            found = probe_exists(path);
         }
 #endif
 

@@ -1,0 +1,42 @@
+# Phase 4: quick-scroll letter (docs/phase4-brief.md, Agent B qscroll.c):
+# a fast spin through Songs (~300 rows) shows the big translucent letter
+# square in the middle of the list; it hides ~0.5 s after the spin stops,
+# and slow scrolling never shows it.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p4-qscroll.script
+# needs: library
+# trace: lib
+# golden: skip spin_mid spin_mid2 spin_stop spin_rest spin_back
+#
+# "wheel +n 10" sends a click every 10 ms (100 clicks/s, a fast spin);
+# the default 40 ms is 25 clicks/s; "wheel +n 300" is slow.
+
+wait 4000           # boot to the main menu, "Music" selected
+wait_db 30000
+
+key SELECT          # Music
+wait 800
+wheel +3            # "Songs"  [Compilations off: P11]
+wait 400
+key SELECT
+wait 800
+shot songs_top      # at rest, no letter
+
+wheel +3 300        # slow: three single rows, no letter
+wait 1500           # scrollbar faded too
+shot slow           # 4th row selected, no letter (deterministic)
+
+wheel +120 10       # fast spin: letter square over the list
+shot spin_mid       # letter showing (timing-sensitive)
+wheel +60 10
+shot spin_mid2      # another letter further down (timing-sensitive)
+wait 200
+shot spin_stop      # just stopped: letter still up (< 0.5 s)
+wait 1500
+shot spin_rest      # letter gone (row depends on wheel acceleration)
+
+wheel -400 10       # fast spin back, clamps at the top
+shot spin_back      # letter on the way up (timing-sensitive)
+wait 2500
+shot top_rest       # first song selected, no letter (deterministic)
+
+quit

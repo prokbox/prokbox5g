@@ -1,0 +1,36 @@
+# #89 (docs/phase16-brief.md 3.2, 4.2): a clean boot with no change since
+# the last completed walk skips the probe walk. Part 0 ends uncleanly (no
+# stamp), so part 1 walks ("nostamp") and its clean shutdown writes the
+# stamp; parts 2 and 3 trust it: no scan runs that boot (walks=0, no
+# "db scantrace" line from them), and the boot window ends "done".
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-boot-clean.script
+# needs: music
+# timeout: 180
+# golden: skip
+# log: boot stamp walk=1 why=nostamp
+# log: boot stamp walk=0 why=trust skipped=0
+# log: boot stamp walk=0 why=trust skipped=1
+# log: boot stamp write=1 skipped=2
+# log: boot window ms=
+
+wait 3000
+wait_db 30000
+boot_nostamp
+reboot
+
+expect_boot_walk 1 15000 nostamp
+wait_db 30000
+wait 3000           # the probe walk (background) completes
+reboot
+
+expect_boot_walk 0 15000 trust
+wait_db 30000
+wait 3000
+expect_boot_walk 0 0        # still no scan this boot
+shot clean_boot
+reboot
+
+expect_boot_walk 0 15000 trust
+wait 3000
+expect_boot_walk 0 0
+shot clean_boot2

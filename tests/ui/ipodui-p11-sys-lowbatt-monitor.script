@@ -1,0 +1,17 @@
+# Phase 11 (docs/phase11-brief.md 3.7, 7 criterion 9): the battery
+# monitor's own shutdown (powermgmt: an empty battery -> sys_poweroff ->
+# clean_shutdown on the UI thread) draws "Connect to Power" too, with no
+# key pressed and the backlight off.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p11-sys-lowbatt-monitor.script
+# needs: library
+# log: sys lowbatt empty=0 drawn=1
+# nolog: splash-pass
+
+wait 4000
+shot before          # the main menu (the script needs one shot)
+charger off
+backlight_expire
+wait 2000
+battery 0            # below the shutoff level: the monitor powers off
+wait 30000           # the monitor shuts down within ~20 s (the trace; the
+# (the frame itself is shot by ipodui-p11-sys-lowbatt)

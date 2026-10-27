@@ -1,0 +1,31 @@
+# P19 19-2 (screen truth, 3.6): the BCM loses power mid-drift (a cut: a
+# new epoch, its slots and front frame gone).  The drift settles (the
+# CPU's own framing from pv.slot, pushed), uploads the cover again by key
+# once the BCM is back, and its frames still equal the CPU path's.
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p19-drift-cut.script
+# needs: library
+# golden: skip
+# needs: video
+# nolog: drift parity bad
+# nolog: glass owned STALE
+# nolog: shot POISONED
+# logafter: cut drift jobs resume epoch=
+# log: drift parity frames=
+
+bcm_drift parity
+wait 4000
+wait_db 30000
+sim_clock 15:04
+clock_format 24
+battery 100
+drift_phase 0
+wait 3000
+shot before_cut
+bcm_fault cut
+ab_mark cut
+wait 2500            # settle, the restart, a new upload, jobs again
+shot after_cut
+bcm_stats
+wait 8000            # past a cycle end: a fade to the next cover as jobs
+shot next_cycle
+quit

@@ -1,0 +1,41 @@
+# Phase 16-1 review (H1/M1): the window's restart is ONE audio-thread
+# event (playback.c audio_on_give()); a song picked during it (a new
+# queue) starts once the restart is over, with its change event.
+# give_hold makes the restart wait 5 s after the buffer change, so the
+# event lands inside it; it is handled after the restart, which ends
+# cleanly ("audio give done"), and nothing stays suppressed afterwards.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-restart-pick.script
+# needs: library
+# needs: ab
+# golden: skip
+# fulls-extra: 3   (play_files rows, the USB screen)
+# timeout: 300
+# log: audio give held
+# logbetween: held end audio give done
+# logbetween: held end wait_pos ok
+
+wait 4000
+wait_db 45000
+mkdir /Audiobooks/E16
+copy ../../build/ab-fixtures/pref.m4b /Audiobooks/E16/pref.m4b
+copy ../../build/ab-fixtures/short.m4b /Audiobooks/E16/short.m4b
+update_db_wait_change 60000
+play_files /Audiobooks/E16/pref.m4b
+wait_pos 17000 90000
+snapshot_pause
+expect_paused 500
+backlight_expire            # dark
+pause_age 200               # paused 3 min 20 s: the window is open
+give_hold 5000              # the next window restart holds 5 s
+copy ../../tests/fixtures/plain.mp3 /Audiobooks/E16/new.mp3
+update_db                   # its commit takes the window's memory
+wait 2500                   # ... and the restart is held now
+ab_mark held
+play_files /Audiobooks/E16/short.m4b    # queued behind the restart
+wait 6000
+wait_pos 2000 60000 short
+expect_playing 1000
+shot picked
+key MENU                    # the face goes
+wait 1000
+quit

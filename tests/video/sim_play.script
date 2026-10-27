@@ -1,0 +1,35 @@
+# The video player in the simulator (#64): the core, the VP client and the
+# engine on the player's thread, the model of our image, our decoder
+# (bcmfw/h264, built for the host) and the audio of the same file on
+# Rockbox's playback path, which the video follows.  Run by
+# tests/video/sim_run.sh (a --bcmfw-video sim build), never by the gate.
+# timeout: 150
+
+wait 4000                       # boot to the main menu
+video_start /Videos/clip.mp4    # first: its blocks before the audio buffer
+repeat off
+play_files /Videos/clip.mp4
+wait 2000
+expect_video 20 playing
+video_shot video-playing
+
+audio_pause on                  # the backlight is no longer held
+wait 500
+backlight_expire                # the timeout runs out: the BCM goes off
+wait 1500
+expect_video 20 asleep
+dark off                        # back: the paused picture again
+wait 1000
+expect_video 46 playing
+video_shot video-awake
+audio_pause off                 # and playing, in sync with the audio
+wait 2000
+expect_video 80 playing
+
+wait 20000                      # to the end of the 12 s clip (the
+                                # headless sim's audio runs slow)
+expect_video 150 done
+video_stop
+wait 1000
+shot after-stop                 # the normal screen again
+quit

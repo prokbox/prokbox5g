@@ -1,0 +1,34 @@
+# P12 W4-0 (docs/design/sdk.md 6, 11.3, 12.2): the slice budget. The test
+# game in mode 1 takes 30 ms a step against Class A's 20 ms: the first
+# step logs "sdk viol badgame step", the repeat kills it ("sdk kill"):
+# the Games list again with a pop slide, no splash, its .state not
+# written. Mode 6 then draws from outside its memory: "sdk viol badgame
+# arg" and the call does nothing (one violation, no kill).
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-sdk-badgame-kill.script
+# needs: modules
+# reset: mainmenu
+
+wait 4000
+sdk_clear
+wheel +2             # Extras
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Games
+wait 600
+key SELECT
+wait 1200
+wheel +3             # Game rule tests (below Bricks, Chess, Chute)
+wait 600
+sdk_bad 1
+key SELECT           # Game rule tests
+wait 2000
+shot killed          # back on the Games list
+sdk_bad 6
+key SELECT
+wait 1500
+shot badarg          # still running: the label, mode 6
+hold MENU 900
+wait 1500
+shot out
+quit

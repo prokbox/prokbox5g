@@ -1,0 +1,72 @@
+# Phase 11 On-The-Go playback isolation (docs/phase11-brief.md Rev 1 H-2,
+# section 7 criterion 4): two songs added; On-The-Go played from row 2
+# builds a fresh 2-song queue from the store's paths (paused at once: the
+# test songs are short); clearing the store then leaves the queue and the
+# paused playback alone; after a reboot PLAY resumes the same queue. The
+# store file is never the playlist.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p11-otg-play-clear.script
+# needs: library
+# resume: playing
+# golden: skip
+# log: otg play n=2 pos=1
+# nolog: playlist_create otg.m3u8
+
+wait 4000
+wait_db 30000
+key SELECT          # Music
+wait 800
+wheel +3 300        # "Songs"  [Compilations off: P11]
+wait 400
+key SELECT
+wait 800
+wheel +2 300        # "Amber Garden"
+wait 400
+hold SELECT 1500
+wait 600
+key SELECT          # Add to On-The-Go
+wait 800
+wheel +1 300        # "Amber Harbour"
+wait 400
+hold SELECT 1500
+wait 600
+key SELECT
+wait 800
+key MENU            # Music
+wait 800
+wheel -4 300        # "Playlists"
+wait 400
+key SELECT
+wait 800
+key SELECT          # On-The-Go
+wait 1000
+wheel +1 300        # row 2, "Amber Harbour"
+wait 400
+key SELECT          # plays On-The-Go from it
+wait 1200
+key PLAY            # pause: the queue stays while the store changes
+wait 600
+expect_paused 500
+expect_queue 2 01%20Amber%20Garden.mp3
+shot playing        # Now Playing, 2 of 2, paused
+key MENU            # back to the On-The-Go list
+wait 800
+wheel +3 300        # "Clear Playlist"
+wait 400
+key SELECT
+wait 800
+wheel -1 300        # "Clear"
+wait 400
+key SELECT          # cleared: back to Playlists
+wait 1000
+shot cleared
+expect_paused 1000
+expect_queue 2 01%20Amber%20Garden.mp3
+otg_dump            # the store is empty
+reboot
+
+wait 4000
+wait_db 30000
+key PLAY            # resume
+wait 1500
+expect_queue 2 01%20Amber%20Garden.mp3
+quit

@@ -1,0 +1,24 @@
+# Boot battery guard, drained latch: the low-battery shutdown is only a
+# backup and never writes under disk-safe. The sim boots at 3,450 mV with
+# a clear record; 3 s after power-on the cell reads 1,000 mV
+# (IPODUI_SIM_DRAIN_AT_MS), so the filter falls through the 0 % window
+# (3,300 to the sim's disk-safe 3,200) in about 3 s, inside the 0 %
+# write's 30 s wait for an awake disk, and query_force_shutdown() fires
+# under disk-safe: clean_shutdown() skips the latch. (On the unit the
+# fall through the window takes minutes; a fall this fast is a cut.)
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-bootbatt-latch-shutdown.script
+# env: IPODUI_SIM_BATT_MV=3450
+# env: IPODUI_SIM_DRAINED=0
+# env: IPODUI_SIM_DRAIN_AT_MS=3000
+# golden: skip
+# log: bootbatt latch drained=0 boot mv=3450
+# log: bootbatt latch shutdown skipped latched=0
+# log: sys lowbatt empty=1
+# nolog: bootbatt latch set
+# nolog: sys deadbatt
+# nolog: splash-pass
+
+wait 4000
+shot main_menu
+wait 40000
+shot never_reached       # the low-battery shutdown exited the sim

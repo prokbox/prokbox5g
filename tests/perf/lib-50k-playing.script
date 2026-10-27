@@ -1,0 +1,95 @@
+# Library pool while audio plays (P6 fix round M4): pool growth is refused
+# while audio_status() != 0 (0 B allocated while playing), so the views a
+# user stacks up while playing must fit the pool's spare. Run through
+# tests/perf/lib50k.sh <tracks> playing (its own simdisk, build/sim-50k).
+# The trace has "lib pool peak used= size=" (high-water mark) and any
+# "lib alloc refused" line.
+# trace: lib
+
+wait 3000
+wait_db 1500000
+wait 15000
+repeat all
+
+key SELECT          # Music
+wait 1000
+wheel -10 100
+wait 300
+wheel +4 300        # Songs
+wait 600
+key SELECT
+wait 2500
+key SELECT          # play: lib_play (2,000 of 50k), repeat all
+wait 3000
+
+# 0. Albums (the largest list after Songs: 4,970 rows), while playing
+hold MENU 1000
+wait 1500
+key SELECT
+wait 1000
+wheel -10 100
+wait 300
+wheel +2 300        # Albums
+wait 600
+key SELECT
+wait 2500
+shot albums_playing
+
+# 1. Artists > artist > album, then Songs, while playing
+hold MENU 1000
+wait 1500
+key SELECT          # Music
+wait 1000
+wheel -10 100
+wait 300
+wheel +1 300        # Artists
+wait 600
+key SELECT
+wait 2500
+key SELECT          # an artist
+wait 1500
+key SELECT          # an album (or All Songs)
+wait 1500
+shot album_playing
+key MENU            # (SELECT here would play the album: the source
+wait 1000           #  view must stay Songs for step 2)
+hold MENU 1000
+wait 1500
+key SELECT          # Music
+wait 1000
+wheel -10 100
+wait 300
+wheel +4 300        # Songs
+wait 600
+key SELECT
+wait 2500
+shot songs_after_artists
+
+# 2. an open book page, then the main menu, then Songs, while playing
+hold MENU 1000
+wait 1500
+key SELECT
+wait 1000
+wheel -10 100
+wait 300
+wheel +7 300        # Audiobooks
+wait 600
+key SELECT
+wait 2500
+key SELECT          # a book: its page (chapter view / blob)
+wait 2500
+shot book_page
+hold MENU 1000
+wait 1500
+key SELECT
+wait 1000
+wheel -10 100
+wait 300
+wheel +4 300        # Songs
+wait 600
+key SELECT
+wait 2500
+shot songs_after_book
+audio_stop
+wait 500
+quit

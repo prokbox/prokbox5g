@@ -1,0 +1,61 @@
+# #109 H1 (docs/design/queue-by-index.md 3.1, 7): a database queue whose
+# third entry is deleted by a commit plays on past it. The queue is The
+# Alder Trio's Branches (Artists > first artist > All Songs, 5 songs);
+# "03 Early Garden" is removed and committed while stopped, the unit
+# restarts and PLAY resumes the queue (its T line): the deleted slot's
+# resolve is the sentinel "/<dbq>/2" (FLAG_DELETED), file_exists() is
+# false, playback skips that one entry and goes on to 04. Nothing shown.
+# The file is put back (and committed) at the end.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-dbq-miss-midqueue.script
+# needs: library
+# timeout: 300
+# golden: skip after_miss
+# log: dbq build n=5
+# log: dbq resume n=5
+# log: dbq miss k=2 why=deleted
+# log: Read metadata for /Library/The Alder Trio/Branches/04 Quiet Harbour.mp3
+# nolog: lib play fail
+# nolog: dbq resume fail
+# nolog: splash-pass
+
+wait 4000
+wait_db 30000
+rm_file /dbq-h1-backup.mp3          # leftover of a cut run (if any)
+key SELECT          # Music
+wait 800
+wheel +1            # "Artists"
+wait 400
+key SELECT
+wait 800
+key SELECT          # the first artist
+wait 800
+key SELECT          # "All Songs"
+wait 800
+key SELECT          # 01: the queue is the five songs (dbq build n=5)
+wait 2000
+expect_playing 300
+audio_stop
+wait 500
+copy_file /Library/The%20Alder%20Trio/Branches/03%20Early%20Garden.mp3 /dbq-h1-backup.mp3
+rm_file /Library/The%20Alder%20Trio/Branches/03%20Early%20Garden.mp3
+update_db_wait_change 60000         # FLAG_DELETED in the new generation
+wait 1000
+reboot
+
+wait 4000
+wait_db 30000
+key PLAY            # resume: 01
+wait 1500
+expect_playing 500
+key NEXT            # 02
+wait 800
+key NEXT            # 03 is skipped: 04
+wait 1500
+expect_playing 1000
+shot after_miss
+audio_stop
+wait 500
+copy_file /dbq-h1-backup.mp3 /Library/The%20Alder%20Trio/Branches/03%20Early%20Garden.mp3
+rm_file /dbq-h1-backup.mp3
+update_db_wait_change 60000
+quit

@@ -1,0 +1,78 @@
+# Phase 16-4 (#90): an album whose tags changed but whose art did not
+# keeps its art: the pass re-reads only the source's signature (size and
+# the CRC of its first 16 KB, no decode) and keeps the record ("art sig
+# keep"). An album whose cover changed is rebuilt (a decode, "art build
+# album ... state=1 src=1"). Wool & Wire (cover.jpg): A, a track rewritten
+# with the same bytes (another mtime); B, cover.jpg replaced by another
+# image and a track rewritten. The sim disk ends as it began (C).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-art-signature.script
+# needs: library
+# golden: skip
+# timeout: 400
+# logbetween: a0 a1 art sig keep key=
+# logbetween: a0 a1 no art io write key=bc0254065027d9b4
+# logbetween: a0 a1 no art build panel key=bc0254065027d9b4
+# logbetween: b0 b1 art io write key=bc0254065027d9b4
+# logbetween: b0 b1 art build album key=bc0254065027d9b4 state=1 src=1
+# logbetween: b0 b1 no art sig keep
+# #117: the changed cover's panel goes into a free slot of panels.pak in
+# place (then the header), never through a copy of the whole file
+# logbetween: b0 b1 art build panel key=bc0254065027d9b4 slot=\d+ state=1
+# logbetween: b0 b1 art panel commit in place
+# logbetween: b0 b1 no art panel stage copied
+# nolog: art fail
+
+wait 3000
+wait_db 60000
+art_wait 120000
+wait 2500
+
+# Setup: the album's tags rewritten once first, so it is the newest album
+# and already in the default panel set (with its panel) before A. A
+# rewrite makes it the newest; without this a disk where it was not yet
+# in the set builds its new panel inside A (an "art io write" of its key
+# that is not the record's), depending on the disk's history.
+copy_file /Library/The%20Bellwethers/Wool%20&%20Wire/01%20Idle%20Ferry.mp3 /sigtmp.mp3
+copy_file /sigtmp.mp3 /Library/The%20Bellwethers/Wool%20&%20Wire/01%20Idle%20Ferry.mp3
+reboot
+wait 3000
+wait_db 60000
+art_wait 120000
+wait 2500
+
+# A: tags changed (a new mtime), the same cover
+ab_mark a0
+copy_file /Library/The%20Bellwethers/Wool%20&%20Wire/01%20Idle%20Ferry.mp3 /sigtmp.mp3
+copy_file /sigtmp.mp3 /Library/The%20Bellwethers/Wool%20&%20Wire/01%20Idle%20Ferry.mp3
+reboot
+wait 3000
+wait_db 60000
+art_wait 120000
+ab_mark a1
+shot a_kept
+wait 2500
+
+# B: the cover changed too
+ab_mark b0
+copy_file /Library/The%20Bellwethers/Wool%20&%20Wire/cover.jpg /sigcover.jpg
+copy fixtures/sig-cover.jpg /Library/The%20Bellwethers/Wool%20&%20Wire/cover.jpg
+copy_file /sigtmp.mp3 /Library/The%20Bellwethers/Wool%20&%20Wire/01%20Idle%20Ferry.mp3
+reboot
+wait 3000
+wait_db 60000
+art_wait 120000
+ab_mark b1
+shot b_rebuilt
+
+# C: the disk as it began
+copy_file /sigcover.jpg /Library/The%20Bellwethers/Wool%20&%20Wire/cover.jpg
+copy_file /sigtmp.mp3 /Library/The%20Bellwethers/Wool%20&%20Wire/01%20Idle%20Ferry.mp3
+rm_file /sigcover.jpg
+rm_file /sigtmp.mp3
+# the record follows the restored cover (a track rewritten: the tags
+# changed, so the pass looks), and the next run's A starts from a record
+# that matches the disk (#90 review: runs back to back)
+reboot
+wait 3000
+wait_db 60000
+art_wait 120000

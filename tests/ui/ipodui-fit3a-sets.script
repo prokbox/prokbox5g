@@ -1,0 +1,78 @@
+# Fit-3a #73 (owner, device): the slideshow's two sets. The Music menu's
+# panel drifts album covers (Playlists ... Composers) or book covers
+# (Audiobooks) from ONE drift slot. While music plays with the disk
+# asleep, moving between the two rows for 60 s must never leave the
+# panel without a cover of the selected set. apps/ipodui/preview.c logs
+# "panel set read set=<n> why=<...>" at every read, deferral and skip of
+# the slot, and why=empty for a coverless (plain) drift draw;
+# check_trace.py's "panelset" rule fails on any why=empty after the
+# first cover, and when the log has no such line at all.
+# Follow-up (owner, device: "a small skip at the beginning"): each set's
+# first cover holds still (the phase frozen) through its fade and ~0.5 s
+# while the next cover is prefetched ("panel hold set= why= ms="), then
+# the pan starts at its first step: the "panelhold" rule. The drift runs
+# live here; books_start_frames/ records the first switch's start.
+# Run it in the default (flash) sim and in build/sim-hdd-ui:
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-fit3a-sets.script
+#   SIM_BUILD=build/sim-hdd-ui scripts/shots.sh tests/ui/ipodui-fit3a-sets.script
+# needs: library
+# trace: panelset panelhold
+# golden: skip
+# timeout: 150
+
+wait 4000           # boot to the main menu, "Music" selected
+wait_db 30000
+art_wait 120000     # every album and panel built
+sim_clock 15:04
+clock_format 24
+battery 100
+drift_phase 0         # live: the pan runs, as on the device
+
+wheel +4            # "Shuffle Songs"
+wait 400
+key SELECT          # plays; the WPS
+wait 1500
+key MENU            # the main menu
+wait 700
+wheel -4            # "Music"
+wait 800
+key SELECT          # the Music menu, "Playlists": album covers
+wait 2500           # (the disk model is asleep from here on: playing)
+shot s00_music
+
+# -- 60 s: Music <-> Audiobooks every 5 s, disk asleep ------------------
+wheel +6            # "Audiobooks"
+record 3000 10 books_start  # the hold, then the pan from its first step
+wait 2000
+shot s05_books
+wheel -6            # "Playlists"
+wait 5000
+shot s10_music
+wheel +6
+wait 5000
+shot s15_books
+wheel -6
+wait 5000
+shot s20_music
+wheel +6
+wait 5000
+wheel -6
+wait 5000
+wheel +6
+wait 5000
+wheel -6
+wait 5000
+wheel +6
+wait 5000
+wheel -6
+wait 5000
+wheel +6
+wait 5000
+shot s55_books
+wheel -6
+wait 5000
+shot s60_music
+
+key MENU
+wait 1000
+quit

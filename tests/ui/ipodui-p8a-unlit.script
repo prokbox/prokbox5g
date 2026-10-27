@@ -1,0 +1,93 @@
+# Phase 8a (docs/phase8a-brief.md 3.5, 7.4, 8): the unlit clock face. Four
+# scenes (docs/design/unlit.md, variant "stock") with the clock, battery,
+# charger, Hold and play state pinned, a backlight timeout in between (the
+# real BACKLIGHT_OFF path: backlight_expire), the dismissing SELECT, and
+# the screen that comes back.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p8a-unlit.script
+# needs: library
+# trace: unlit
+# same: before_face after_dismiss
+# ref: scene_12h_playing docs/design/unlit/stock-12h-playing-lit.png
+# ref: scene_24h_paused docs/design/unlit/stock-24h-paused-lit.png
+# ref: scene_24h_stopped docs/design/unlit/stock-24h-stopped-lit.png
+# ref: scene_12h_hold_charging docs/design/unlit/stock-12h-hold-charging-lit.png
+# log: unlit swallow
+# log: hold on
+# log: hold off
+# nolog: splash-pass
+#
+# `ref` compares each scene with the design's stock "lit" PNG at threshold
+# 0: a report ("note ref ..."), because brief 7.4 has U2 list any
+# deviation pixel by pixel for orchestrator sign-off (GATE_REF_STRICT=1
+# turns it into a FAIL). `same` pins that the screen after the dismissing
+# SELECT is pixel-identical to the one before the face (and so that the
+# SELECT changed no selection). The tone-mapped "unlit" sheet next to
+# stock-*-unlit.png is tests/review/p8a-sheets.sh.
+#
+# Needs U2 (unlit*.c, ui_main.c, input.c) and P (the backlight.c hooks:
+# SYS_IPODUI_BACKLIGHT_OFF only when the backlight timeout is not Off,
+# SYS_IPODUI_HOLD_CHANGED).
+
+wait 4000
+sim_clock 04:01
+clock_format 12
+battery 55
+repeat off
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3 /Music/Tone%20Collective/Sine%20Studies/02%20Low%20E.mp3
+wait 1000
+np_pin 12000 50
+key SELECT 50       # main menu: Music (selection change to compare)
+wait 500
+key MENU
+wait 800
+shot before_face    # the main menu
+backlight_expire
+wait 3500           # 2 s fade-out, then the face
+shot scene_12h_playing      # 4:01, playing, battery 55 %
+key SELECT          # dismissed and swallowed: nothing opens
+wait 800
+shot after_dismiss  # == before_face
+
+# 24 h, paused, full battery
+clock_format 24
+sim_clock 09:41
+battery 100
+key PLAY
+wait 600
+backlight_expire
+wait 3500
+shot scene_24h_paused       # 09:41, pause bars, battery 100 %
+key SELECT
+wait 800
+
+# 24 h, stopped, 8 %
+sim_clock 15:03
+battery 8
+audio_stop
+wait 600
+backlight_expire
+wait 3500
+shot scene_24h_stopped      # 15:03, only the battery
+key SELECT
+wait 800
+
+# 12 h, Hold + charging, playing (the stock scene shows the play glyph):
+# sliding Hold on over the dark face lights it
+clock_format 12
+sim_clock 12:58
+battery 45
+charger on
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3 /Music/Tone%20Collective/Sine%20Studies/02%20Low%20E.mp3
+wait 1000
+np_pin 12000 50
+wait 600
+backlight_expire
+wait 3500
+hold_switch on
+wait 800
+shot scene_12h_hold_charging   # 12:58, play, padlock + bolt, battery 45 %
+hold_switch off     # Hold off dismisses the face
+wait 800
+shot after_hold
+charger off
+quit

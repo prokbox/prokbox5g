@@ -1,0 +1,28 @@
+# Boot battery guard (#70 follow-up, owner report 2026-10-22): a cell
+# resting under the floor must not start the firmware, drained latch or
+# not. The sim boots at 3,350 mV with no charger and a clear latch
+# (IPODUI_SIM_BATT_MV, IPODUI_SIM_DRAINED=0;
+# uisimulator/common/powermgmt-sim.c), under BB_FLOOR_MV (3,400, the
+# same on the target): apps/main.c's bootbatt_enforce(), right after
+# lcd_init(), draws the glyph-only low-battery image
+# (ui_sys_dead_battery(), captured as dead-battery.png; no boot logo
+# first, so no boot-fw.png), holds it 2 s and powers off before storage,
+# fonts, the latch or any write. The sim exits there, so nothing below
+# runs: no settings, no database, no shell.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-bootbatt-refuse.script
+# env: IPODUI_SIM_BATT_MV=3350
+# env: IPODUI_SIM_DRAINED=0
+# illusion: preboot the guard powers off right after lcd_init(), before the shell and its text watch
+# boot_shot
+# golden: skip
+# log: bootbatt refuse mv=3350 thr=3400
+# log: sys deadbatt drawn=1
+# log: bootbatt off writes=0
+# nolog: bootbatt boot
+# nolog: bootbatt plugged
+# nolog: bootbatt latch
+# nolog: boot screen gen=
+# nolog: splash-pass
+
+wait 3000
+shot never_reached       # the sim powered off in init(): no such shot

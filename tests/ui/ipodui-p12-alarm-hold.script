@@ -1,0 +1,26 @@
+# P12 W1-A1 (Q5, -alarm-hold): Hold on: the unlit face is up; the ring
+# goes over it, lit; keys are blocked (PLAY does nothing). The 5 min cap
+# that then ends it is in the host test (alarm_after_ring) and D-A5, not
+# here (a 5 min script). Hold switched off and on again mid-ring: the
+# face does not come back over the ring.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p12-alarm-hold.script
+# golden: skip
+# env: IPODUI_SIM_ALARM_IN=30
+# Trace: alarm ring i=0; no alarm snooze/dismiss
+# alarm-rings: 1
+# nolog: ipodui: alarm snooze
+# nolog: ipodui: alarm dismiss
+# trace: piezo
+# reset: mainmenu
+wait 4000
+key HOLD
+wait 32000
+shot ringing-held
+key PLAY
+wait 1500
+key HOLD
+wait 300
+key HOLD
+wait 2500
+shot still-ringing
+quit

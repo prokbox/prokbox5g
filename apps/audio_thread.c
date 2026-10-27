@@ -36,6 +36,9 @@
 #include "voice_thread.h"
 #include "talk.h"
 #include "settings.h"
+#ifdef HAVE_DAC_STANDBY
+#include "dac_ext.h"
+#endif
 
 /* Macros to enable logf for queues
    logging on SYS_TIMEOUT can be disabled */
@@ -105,6 +108,16 @@ static void NORETURN_ATTR audio_thread(void)
             break;
         }
 
+#ifdef HAVE_DAC_STANDBY
+        /* P15: before the first play the thread waits here, not in
+         * audio_playback_handler(); same idle poll, same timed wait */
+        dac_idle_poll();
+        if (dac_idle_pending())
+        {
+            queue_wait_w_tmo(&audio_queue, &ev, HZ/2);
+            continue;
+        }
+#endif
         queue_wait(&audio_queue, &ev);
     }
 }

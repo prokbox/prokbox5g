@@ -1,0 +1,70 @@
+# Phase 4b-1 (docs/phase4b-brief.md, Revision 1 decision 3, Agent A's
+# hook): a deleted-file pass while music plays. The pass flags the gone
+# track in the RAM cache (a new generation) and drops database_lib.dat
+# (its counts are stale), so lists scan until the precompute rewrites
+# it (since H1 at once, in the block reserved at shell start; before, it
+# waited for the stop) and requests a build; the builder's pass drops
+# the deleted album's art (GC, which since H1 waits for the stop).
+# Playback never stops.
+# With library generations (#85, cache-persist) the pass builds a
+# candidate whose RAM cache waits for the stop (it would shrink the audio
+# buffer): no new generation while playing, the Albums list is the active
+# library's (Refresh Fixture still listed, golden-skipped), and the new
+# generation, its precompute and the art pass come after the stop
+# (expect_db_gen_same / expect_db_gen_change instead of
+# update_db_wait_change during playback). Playback never stops.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p4b1-delete-playing.script
+# needs: library
+# trace: lib
+# golden: skip albums_playing
+#
+# The track is tests/ui/fixtures/refresh.mp3 (album "Refresh Fixture"),
+# added first and removed again, so the library is as before.
+
+wait 1000
+wait_db 30000
+remove /Music/refresh-fixture.mp3   # leftover of an interrupted run (if any)
+update_db_wait 30000
+copy fixtures/refresh.mp3 /Music/refresh-fixture.mp3
+update_db_wait_change 30000         # added (commit, reload, precompute)
+art_wait 120000
+
+wheel +4            # "Shuffle Songs"
+wait 500
+key SELECT          # plays
+wait 1500
+expect_playing 300
+db_gen_mark
+remove /Music/refresh-fixture.mp3
+update_db                           # the deleted-file pass, while playing
+wait 2000
+expect_db_gen_same 1000             # waits for the stop (generations)
+expect_playing 2000 # no stop, no gap
+key MENU            # main menu
+wait 1000
+wheel -10           # "Music"
+wait 800
+key SELECT
+wait 800
+wheel +2            # "Albums"
+wait 400
+key SELECT
+wait 1000
+shot albums_playing # the active library while playing
+expect_playing 300
+key MENU            # Music
+wait 800
+key MENU            # main menu
+wait 1000
+wheel +10           # "Now Playing" (the last item)
+wait 800
+key SELECT          # WPS
+wait 1500
+audio_stop       # stop: the new generation, then its precompute
+expect_db_gen_change 60000
+wait 3000
+art_wait 30000
+expect_art art_manifest.txt
+shot stopped
+
+quit

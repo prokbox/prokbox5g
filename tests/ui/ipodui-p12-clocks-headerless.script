@@ -1,0 +1,39 @@
+# P12 W2-W (item 3): Clocks is a headerless page (UI_HEADER_NONE): no
+# header is drawn or pushed while it is on top, whatever would redraw one
+# (the battery level, a charger's plug, Time in Title), so nothing lands
+# on the first band: the page before and after is pixel-identical and no
+# "update header" line falls between the marks. Replaces W1-C's dark
+# header painted over by the band.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p12-clocks-headerless.script
+# golden: skip
+# same: clocks_before clocks_after
+# logbetween: on_clocks off_clocks no update header
+# log: clocks open n=1
+# reset: mainmenu
+
+wait 4000            # boot to the main menu
+sim_clock 15:05      # the panels' time (Tuesday 6 October 2026)
+battery 80
+wheel +2             # Extras
+wait 1500
+key SELECT
+wait 2500            # the Extras list, Clocks selected, its panel
+key SELECT 50        # the reveal
+wait 1500
+ab_mark on_clocks
+shot clocks_before
+battery 30           # the header's battery would redraw (1 s poll)
+wait 2500
+charger on           # ... and its plug
+wait 2500
+charger off
+wait 2500
+time_in_title on     # ... and the clock in the title
+title_phase clock
+wait 2000
+shot clocks_after    # the same page, no header rows over the band
+ab_mark off_clocks
+key MENU 50
+wait 1500
+shot extras_after    # the Extras list's header shows the change
+quit

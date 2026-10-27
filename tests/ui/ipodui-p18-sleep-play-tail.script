@@ -1,0 +1,29 @@
+# Review H1: hold PLAY while playing, released at once. The pause's mixer
+# tail (PCM still running for ~3 s) and a PLL hold still standing at entry
+# are what power_sleep() refuses on; sleep entry waits for them
+# (sleep_quiesce_wait()), so the unit soft-sleeps and never powers off.
+# pll_hold stands in for the lit screen's hold the power thread drops.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p18-sleep-play-tail.script
+# needs: library
+# golden: skip
+# fulls-extra: 1          (the wake pushes the left screen in full)
+# log: sleep quiet why=0
+# log: sim_sleep: sleep enter
+# nolog: sleep refused
+# nolog: sleep deep
+# nolog: tier=off
+# nolog: splash-pass
+
+sleep_mode soft       # soft sleep is off by default (developer switch)
+wait 4000
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait_pos 6000 60000
+pll_hold 2500           # the lit hold, still standing when the sleep starts
+hold PLAY 1200          # playing: pause first, then the sleep; PLAY up at once
+expect_sleep asleep 8000
+expect_paused 500       # paused, not stopped
+key SELECT              # wakes; swallowed
+expect_sleep button 3000
+wait 1000
+shot woken
+quit

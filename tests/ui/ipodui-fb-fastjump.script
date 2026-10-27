@@ -1,0 +1,33 @@
+# #58 (owner, device): fast scrolling smeared and ghosted on the 5.5G's
+# slow LCD. Above UI_LIST_JUMP_V clicks/s (apps/ipodui/list.h) the list
+# moves in whole-row jumps ("update anim:jump", at most one per
+# UI_LIST_JUMP_TICKS, no glide frames in between); slow turns glide as
+# before ("update anim:scroll"). The quick-scroll letter still shows over
+# a fast spin. Music > Songs (~300 two-line rows).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-fb-fastjump.script
+# needs: library
+# golden: skip slow_glide spin_jump spin_jump2 spin_rest top_rest
+# log: update anim:scroll
+# log: update anim:jump
+wait 4000
+wait_db 30000
+key SELECT          # Music
+wait 800
+wheel +3 300        # Songs
+wait 400
+key SELECT
+wait 800
+wheel +6 300        # slow: one row a click, the view glides
+wait 60
+shot slow_glide     # mid-glide (timing-sensitive)
+wait 1500
+wheel +40 10        # fast spin: row jumps, letter square
+shot spin_jump      # rows on the row grid, letter up
+wheel +30 10
+shot spin_jump2
+wait 1500
+shot spin_rest
+wheel -400 10       # fast back to the top
+wait 2500
+shot top_rest       # first song, at rest
+quit

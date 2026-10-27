@@ -1245,8 +1245,41 @@ int action_get_touchscreen_press_in_vp(short *x1, short *y1, struct viewport *vp
 }
 #endif
 
+#ifdef HAVE_IPOD_UI
+/* The thread that reads input (the shell's: main()), set at its start;
+ * until then main()'s slot, 0 (init_threads() allocates it first) */
+static unsigned int input_thread_id;
+
+void action_set_input_thread(void)
+{
+    input_thread_id = thread_self();
+}
+
+static bool on_input_thread(void)
+{
+    unsigned int self = thread_self();
+
+    return input_thread_id ? self == input_thread_id
+                           : (self & 0xff) == 0;   /* THREAD_ID_SLOT_MASK */
+}
+#endif
+
 bool action_userabort(int timeout)
 {
+#ifdef HAVE_IPOD_UI
+    /* Only the input thread may read the button queue: on another thread
+     * (the audio thread building a next-folder playlist, playlist.c
+     * check_subdir_for_music() / get_next_dir()) this would steal the
+     * shell's input, and default_event_handler() could run the USB screen
+     * on a 5 KB stack (#42). Elsewhere it waits as long as the read would
+     * have, so no caller's loop spins. */
+    if (!on_input_thread())
+    {
+        if (timeout > 0)
+            sleep(timeout);
+        return false;
+    }
+#endif
     int  action = get_custom_action(CONTEXT_STD, timeout, NULL);
     bool ret    = (action == ACTION_STD_CANCEL);
     if (!ret)

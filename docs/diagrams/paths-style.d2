@@ -1,0 +1,36 @@
+# Shared style for the data-path set (data-paths, data-paths-pp, data-paths-bcm, data-paths-audio).
+# Imported with `...@paths-style`. Larger type than style.d2: these are read at laptop zoom and in print.
+# Chips are soft containers; the outside world (computer, storage, screen, jack) is a rounded,
+# warm-grey "outside" block; anything not fitted to this unit is a pale dashed "absent" block.
+# Edge colour = status, from docs/data-paths.md §4. Arrow = "this master reaches that target".
+
+classes: {
+  # ---- chips (soft containers) ---------------------------------------------
+  chip_pp: {style: {fill: "#F2F7FD"; stroke: "#2B6CB0"; font-color: "#1A365D"; border-radius: 18; stroke-width: 2; bold: true; font-size: 30}}
+  chip_bcm: {style: {fill: "#F6F1FD"; stroke: "#6B46C1"; font-color: "#3C1F7A"; border-radius: 18; stroke-width: 2; bold: true; font-size: 30}}
+  chip_wm: {style: {fill: "#F0F8F3"; stroke: "#2F855A"; font-color: "#1C4532"; border-radius: 18; stroke-width: 2; bold: true; font-size: 30}}
+  chip_mem: {style: {fill: "#F5F6F8"; stroke: "#4A5568"; font-color: "#1A202C"; border-radius: 18; stroke-width: 2; bold: true; font-size: 30}}
+
+  # ---- blocks ----------------------------------------------------------------
+  pp: {style: {fill: "#FFFFFF"; stroke: "#2B6CB0"; font-color: "#1A365D"; border-radius: 8; stroke-width: 2; font-size: 26}}
+  bcm: {style: {fill: "#FFFFFF"; stroke: "#6B46C1"; font-color: "#3C1F7A"; border-radius: 8; stroke-width: 2; font-size: 26}}
+  wm: {style: {fill: "#FFFFFF"; stroke: "#2F855A"; font-color: "#1C4532"; border-radius: 8; stroke-width: 2; font-size: 26}}
+  mem: {style: {fill: "#FFFFFF"; stroke: "#4A5568"; font-color: "#1A202C"; border-radius: 8; stroke-width: 2; font-size: 26; bold: true}}
+  # the outside world: things you can touch or plug in
+  out: {style: {fill: "#FFF8EC"; stroke: "#9C6B1E"; font-color: "#5F370E"; border-radius: 24; stroke-width: 3; font-size: 26; bold: true}}
+  # not fitted to this unit (kept for the stock 5.5G)
+  absent: {style: {fill: "#FAFAFA"; stroke: "#A0AEC0"; stroke-dash: 5; font-color: "#718096"; italic: true; border-radius: 24; stroke-width: 2; font-size: 22}}
+
+  # ---- edges: colour = status ---------------------------------------------
+  e_si: {style: {stroke: "#276749"; stroke-width: 4; font-size: 24; font-color: "#1C4532"}}
+  e_dead: {style: {stroke: "#C53030"; stroke-width: 4; stroke-dash: 8; font-size: 24; font-color: "#9B2C2C"; bold: true}}
+  e_apple: {style: {stroke: "#805AD5"; stroke-width: 3; stroke-dash: 6; font-size: 24; font-color: "#553C9A"; italic: true}}
+  e_unk: {style: {stroke: "#718096"; stroke-width: 3; stroke-dash: 2; font-size: 24; font-color: "#4A5568"; italic: true}}
+  e_clk: {style: {stroke: "#2F855A"; stroke-width: 4; stroke-dash: 1; font-size: 24; font-color: "#1C4532"}}
+  e_absent: {style: {stroke: "#A0AEC0"; stroke-width: 3; stroke-dash: 5; font-size: 24; font-color: "#718096"; italic: true}}
+
+  # ---- page furniture -------------------------------------------------------
+  title: {shape: text; style: {font-size: 40; bold: true; font-color: "#1A202C"}}
+  foot: {shape: text; style: {font-size: 20; font-color: "#4A5568"}}
+  note: {shape: text; style: {font-size: 24; font-color: "#4A5568"; italic: true}}
+}

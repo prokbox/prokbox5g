@@ -1,0 +1,37 @@
+# P12 W4-1 (docs/design/sdk.md 13.1): Extras > Games lists Solitaire (and,
+# in this developer sim, the SDK's test game); SELECT starts a fresh deal
+# (draw three by default, Q-SDK-3): the stock and waste top left, four
+# empty foundations top right, seven tableau piles of 1..7 cards with the
+# top one face up, the cursor's blue frame on the stock. The wheel moves
+# the cursor along the shelves (clockwise right; past the top shelf's
+# right end onto the tableau's left end); SELECT on the stock turns
+# three cards.
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-solitaire-start.script
+# needs: modules
+# reset: mainmenu
+
+wait 4000
+sdk_clear            # a fresh deal (the simulator deals from a fixed seed)
+wheel +2             # Extras
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Games
+wait 600
+key SELECT
+wait 1200
+shot games
+wheel +5             # Solitaire
+wait 600
+key SELECT
+wait 1500
+shot deal
+key SELECT           # draw three from the stock
+wait 600
+shot drawn
+wheel +1 300         # the waste
+wait 400
+wheel +11 600        # along the top shelf, then the tableau to its last pile
+wait 600
+shot cursor
+quit

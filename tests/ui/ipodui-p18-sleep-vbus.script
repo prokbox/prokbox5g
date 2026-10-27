@@ -1,0 +1,39 @@
+# Phase 18 (§8; Q2): plugging USB wakes to the USB screen, also with
+# Hold on (Rev 4 N8); a charger wakes too.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p18-sleep-vbus.script
+# golden: skip
+# fulls-extra: 2          (two wakes push the left screen in full)
+# log: sleep wake why=2 s=0 polls=0 spurious=0 resyncs=0 buttons=0 holds=0
+# log: sleep wake why=2 s=0 polls=0 spurious=0 resyncs=0 buttons=0 holds=1
+# log: usb enter
+# logbetween: hold_on end usb enter
+
+sleep_mode soft       # soft sleep is off by default (developer switch)
+wait 4000
+hold PLAY 1500          # the hold: dark at once, PLAY's release awaited
+expect_sleep asleep 8000
+usb_connect
+expect_sleep vbus 3000
+wait 2000
+shot usb
+usb_disconnect
+wait 3000
+hold PLAY 1500          # the hold: dark at once, PLAY's release awaited
+expect_sleep asleep 8000
+hold_switch on
+ab_mark hold_on
+usb_connect             # N8: VBUS wakes under Hold
+expect_sleep vbus 3000
+wait 2000
+usb_disconnect
+wait 2000
+hold_switch off
+wait 1000
+hold PLAY 1500          # the hold: dark at once, PLAY's release awaited
+expect_sleep asleep 8000
+charger on
+expect_sleep vbus 3000
+wait 2000
+shot charger
+charger off
+quit

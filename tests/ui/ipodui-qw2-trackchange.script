@@ -1,0 +1,50 @@
+# Phase 11 QW2 (Q, docs/phase11-brief.md §3.9): a track change reads the
+# pre-composed bundle in one read() and blits it (trace "np art
+# src=bundle reads=1"), pixel-identical to the runtime render it replaces
+# (ipodui-p5-art-fit's goldens are unchanged). With the disk asleep (the
+# sim's default: disk_active models it) the placeholder shows first and
+# the read is the next pass ("np art src=ph-note" then "src=bundle");
+# with the disk awake the read comes first and no placeholder shows.
+# "ph" is the frame right after the key: it may already show the art
+# (the sim's read takes ~0 ms), so it is review-only.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-qw2-trackchange.script
+# needs: library
+# needs: np
+# golden: skip ph
+# timeout: 150
+
+wait 1000
+wait_db 30000
+sim_clock 15:08
+clock_format 24      # P11: the default is 12-hour; this golden shows 24
+repeat off
+mkdir /NPArt
+copy ../../build/np-fixtures/art_169.mp3 /NPArt/art_169.mp3
+copy ../../build/np-fixtures/art_23.mp3 /NPArt/art_23.mp3
+update_db_wait_change 60000
+art_wait 120000
+play_files /NPArt/art_23.mp3 /NPArt/art_169.mp3 /NPArt/art_23.mp3
+wait 1000
+np_pin 3000 50
+key SELECT          # Music (the menu re-reads "Now Playing" after a push/pop)
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 1200
+shot first
+key NEXT            # disk asleep: placeholder, then the read
+shot ph
+wait 1500
+shot asleep
+disk_active 20000
+key NEXT            # disk awake: the read first, no placeholder
+wait 1500
+shot awake
+audio_stop
+rm_file /NPArt/art_169.mp3
+rm_file /NPArt/art_23.mp3
+update_db_wait_change 60000
+quit

@@ -1,0 +1,37 @@
+# #106: the module stand-in and its swap. In a modules build
+# (-DIPODUI_WITH_MODULES, e.g. build/sim-ui-mod) mod_delay holds the
+# Settings module back: Date & Time first shows its stand-in (title, split
+# header, empty list), then the real screen takes over and the whole screen
+# (header, list, panel) is redrawn: "swapped" must match "direct", the
+# same screen opened with the module already in. Then the error page with
+# loads failing. In the default resident build mod_delay is ignored and
+# every shot is the real screen.
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p16-modswap.script
+# needs: library
+# golden: skip standin
+# golden: skip swapped
+# golden: skip direct
+# golden: skip error
+
+sim_clock 15:08
+wait 4000
+mod_delay 3000
+wheel +3             # Settings (warms the module: it lands in 3 s)
+wait 400
+key SELECT
+wait 600
+wheel +12            # Date & Time
+wait 400
+key SELECT
+wait 1000
+shot standin         # the stand-in: "Date & Time", split header, no rows
+wait 3000
+shot swapped         # the real screen after the swap
+key MENU
+wait 1200
+key SELECT           # again, the module now in: straight to the screen
+wait 1500
+shot direct
+key MENU
+wait 1200
+quit

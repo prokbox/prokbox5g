@@ -1,0 +1,18 @@
+# P12 W1-A1 (Q5): the wheel moves the selection to Dismiss and SELECT
+# acts at its release; the ring screen pops. (PLAY at release:
+# -alarm-ring-awake; MENU: -alarm-dismiss; hold PLAY: -alarm-darkwait.)
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p12-alarm-keys.script
+# golden: skip
+# env: IPODUI_SIM_ALARM_IN=12
+# Trace: alarm ring i=0, alarm dismiss how=1
+# alarm-rings: 1
+# log: ipodui: alarm dismiss how=1
+# reset: mainmenu
+wait 16000
+wheel +2 300
+wait 500
+shot on-dismiss
+key SELECT
+wait 1500
+shot dismissed
+quit

@@ -1,0 +1,12 @@
+# The floor gate's settle boot (tests/perf/floor_gate.sh): a 50k disk
+# whose tag files predate the current grouping rules (no
+# .rockbox/database_order.dat, or an older UI_GROUPING_VERSION) is
+# re-sorted once at its next boot (#47, tagcache.c ui_resort_owed()).
+# That one-time upgrade commit is not a floor worst case: the gate lets
+# it run and publish here, stopped, on the clone the measured scripts
+# then start from (tests/perf/resort_once_check.sh covers the re-sort).
+# golden: skip
+wait 4000
+wait_db 300000
+wait 15000          # the empty commit's publication writes the marker
+quit

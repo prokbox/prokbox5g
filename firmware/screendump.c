@@ -100,9 +100,21 @@ static void (*screen_dump_hook)(int fh) = NULL;
 
 void screen_dump(void)
 {
-    int fd, y;
     char filename[MAX_PATH];
 
+#if CONFIG_RTC
+    create_datetime_filename(filename, HOME_DIR, "dump ", ".bmp", false);
+#else
+    create_numbered_filename(filename, HOME_DIR, "dump_", ".bmp", 4
+                             IF_CNFN_NUM_(, NULL));
+#endif
+
+    screen_dump_to(filename);
+}
+
+bool screen_dump_to(const char *filename)
+{
+    int fd, y;
     fb_data *src;
 #if LCD_DEPTH == 1
     unsigned mask;
@@ -122,16 +134,9 @@ void screen_dump(void)
     unsigned char linebuf[DUMP_BMP_LINESIZE * 3];
 #endif
 
-#if CONFIG_RTC
-    create_datetime_filename(filename, HOME_DIR, "dump ", ".bmp", false);
-#else
-    create_numbered_filename(filename, HOME_DIR, "dump_", ".bmp", 4
-                             IF_CNFN_NUM_(, NULL));
-#endif
-
     fd = creat(filename, 0666);
     if (fd < 0)
-        return;
+        return false;
 
     if (screen_dump_hook)
     {
@@ -142,7 +147,7 @@ void screen_dump(void)
         if(write(fd, bmpheader, sizeof(bmpheader)) != sizeof(bmpheader))
         {
             close(fd);
-            return;
+            return false;
         }
 
         /* BMP image goes bottom up */
@@ -249,11 +254,12 @@ void screen_dump(void)
             if(write(fd, linebuf, DUMP_BMP_LINESIZE) != DUMP_BMP_LINESIZE)
             {
                 close(fd);
-                return;
+                return false;
             }
         }
     }
     close(fd);
+    return true;
 }
 
 void screen_dump_set_hook(void (*hook)(int fh))

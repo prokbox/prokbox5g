@@ -1,0 +1,46 @@
+# Phase 5 (D10): non-square covers keep their aspect in Now Playing: 16:9
+# (bundle 142x80), 2:3 (95x142), 4:1 (142x36), slanted in the same
+# perspective, centred in the art box, the reflection under the real bottom
+# edge. The three albums are copied in at run time, scanned, built, and
+# removed again at the end.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p5-art-fit.script
+# needs: library
+# needs: np
+# golden: skip wide
+# timeout: 150
+
+wait 1000
+wait_db 30000
+sim_clock 15:08
+clock_format 24      # P11: the default is 12-hour; this golden shows 24
+repeat off
+mkdir /NPArt
+copy ../../build/np-fixtures/art_169.mp3 /NPArt/art_169.mp3
+copy ../../build/np-fixtures/art_23.mp3 /NPArt/art_23.mp3
+copy ../../build/np-fixtures/art_41.mp3 /NPArt/art_41.mp3
+update_db_wait_change 60000
+art_wait 120000
+play_files /NPArt/art_169.mp3 /NPArt/art_23.mp3 /NPArt/art_41.mp3
+wait 1000
+np_pin 3000 50
+key SELECT          # Music (the menu re-reads "Now Playing" after a push/pop)
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 1200
+shot wide
+key NEXT
+wait 1500
+shot tall
+key NEXT
+wait 1500
+shot banner
+audio_stop
+rm_file /NPArt/art_169.mp3
+rm_file /NPArt/art_23.mp3
+rm_file /NPArt/art_41.mp3
+update_db_wait_change 60000
+quit

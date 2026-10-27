@@ -1,0 +1,117 @@
+# npfix (owner device report, 2026-10-23, log run-1137): the Now Playing
+# elapsed time "keeps skipping a few seconds here and there" while the
+# audio is fine. Three causes, one case each, with Now Playing lit:
+#  C. a shuffle refill wanted while a buffering fill has the disk
+#     ("shuf_refill_force" right after Shuffle Songs starts): it runs in
+#     chunks of at most 5 entries, one per UI pass, after the fill;
+#  A. the drive powered off, then NEXT: the new track's cover comes from
+#     the art thread's copy (read ahead at a fill's end, or on request),
+#     never from a UI-thread read that powers the drive up (the power-up
+#     wait is stretched to 600 ms here, "stor_pwrup", the device's
+#     450-590 ms; "stor_watch_ui" traces any UI-thread file call);
+#  B. an art pass caught by the user coming back mid-decode (the decode
+#     made slow with "art_decode_spin", a busy wait at each decoder yield
+#     point, standing in for the ARM's decode cost): the builder parks at
+#     its next yield point ("art park"), no slice over 100 ms while lit.
+# Trace rules (`# trace: npstall`, check_trace.py check_npstall()): the
+# "np secdt" steps of one track are +1, no "np jump", no "art slice ...
+# lit=1", no "sim io ui" line, every "shuf: chunk +n" has n <= 5.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-np-stall.script
+# needs: library
+# needs: np
+# trace: npstall
+# log: shuf: chunk +
+# log: art npf take
+# log: art park ms=
+# log: stor_watch_ui on
+# nolog: splash-pass
+# nolog: pcm underrun
+# nolog: unavailable
+# fulls-extra: 6   (the main menu's Now Playing row at each play and stop; the wakes)
+# golden: skip c_shuffle a_next b_lit
+# timeout: 300
+
+wait 3000
+wait_db 30000
+art_wait 120000
+charger off
+repeat off
+sim_clock 15:08
+
+# --- C: a shuffle refill during a buffering fill ------------------------
+wheel +4                # "Shuffle Songs"
+wait 500
+key SELECT              # plays; Now Playing is pushed; the fill runs
+wait 300
+shuf_refill_force       # a refill wanted now, the disk busy filling
+wait 6000
+shot c_shuffle
+expect_playing 300
+audio_stop
+wait 1500               # Now Playing pops itself: the main menu
+
+# --- A: the drive off, then NEXT ---------------------------------------
+mkdir /NPStall
+copy ../../build/np-fixtures/art_23.mp3 /NPStall/a.mp3
+copy ../../build/np-fixtures/art_169.mp3 /NPStall/b.mp3
+copy ../../build/np-fixtures/lyr23.mp3 /NPStall/c.mp3
+update_db_wait_change 60000
+art_wait 120000
+stor_tune 2000 1000     # hold 2 s, min off 1 s
+stor_pwrup 600          # the device's power-up, a little over
+play_files /NPStall/a.mp3 /NPStall/b.mp3 /NPStall/c.mp3
+wait 1000
+wheel -10               # the top
+wait 300
+key SELECT              # Music
+wait 300
+key MENU                # back: the main menu gains its Now Playing row
+wait 400
+wheel +10               # "Now Playing"
+wait 300
+key SELECT
+wait 1000
+backlight_expire        # the face (dark): the drive's hold runs out
+stor_expect off 15000   # the fill done, the hold run out: the drive off
+key MENU                # wakes Now Playing (the key is swallowed)
+wait 700
+stor_status
+stor_watch_ui on
+key NEXT                # track 2: its cover from the look-ahead copy
+wait 2500
+shot a_next
+key NEXT                # track 3: no copy yet: requested, placeholder
+wait 2500
+stor_watch_ui off
+expect_playing 300
+stor_pwrup 300
+stor_tune 10000 30000
+
+# --- B: the user back mid-decode -----------------------------------------
+repeat all
+rm_file /.rockbox/artcache/index.dat
+rm_file /.rockbox/artcache/index.prev
+rm_file /.rockbox/artcache/thumbs.pak
+art_decode_spin 10000   # 10 ms of decode between yield points
+backlight_expire        # the face: the user idle, the builder may run
+art_request             # a pass of every album, during playback
+wait 1500               # a decode under way
+key MENU                # back: the builder parks at its next yield point
+wait 8000                # parked: the clock steps on
+shot b_lit
+expect_playing 300
+art_decode_spin 0
+audio_stop
+wait 1500
+
+# --- leave the shared disk as it was --------------------------------------
+repeat off
+rm_file /NPStall/a.mp3
+rm_file /NPStall/b.mp3
+rm_file /NPStall/c.mp3
+update_db_wait_change 60000
+art_request
+art_wait 120000
+key MENU                # the face (if up) dismissed
+wait 500
+quit

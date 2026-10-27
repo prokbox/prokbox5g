@@ -1,0 +1,108 @@
+# Phase 6 (AB-2, D14): Settings > Audiobooks > Playback Speed (#59) is the 7G prompt "How fast
+# should audiobooks play?" with Slower / Normal / Faster = 0.75x / 1x / 1.25x.
+# The speed applies to books only (never to music or podcasts) and is
+# applied at codec track start: the "ab speed" trace gives the percent.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p6-speed.script
+# needs: library
+# needs: ab
+# timeout: 120
+# trace: ab
+# ab-speed: 125 100 75 100
+# nolog: ab speed 50
+# golden: skip prompt_faster settings_caption speed_caption
+# DB state: ready. Needs B (ab_speed.c, the setting) and U (the prompt, the
+# caption). Settings rows: 0 About ... 8 Audiobooks (spec/settings.md).
+# Sequence of "ab speed N" lines: Faster+book 125, music 100, Slower+book
+# 75, Normal+book 100 (check_trace.py's ab-speed rule, in order).
+
+wait 4000
+wait_db 45000
+mkdir /Audiobooks/AB
+copy ../../build/ab-fixtures/pref.m4b /Audiobooks/AB/pref.m4b
+update_db_wait_change 60000
+art_wait 60000
+
+# --- Faster -------------------------------------------------------------
+wheel +3 300        # Settings
+wait 400
+key SELECT
+wait 900
+wheel +8 300        # Audiobooks
+wait 400
+shot settings_caption   # row caption "Set Speed and Sort Order"
+key SELECT
+wait 900
+shot speed_caption  # Playback Speed's caption: "Normal Playback"
+key SELECT          # Playback Speed (#59: Audiobooks is a submenu)
+wait 900
+shot prompt_normal  # Normal selected (blue segment)
+wheel +1 300
+wait 500
+shot prompt_faster
+key MENU
+wait 700
+play_files /Audiobooks/AB/pref.m4b
+wait 2500
+expect_playing 1500          # a book at 1.25x never underruns or stops
+audio_stop
+wait 500
+
+# --- music is unaffected ------------------------------------------------
+play_files /Music/Tone%20Collective/Sine%20Studies/02%20Low%20E.mp3
+wait 2500
+expect_playing 1500
+audio_stop
+wait 500
+
+# --- Slower --------------------------------------------------------------
+hold MENU 1000
+wait 1200
+wheel -20 300       # to the top (the menu may sit on "Now Playing")
+wait 400
+wheel +3 300
+wait 400
+key SELECT
+wait 900
+wheel +8 300
+wait 400
+key SELECT
+wait 900
+key SELECT          # Playback Speed (#59: Audiobooks is a submenu)
+wait 900
+wheel -2 300        # Slower
+wait 500
+shot prompt_slower
+key MENU
+wait 700
+play_files /Audiobooks/AB/pref.m4b
+wait 2500
+expect_playing 1500
+audio_stop
+wait 500
+
+# --- Normal again ----------------------------------------------------------
+hold MENU 1000
+wait 1200
+wheel -20 300       # to the top (the menu may sit on "Now Playing")
+wait 400
+wheel +3 300
+wait 400
+key SELECT
+wait 900
+wheel +8 300
+wait 400
+key SELECT
+wait 900
+key SELECT          # Playback Speed (#59: Audiobooks is a submenu)
+wait 900
+wheel +1 300        # Normal
+wait 500
+key MENU
+wait 700
+play_files /Audiobooks/AB/pref.m4b
+wait 2500
+expect_playing 1500
+audio_stop
+wait 500
+remove /Audiobooks/AB/pref.m4b
+quit

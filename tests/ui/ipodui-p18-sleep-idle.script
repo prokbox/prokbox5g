@@ -1,0 +1,30 @@
+# Phase 18 (§8; Q4): the idle power-off timer, while paused, enters soft
+# sleep instead of powering off; MENU wakes (swallowed), the queue still
+# paused.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p18-sleep-idle.script
+# needs: library
+# golden: skip
+# fulls-extra: 1          (the Now Playing row appears: play_files)
+# timeout: 240
+# log: sim_sleep: sleep enter
+# log: sleep wake why=1 s=0 polls=0 spurious=0 resyncs=0 buttons=0x10
+
+sleep_mode soft       # soft sleep is off by default (developer switch)
+wait 4000
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait_pos 3000 60000
+key PLAY                # pause
+wait 500                # the toggle lands (the expect does not wait)
+expect_paused 500
+idle_poweroff 1         # 1 min, the setting's least
+wait 70000              # idle and paused past the timeout
+expect_sleep asleep 20000
+key MENU                # wakes; swallowed (does not go back)
+expect_sleep button 3000
+wait 1000
+expect_paused 500
+key PLAY
+wait 500                # the toggle lands
+expect_playing 1000
+shot end                # the gate needs one shot
+quit

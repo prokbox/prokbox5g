@@ -1,0 +1,19 @@
+# Boot battery guard (review M2): a cable plugged in while the low-battery
+# image is up boots, to the charging flow, instead of powering off (the
+# PMU wakes on the charger's edge, which would already be gone, leaving
+# the unit dark on the cable). The sim boots at 3,250 mV with no charger
+# (under the 3,400 mV floor) and the charger arrives 800 ms after the
+# guard's first reading (IPODUI_SIM_CHARGER_AT_MS,
+# uisimulator/common/powermgmt-sim.c), inside the 2 s hold.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-bootbatt-plug.script
+# env: IPODUI_SIM_BATT_MV=3250
+# env: IPODUI_SIM_CHARGER_AT_MS=800
+# golden: skip
+# log: bootbatt refuse mv=3250 thr=3400
+# log: sys deadbatt drawn=1
+# log: bootbatt plugged mv=3250
+# nolog: bootbatt off
+# nolog: splash-pass
+
+wait 4000
+shot main_menu

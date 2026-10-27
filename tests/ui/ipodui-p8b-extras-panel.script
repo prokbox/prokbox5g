@@ -1,0 +1,18 @@
+# Phase 8b polish (#52, owner photo main-menu-custom-hold / photo 1189): the
+# main-menu Extras panel -- the world map on dark grey, the 3-D analog
+# clock with its numerals, the date -- at two pinned times, for the
+# side-by-side in out/review/p8b-polish/.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p8b-extras-panel.script
+
+sim_clock 15:04
+wait 4000            # boot to the main menu
+wheel +2 300         # Extras
+wait 1500
+shot extras_1504
+sim_clock 21:47
+wheel -1 300
+wait 600
+wheel +1 300
+wait 1500
+shot extras_2147
+quit

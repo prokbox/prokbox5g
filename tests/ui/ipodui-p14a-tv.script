@@ -1,0 +1,68 @@
+# Phase 14a (#64, docs/phase14a-brief.md 7 A2): Videos > TV Shows: show > seasons > episodes (tagged, folder and nameless shows)
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p14a-tv.script
+# (ipodui-p14a-* default to build/sim-ui-video; the gate runs them there)
+# needs: video
+#
+# Disk: tests/fixtures/videos/mkvideos.sh (installed by the gate's prime
+# step, or by shots.sh for a standalone run):
+#   Movies/        Audio First  High Profile  Late Chapter  Short Film
+#   TV Shows/      Show A (S1 x2, S2 x2, tagged)  Show B (S1 x2, untagged)
+#   Misc/          Show.C.S01E02.m4v  S01E03.m4v (nameless)
+#   Podcasts/Pod One/  Audio Episode.m4a  Video Episode.m4v
+#   Music/         Fixture Singer/Audio Only.mp4 (a song)
+#                  Fixture Author/Image Book.m4b (a book)
+# Main menu with Videos on (T1 default): Music, Videos, Podcasts, Extras,
+# Settings, Shuffle Songs. Videos: Movies, TV Shows, Settings.
+
+# Shows: Show A (tags: 2 seasons x 2 episodes), Show B (folder rule only,
+# one season: the Seasons level is skipped, T2), Show C (filename
+# Show.C.S01E02) and a nameless S01E03.m4v (shown as the localised unknown
+# show label, never a stored "Unknown Show").
+wait 4000
+wait_db 45000
+art_wait 60000
+wheel +1 300
+wait 600
+key SELECT
+wait 900
+wheel +1 300        # TV Shows (row 1)
+wait 500
+key SELECT
+wait 1200
+shot shows          # Show A / Show B / Show C / unknown show
+key SELECT          # Show A
+wait 900
+shot seasons        # Season 1, Season 2
+key SELECT
+wait 900
+shot episodes_s1    # "1. Pilot" with poster, "2. Episode 1.2"
+key MENU
+wait 600
+wheel +1 300
+wait 400
+key SELECT
+wait 900
+shot episodes_s2
+key MENU
+wait 600
+key MENU
+wait 600
+wheel +1 300        # Show B
+wait 400
+key SELECT
+wait 900
+shot show_b_episodes  # Seasons skipped: straight to the 2 untagged episodes
+key MENU
+wait 600
+wheel +1 300        # Show C
+wait 400
+key SELECT
+wait 900
+shot show_c_episode
+key MENU
+wait 600
+wheel +1 300        # nameless show
+wait 400
+key SELECT
+wait 900
+shot nameless_episode

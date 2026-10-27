@@ -1,0 +1,41 @@
+# #58 (owner, device): the USB screen's arrows spun almost all the time a
+# Mac had the disk mounted, from its background reads. Now they show only
+# for a sustained transfer (usbscreen.h, UI_USB_IO_MIN busy slots of
+# UI_USB_IO_WINDOW): short reads a second apart (here 50 ms "disk_active"
+# blips, the sim's model of a host reading) keep the idle glyph, which
+# is pixel-identical to the idle screen before them (# same); a 4 s
+# burst then spins them (usb:frame lines, check_trace.py p8a-usb), and
+# they stop 0.5 s after it.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-fb-usb-bg.script
+# needs: library
+# trace: usb
+# same: idle bg_reads
+# nolog: splash-pass
+# golden: skip burst
+
+clock_format 24
+sim_clock 15:08     # the USB header shows the clock: pinned
+wait 4000           # boot to the main menu
+usb_glyph usbc
+usb_connect
+wait 1500
+shot idle
+disk_active 50      # background reads: one short read a second
+wait 1000
+disk_active 50
+wait 1000
+disk_active 80
+wait 700
+disk_active 50
+wait 1100
+disk_active 50
+wait 900
+shot bg_reads       # still the idle glyph
+disk_active 4000    # a copy
+wait 2500
+shot burst          # the arrows
+wait 2500           # stopped 0.5 s after the burst
+shot after_burst
+usb_disconnect
+wait 1500
+quit

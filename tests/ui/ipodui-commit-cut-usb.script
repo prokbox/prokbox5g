@@ -1,0 +1,58 @@
+# Budget review H2/M1 (usbfix): USB during a tagcache commit. Before the
+# in-place phase (point 0: nothing changed yet) the commit gives way to
+# USB at once and runs again after it from the same temp file. Inside it
+# (point 2: the first tag file already rewritten), with library
+# generations (#85, cache-persist) the commit writes an unreferenced
+# candidate: USB cuts it at once too (no wait while the host waits), the
+# candidate is dropped at the connect and built again from the active
+# library after USB; the active library never changed. (On usbfix, without
+# generations, it finished before the acknowledgement instead.) Either way
+# the database ends with exactly one more entry per added file.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-commit-cut-usb.script
+# needs: library
+# golden: skip done
+# timeout: 150
+# log: tagcache: commit held at 0
+# log: tagcache: commit deferred for USB
+# log: tagcache: commit held at 2
+# log: tagcache: commit cut in place
+# log: db candidate drop rc=-2
+
+wait 4000
+wait_db 30000
+remove /Music/CommitCut/a.mp3
+remove /Music/CommitCut/b.mp3
+remove /Music/CommitCut/c.mp3
+rebuild_db 60000    # a compact database: the counts below are exact
+mkdir /Music/CommitCut
+
+db_count_mark
+commit_hold 0
+copy fixtures/refresh.mp3 /Music/CommitCut/a.mp3
+update_db
+commit_hold_wait 30000
+usb_connect
+wait 1000
+commit_release
+wait 1500           # deferred: the tagcache thread acknowledges USB
+usb_disconnect
+expect_db_count 1 60000
+
+db_count_mark
+commit_hold 2
+copy fixtures/refresh.mp3 /Music/CommitCut/b.mp3
+update_db
+commit_hold_wait 30000
+usb_connect
+wait 1000
+commit_release
+wait 1500           # cut; the candidate dropped, USB acknowledged
+usb_disconnect
+expect_db_count 1 60000
+
+shot done
+remove /Music/CommitCut/a.mp3
+remove /Music/CommitCut/b.mp3
+update_db_wait_change 30000   # leave the disk as it was
+
+quit

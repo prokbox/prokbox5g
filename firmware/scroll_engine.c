@@ -27,6 +27,7 @@
 #include "gcc_extensions.h"
 #include "cpu.h"
 #include "kernel.h"
+#include "xcore.h"      /* ProkBox P19 S0: XCORE_BSS */
 #include "thread.h"
 #include "usb.h"
 #include "lcd.h"
@@ -178,10 +179,27 @@ static void scroll_thread(void)
     }
 }
 #else /* !HAVE_REMOTE_LCD */
+#ifdef HAVE_IPOD_UI
+/* P18 18-A (K1): the shell scrolls its own text; only the developer mode's
+ * stock lists use this engine.  With no scrolling line the thread blocks
+ * (a line is added only by lcd-bitmap-common.c, which kicks it) instead of
+ * waking every scroll step (7.6 Hz) to find nothing. */
+static struct semaphore scroll_kick_sem XCORE_BSS;    /* P19 S0: either core */
+void scroll_thread_kick(void)
+{
+    semaphore_release(&scroll_kick_sem);
+}
+#endif
+
 static void scroll_thread(void)
 {
     while (1)
     {
+#ifdef HAVE_IPOD_UI
+        if (lcd_scroll_info.lines == 0)
+            semaphore_wait(&scroll_kick_sem, TIMEOUT_BLOCK);
+        else
+#endif
         sleep(lcd_scroll_info.ticks);
 #if defined(HAVE_LCD_ENABLE) || defined(HAVE_LCD_SLEEP)
         if (lcd_active())
@@ -194,6 +212,9 @@ static void scroll_thread(void)
 void scroll_init(void)
 {
     static long scroll_stack[(DEFAULT_STACK_SIZE*3)/sizeof(long)];
+#if defined(HAVE_IPOD_UI) && !defined(HAVE_REMOTE_LCD)
+    semaphore_init(&scroll_kick_sem, 1, 0);
+#endif
 #ifdef HAVE_REMOTE_LCD
     queue_init(&scroll_queue, true);
 #endif

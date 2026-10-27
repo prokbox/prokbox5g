@@ -1,0 +1,50 @@
+# #114: a skip to a track that is not in the buffer while the adapter is
+# powered off: the read powers it up transparently (300 ms in the sim) and
+# the next track plays, no underrun, no splash.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p18-stor-skip.script
+# needs: music
+# needs: np
+# golden: skip
+# fulls-extra: 3   (the Now Playing row with each play_files; the lit MENU)
+# timeout: 150
+# log: stor pwr on ms=
+# log: reason=access
+# nolog: pcm underrun
+# nolog: splash-pass
+
+wait 3000
+mkdir /StorPwr
+copy ../../build/np-fixtures/nolen.flac /StorPwr/a.flac
+copy ../../build/np-fixtures/nolen.flac /StorPwr/b.flac
+copy ../../build/np-fixtures/nolen.flac /StorPwr/c.flac
+play_files /StorPwr/a.flac
+wait 1500
+audio_stop
+wait 500
+stor_buffer 150000      # holds one track: the next ones are not buffered
+stor_tune 2000 1000
+dark on                 # no setting changed: nothing persists
+play_files /StorPwr/a.flac /StorPwr/b.flac /StorPwr/c.flac
+wait 2000
+stor_expect off 15000
+stor_mark
+key MENU                # lights the screen (the dark eats a first key)
+wait 500
+key RIGHT               # NEXT
+wait 1500
+key RIGHT               # and again: the third track, never buffered
+wait_index 3 10000
+wait 3000
+expect_playing 500
+stor_expect_cycles_ge 1
+stor_status
+key MENU                # lit again for the end
+wait 1000
+shot playing
+stor_buffer 0
+audio_stop
+wait 500
+rm_file /StorPwr/a.flac
+rm_file /StorPwr/b.flac
+rm_file /StorPwr/c.flac
+quit

@@ -1,0 +1,23 @@
+# #126: the charger's face by default is the Clock (Settings > While
+# Charging: Clock), music playing in Now Playing: the unlit face as before.
+# log: unlit enter
+# nolog: np viz face
+# nolog: viz start
+# reset: viz
+wait 3000
+charger on
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait 1500
+key SELECT          # Music
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 1500
+backlight_expire
+wait 1500
+shot clock_face
+key MENU            # wake: the face goes
+wait 1200

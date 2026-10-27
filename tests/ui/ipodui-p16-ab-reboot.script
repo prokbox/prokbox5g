@@ -1,0 +1,57 @@
+# #91 (docs/phase16-brief.md 4.3): the audiobook store (books.dat) is
+# rewritten with the safe replace (ab_store.c rewrite()). A book played to
+# a spot, a reboot: Resume plays from that spot, and neither the temp nor
+# the set-aside copy is left.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-ab-reboot.script
+# needs: library
+# needs: ab
+# timeout: 150
+# golden: skip
+# log: rm_file /.rockbox/artcache/books.tmp: not removed
+# log: rm_file /.rockbox/artcache/books.old: not removed
+
+wait 4000
+wait_db 45000
+mkdir /Audiobooks/AB
+copy ../../build/ab-fixtures/nochap.m4b /Audiobooks/AB/nochap.m4b
+update_db_wait_change 60000
+key SELECT          # Music
+wait 800
+wheel +6 300        # "Audiobooks"
+wait 400
+key SELECT
+wait 800
+wheel +1 300        # "AB No Chapters" (A Field Guide above it)
+wait 400
+key SELECT          # its page
+wait 1000
+key SELECT          # its one entry
+wait_pos 6500 60000 nochap.m4b
+key PLAY            # pause: the spot goes to books.dat
+wait 800
+audio_stop
+wait 1500
+expect_ab_store ge1 -1 3000
+reboot
+
+wait 4000
+wait_db 45000
+expect_ab_store ge1 -1 3000
+key SELECT          # Music
+wait 800
+wheel +6 300        # "Audiobooks"
+wait 400
+key SELECT
+wait 800            # the last-played book is pinned on top (#67)
+key SELECT          # its page
+wait 1000
+shot page_resume    # Resume first
+key SELECT          # Resume
+wait 2500
+expect_pos 5500 16000
+audio_stop
+wait 500
+rm_file /.rockbox/artcache/books.tmp
+rm_file /.rockbox/artcache/books.old
+remove /Audiobooks/AB/nochap.m4b
+quit

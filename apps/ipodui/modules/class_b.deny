@@ -1,0 +1,11 @@
+# Class B shell modules may not reference these core symbols
+# (docs/phase12-brief.md 2.3 item 1): Class B may borrow (mod_borrow) and
+# use P19's job API, never stop playback or walk directories. One glob
+# per line, as class_a.deny. Class C has no deny list: its handover
+# (mod_session_enter) is the only way in.
+create_thread
+tick_add_task
+timeout_register
+audio_stop
+opendir
+readdir

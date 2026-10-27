@@ -48,6 +48,9 @@
 #ifdef HAVE_MIKEY_REMOTE
 #include "mikey-target.h"    /* inline earphone remote */
 #endif
+#ifdef HAVE_POWER_SLEEP
+#include "power_sleep.h"
+#endif
 
 #define WHEEL_FAST_OFF_TIMEOUT   250000 /* timeout for acceleration = 250ms */
 #define WHEEL_REPEAT_TIMEOUT     250000 /* timeout for button repeat = 250ms */
@@ -81,6 +84,30 @@ unsigned int  accumulated_wheel_delta = 0;
 static unsigned int  wheel_repeat            = 0;
 unsigned int  wheel_velocity          = 0;
 static unsigned long last_wheel_usec         = 0;
+#ifdef HAVE_IPOD_UI
+static volatile unsigned int wheel_touches   = 0;
+
+unsigned int button_wheel_touches(void)
+{
+    return wheel_touches;
+}
+#ifdef HAVE_DEVSTATS
+/* np-lag probe: USEC_TIMER at the last wheel event posted; the I2C
+ * interrupt (CPU) writes it, the UI thread reads it, perhaps on the COP
+ * (P19 19-9): uncached */
+#include "xcore.h"
+static volatile unsigned long wheel_post_usec XCORE_BSS;
+
+unsigned long button_wheel_post_usec(void)
+{
+    return wheel_post_usec;
+}
+#define WHEEL_POSTED(us)    (wheel_post_usec = (us))
+#endif
+#endif
+#ifndef WHEEL_POSTED
+#define WHEEL_POSTED(us)    ((void)0)
+#endif
 
 /* Variable to use for setting button status in interrupt handler */
 static int int_btn = BUTTON_NONE;
@@ -104,6 +131,23 @@ static void opto_i2c_init(void)
 
     outl(0xc00a1f00, 0x7000c100);
     outl(0x01000000, 0x7000c104);
+}
+#endif
+
+#ifdef HAVE_POWER_SLEEP
+/* ProkBox Phase 18-1: button_read_device()'s Hold tracking at file scope,
+ * so a soft sleep (which handles Hold itself while the tick is stopped)
+ * can hand it back in step with the switch */
+static bool hold_button = false;
+/* buttons held into the sleep: masked from the driver's first read after
+ * it, so their release reaches button.c before a re-press */
+static int sleep_release_once = BUTTON_NONE;
+
+/* The full bring-up, for power_sleep() at a Hold-off edge (IRQs off;
+ * udelay() is USEC_TIMER-based) */
+void clickwheel_sleep_opto_init(void)
+{
+    opto_i2c_init();
 }
 #endif
 
@@ -242,6 +286,7 @@ static inline int ipod_4g_button_read(void)
                                        (accumulated_wheel_delta << 16) | new_wheel_value);
 #endif
                             accumulated_wheel_delta = 0;
+                            WHEEL_POSTED(usec);
                         }
                         last_wheel_usec = usec;
                         old_wheel_value = new_wheel_value;
@@ -252,6 +297,9 @@ static inline int ipod_4g_button_read(void)
                     /* scrollwheel was touched for the first time after finger lifting */
                     old_wheel_value = new_wheel_value;
                     wheel_is_touched = true;
+#ifdef HAVE_IPOD_UI
+                    wheel_touches++;
+#endif
                 }
             }
             else
@@ -435,12 +483,68 @@ bool headphones_inserted(void)
 }
 #endif
 
+#ifdef HAVE_POWER_SLEEP
+/* ProkBox Phase 18-1: the driver's state after a soft sleep, which read
+ * the packets itself with IRQs off. The absolute wheel position is
+ * forgotten, so the first touch after the wake is a fresh touch, not a
+ * jump from where the finger was hours ago (a phantom scroll); the
+ * buttons are what the last packet said (the shell swallows a waking
+ * press up to its release); the Hold tracking matches the switch, so the
+ * next tick neither reruns opto_i2c_init() (its DEV_RS reset could drop
+ * the next press's packet) nor misses a change. power_sleep() leaves
+ * DEV_OPTO as the switch says. light = false for a wake that must stay
+ * dark. */
+static int wheel_to_buttons(unsigned int w)
+{
+    int btn = BUTTON_NONE;
+
+    if (w & 0x01)
+        btn |= BUTTON_SELECT;
+    if (w & 0x02)
+        btn |= BUTTON_RIGHT;
+    if (w & 0x04)
+        btn |= BUTTON_LEFT;
+    if (w & 0x08)
+        btn |= BUTTON_PLAY;
+    if (w & 0x10)
+        btn |= BUTTON_MENU;
+    return btn;
+}
+
+void clickwheel_sleep_exit(unsigned int wheel_buttons,
+                           unsigned int entry_buttons, bool light)
+{
+    int btn = wheel_to_buttons(wheel_buttons);
+    bool hold = button_hold();
+
+    int_btn = hold ? BUTTON_NONE : btn;
+    sleep_release_once = btn & ~wheel_to_buttons(
+        sleep_exit_first_buttons(entry_buttons, wheel_buttons));
+    wheel_is_touched = false;
+#ifdef HAVE_WHEEL_POSITION
+    wheel_position = -1;
+#endif
+    if (hold != hold_button)
+    {
+        hold_button = hold;
+        if (light)
+            backlight_hold_changed(hold);
+        else    /* a wake that stays dark (the deep tier's power-off, a
+                 * BCM cut): the shell hears of it, the backlight does not
+                 * light (backlight_hold_changed() would post BACKLIGHT_ON) */
+            button_queue_post(SYS_IPODUI_HOLD_CHANGED, hold ? 1 : 0);
+    }
+}
+#endif
+
 /*
  * Get button pressed from hardware
  */
 int button_read_device(void)
 {
+#ifndef HAVE_POWER_SLEEP
     static bool hold_button = false;
+#endif
     bool hold_button_old;
 
     /* normal buttons */
@@ -486,6 +590,13 @@ int button_read_device(void)
 
     /* The int_btn variable is set in the button interrupt handler */
     int btn = int_btn;
+#ifdef HAVE_POWER_SLEEP
+    if (sleep_release_once)
+    {
+        btn &= ~sleep_release_once;     /* one tick: the entry's release */
+        sleep_release_once = BUTTON_NONE;
+    }
+#endif
 #ifdef IPOD_ACCESSORY_PROTOCOL
     btn |= remote_control_rx();
 #endif

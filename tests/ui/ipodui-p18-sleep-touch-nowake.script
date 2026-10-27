@@ -1,0 +1,19 @@
+# Phase 18 (§8; Rev 3 H1): a wheel touch and turns while asleep do not
+# wake (1 touch + 8 turn packets = 9 spurious); SELECT does.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p18-sleep-touch-nowake.script
+# golden: skip
+# log: sleep wake why=1 s=0 polls=0 spurious=9 resyncs=0 buttons=0x1
+
+sleep_mode soft       # soft sleep is off by default (developer switch)
+wait 4000
+hold PLAY 1500          # the hold: dark at once, PLAY's release awaited
+expect_sleep asleep 8000
+wheel_touch
+wheel 4
+wheel -4
+expect_sleep asleep 100
+key SELECT
+expect_sleep button 3000
+wait 1000
+shot woken              # the gate needs one shot
+quit

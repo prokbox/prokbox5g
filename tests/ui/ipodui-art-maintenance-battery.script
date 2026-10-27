@@ -1,0 +1,28 @@
+# Budget review M2 (usbfix): Build Artwork on a low battery waits on its
+# page ("Charge to continue"), unboosted. That wait has no end the user
+# can sit out, so MENU leaves the page (the main menu comes back); the
+# job goes on by itself once the battery allows and finishes.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-art-maintenance-battery.script
+# needs: library
+# golden: skip waiting left
+# timeout: 240
+# log: art build wait battery
+
+wait 1000
+wait_db 30000
+art_wait 120000
+rm_file /.rockbox/artcache/panels.pak
+battery 10
+hold SELECT 1500    # the Music row's hold menu
+wait 300
+wheel +1 200        # "Build Artwork"
+key SELECT
+wait 2000
+shot waiting        # "Charge to continue"
+key MENU
+wait 1000
+shot left           # the main menu again; the job still waits
+battery 100
+art_wait 120000
+wait 500
+quit

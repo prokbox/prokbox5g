@@ -1,0 +1,44 @@
+# Phase 18 (§8; Rev 3 M2): a key during the sleep-entry window returns
+# SQ_WOKEN: lit at once, the job stopped at its safe point (cut, still
+# owed), the key swallowed (the same screen), the boost balanced
+# ("sleep boost=0" before any later sleep).
+# 3.20 (owner, 2026-10-25): the busy glyph follows lit work only; the
+# wake restarts its 1 s count, and the held commit, released right after
+# the wake, ends inside it: no glyph, so "lit" matches "before".
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p18-sleep-entry-key.script
+# needs: library
+# golden: skip
+# timeout: 300
+# log: sleep job=commit cut
+# logrange: 0 100 sleep lit ms=(\d+)
+# logbetween: k0 end no sim_sleep: sleep enter
+# same: before lit
+# busyglyph-ons: 0
+
+sleep_mode soft       # soft sleep is off by default (developer switch)
+wait 4000
+wait_db 45000
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait_pos 3000 60000
+key PLAY
+wait 800
+expect_paused 500
+key MENU
+wait 1500
+shot before
+commit_hold 1
+copy fixtures/refresh.mp3 /Music/refresh-fixture.mp3
+update_db
+wait 5000
+hold PLAY 1500
+commit_hold_wait 30000
+ab_mark k0
+key SELECT              # SQ_WOKEN
+wait 300
+expect_sleep awake 100
+commit_release          # work that ends under 1 s after the wake
+wait 1000
+shot lit
+wait 5000
+rm_file /Music/refresh-fixture.mp3
+quit

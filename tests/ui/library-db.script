@@ -1,0 +1,24 @@
+# Phase 4 (stock sim): the test library is indexed into the database with
+# no prompt, wait_db returns, and the stock database browser lists it.
+#   scripts/shots.sh tests/ui/library-db.script
+# shots.sh sets up the library and, when there is no database yet, runs a
+# priming boot ("build_db"); this boot commits the scan at startup.
+# needs: library
+
+wait_db 30000       # tagcache_is_usable() and no commit running
+wait 1000
+shot boot
+
+wheel +1            # "Database"
+wait 500
+key SELECT
+wait 1000
+shot database       # the stock tag browser's top level
+
+wheel +1            # "Album Artist" (this fork lists Audiobooks first)
+wait 500
+key SELECT
+wait 1500
+shot album_artists  # [All tracks], [Random], "!!!", "2Gem", "10dd", Amber Coast...
+
+quit

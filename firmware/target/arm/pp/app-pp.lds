@@ -11,6 +11,19 @@ STARTUP(target/arm/pp/crt0-pp.o)
 #define PLUGINSIZE PLUGIN_BUFFER_SIZE
 #define CODECSIZE CODEC_SIZE
 
+#ifdef HAVE_UI_THREAD_SPLIT
+/* ProkBox P19 S3: shell objects whose statics a CPU thread writes
+ * asynchronously (playback events, tick tasks, the video player's hooks)
+ * while the shell, which calls them often, may run on the COP: their
+ * .data and .bss are linked uncached (.ncdata/.ncbss).  The other shell
+ * objects with CPU callbacks are routed instead (febe_link_check.py
+ * SHELL_BE_OBJECTS) and stay cached. */
+#define FEBE_ASYNC_OBJS *np_playback.o *sdk_cold.o *devbench.o *devbcm.o
+#define FEBE_EX EXCLUDE_FILE(FEBE_ASYNC_OBJS)
+#else
+#define FEBE_EX
+#endif
+
 #define DRAMSIZE (MEMORYSIZE * 0x100000) - PLUGINSIZE - CODECSIZE
 
 #define DRAMORIG 0x00000000
@@ -41,6 +54,7 @@ SECTIONS
         *(.glue_7)
         *(.glue_7t)
         . = ALIGN(0x4);
+        _text_end = .;  /* ProkBox: panic.c's stack scan */
     } > DRAM
 
     .rodata :
@@ -54,7 +68,18 @@ SECTIONS
 
     .data :
     {
-        *(.data*)
+#ifdef HAVE_UI_THREAD_SPLIT
+        /* ProkBox P19 (docs/design/p19-ui-on-cop.md): the UI shell's cached
+         * data on whole cache lines of its own, so a line never holds both
+         * a shell static and another object's (the cores' caches are not
+         * coherent: the last eviction would win the whole line) */
+        . = ALIGN(CACHEALIGN_SIZE);
+        *apps[/]ipodui[/]*(FEBE_EX .data*)
+        *libfirmware.a:font.o(.data*)       /* the shell's drawing state */
+        *libfirmware.a:lcd-16bit.o(.data*)
+        . = ALIGN(CACHEALIGN_SIZE);
+#endif
+        *(FEBE_EX .data*)
         . = ALIGN(0x4);
     } > DRAM
 
@@ -65,6 +90,9 @@ SECTIONS
     .ncdata . + NOCACHE_BASE :
     {
         . = ALIGN(CACHEALIGN_SIZE);
+#ifdef HAVE_UI_THREAD_SPLIT
+        *apps[/]ipodui[/]*(.data*)  /* FEBE_ASYNC_OBJS: the rest went above */
+#endif
         *(.ncdata*)
         . = ALIGN(CACHEALIGN_SIZE);
     } AT> DRAM
@@ -144,8 +172,16 @@ SECTIONS
     .bss _noloaddram (NOLOAD) :
     {
        _edata = .;
-        *(.bss*)
-        *(COMMON)
+#ifdef HAVE_UI_THREAD_SPLIT
+        /* ProkBox P19: the shell's zeroed data, as .data above */
+        . = ALIGN(CACHEALIGN_SIZE);
+        *apps[/]ipodui[/]*(FEBE_EX .bss* FEBE_EX COMMON)
+        *libfirmware.a:font.o(.bss* COMMON)
+        *libfirmware.a:lcd-16bit.o(.bss* COMMON)
+        . = ALIGN(CACHEALIGN_SIZE);
+#endif
+        *(FEBE_EX .bss*)
+        *(FEBE_EX COMMON)
         . = ALIGN(0x4);
     } > DRAM
 
@@ -153,6 +189,9 @@ SECTIONS
     .ncbss . + NOCACHE_BASE (NOLOAD):
     {
     	. = ALIGN(CACHEALIGN_SIZE);
+#ifdef HAVE_UI_THREAD_SPLIT
+        *apps[/]ipodui[/]*(.bss* COMMON) /* FEBE_ASYNC_OBJS */
+#endif
         *(.ncbss*)
     	. = ALIGN(CACHEALIGN_SIZE);
     } AT> DRAM

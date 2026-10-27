@@ -1,0 +1,32 @@
+# Resume latency after a partial shrink (Phase 16-0, sim stand-in for
+# #88's paused window; the device twin is the "m0 tap2pcm ms=M why=resume"
+# line, ipodui.log). A real core_alloc beside paused audio shrinks the
+# buffer the way the window will (playback.c shrink_callback: the paused
+# queue restarts and refills), then PLAY resumes. The sim's milliseconds
+# are host time, not the device's: what carries over is that PLAY after
+# the shrink starts (tap2pcm line present, no stuck state), and the buffer
+# sizes. Run through tests/perf/floor_gate.sh (a cloned 50k disk).
+# golden: skip resumed
+wait 4000
+wait_db 300000
+repeat all
+snapshot_play
+wait 3000
+expect_playing 500
+snapshot_pause
+wait 800
+floor before_window
+key PLAY
+wait 1500
+key PLAY
+wait 800
+floor_reserve 0 7000000
+wait 2000
+floor after_window
+floor_release 0
+wait 500
+key PLAY
+wait 3000
+shot resumed
+floor after_resume
+quit

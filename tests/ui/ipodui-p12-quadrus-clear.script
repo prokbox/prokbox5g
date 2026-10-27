@@ -1,0 +1,142 @@
+# P12 W4 (docs/design/sdk.md 13.2): a line clear. The simulator seeds the
+# game from a fixed value, so the pieces come in a known order; fourteen
+# placements (turns with SELECT taps 400 ms apart, the wheel, a SELECT
+# double tap to drop: owner's controls, 2026-10-24)
+# fill the bottom row, which flashes and goes: Lines 1 (a row is 100
+# points, and every hard drop two a row). The wheel and gravity are
+# timed, so the board may differ by a column from the plan; the row
+# still goes.
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-quadrus-clear.script
+# needs: modules
+# reset: mainmenu
+
+wait 4000
+sdk_clear            # a fresh game (the simulator seeds from a fixed value)
+wheel +2             # Extras
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Games
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Quadrus
+wait 600
+key SELECT
+wait 800
+# piece 0 (4): turn 0, move -4
+wheel -4 120
+wait 150
+key SELECT           # double tap: drop
+wait 100
+key SELECT
+wait 400
+# piece 1 (0): turn 0, move -1
+wheel -1 120
+wait 150
+key SELECT           # double tap: drop
+wait 100
+key SELECT
+wait 400
+# piece 2 (2): turn 0, move -2
+wheel -2 120
+wait 150
+key SELECT           # double tap: drop
+wait 100
+key SELECT
+wait 400
+# piece 3 (3): turn 0, move -3
+wheel -3 120
+wait 150
+key SELECT           # double tap: drop
+wait 100
+key SELECT
+wait 400
+# piece 4 (5): turn 0, move 3
+wheel +3 120
+wait 150
+key SELECT           # double tap: drop
+wait 100
+key SELECT
+wait 400
+# piece 5 (1): turn 0, move -3
+wheel -3 120
+wait 150
+key SELECT           # double tap: drop
+wait 100
+key SELECT
+wait 400
+# piece 6 (6): turn 1, move -3
+key SELECT
+wait 150
+wheel -3 120
+wait 150
+key SELECT           # double tap: drop
+wait 100
+key SELECT
+wait 400
+# piece 7 (2): turn 1, move -5
+key SELECT
+wait 150
+wheel -5 120
+wait 150
+key SELECT           # double tap: drop
+wait 100
+key SELECT
+wait 400
+# piece 8 (5): turn 2, move 4
+key SELECT
+wait 400
+key SELECT
+wait 150
+wheel +4 120
+wait 150
+key SELECT           # double tap: drop
+wait 100
+key SELECT
+wait 400
+# piece 9 (0): turn 0, move 3
+wheel +3 120
+wait 150
+key SELECT           # double tap: drop
+wait 100
+key SELECT
+wait 400
+# piece 10 (3): turn 1, move -5
+key SELECT
+wait 150
+wheel -5 120
+wait 150
+key SELECT           # double tap: drop
+wait 100
+key SELECT
+wait 400
+# piece 11 (4): turn 0, move 0
+key SELECT           # double tap: drop
+wait 100
+key SELECT
+wait 400
+# piece 12 (1): turn 0, move -1
+wheel -1 120
+wait 150
+key SELECT           # double tap: drop
+wait 100
+key SELECT
+wait 400
+shot before
+# piece 13 (6): turn 3, move 6
+key SELECT
+wait 400
+key SELECT
+wait 400
+key SELECT
+wait 150
+wheel +6 120
+wait 150
+key SELECT           # double tap: drop
+wait 100
+key SELECT
+wait 400
+wait 300
+shot cleared
+quit

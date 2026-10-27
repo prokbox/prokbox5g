@@ -1,0 +1,70 @@
+# Phase 11 Search, the screen (docs/phase11-brief.md section 3.1, U1;
+# owner photos search-empty-b, search-results-b): Music > Search opens
+# with the magnifier row "Search" / "No Search Results" and the dark
+# letter strip, A boxed; typing "h" then "a" refines; PREV deletes; NEXT
+# adds a space; MENU hides the strip (the full result list, the first
+# result selected); SELECT on the top row brings the strip back; a second
+# MENU (strip hidden) leaves Search.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p11-search-strip.script
+# needs: library
+# golden: skip
+# fulls-extra: 4 each typed letter, delete or space redraws the result list (a body-wide update; the strip types without a SELECT key)
+#
+# Reaches Search through the Music menu, whose Search row U2a points at
+# ui_search_screen (menu.c); the result rows come from L's lib_search().
+# With either missing on a branch the script still runs: "Search" stays
+# the stub, or the results stay empty ("No Search Results").
+# Music order: Playlists, Artists, Albums, Compilations, Songs, Genres,
+# Composers, Audiobooks, Search (Playlists + 8).
+
+wait 4000           # boot to the main menu, "Music" selected
+wait_db 30000
+
+key SELECT          # Music
+wait 800
+wheel +8 300        # "Search"
+wait 400
+key SELECT
+wait 800
+shot empty          # Search / No Search Results, strip, A boxed
+
+wheel +7 100        # box on H, the letters still from A
+wait 400
+shot box_h
+type h              # SELECT on H: "h" typed, results
+wait 600
+shot results_h      # Results for: h, rows with type icons
+
+type a
+wait 600
+shot results_ha     # refined
+
+key LEFT            # PREV: delete the "a"
+wait 600
+shot deleted        # back to "h"
+
+key RIGHT           # NEXT: a space
+wait 600
+shot space          # "h " typed, the cursor after the space
+
+wheel +30 60        # far right: the letters scroll so the box shows
+wait 400
+shot strip_end      # ... 0-9, box on a digit
+
+key MENU            # the strip hides: the full result list
+wait 800
+shot full_list      # first result selected (or Search with none)
+
+wheel -1 300        # up to the top row
+wait 400
+key SELECT          # the strip comes back
+wait 800
+shot strip_back
+
+key MENU            # hide it again
+wait 800
+key MENU            # and leave Search
+wait 800
+shot music          # the Music menu
+
+quit

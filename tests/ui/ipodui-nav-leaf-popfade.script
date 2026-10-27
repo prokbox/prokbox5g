@@ -1,0 +1,28 @@
+# #38 end review (finding 4): a split leaf popped during its own panel
+# arrival cross-fade leaves a clean panel (apps/ipodui/preview.c
+# screen_gone(): the fade is finished at once from the strip, or the
+# panel is drawn plain), then the parent's item arrives after its rest
+# delay. Settings > Backlight: SELECT lands just after the leaf's panel
+# starts arriving (NAV_REST_ICON 400 ms after the push, a 200 ms fade);
+# the trace shows "panel fade snapped" when the pop caught the fade.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-nav-leaf-popfade.script
+
+wait 4000            # boot to the main menu, "Music" selected
+sim_clock 15:04
+clock_format 24
+battery 100
+
+wheel +3             # "Settings"
+wait 400
+key SELECT
+wait 1200            # the capacity panel has arrived
+wheel +6             # "Backlight"
+wait 400
+key SELECT 50        # push the leaf (190 ms slide)
+wait 450             # ~ its panel's arrival (rest 400 ms) + a frame
+key SELECT 50        # choose the value: pops mid-fade
+shot popped_mid      # (timing) no half-faded panel
+wait 1200            # past the parent's rest delay + its cross-fade
+shot settled         # golden: the Backlight tile, clean
+
+quit

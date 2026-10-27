@@ -1,0 +1,36 @@
+# Review M3 (brief §4.3): the boot stamp sleep entry writes holds only
+# while nothing is written after the wake. The wake itself does no I/O
+# (it only marks the stamp spoiled); the first natural disk wake after it
+# removes the stamp, so a crash later in that awake period gets the
+# unclean-boot walk.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p18-sleep-stamp-spoil.script
+# needs: library
+# golden: skip
+# fulls-extra: 2          (the wake's full push; the Now Playing row at play_files)
+# boot-stamp: keep
+# log: boot stamp spoiled
+# log: boot stamp walk=1
+
+sleep_mode soft       # soft sleep is off by default (developer switch)
+wait 4000
+wait_db 45000
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait_pos 6000 60000
+hold PLAY 1500          # the stamp written at entry
+expect_sleep asleep 8000
+key SELECT
+expect_sleep button 3000
+wait 1000
+shot woken
+key PLAY                # resumes from the buffer: no disk access yet
+wait 2000
+play_files /Music/Tone%20Collective/Sine%20Studies/03%20Warble.mp3
+wait_pos 3000 60000 Warble  # a new track: the disk wakes for its read
+disk_active 1000        # the sim's disk model says so (hostfs has none;
+wait 3000               # the device reads the driver's last activity)
+power_cut               # a crash in the awake period
+reboot
+sleep_mode soft
+wait 4000
+expect_boot_walk 1 20000
+quit

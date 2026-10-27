@@ -20,6 +20,75 @@
 
 #include "config.h"
 
+#ifdef IPODUI_TRIM_SKIN
+/* Phase 9 (docs/phase9-brief.md 3.3.2): no skin engine in the shell. Kept
+ * stock code (gui/list.c, menu.c, yesno.c; developer mode only) still asks
+ * the skinned bar and skinned lists for a title or a layout. These answer
+ * exactly what the real ones answer with no skin loaded: no title, no
+ * skinned list, so the list draws its own title and items. */
+#include <stdbool.h>
+#include <stddef.h>
+#include "screen_access.h"
+#include "statusbar-skinned.h"
+#include "skin_engine/skin_engine.h"
+#include "list.h"
+
+bool sb_set_title_text(const char* title, enum themable_icons icon,
+                       enum screen_type screen)
+{
+    (void)title; (void)icon; (void)screen;
+    return false;
+}
+
+bool sb_set_persistent_title(const char* title, enum themable_icons icon,
+                             enum screen_type screen)
+{
+    (void)title; (void)icon; (void)screen;
+    return false;
+}
+
+const char* sb_get_persistent_title(enum screen_type screen)
+{
+    (void)screen;
+    return NULL;
+}
+
+void skinlist_set_cfg(enum screen_type screen,
+                      struct listitem_viewport_cfg *cfg)
+{
+    (void)screen; (void)cfg;
+}
+
+int skinlist_get_line_count(enum screen_type screen, struct gui_synclist *list)
+{
+    (void)screen; (void)list;
+    return -1;
+}
+
+bool skinlist_draw(struct screen *display, struct gui_synclist *list)
+{
+    (void)display; (void)list;
+    return false;
+}
+
+/* The skin engine pushes a stock list to the panel after it draws (the
+ * list itself never calls update). With no skin engine, push here, or the
+ * developer lists draw only into the framebuffer (#63, device 2026-10-10). */
+void skin_mark_dirty(enum screen_type screen)
+{
+    screens[screen].update();
+}
+
+#ifdef HAVE_TOUCHSCREEN
+bool skinlist_get_item(struct screen *display, struct gui_synclist *list,
+                       int x, int y, int *item)
+{
+    (void)display; (void)list; (void)x; (void)y; (void)item;
+    return false;
+}
+#endif
+
+#else /* !IPODUI_TRIM_SKIN */
 #include "action.h"
 #include "system.h"
 #include "settings.h"
@@ -364,3 +433,4 @@ int sb_touch_to_button(int context)
     return button;
 }
 #endif
+#endif /* IPODUI_TRIM_SKIN */

@@ -18,6 +18,9 @@
  *
  ****************************************************************************/
 #include "system.h"
+#ifdef HAVE_PP_GOV_DVS
+#include "pgov.h"         /* ProkBox: pgov2_rail_normal() */
+#endif
 #include "thread.h"
 #include "i2s.h"
 #include "i2c-pp.h"
@@ -47,6 +50,9 @@
 extern void TIMER1(void);
 extern void TIMER2(void);
 extern void SERIAL_ISR(int port);
+#ifdef HAVE_ATA_DMA_IRQ
+extern void ata_dma_irq(void);  /* ProkBox Fit-1 C4b: ata-pp5020.c */
+#endif
 
 #if defined(HAVE_ADJUSTABLE_CPU_FREQ) && (NUM_CORES > 1)
 static struct corelock cpufreq_cl SHAREDBSS_ATTR;
@@ -70,6 +76,11 @@ void __attribute__((interrupt("IRQ"))) irq_handler(void)
         /* Rather high priority - place near front */
         else if (CPU_INT_STAT & USB_MASK) {
             usb_drv_int();
+        }
+#endif
+#ifdef HAVE_ATA_DMA_IRQ
+        else if (CPU_INT_STAT & IDE_MASK) {
+            ata_dma_irq();          /* ProkBox Fit-1 C4b */
         }
 #endif
 #if defined(IPOD_MINI) /* Mini 1st gen only, mini 2nd gen uses iPod 4G code */
@@ -346,6 +357,79 @@ void scale_suspend_core(bool suspend)
     }
 }
 
+#if defined(HAVE_PLL_IDLE) && \
+    ((CONFIG_CPU == PP5022) || (CONFIG_CPU == PP5024))
+/* Fit-1 C6: how long the PLL takes to lock after being powered up from
+ * 24 MHz idle (written under the cpufreq lock; read by cpu_pll_get_stats()) */
+static unsigned long pll_lock_count;
+static unsigned int pll_lock_last, pll_lock_max;
+static bool pll_was_off;
+
+void pll_lock_get_stats(unsigned long *count, unsigned int *last_us,
+                        unsigned int *max_us)
+{
+    *count = pll_lock_count;
+    *last_us = pll_lock_last;
+    *max_us = pll_lock_max;
+}
+
+static inline void pll_note_power(void)
+{
+    pll_was_off = !(DEV_INIT2 & INIT_PLL);
+}
+
+/* the boost (or 30 MHz) waits here, at 24 MHz, until the PLL locks */
+static inline void pll_wait_lock(void)
+{
+    unsigned int t0 = USEC_TIMER;
+    while (!(PLL_STATUS & 0x80000000));
+    if (pll_was_off)
+    {
+        unsigned int us = USEC_TIMER - t0;
+        pll_lock_count++;
+        pll_lock_last = us;
+        if (us > pll_lock_max)
+            pll_lock_max = us;
+    }
+}
+#ifdef HAVE_PP_GOV_DVS
+/* The governor's points that are not Rockbox's words (48, 60, 100 MHz):
+ * the lock wait bounded; read by pgov.c (pgov_pll_lock_fails()) */
+static unsigned long pll_lock_fails;
+
+unsigned long pgov_pll_lock_fails(void)
+{
+    return pll_lock_fails;
+}
+
+static inline bool pll_wait_lock_bounded(unsigned int max_us)
+{
+    unsigned int t0 = USEC_TIMER;
+    while (!(PLL_STATUS & 0x80000000))
+        if (USEC_TIMER - t0 > max_us)
+            return false;
+    if (pll_was_off)
+    {
+        unsigned int us = USEC_TIMER - t0;
+        pll_lock_count++;
+        pll_lock_last = us;
+        if (us > pll_lock_max)
+            pll_lock_max = us;
+    }
+    return true;
+}
+#endif /* HAVE_PP_GOV_DVS */
+#else
+static inline void pll_note_power(void)
+{
+}
+
+static inline void pll_wait_lock(void)
+{
+    while (!(PLL_STATUS & 0x80000000));
+}
+#endif /* HAVE_PLL_IDLE */
+
 #ifdef HAVE_ADJUSTABLE_CPU_FREQ
 #if NUM_CORES > 1
 void set_cpu_frequency__lock(void)
@@ -387,6 +471,7 @@ static void pp_set_cpu_frequency(long frequency)
 
       case CPUFREQ_MAX:
         cpu_frequency = CPUFREQ_MAX;
+        pll_note_power();           /* from 24 MHz idle? (C6 lock stats) */
         DEV_INIT2    |= INIT_PLL;   /* enable PLL power */
         PLL_CONTROL  |= 0x88000000; /* enable PLL */
         scale_suspend_core(true);
@@ -405,7 +490,7 @@ static void pp_set_cpu_frequency(long frequency)
         udelay(500);                /* wait for relock */
 #elif (CONFIG_CPU == PP5022) || (CONFIG_CPU == PP5024)
         PLL_CONTROL   = 0x8a121403; /*  80 MHz = (20/3 * 24MHz) / 2 */
-        while (!(PLL_STATUS & 0x80000000)); /* wait for relock */
+        pll_wait_lock();            /* wait for relock */
 #endif
         scale_suspend_core(true);
         DEV_TIMING1   = 0x00000808;
@@ -431,6 +516,7 @@ static void pp_set_cpu_frequency(long frequency)
 #else /******** CPUFREQ_NORMAL = 30MHz with PLL ********/
       case CPUFREQ_NORMAL:
         cpu_frequency = CPUFREQ_NORMAL;
+        pll_note_power();           /* from 24 MHz idle? (C6 lock stats) */
         DEV_INIT2    |= INIT_PLL;   /* enable PLL power */
         PLL_CONTROL  |= 0x88000000; /* enable PLL */
         scale_suspend_core(true);
@@ -447,7 +533,7 @@ static void pp_set_cpu_frequency(long frequency)
         udelay(500);                /* wait for relock */
 #elif (CONFIG_CPU == PP5022) || (CONFIG_CPU == PP5024)
         PLL_CONTROL   = 0x8a220501; /* 30 MHz = (5/1 * 24MHz) / 4 */
-        while (!(PLL_STATUS & 0x80000000)); /* wait for relock */
+        pll_wait_lock();            /* wait for relock */
 #endif
         scale_suspend_core(true);
         DEV_TIMING1   = 0x00000303;
@@ -455,7 +541,59 @@ static void pp_set_cpu_frequency(long frequency)
         scale_suspend_core(false);
         break;
 #endif /******** CPUFREQ_NORMAL end ********/
+#if defined(HAVE_PP_GOV) && \
+    ((CONFIG_CPU == PP5022) || (CONFIG_CPU == PP5024))
+      /* ProkBox band governor (docs/design/pp-governor.md 3.1): band 2's
+       * intermediate points, used only while the governor is on.  The
+       * 80 MHz sequence above; the PLL words are Apple's recipe (N 12, /4
+       * up to 60 MHz, /2 from 60) and DEV_TIMING1 its 90 ns rule floored
+       * at Rockbox's 0x0808 from 60 MHz [apple, mac-and-dvs.md 3.1, 3.3];
+       * firmware/pgov_core.c's tables, host-tested */
+      case 48000000:
+      case 60000000:
+#ifdef HAVE_PP_GOV_DVS
+      /* Stage 2's band 3 (pp-governor.md 3.3, 16.2): 100 MHz, Apple's
+       * recipe (M 100, N 12, /2, VCO 200 MHz) and DEV_TIMING1 0x0808, its
+       * 90 ns rule at 100 MHz [apple].  Only the governor selects it,
+       * only where the speed grade allows and the BCM2722's port, ATA DMA
+       * and USB are quiet */
+      case 100000000:
+#endif
+        cpu_frequency = frequency;
+        pll_note_power();           /* from 24 MHz idle? (C6 lock stats) */
+        DEV_INIT2    |= INIT_PLL;   /* enable PLL power */
+        PLL_CONTROL  |= 0x88000000; /* enable PLL */
+        scale_suspend_core(true);
+        CLOCK_SOURCE  = 0x20002222; /* source #1, #2, #3, #4: 24MHz (#2 active) */
+        DEV_TIMING1   = 0x00000303;
+        scale_suspend_core(false);
+        PLL_CONTROL   = frequency == 48000000
+                      ? 0x8a22600c  /* 48 MHz = (96/12 * 24MHz) / 4 */
+                      : frequency == 60000000
+                      ? 0x8a123c0c  /* 60 MHz = (60/12 * 24MHz) / 2 */
+                      : 0x8a12640c; /* 100 MHz = (100/12 * 24MHz) / 2 */
+#ifdef HAVE_PP_GOV_DVS
+        /* these words are Apple's, not run daily: a PLL that has not
+         * locked in 2 ms (16-217 us measured for Rockbox's words) is
+         * left for the crystal, and counted for the governor [ours] */
+        if (!pll_wait_lock_bounded(2000))
+        {
+            pll_lock_fails++;
+            goto xtal;
+        }
+#else
+        pll_wait_lock();            /* wait for relock */
+#endif
+        scale_suspend_core(true);
+        DEV_TIMING1   = frequency == 48000000 ? 0x00000404 : 0x00000808;
+        CLOCK_SOURCE  = 0x20007777; /* source #1, #2, #3, #4: PLL (#2 active) */
+        scale_suspend_core(false);
+        break;
+#endif /* HAVE_PP_GOV */
       default:
+#ifdef HAVE_PP_GOV_DVS
+      xtal:
+#endif
         cpu_frequency =  CPUFREQ_DEFAULT;
         PLL_CONTROL  |=  0x08000000;
         scale_suspend_core(true);
@@ -634,6 +772,12 @@ void system_prepare_fw_start(void)
 
 void ICODE_ATTR system_reboot(void)
 {
+#ifdef HAVE_PP_GOV_DVS
+    /* ProkBox (pp-governor.md 16.5, review S1): never restart on the low
+     * core rail; Apple's firmware (the recovery path) and our boot run
+     * up to 80 MHz before anything rewrites DCDC1 */
+    pgov2_rail_normal();
+#endif
     disable_interrupt(IRQ_FIQ_STATUS);
     CPU_INT_DIS = -1;
     COP_INT_DIS = -1;

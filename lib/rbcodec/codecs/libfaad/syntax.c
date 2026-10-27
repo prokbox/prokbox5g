@@ -49,6 +49,15 @@
 #include "sbr_syntax.h"
 #endif
 
+/* ProkBox (bcmfw stage 9): the parse's checkpoints, for diffing the BCM's
+ * decode against the simulator's (bcmfw/aac/aac.h AAC_T_*).  Only
+ * bcmfw/aac/aac_config.h defines AAC_TRACE; everywhere else these are
+ * empty. */
+#ifndef AAC_TRACE
+#define AAC_TRACE(tag, v)           do { } while (0)
+#define AAC_TRACE_HASH(tag, p, n)   do { } while (0)
+#endif
+
 
 /* static function declarations */
 static void decode_sce_lfe(NeAACDecHandle hDecoder, NeAACDecFrameInfo *hInfo, bitfile *ld,
@@ -426,18 +435,28 @@ void raw_data_block(NeAACDecHandle hDecoder, NeAACDecFrameInfo *hInfo,
         while ((id_syn_ele = (uint8_t)faad_getbits(ld, LEN_SE_ID
             DEBUGVAR(1,4,"NeAACDecDecode(): id_syn_ele"))) != ID_END)
         {
+            AAC_TRACE(AAC_T_ELE, (uint32_t)id_syn_ele << 16 |
+                      faad_get_processed_bits(ld));
             switch (id_syn_ele) {
             case ID_SCE:
                 if (hDecoder->first_syn_ele == 25) hDecoder->first_syn_ele = id_syn_ele;
                 decode_sce_lfe(hDecoder, hInfo, ld, id_syn_ele);
                 if (hInfo->error > 0)
+                {
+                    AAC_TRACE(AAC_T_ERR, (uint32_t)hInfo->error << 16 |
+                              faad_get_processed_bits(ld));
                     return;
+                }
                 break;
             case ID_CPE:
                 if (hDecoder->first_syn_ele == 25) hDecoder->first_syn_ele = id_syn_ele;
                 decode_cpe(hDecoder, hInfo, ld, id_syn_ele);
                 if (hInfo->error > 0)
+                {
+                    AAC_TRACE(AAC_T_ERR, (uint32_t)hInfo->error << 16 |
+                              faad_get_processed_bits(ld));
                     return;
+                }
                 break;
             case ID_LFE:
                 hDecoder->has_lfe++;
@@ -644,6 +663,8 @@ static uint8_t channel_pair_element(NeAACDecHandle hDecoder, bitfile *ld,
                 }
             }
         }
+        AAC_TRACE(AAC_T_CPE, (uint32_t)ics1->ms_mask_present << 16 |
+                  faad_get_processed_bits(ld));
 
 #ifdef ERROR_RESILIENCE
         if ((hDecoder->object_type >= ER_OBJECT_START) && (ics1->predictor_data_present))
@@ -667,6 +688,8 @@ static uint8_t channel_pair_element(NeAACDecHandle hDecoder, bitfile *ld,
 #endif
 
         memcpy(ics2, ics1, sizeof(ic_stream));
+        AAC_TRACE_HASH(AAC_T_ICS1, ics1, sizeof(ic_stream));
+        AAC_TRACE_HASH(AAC_T_ICS2, ics2, sizeof(ic_stream));
     } else {
         ics1->ms_mask_present = 0;
     }
@@ -757,6 +780,9 @@ static uint8_t ics_info(NeAACDecHandle hDecoder, ic_stream *ics, bitfile *ld,
     /* get the grouping information */
     if ((retval = window_grouping_info(hDecoder, ics)) > 0)
         return retval;
+    AAC_TRACE(AAC_T_INFO, (uint32_t)ics->window_sequence << 24 |
+              (uint32_t)ics->window_shape << 20 | (uint32_t)ics->max_sfb << 12 |
+              (uint32_t)ics->num_window_groups << 8 | ics->num_swb);
 
     /* should be an error */
     /* check the range of max_sfb */
@@ -1465,6 +1491,8 @@ static uint8_t individual_channel_stream(NeAACDecHandle hDecoder, element *ele,
 
     ics->global_gain = (uint8_t)faad_getbits(ld, 8
         DEBUGVAR(1,67,"individual_channel_stream(): global_gain"));
+    AAC_TRACE(AAC_T_GAIN, (uint32_t)ics->global_gain << 16 |
+              faad_get_processed_bits(ld));
 
     if (!ele->common_window && !scal_flag)
     {
@@ -1474,9 +1502,13 @@ static uint8_t individual_channel_stream(NeAACDecHandle hDecoder, element *ele,
 
     if ((result = section_data(hDecoder, ics, ld)) > 0)
         return result;
+    AAC_TRACE(AAC_T_SECT, (uint32_t)ics->num_sec[0] << 16 |
+              faad_get_processed_bits(ld));
 
     if ((result = scale_factor_data(hDecoder, ics, ld)) > 0)
         return result;
+    AAC_TRACE(AAC_T_SF, faad_get_processed_bits(ld));
+    AAC_TRACE_HASH(AAC_T_SFHASH, ics->scale_factors, sizeof(ics->scale_factors));
 
     if (!scal_flag)
     {
@@ -1504,8 +1536,13 @@ static uint8_t individual_channel_stream(NeAACDecHandle hDecoder, element *ele,
         }
 
         /* get gain control data */
-        if ((ics->gain_control_data_present = faad_get1bit(ld
-            DEBUGVAR(1,70,"individual_channel_stream(): gain_control_data_present"))) & 1)
+        ics->gain_control_data_present = faad_get1bit(ld
+            DEBUGVAR(1,70,"individual_channel_stream(): gain_control_data_present"));
+        AAC_TRACE(AAC_T_FLAGS, (uint32_t)ics->pulse_data_present << 22 |
+                  (uint32_t)ics->tns_data_present << 21 |
+                  (uint32_t)ics->gain_control_data_present << 20 |
+                  faad_get_processed_bits(ld));
+        if (ics->gain_control_data_present & 1)
         {
 #ifdef SSR_DEC
             if (hDecoder->object_type != SSR)
@@ -1573,6 +1610,9 @@ static uint8_t individual_channel_stream(NeAACDecHandle hDecoder, element *ele,
         {
             return result;
         }
+        AAC_TRACE(AAC_T_SPEC, faad_get_processed_bits(ld));
+        AAC_TRACE_HASH(AAC_T_SPECHASH, spec_data,
+                       hDecoder->frameLength * sizeof(int16_t));
 #ifdef ERROR_RESILIENCE
     }
 #endif

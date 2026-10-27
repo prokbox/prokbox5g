@@ -1,0 +1,52 @@
+# Phase 4b-1, as changed by the #58 idle-build policy (owner, 2026-10-09):
+# while audio plays the builder does nothing while the user is on (lit,
+# browsing or watching), and builds continuously, waking storage as it
+# needs, once the user is idle (the unlit clock face up, or the
+# backlight off). A build requested during playback waits ("art build
+# wait lit": blocked on an event, no poll) until the backlight times out
+# ("backlight_expire": the same path as the idle timeout, which brings
+# the clock face up), then builds every album while still playing. No
+# fill window any more: "audio_reload" no longer starts anything.
+# Trace rules: no "art io" line has playing=1 and idle=0 ("artio"); every
+# "art build" line has boost=0.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p4b1-art-playing.script
+# needs: library
+# log: art build wait lit
+# logafter: lit art io read key=\S+ playing=1 active=\d idle=1
+# golden: skip stalled built
+#
+# The request comes from "art_request" (what a database load or the
+# precompute sends: while music plays, lib_precompute() sends it once per
+# load).
+
+wait 1000
+wait_db 30000
+art_wait 120000
+wheel +4            # "Shuffle Songs"
+wait 500
+key SELECT          # plays
+wait 1500
+expect_playing 300
+key MENU            # main menu (the face is dismissed over it below)
+wait 500
+rm_file /.rockbox/artcache/index.dat
+rm_file /.rockbox/artcache/index.prev
+rm_file /.rockbox/artcache/index.tmp
+rm_file /.rockbox/artcache/thumbs.pak
+art_request         # a build of every album, during playback
+wait 3000
+expect_playing 300  # the builder waits: the user is on (lit)
+shot stalled        # (shots are not keys: no input pause)
+audio_reload        # a refill opens nothing any more (no fill windows)
+wait 1500
+ab_mark lit         # nothing built up to here
+backlight_expire    # the user goes idle: the face comes up
+art_wait 30000      # built while playing, the face up
+expect_art art_manifest.txt
+expect_playing 300  # never stopped
+shot built
+key MENU            # wakes: the face goes (the key is swallowed)
+wait 1000
+audio_stop       # stop
+
+quit

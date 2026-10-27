@@ -1,0 +1,37 @@
+# Phase 5 (#39): playback starts while the builder holds the chapter
+# transient block: the build gives up at once ("art chapter block freed
+# playing=1"), no I/O of its own while playing, and is redone at the stop.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p5-chapart-held.script
+# needs: library
+# needs: np
+# golden: skip held
+# log: art chapter block held
+# log: art chapter block freed playing=1
+# fulls-extra: 2   (the main menu gains its Now Playing row when play_files starts, and loses it at audio_stop: Phase 6 Revision 3)
+# timeout: 220
+
+wait 1000
+wait_db 30000
+sim_clock 15:08
+clock_format 24      # P11: the default is 12-hour; this golden shows 24
+repeat off
+mkdir /NPBook
+copy ../../build/np-fixtures/book_held.mp3 /NPBook/book_held.mp3
+# The builder reaches the chapter block (art_request + A) with A ~7 s idle
+# and longer under the gate's parallel load (it was 1.2 s short of the old
+# fixed 9 s wait). There is no sim wait for "holding", so the timing is a
+# window: play starts at W=25 s (needs A < 25) and the hold (A + 45 s) must
+# end during playback (A + 45 < 25 + 40, i.e. A < 20 s, ~3x the idle time).
+art_panel_hold 45000   # the builder keeps its block for 45 s
+update_db_wait_change 60000
+art_request
+wait 25000            # holding by now, still inside the hold
+play_files /NPBook/book_held.mp3
+wait 500
+shot held
+expect_playing 40000    # 40 s of the 90 s book: the hold ends in here, the builder had given up at once
+audio_stop
+art_wait 120000
+rm_file /NPBook/book_held.mp3
+update_db_wait_change 60000
+quit

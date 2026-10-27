@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2002 by Alan Korr & Nick Robinson
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * All files in this archive are subject to the GNU General Public License.
  * See the file COPYING in the source tree root for full license agreement.
@@ -440,7 +441,7 @@ void iap_handlepkt_mode3(const unsigned int len, const unsigned char *buf)
                         /* Mute status False*/
                         IAP_TX_PUT(0x00);
                         /* Volume */
-                        IAP_TX_PUT(0xFF & (int)((global_status.volume + 90) * 2.65625));
+                        IAP_TX_PUT(0xFF & IAP_VOLUME_TO_REMOTE(global_status.volume));
 
                     } else {
                         /* Mute status True*/
@@ -629,8 +630,8 @@ void iap_handlepkt_mode3(const unsigned int len, const unsigned char *buf)
                         /* Mute status False*/
                         IAP_TX_PUT(0x00);
                         /* Volume */
-                        IAP_TX_PUT(0xFF & (int)((global_status.volume + 90) * 2.65625));
-                        IAP_TX_PUT(0xFF & (int)((global_status.volume + 90) * 2.65625));
+                        IAP_TX_PUT(0xFF & IAP_VOLUME_TO_REMOTE(global_status.volume));
+                        IAP_TX_PUT(0xFF & IAP_VOLUME_TO_REMOTE(global_status.volume));
 
                     } else {
                         /* Mute status True*/
@@ -765,7 +766,7 @@ void iap_handlepkt_mode3(const unsigned int len, const unsigned char *buf)
                     CHECKLEN(5);
                     if (buf[0x03]==0x00){
                         /* Not Muted */
-                        global_status.volume = (int) (buf[0x04]/2.65625)-90;
+                        global_status.volume = IAP_VOLUME_FROM_REMOTE(buf[0x04]);
                         device.mute = false;
                     }
                     else {
@@ -939,7 +940,7 @@ void iap_handlepkt_mode3(const unsigned int len, const unsigned char *buf)
                     CHECKLEN(7);
                     if (buf[0x03]==0x00){
                         /* Not Muted */
-                        global_status.volume = (int) (buf[0x04]/2.65625)-90;
+                        global_status.volume = IAP_VOLUME_FROM_REMOTE(buf[0x04]);
                         device.mute = false;
                     }
                     else {

@@ -1,0 +1,89 @@
+# Library timings on the synthetic 50k library: run through
+# tests/perf/lib50k.sh (its own simdisk, build/sim-50k), not validate.sh.
+# Opens every Music category, plays a song from Songs (lib_play: a
+# 2,000-track window of 50k rows) and Shuffle Songs (lib_shuffle_all:
+# 2,000 sampled from all music); the trace has "lib open"/"lib play"
+# with us= host microseconds.
+# trace: lib
+
+wait 3000
+wait_db 1500000     # first run: the database builds (minutes)
+wait 15000           # let the boot-time background update finish
+
+key SELECT          # Music
+wait 1000
+wheel +2 300        # Artists
+wait 600
+key SELECT
+wait 1500
+shot artists
+key MENU
+wait 1000
+
+wheel +1 300        # Albums
+wait 600
+key SELECT
+wait 1500
+shot albums
+key MENU
+wait 1000
+
+wheel +1 300        # Compilations
+wait 600
+key SELECT
+wait 1500
+key MENU
+wait 1000
+
+wheel +1 300        # Songs
+wait 600
+key SELECT
+wait 1500
+shot songs
+wheel +40 20        # a fast spin: label fetches stay per visible row
+wait 1500
+key SELECT          # play from here: lib_play, 2,000 of 50k rows
+wait 4000
+key MENU            # back to Songs
+wait 1000
+key MENU            # Music
+wait 1000
+
+wheel +1 300        # Genres
+wait 600
+key SELECT
+wait 1500
+key MENU
+wait 1000
+
+wheel +1 300        # Composers
+wait 600
+key SELECT
+wait 1500
+key MENU
+wait 1000
+
+wheel +1 300        # Audiobooks (progress for every book at open)
+wait 600
+key SELECT
+wait 1500
+shot audiobooks
+key MENU
+wait 1000
+
+key MENU            # main menu, Music selected
+wait 1000
+wheel +1 300        # Podcasts
+wait 600
+key SELECT
+wait 1500
+key MENU
+wait 1000
+
+wheel +3 300        # Shuffle Songs: lib_shuffle_all
+wait 600
+key SELECT
+wait 4000
+shot shuffle
+
+quit

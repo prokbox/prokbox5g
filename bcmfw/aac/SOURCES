@@ -1,0 +1,26 @@
+# bcmfw/aac: the C files of the AAC-LC decoder, relative to the repo root.
+# bcmfw/aac/test/run.sh (host) and aac_sim_test.py (vc2cc) both read this
+# list; each file is compiled with -include bcmfw/aac/aac_config.h and the
+# include path -Ibcmfw/aac/sys -I<libfaad> -I<codecs/lib> -Ilib/rbcodec.
+# libfaad, LC only (no SBR/PS/LTP/MAIN/SSR/ER/DRM files):
+lib/rbcodec/codecs/libfaad/bits.c
+lib/rbcodec/codecs/libfaad/common.c
+lib/rbcodec/codecs/libfaad/decoder.c
+lib/rbcodec/codecs/libfaad/drc.c
+lib/rbcodec/codecs/libfaad/error.c
+lib/rbcodec/codecs/libfaad/filtbank.c
+lib/rbcodec/codecs/libfaad/huffman.c
+lib/rbcodec/codecs/libfaad/is.c
+lib/rbcodec/codecs/libfaad/mp4.c
+lib/rbcodec/codecs/libfaad/ms.c
+lib/rbcodec/codecs/libfaad/pns.c
+lib/rbcodec/codecs/libfaad/pulse.c
+lib/rbcodec/codecs/libfaad/specrec.c
+lib/rbcodec/codecs/libfaad/syntax.c
+lib/rbcodec/codecs/libfaad/tns.c
+# the IMDCT (ffmpeg's FFT, C paths) and its tables
+lib/rbcodec/codecs/lib/mdct.c
+lib/rbcodec/codecs/lib/fft-ffmpeg.c
+lib/rbcodec/codecs/lib/mdct_lookup.c
+# ours
+bcmfw/aac/aac.c

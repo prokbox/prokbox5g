@@ -1,0 +1,37 @@
+# Phase 11 (docs/phase11-brief.md 3.6, 7 criterion 7): the hidden developer
+# chord (SELECT+LEFT held 3.2 s, Phase 8a M6) still arms on the real About
+# screen, on a page other than the first, and never turns the page: after
+# Back the same page 2 shows, pixel-identical.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p11-about-chord.script
+# needs: library
+# trace: devmode
+# same: page2_before page2_after
+# log: devmode arm
+# log: devmode enter
+# log: devmode exit
+# log: about page=2
+# golden: skip developer
+# env: SIM_TRACE_LCD_PUSH=1
+# logbetween: dev_in dev_shown \bsim lcd push x=0 y=0 w=320 h=240\b
+
+wait 5000            # boot
+wheel +3             # Settings
+wait 400
+key SELECT
+wait 1500
+key SELECT           # About
+wait 1500
+key RIGHT            # page 2
+wait 800
+shot page2_before
+ab_mark dev_in       # #57: the stock list must reach the panel
+chord SELECT+LEFT 3200
+wait 1000
+shot developer       # the stock Developer list (Status ... Advanced, Back)
+ab_mark dev_shown
+wheel -1             # Back (the last row; the list wraps)
+wait 400
+key SELECT
+wait 1500
+shot page2_after     # == page2_before: still page 2
+quit

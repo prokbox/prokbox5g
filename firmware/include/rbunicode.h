@@ -75,7 +75,7 @@ const char *get_current_codepage_name_linux(void);
 #endif
 #endif /* APPLICATION */
 
-#ifdef UTF8PROC_EXPORTS
+#ifdef HAVE_UTF8_NORMALIZE
 void utf8_normalize(char *string);
 void unicode_init(void) INIT_ATTR;
 #else

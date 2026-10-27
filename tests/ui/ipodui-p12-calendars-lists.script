@@ -1,0 +1,75 @@
+# P12 W3-C (docs/phase12-brief.md 9): one calendar's month (Work only: its
+# own day bits, one read), a multi-day all-day event on each of its days,
+# the To Do's list (open ones by due date, undated last; a completed one
+# left out), and a day with no events.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p12-calendars-lists.script
+# timeout: 180
+# log: xidx build kind=3 n=
+# log: xcal month filter=1
+# log: xcal day d=46 n=1
+# log: xcal day d=33 n=0
+# log: xcal todo n=3
+# nolog: modclass viol
+# golden: skip
+# reset: mainmenu
+
+wait 4000
+rtc_at 2026-10-06 15:06:00
+sim_clock 15:06
+rm_file /Calendars/Work.ics
+rm_file /Calendars/Home.ics
+rm_file /.rockbox/calendars.idx
+rm_file /.rockbox/xindex.owe
+
+usb_connect
+wait 2500
+mkdir /Calendars
+copy fixtures/calendars/Work.ics /Calendars/Work.ics
+copy fixtures/calendars/Home.ics /Calendars/Home.ics
+usb_disconnect
+wait 3500
+storage_idle
+wait 1500
+wheel +2            # Extras
+wait 800
+key SELECT
+wait 1200
+wheel +1            # Calendars
+wait 800
+key SELECT
+wait 1500
+wheel +2            # Work
+wait 800
+key SELECT
+wait 1500
+shot work_month     # Mondays and Wednesdays, the 6th, 8th, 15th
+key MENU
+wait 1000
+wheel -1            # Home
+wait 600
+key SELECT
+wait 1500
+wheel +11           # the 17th: the trip's middle day
+wait 600
+key SELECT
+wait 1200
+shot trip_day       # Trip to the coast, All Day
+key MENU
+wait 1000
+wheel +1            # the 18th
+wait 400
+wheel -14           # the 4th: nothing
+wait 600
+key SELECT
+wait 1200
+shot empty_day      # No Events
+key MENU
+wait 1000
+key MENU
+wait 1000
+wheel +2            # To Do's (Home is selected)
+wait 600
+key SELECT
+wait 1200
+shot todos
+quit

@@ -19,6 +19,9 @@
  ****************************************************************************/
 
 #include "config.h"
+#ifdef HAVE_PP_GOV_DVS
+#include "pgov.h"
+#endif
 #include "lcd.h"
 #ifdef HAVE_REMOTE_LCD
 #include "lcd-remote.h"
@@ -69,6 +72,29 @@
 #define IRQ0_EDGE_TRIGGER 0x80
 
 static int rolo_handle;
+
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+/* The shell never shows the loader's own text: the screen keeps the shell's
+ * prompt while the image loads, goes black once it is good, and stays black
+ * until the new image draws the boot screen. A refusal returns to the
+ * caller without a word or a key wait (the caller logs it). */
+static void rolo_blank(void)
+{
+    unsigned bg = lcd_get_background();
+    lcd_set_background(LCD_BLACK);
+    lcd_clear_display();
+    lcd_update();
+    lcd_set_background(bg);
+}
+#define lcd_clear_display()      ((void)0)
+#define lcd_puts(x, y, s)        ((void)(s))
+#define lcd_puts_scroll(x, y, s) ((void)(s))
+#define lcd_update()             ((void)0)
+#define lcd_scroll_stop()        ((void)0)
+#define button_get(b)            ((void)0)
+#else
+#define rolo_blank()             ((void)0)
+#endif
 #ifdef CPU_PP
 /* Handle the COP properly - it needs to jump to a function outside SDRAM while
  * the new firmware is being loaded, and then jump to the start of SDRAM
@@ -118,8 +144,24 @@ void rolo_restart_cop(void)
 #endif /* NUM_CORES > 1 */
 #endif /* CPU_PP */
 
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+/* the refusal's reason for the caller's log (the screen shows none) */
+static const char *rolo_last_error;
+
+const char *rolo_error_text(void)
+{
+    return rolo_last_error;
+}
+#endif
+
 static void rolo_error(const char *text)
 {
+#ifdef HAVE_PP_GOV_DVS
+    pgov2_shutdown_cancelled();     /* ProkBox: no restart after all */
+#endif
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+    rolo_last_error = text;
+#endif
     rolo_handle = core_free(rolo_handle);
     lcd_clear_display();
     lcd_puts(0, 0, "ROLO error:");
@@ -224,6 +266,11 @@ int rolo_load(const char* filename)
 {
     unsigned char* ramstart = (void*)&loadaddress;
     unsigned char* filebuf;
+#ifdef HAVE_PP_GOV_DVS
+    /* ProkBox (pp-governor.md 16.5): the new image starts on the normal
+     * core rail */
+    pgov2_shutdown();
+#endif
     size_t filebuf_size;
     int err, length;
 
@@ -286,6 +333,7 @@ int rolo_load(const char* filename)
     }
     else
         length = err;
+    rolo_blank();
 
 #if defined(CPU_PP) && NUM_CORES > 1
     lcd_puts(0, 2, "Waiting for coprocessor...");

@@ -1,0 +1,59 @@
+# Phase 4: browse the database (docs/phase4-brief.md, Agent C):
+# Music -> Artists -> artist -> All Songs -> album -> song plays -> WPS ->
+# back.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p4-browse.script
+# needs: library
+# trace: lib
+# golden: skip wps
+#
+# Rows below assume the test library (tests/ui/setup_library.py) plus the
+# mini library, sorted 7G-style. Artists: The Alder Trio, Amber Coast,
+# Ångström Lane, aurora drift, Basalt, The Bellwethers (row 5), Björvik, ...
+# ... Zoë Marchetti, then the '#' group ("!!!", "10dd", "2Gem") last.
+# Under an artist the 7G lists its albums with "All Songs" first
+# (photo-artist-albums.jpg): All Songs, Flock Together, Shepherd's Delight,
+# Wool & Wire. An album lists its songs in track order (no "All" row).
+
+wait 4000           # boot to the main menu, "Music" selected
+wait_db 30000       # database built (shots.sh primes it if missing)
+
+key SELECT          # Music
+wait 800
+shot music          # Playlists, Artists, ... (no "Updating")
+
+wheel +1            # "Artists"
+wait 400
+key SELECT
+wait 800
+shot artists        # The Alder Trio first (under A)
+
+wheel +5 300        # "The Bellwethers" (slow clicks, one row each)
+wait 1500
+shot artists_b      # The Bellwethers between Basalt and Björvik
+key SELECT
+wait 800
+shot artist         # "All Songs" row first, then 3 albums
+
+key SELECT          # "All Songs"
+wait 800
+shot all_songs      # the artist's 15 songs, album by album
+key MENU
+wait 800
+
+wheel +1            # "Flock Together"
+wait 400
+key SELECT
+wait 800
+shot album          # its 6 songs in track order
+
+wheel +2            # third song, "Jagged Summit"
+wait 400
+key SELECT          # plays the album from that song, stock WPS
+wait 2000
+shot wps            # elapsed time moves (timing-sensitive)
+
+key MENU            # back to the album view
+wait 800
+shot back           # header play glyph
+
+quit

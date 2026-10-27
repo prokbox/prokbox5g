@@ -1,0 +1,91 @@
+# Phase 8b-4a (owner device bug, #73 follow-up): Music <-> Audiobooks drift
+# swaps on the Music menu, stopped / playing / paused. A set switch must
+# never leave the panel plain: before the fix, Books (a wake read) ->
+# Music within the disk's awake hold -> Books deferred for ever while
+# paused (load_first()'s woke_set went stale). Asserted by check_trace.py
+# "panelset" (no why=empty line) and "driftrepeat".
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p8b-drift-swap.script
+# trace: panelset driftrepeat
+# needs: library
+# golden: skip st_music0 st_books1 st_music2 st_books3 pl_music0 pl_books1 pl_music2 pl_books3 pl_music4 pa_music0 pa_books1 pa_music2 pa_books3 pa_music4 pa_books5_fast pa_music6 usb_books7
+# timeout: 300
+wait 4000
+wait_db 30000
+art_wait 120000
+sim_clock 15:04
+clock_format 24
+battery 100
+drift_phase 0
+key SELECT          # Music menu, Playlists
+wait 2500
+shot st_music0
+wheel +6
+wait 3000
+shot st_books1
+wheel -6
+wait 3000
+shot st_music2
+wheel +6
+wait 3000
+shot st_books3
+key MENU
+wait 1000
+wheel +4            # Shuffle Songs
+wait 400
+key SELECT
+wait 2000
+key MENU
+wait 700
+wheel -4
+wait 800
+key SELECT          # Music menu, playing
+wait 4000
+shot pl_music0
+wheel +6
+wait 3000
+shot pl_books1
+wheel -6
+wait 3000
+shot pl_music2
+wheel +6
+wait 3000
+shot pl_books3
+wheel -6
+wait 3000
+shot pl_music4
+key PLAY            # pause
+wait 4000
+shot pa_music0
+wheel +6
+wait 3000
+shot pa_books1
+wheel -6
+wait 3000
+shot pa_music2
+wheel +6
+wait 3000
+shot pa_books3
+wheel -6
+wait 3000
+shot pa_music4
+wheel +6
+wait 300
+wheel -6
+wait 300
+wheel +6
+wait 3000
+shot pa_books5_fast
+wheel -6
+wait 3000
+shot pa_music6
+# review M2: USB moves panels.pak's sequence, so the kept Audiobooks cover
+# is checked by key again (storage awake after USB) or dropped, never
+# swapped in stale
+usb_connect
+wait 1500
+usb_disconnect
+wait 3000
+wheel +6
+wait 3000
+shot usb_books7
+quit

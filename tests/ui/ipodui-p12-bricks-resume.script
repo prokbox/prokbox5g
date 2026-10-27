@@ -1,0 +1,36 @@
+# P12 W4 (docs/design/sdk.md 8.2, 13.3): a game in progress survives a
+# long MENU out: back in, the same bricks and score under the pause
+# menu, the ball still; Resume carries on from there.
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-bricks-resume.script
+# needs: modules
+# reset: mainmenu
+
+wait 4000
+sdk_clear            # a fresh game
+wheel +2             # Extras
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Games
+wait 600
+key SELECT
+wait 1200
+shot games           # the Games list, Bricks first
+wait 600
+key SELECT           # Bricks
+wait 800
+key SELECT           # launch
+wait 2500
+shot before
+hold MENU 900        # out: the state is written
+wait 1500
+shot games
+key SELECT           # Bricks again
+wait 1500
+shot resumed
+wait 1500
+shot still_paused
+key SELECT           # Resume
+wait 600
+shot playing
+quit

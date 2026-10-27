@@ -1,0 +1,55 @@
+# Phase 6 (Rev 1 item 3): the two chapter-table slots. A two-book queue
+# (AB Preface Book then AB Short Book, both chaptered) crosses a file
+# boundary: Now Playing must never show the NEXT file's chapters while the
+# current one still plays ("4 of 4" and the Chapter 3 title right up to the
+# end of Preface, "1 of 2" / "Opening" right after). The writer alternates
+# slots (never the one the playing id3 references): check_trace.py's
+# slot-alternation rule over the "ab slot w=" lines.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p6-slots.script
+# needs: library
+# needs: ab
+# timeout: 120
+# trace: ab
+# trace: np
+# ab-slots: strict
+# log: ab slot w=
+# log: ab slot read slot=
+# golden: skip before_end after_end
+# DB state: ready. Needs M (slots, AB_TR_SLOT_W), B (reader) and U.
+
+wait 4000
+wait_db 45000
+mkdir /Audiobooks/AB
+copy ../../build/ab-fixtures/pref.m4b /Audiobooks/AB/pref.m4b
+copy ../../build/ab-fixtures/short.m4b /Audiobooks/AB/short.m4b
+update_db_wait_change 60000
+art_wait 60000
+
+play_files /Audiobooks/AB/pref.m4b /Audiobooks/AB/short.m4b
+wait 1000
+key SELECT          # Music (the main menu re-reads "Now Playing")
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 1200
+shot start          # "1 of 4", Preface
+key NEXT
+wait 600
+key NEXT
+wait 600
+key NEXT            # Chapter 3 starts at 70 s: 20 s to the end of the file
+wait 1000
+shot ch3            # "4 of 4"
+wait_pos 86000 120000 pref.m4b   # ~4 s before the file ends: buffer-ahead has run
+shot before_end     # still "4 of 4": the next file's chapters are not shown
+wait_index 2 60000  # the second book plays
+wait 1500
+shot after_end      # "1 of 2", "Opening"
+audio_stop
+wait 500
+remove /Audiobooks/AB/pref.m4b
+remove /Audiobooks/AB/short.m4b
+quit

@@ -1,0 +1,30 @@
+# Phase 8a (docs/phase8a-brief.md 3.4, 7.5): the boot escape. RIGHT held at
+# power-on opens the Developer list before the shell has reserved anything
+# (apps/main.c, HAVE_IPOD_UI_DEVMODE: button_status() & BUTTON_RIGHT).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p8a-devmode-boot.script
+# needs: library
+# boot_keys: RIGHT 2500
+# trace: devmode
+# log: devmode enter
+# log: devmode exit
+# golden-region: developer 0 8 320 240
+#   (the stock status bar's clock, rows 0-6, reads the host RTC, which
+#   sim_clock does not pin: rows 0-7 are skipped, the "Developer" title
+#   from its top row 8 on is compared)
+#
+# The `boot_keys` header holds RIGHT for 2.5 s from the sim's first button
+# poll (IPODUI_SIM_BOOT_KEYS, button-sdl.c); an enter with no arm is
+# allowed in a boot_keys script. Back from the list continues into the
+# shell's main menu. Needs P (main.c boot escape) and U2 (devmode.c);
+# PENDING until both land. If the main.c check runs later than 2.5 s
+# after the first poll in the sim, raise the hold here (and say so).
+# env: SIM_TRACE_LCD_PUSH=1
+
+wait 2000
+shot developer      # the stock list before the shell starts
+wheel -1            # the Back row, the last (MENU is not cancel in the stock lists)
+wait 400
+key SELECT          # Back
+wait 3000
+shot main           # the shell's main menu
+quit

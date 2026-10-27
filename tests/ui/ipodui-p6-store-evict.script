@@ -1,0 +1,85 @@
+# Phase 6 (Rev 1 item 11, D10): past 2,048 books the store evicts the oldest
+# FINISHED record, then the oldest STARTED. A full books.dat (2,048 records,
+# the 2 oldest FINISHED; tests/fixtures/ab/mkstore.c, sealed with the real
+# ab_store_core.c) is installed after the first boot's shutdown; each of three
+# new books then evicts one record: 00a00000 and 00a00003 (FINISHED), then
+# 00a00006 (the oldest STARTED). The valid-record count stays 2,048.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p6-store-evict.script
+# needs: library
+# needs: ab
+# timeout: 150
+# trace: ab
+# log: ab store evict book=00a00000
+# log: ab store evict book=00a00003
+# log: ab store evict book=00a00006
+# golden: skip done
+# DB state: ready. Needs B. Rows: 1 AB No Chapters, 2 AB Preface, 3 AB Short.
+
+wait 4000
+wait_db 45000
+ab_copy_at_exit ../../build/ab-fixtures/store_full.dat /.rockbox/artcache/books.dat
+reboot
+
+wait 4000
+wait_db 45000
+mkdir /Audiobooks/AB
+copy ../../build/ab-fixtures/nochap.m4b /Audiobooks/AB/nochap.m4b
+copy ../../build/ab-fixtures/pref.m4b /Audiobooks/AB/pref.m4b
+copy ../../build/ab-fixtures/short.m4b /Audiobooks/AB/short.m4b
+update_db_wait_change 60000
+art_wait 60000
+expect_ab_store 2046 2 3000      # the installed store was loaded
+key SELECT
+wait 800
+wheel +6 300   # Audiobooks (Compilations off: P11)
+wait 400
+key SELECT
+wait 900
+wheel +1 300
+wait 400
+key SELECT          # the book page
+wait 1000
+key SELECT
+wait 3500
+key PLAY            # pause: the record is written now
+wait 800
+expect_ab_store 2047 1 3000      # evicted a00000 (FINISHED)
+hold MENU 1000
+wait 1200
+key SELECT
+wait 800
+wheel +6 300   # Audiobooks (Compilations off: P11)
+wait 400
+key SELECT
+wait 900
+wheel +2 300
+wait 400
+key SELECT          # the book page
+wait 1000
+key SELECT
+wait 3500
+key PLAY            # pause: the record is written now
+wait 800
+expect_ab_store 2048 0 3000      # evicted a00003 (FINISHED)
+hold MENU 1000
+wait 1200
+key SELECT
+wait 800
+wheel +6 300   # Audiobooks (Compilations off: P11)
+wait 400
+key SELECT
+wait 900
+wheel +3 300
+wait 400
+key SELECT          # the book page
+wait 1000
+key SELECT
+wait 3500
+key PLAY            # pause: the record is written now
+wait 800
+expect_ab_store 2048 0 3000      # evicted a00006 (the oldest STARTED)
+shot done           # shots.sh needs one shot (not a golden)
+remove /Audiobooks/AB/nochap.m4b
+remove /Audiobooks/AB/pref.m4b
+remove /Audiobooks/AB/short.m4b
+quit

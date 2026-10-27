@@ -1,0 +1,97 @@
+# Phase 11 hold-SELECT menu from lists (docs/phase11-brief.md section
+# 3.3, U1; owner photo hold-select-popup-np-b): a full-screen ordinary
+# list under the normal header, no chevrons, Cancel last. A song gets
+# Add to On-The-Go / Browse Album / Browse Artist / Cancel; an album row
+# Add to On-The-Go / Cancel; a podcast episode no Browse items (Rev 1
+# L-6). The release of the opening hold never acts (Add stays unpressed:
+# the menu is still up after it). Adding never touches the playing queue
+# (⚠️ H3): nothing plays before or after.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p11-hold-list.script
+# needs: library
+# golden: skip
+# log: hold open ctx=song items=77
+# log: hold open ctx=group items=65
+# log: hold act add
+# log: hold act album
+# log: hold act artist
+# log: hold act cancel
+#
+# items = the ui_hold_items() mask: Add 1, Remove 2, Browse Album 4,
+# Browse Artist 8, Cancel 16. The store is L's (otg.c); the adds are
+# checked with otg_dump once it lands.
+
+wait 4000           # boot to the main menu, "Music" selected
+wait_db 30000
+
+key SELECT          # Music
+wait 800
+wheel +3 300        # "Songs"  [Compilations off: P11]
+wait 400
+key SELECT
+wait 800
+wheel +2 300        # the third song
+wait 400
+hold SELECT 1500    # the hold menu; its own release is dropped
+wait 600
+shot hold_song      # Add to On-The-Go (selected) / Browse Album /
+                    # Browse Artist / Cancel; header "Songs"
+key SELECT          # Add to On-The-Go
+wait 800
+shot added          # back on Songs, the same row selected, no splash
+expect_queue 0 -    # nothing plays: Add never builds a queue
+
+hold SELECT 1500
+wait 600
+wheel +1 300        # Browse Album
+wait 400
+key SELECT
+wait 800
+shot browse_album   # the song's album, its title in the header
+key MENU            # back to Songs (the menu has left)
+wait 800
+shot back_songs
+
+hold SELECT 1500
+wait 600
+wheel +2 300        # Browse Artist
+wait 400
+key SELECT
+wait 800
+shot browse_artist  # the artist's albums, "All Songs" first
+key MENU
+wait 800
+key MENU            # Music
+wait 800
+
+wheel -2 300        # "Albums"
+wait 400
+key SELECT
+wait 800
+hold SELECT 1500    # an album row
+wait 600
+shot hold_group     # Add to On-The-Go / Cancel
+wheel +1 300        # Cancel
+wait 400
+key SELECT
+wait 800
+shot cancelled      # back on Albums
+key MENU            # Music
+wait 800
+key MENU            # main menu
+wait 800
+
+wheel +1            # "Podcasts"
+wait 400
+key SELECT
+wait 800
+key SELECT          # "Signal Hour": its episodes
+wait 800
+hold SELECT 1500
+wait 600
+shot hold_episode   # Add to On-The-Go / Cancel: no Browse items
+key MENU            # MENU pops the menu like Cancel
+wait 800
+shot episodes       # dots, no progress bar (⚠️ P1)
+
+otg_dump
+quit

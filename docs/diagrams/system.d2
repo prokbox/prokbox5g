@@ -1,0 +1,130 @@
+# ProkBox hardware manual: the whole-system block diagram.
+# Facts: docs/hardware.md; docs/bcm2722-reference/{overview,memory-map,memory-access,host-interface,audio,lcd}.md;
+# firmware/export/config/ipodvideo.h; firmware/export/pp5020.h; firmware/target/arm/ipod/*.c.
+...@style
+
+legend: @legend
+legend.near: bottom-right
+direction: right
+
+title: |md
+  # iPod Video 5.5G (ProkBox unit): system block diagram
+  PP5022 host · BCM2722 video co-processor · WM8758 audio · PCF50605 power. Mods: 1 TB flash, USB-C, 3000 mAh battery, haptics
+| {class: title; near: top-center}
+
+storage: "Storage & USB" {
+  class: stor
+  direction: down
+  usbc: "USB-C receptacle (mod)\nUSB 2.0 data + charging" {class: storb}
+  flash: "1 TB flash (iFlash-style)\nseen as an ATA disk\nLBA48 · UDMA2 negotiated · FAT32" {class: storb}
+}
+
+power: Power {
+  class: power
+  direction: down
+  charger: "Charger\n(part not documented)" {class: hyp}
+  battery: "Battery 3000 mAh (mod)\nlevel from voltage only" {class: powerb}
+  pmu: "PCF50605 PMU\nregulators · RTC + alarm\n10-bit ADC (battery mV)" {class: powerb}
+}
+
+pp: "Main processor: PortalPlayer PP5022" {
+  class: pp
+  direction: down
+  cores: "CPU + COP: 2 × ARM7TDMI, 30 / 80 MHz\nIRAM 128 KB · cache · DMA · timers" {class: ppb}
+  ata: "ATA (IDE)\n0xC300_0000" {class: ppb}
+  usb: "USB OTG (ARC)\n0xC500_0000" {class: ppb}
+  i2c: "I²C master\n0x7000_C000" {class: ppb}
+  i2s: "I²S (slave)\n0x7000_2800" {class: ppb}
+  wheel: "Wheel serial\n0x7000_C100" {class: ppb}
+  pwm: "PWM0 (piezo)\n0x7000_A000" {class: ppb}
+  gpio: "GPIO · GPO32\n0x6000_D000" {class: ppb}
+  bcmport: "BCM port window\n0x3000_0000–0x3007_FFFF" {class: ppb}
+}
+
+sdram: "SDRAM 64 MB\n(detected at run time;\n32 MB variant supported)" {class: mem}
+
+input: Input {
+  class: input
+  direction: down
+  wheelc: "Click wheel controller\nwheel + 5 buttons" {class: inputb}
+  haptic: "Haptic motor (mod)\non the piezo line\n[owner: most likely]" {class: hyp}
+}
+
+audio: Audio {
+  class: audio
+  direction: down
+  codec: "WM8758 codec\nI²S clock master\nDAC · headphone amp" {class: audiob}
+  hp: "Headphone jack (detect)\nthe only audio output" {class: audiob}
+  dock: "30-pin dock line-out\nremoved on this unit\n(HAVE_IPOD_DOCK30 off)" {class: absent}
+}
+
+bcm: "Video co-processor: Broadcom BCM2722 (VideoCore II)" {
+  class: bcm
+  hif: "Host interface\n16-bit async · 2 banks" {class: bcmb}
+  core: "VideoCore II core + VPU\n27 MHz xtal · 150 MHz PLL\nDMA engine: 8 channels" {class: bcmb}
+  sram: "SRAM 1.25 MB\n0x0000_0000" {class: bcmb}
+  bsdram: "SDRAM 4 MB (stacked)\ncore 0xFE00_0000\nhost 0xC000_0000" {class: bcmb}
+  lcdif: "LCD interface (8080)\n0x1000_4000 · DMA ch 1" {class: bcmb}
+  aud: "Audio block\n0x1000_4800 · DMA ch 5\nGPIO 1–3" {class: bcmb}
+  tvout: "TV out\n0x1000_2C04 · DMA ch 6" {class: bcmb}
+  hif -> sram {class: data}
+  hif -> bsdram {class: data}
+  sram <-> core {class: data}
+  bsdram <-> core {class: data}
+  core -> lcdif {class: data}
+  core -> aud {class: data}
+  core -> tvout {class: data}
+}
+
+display: Display {
+  class: mem
+  direction: down
+  panel: "LCD panel 320 × 240\nRGB565 · controller ID 3\nbacklight from the PP" {class: memb}
+  tv: "TV output\n(routing not documented)" {class: absent}
+}
+
+# ---- storage, USB, power ---------------------------------------------------
+storage.flash <-> pp.ata: "ATA, UDMA2 (≈ 21 MB/s)" {class: data}
+storage.usbc <-> pp.usb: "USB 2.0 HS" {class: data}
+storage.usbc -> power.charger: "VBUS" {class: pwr}
+power.charger -> power.battery: "charge" {class: pwr}
+power.battery -> power.pmu: "supply" {class: pwr}
+power.charger -> pp.gpio: "charging status" {class: ctl}
+power.pmu <-> pp.i2c: "I²C 0x08: ADC, RTC" {class: ctl}
+
+# ---- memory ---------------------------------------------------------------
+pp.cores <-> sdram: "SDRAM bus" {class: data}
+
+# ---- audio -----------------------------------------------------------------
+pp.i2c -> audio.codec: "I²C 0x1A: volume" {class: ctl}
+audio.codec -> pp.i2s: "BCLK, LRCK" {class: clk}
+pp.i2s -> audio.codec: "I²S data" {class: data}
+audio.codec -> audio.hp: "analogue" {class: data}
+audio.codec -> audio.dock {class: hypedge}
+
+# ---- input -----------------------------------------------------------------
+input.wheelc -> pp.wheel: "wheel serial" {class: data}
+pp.pwm -> input.haptic: "click pulses" {class: hypedge}
+
+# ---- BCM -------------------------------------------------------------------
+pp.bcmport <-> bcm.hif: "16-bit host port" {class: data}
+pp.gpio -> bcm.core: "power (GPO32 b14)" {class: ctl}
+bcm.core -> pp.gpio: "IRQ (GPIO 23 → C6)" {class: ctl}
+bcm.lcdif -> display.panel: "8080 parallel" {class: data}
+bcm.tvout -> display.tv: "PAL / NTSC" {class: hypedge}
+
+# the shared I2S clocks [silicon S32-S34] and the BCM's data pin [hypothesis]
+audio.codec -> bcm.aud: "BCLK, LRCK → GPIO 2, 3\n[silicon S32–S34]" {class: clk}
+bcm.aud -> audio.codec: "GPIO 1 data, own net\n[hypothesis]" {class: hypedge}
+
+
+foot: |md
+  **Sources:** docs/hardware.md · docs/bcm2722-reference/ (overview, memory-map, memory-access, host-interface, audio, lcd)
+
+  firmware/export/config/ipodvideo.h · firmware/export/pp5020.h · firmware/target/arm/ipod/ (I²C addresses 7-bit)
+
+  **Evidence:** tags as in the BCM2722 manual. [silicon Sn] measured on this unit in session n; [hypothesis] unverified.
+
+  Not in the docs: the charger part and the TV-out connector routing.
+| {class: foot; near: bottom-center}
+

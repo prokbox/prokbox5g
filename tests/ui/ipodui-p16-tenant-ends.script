@@ -1,0 +1,52 @@
+# P16 gate fix (item 3): every holder of the paused window's memory is
+# its own tenant. A database queue's transient (dbq) and a commit take
+# the same window; the commit then ends (as a commit that no longer fits
+# does: maint_done(MAINT_COMMIT, false)). That never ends the queue's
+# tenancy: no regrow while it still holds its memory, and once it is
+# done the regrow gives every byte back (the audio buffer returns to
+# its size before the takes). Before the fix the commit's end cleared
+# the shared bit, the regrow ran early and the queue's ~400 KB stayed
+# out of the audio buffer for the rest of the pause.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-tenant-ends.script
+# needs: library
+# needs: ab
+# golden: skip
+# timeout: 200
+# log: maint hold job=dbq ok=1 alloc=1
+# log: maint hold job=commit ok=1 alloc=1
+# logbetween: t0 t1 maint job=commit ok=0
+# logbetween: t0 t1 no maint take job=regrow
+# logbetween: t1 end maint job=dbq ok=1
+# logbetween: t1 end maint take job=regrow ok=1
+# log: expect_audio_back ok
+# nolog: give refused
+# nolog: restart FAILED
+
+wait 4000
+wait_db 45000
+mkdir /Audiobooks/E16
+copy ../../build/ab-fixtures/pref.m4b /Audiobooks/E16/pref.m4b
+update_db_wait_change 60000
+play_files /Audiobooks/E16/pref.m4b
+wait_pos 3000 60000
+snapshot_pause
+expect_paused 500
+backlight_expire            # dark
+pause_age 200               # and old: the window opens
+wait 3000
+audio_mark                  # the buffer before the takes
+maint_hold dbq 400000       # a queue's transient: one shrink
+wait 1000
+maint_hold commit 300000    # a commit's: a second shrink
+wait 1000
+ab_mark t0
+maint_drop commit 0         # the commit ends (no longer fits)
+wait 4000                   # the queue still holds: no regrow
+ab_mark t1
+maint_drop dbq 1            # the queue is done
+expect_audio_back 10000     # the regrow gives it all back
+expect_paused 500
+shot done
+key MENU
+wait 1000
+quit

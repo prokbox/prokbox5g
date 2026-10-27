@@ -595,6 +595,19 @@ void volume_recalc_free(IF_MV_NONVOID(int volume))
     disk_writer_unlock();
 }
 
+#ifdef HAVE_IPOD_UI
+/* #81: the free count recalculated and FSInfo written back (the writer
+ * lock held, as volume_recalc_free) */
+void volume_recalc_free_commit(IF_MV_NONVOID(int volume))
+{
+    if (!CHECK_VOL(volume))
+        return;
+    disk_writer_lock();
+    fat_recalc_free_commit(IF_MV(volume));
+    disk_writer_unlock();
+}
+#endif
+
 unsigned int volume_get_cluster_size(IF_MV_NONVOID(int volume))
 {
     if (!CHECK_VOL(volume))

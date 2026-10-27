@@ -1,0 +1,49 @@
+session build=p19-s4c date=2026-10-27 10:00 steps=25 mode=reverify image=218660 fnv=cd8e5d96 kind=merged
+step=pre result=start
+step=pre log=pre: stage 4 and 5 pass flags and the display driver: PASS
+step=pre result=pass answer=- ms=20 note=pre: stage 4 and 5 pass flags and the display driver: PASS
+step=s05 result=skip answer=- ms=0 note=not needed: the stage 5 flag is there
+step=boot result=skip answer=- ms=0 note=not needed: the display driver runs
+step=jobs result=start
+step=jobs log=jobs: self-test rc 0
+step=jobs result=pass answer=- ms=40 note=jobs: self-test rc 0
+step=jvpu result=start
+step=jvpu log=jvpu: J_VPU 3, expected 3 (merged image; checked 1, shift 1, MAC 0) at block 000de000
+step=jvpu result=pass answer=- ms=400 note=jvpu: J_VPU 3, expected 3 (merged image; checked 1, shift 1, MAC 0) at block 000de000
+step=c1 result=start
+step=c1 result=pass answer=- ms=3000 note=C1: PASS
+step=s4b result=start
+step=s4b result=pass answer=- ms=60000 note=
+step=s4c result=start
+step=s4c result=pass answer=Yes ms=30000 note=
+step=b3 result=start
+step=b3 result=pass answer=Yes ms=0 note=
+resume after=b3
+step=respanel result=start
+step=respanel result=pass answer=Sharp,_steady ms=0 note=
+resume after=respanel
+step=uviz result=start
+step=uviz result=pass answer=Smooth ms=0 note=
+resume after=uviz
+step=b13 result=start
+step=b13 result=pass answer=No ms=9000 note=Warm swap: PASS
+step=b5 result=start
+step=b5 result=pass answer=Yes ms=15000 note=Window push: PASS
+step=s6 result=start
+step=s6 result=fail answer=No_picture ms=26000 note=stage 6 FAIL
+step=vfeed result=skip answer=- ms=0 note=auto-skip: needs s6 (fail)
+step=s7 result=skip answer=- ms=0 note=auto-skip: needs s6 (fail)
+step=vbv result=skip answer=- ms=0 note=auto-skip: needs s6 (fail)
+step=vgov result=skip answer=- ms=0 note=auto-skip: needs s6 (fail)
+step=vplay result=skip answer=- ms=0 note=auto-skip: needs s6 (fail)
+step=ucop result=start
+step=ucop log=restart asked: wall=1793100000
+step=ucop log=ucop: the UI runs cpu after the restart, not on the COP (refused or fell back: fe lines)
+step=ucop result=fail answer=- ms=0 note=ucop: the UI runs cpu after the restart, not on the COP (refused or fell back: fe lines)
+resume after=ucop
+step=uck1 result=skip answer=- ms=0 note=auto-skip: needs ucop (fail)
+step=uck2 result=skip answer=- ms=0 note=auto-skip: needs ucop (fail)
+step=ufeel result=skip answer=- ms=0 note=auto-skip: needs ucop (fail)
+step=upanel result=skip answer=- ms=0 note=auto-skip: needs ucop (fail)
+step=ucop2 result=skip answer=- ms=0 note=auto-skip: needs ucop (fail)
+end passed=11 failed=2 skipped=12

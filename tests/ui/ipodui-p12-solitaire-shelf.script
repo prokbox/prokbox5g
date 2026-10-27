@@ -1,0 +1,125 @@
+# Solitaire's shelves and card faces (owner, 2026-10-25; games.md 5.1).
+# The wheel slides the cursor along a shelf: the top one (stock, waste,
+# four foundations) left to right clockwise, then on from its right end
+# to the left end of the bottom one (the seven tableau piles), like
+# reading lines. Every card shows its rank top left and its suit top
+# right, both in the strip a stacked card keeps showing.
+# The simulator's fixed deal: 2 of diamonds (pile 3) onto the 3 of
+# spades (pile 4), 9 of spades (pile 1) onto the 10 of diamonds, two
+# draws, the 9 of hearts onto the 10 of clubs (pile 5), the 8 of spades
+# (pile 2) onto it: pile 2 turns up the 4 of hearts. Then a run: SELECT
+# on pile 4 picks up its whole face-up run (3 of spades, 2 of diamonds;
+# the gold frame); over the empty pile 1 nothing fits (the cursor turns
+# grey); over the 4 of hearts the run fits (blue) and SELECT drops it.
+# Five more draws put the ace of clubs on the waste; a double press
+# sends it home; the pause menu's Undo takes it back.
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-solitaire-shelf.script
+# needs: modules
+# timeout: 120
+# reset: mainmenu
+
+wait 4000
+sdk_clear            # a fresh deal (the simulator deals from a fixed seed)
+wheel +2             # Extras
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Games
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Solitaire
+wait 600
+key SELECT
+wait 1500
+shot deal            # the cursor on the stock
+wheel +5 500         # along the top shelf to the last foundation
+wait 500
+shot top_end
+wheel +1 300         # past its end: the tableau's first pile
+wait 500
+shot bottom_start
+wheel -1 300         # and back up
+wait 400
+wheel +3 400         # pile 3
+wait 400
+key SELECT           # pick up the 2 of diamonds
+wait 400
+wheel +1 300         # pile 4
+wait 400
+key SELECT           # 2 on the 3; pile 3 turns up the 10 of diamonds
+wait 500
+wheel -3 500         # pile 1
+wait 400
+key SELECT
+wait 400
+wheel +2 400         # pile 3
+wait 400
+key SELECT           # 9 of spades on the 10 of diamonds; pile 1 empty
+wait 500
+wheel -8 800         # the stock
+wait 400
+key SELECT
+wait 400
+key SELECT           # two draws: the 9 of hearts on top of the waste
+wait 500
+wheel +1 300         # the waste
+wait 400
+key SELECT
+wait 400
+wheel +9 900         # pile 5
+wait 400
+key SELECT           # 9 of hearts on the 10 of clubs
+wait 500
+wheel -3 500         # pile 2
+wait 400
+key SELECT
+wait 400
+wheel +3 500         # pile 5
+wait 400
+key SELECT           # 8 of spades on the 9; pile 2 turns up the 4 of hearts
+wait 600
+shot stacked         # a column reads card by card: rank left, suit right
+wheel -1 300         # pile 4: the frame covers its run
+wait 500
+shot run_spot
+key SELECT           # pick up the run (gold)
+wait 500
+shot run_held
+wheel -3 500         # pile 1, empty: nothing fits (grey cursor)
+wait 500
+shot run_nofit
+wheel +1 300         # pile 2: the 4 of hearts takes the run
+wait 500
+shot run_fits
+key SELECT           # drop: 4, 3, 2 on pile 2; pile 4 turns a card up
+wait 600
+shot run_dropped
+wheel -7 800         # the stock
+wait 400
+key SELECT
+wait 400
+key SELECT
+wait 400
+key SELECT
+wait 400
+key SELECT
+wait 400
+key SELECT           # five more: the ace of clubs on the waste
+wait 600
+wheel +1 300         # the waste
+wait 500
+shot ace
+key SELECT
+wait 100
+key SELECT           # double press: the ace to a foundation
+wait 700
+shot home
+key MENU             # the pause menu
+wait 600
+wheel +2 400         # Undo
+wait 400
+key SELECT
+wait 800
+shot undone          # the ace back on the waste
+quit

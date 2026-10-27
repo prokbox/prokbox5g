@@ -34,6 +34,10 @@
 #include "font.h"
 #ifndef BOOTLOADER
 #include "misc.h" /* get_current_activity */
+#ifdef HAVE_IPOD_UI
+#include "ipodui/devmode.h" /* ipodui_stock_ui_allowed() */
+#include "ipodui/uilog.h"
+#endif
 #endif
 
 static long progress_next_tick, talked_tick;
@@ -87,7 +91,16 @@ static bool splash_internal(struct screen * screen, const char *fmt, va_list ap,
     static int max_width[NB_SCREENS] = {0};
     static int max_height[NB_SCREENS] = {0};
 #ifndef BOOTLOADER
+#ifdef HAVE_IPOD_UI
+    /* Phase 8b-T (T3): only the developer UI draws a splash in the shell
+     * (the funnel in splashf() returns first otherwise), so the buffer
+     * lives on the caller's stack, as in the bootloader: 2,121 B of bss
+     * freed. Stack peaks with it: docs/hardware.md budget table,
+     * "Thread stacks with a splash". */
+    char splash_buf[MAXBUFFER];
+#else
     static char splash_buf[MAXBUFFER] = {0};
+#endif
     static enum current_activity last_act = ACTIVITY_UNKNOWN;
     enum current_activity act = get_current_activity();
 
@@ -375,6 +388,18 @@ void splashf(int ticks, const char *fmt, ...)
     /* If fmt is a lang ID then get the corresponding string (which
        still might contain % place holders). */
     fmt = P2STR((unsigned char *)fmt);
+#ifdef HAVE_IPOD_UI
+    /* Phase 8a funnel: the shell never shows a stock splash; it is logged
+     * (ui_log collapses same-fmt repeats within 1 s). Only devmode passes. */
+    if (!ipodui_stock_ui_allowed())
+    {
+        va_start(ap, fmt);
+        ui_log_va("splash-suppressed", fmt, ap);
+        va_end(ap);
+        return;                         /* no draw, no sleep (D1) */
+    }
+    ui_log("splash-pass", "%s", fmt);
+#endif
     FOR_NB_SCREENS(i)
     {
         struct screen * screen = &(screens[i]);
@@ -408,6 +433,19 @@ void splash_progress(int current, int total, const char *fmt, ...)
     /* progress update tick */
     long now = current_tick;
 
+#ifdef HAVE_IPOD_UI
+    /* Phase 8a funnel: log only the first and the last step */
+    if (!ipodui_stock_ui_allowed())
+    {
+        if (current == 0 || current >= total)
+        {
+            va_start(ap, fmt);
+            ui_log_va("splash-suppressed", P2STR((unsigned char *)fmt), ap);
+            va_end(ap);
+        }
+        return;
+    }
+#endif
     if (current < total)
     {
         if(TIME_BEFORE(now, progress_next_tick))

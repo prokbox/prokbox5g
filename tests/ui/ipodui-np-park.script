@@ -1,0 +1,124 @@
+# npfix end review: the art builder's park at a decoder yield point while
+# Now Playing is lit (artcache.c art_gate()). A slow decode
+# ("art_decode_spin") is caught by the user coming back, then:
+#  M1  the parked builder takes its queue: a flood of the builder's own
+#      posts (raw, more than QUEUE_LENGTH, and through art_post()) never
+#      overflows it, and the park holds;
+#  M2  a battery monitor broadcast (SYS_BATTERY_UPDATE) is dropped: the
+#      park holds (only USB, a power-off or a reboot end it);
+#  M3  on a charger, once INPUT_QUIET has run out with Now Playing lit,
+#      the park holds (user_idle() alone would release it);
+#  M4  Now Playing's 5 s fallback with the drive off: the art thread's
+#      read held back ("art_npf_hold"), NEXT twice: no UI-thread file
+#      call (the npstall "uiio" rule), the placeholder stays and the
+#      request goes out again; the copy lands once the hold ends;
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-np-park.script
+# needs: library
+# needs: np
+# trace: npstall
+# log: art park ms=
+# log: expect_art_parked ok: 1
+# log: art flood n=40
+# log: sys_battery_update
+# log: np art npf timeout disk=0
+# log: art npf take
+# log: stor_watch_ui on
+# nolog: expect_art_parked failed
+# nolog: queue_post ovf
+# nolog: splash-pass
+# nolog: unavailable
+# fulls-extra: 6   (the main menu's Now Playing row at each play and stop; the wakes)
+# golden: skip parked fallback
+# timeout: 300
+
+wait 3000
+wait_db 30000
+art_wait 120000
+charger off
+repeat all
+sim_clock 15:08
+
+wheel +4                # "Shuffle Songs"
+wait 500
+key SELECT              # plays; Now Playing is pushed
+wait 3000
+
+# --- a decode caught by the user coming back --------------------------------
+rm_file /.rockbox/artcache/index.dat
+rm_file /.rockbox/artcache/index.prev
+rm_file /.rockbox/artcache/thumbs.pak
+art_decode_spin 10000   # 10 ms of decode between yield points
+backlight_expire        # the face: the user idle, the builder may run
+art_request             # a pass of every album, during playback
+wait 1500               # a decode under way
+key MENU                # back: the builder parks at its next yield point
+expect_art_parked 1 3000
+
+# --- M1: posts during the park ----------------------------------------------
+art_post_flood 40       # 80 raw posts, then 40 x 3 through art_post()
+wait 4000               # parked: the clock steps on
+expect_art_parked 1 500
+shot parked
+
+# --- M2: a battery update during the park -------------------------------------
+sys_battery_update
+wait 1000
+expect_art_parked 1 500
+
+# --- M3: lit on a charger -----------------------------------------------------
+charger on
+wait 4000               # INPUT_QUIET (2 s) runs out, the screen still lit
+expect_art_parked 1 500
+charger off
+
+# --- M4: the fallback with the drive off -------------------------------------
+art_decode_spin 0
+expect_playing 300
+audio_stop
+wait 1500               # Now Playing pops itself: the main menu
+mkdir /NPPark
+copy ../../build/np-fixtures/art_23.mp3 /NPPark/a.mp3
+copy ../../build/np-fixtures/art_169.mp3 /NPPark/b.mp3
+update_db_wait_change 60000
+art_wait 120000
+stor_tune 2000 1000     # hold 2 s, min off 1 s
+stor_pwrup 600
+art_npf_hold 1          # the art thread's read (and look-ahead) is late
+play_files /NPPark/a.mp3 /NPPark/b.mp3
+wait 1000
+wheel -10               # the top
+wait 300
+key SELECT              # Music
+wait 300
+key MENU                # back: the main menu gains its Now Playing row
+wait 400
+wheel +10               # "Now Playing"
+wait 300
+key SELECT
+wait 1000
+backlight_expire        # the face (dark): the drive's hold runs out
+stor_expect off 15000
+key MENU                # wakes Now Playing (the key is swallowed)
+wait 700
+stor_watch_ui on
+key NEXT                # no copy: requested, the placeholder
+wait 7500               # NP_NPF_WAIT runs out with the drive off
+stor_watch_ui off
+art_npf_hold 0          # the read lands; Now Playing takes it
+wait 2000
+shot fallback
+expect_playing 300
+audio_stop
+wait 1500
+stor_pwrup 300
+stor_tune 10000 30000
+rm_file /NPPark/a.mp3
+rm_file /NPPark/b.mp3
+update_db_wait_change 60000
+
+# --- the end ------------------------------------------------------------------
+art_request
+art_wait 120000
+key MENU                # the face (if up) dismissed
+wait 500
+quit

@@ -1,0 +1,3 @@
+This folder holds plain text notes.
+
+Drop .txt files into the Notes folder over USB and they appear here the next time the player is unplugged.

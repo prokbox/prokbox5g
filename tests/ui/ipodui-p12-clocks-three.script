@@ -1,0 +1,62 @@
+# P12 W1-C (9 "-clocks-three", Q13): three clocks fill the screen (no map);
+# a fourth scrolls the bands with the selection; the wheel walks them.
+# Tokyo is a day ahead ("Tomorrow"), the night face against the day ones.
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-clocks-three.script
+# needs: modules
+# reset: clocks
+# modclass: steady
+# log: clocks add city=42 n=2
+# log: clocks add city=79 n=3
+# log: clocks add city=85 n=4
+# reset: mainmenu
+
+wait 4000
+sim_clock 15:05
+wheel +2             # Extras
+wait 1500
+key SELECT
+wait 2500
+key SELECT           # Clocks
+wait 1500
+key SELECT           # menu
+wait 1200
+key SELECT           # Add
+wait 1200
+wheel +4             # Europe
+wait 500
+key SELECT
+wait 1200
+wheel +10            # London
+wait 500
+key SELECT
+wait 3000
+key SELECT           # menu
+wait 1200
+key SELECT           # Add
+wait 1200
+wheel +1             # Asia
+wait 500
+key SELECT
+wait 1200
+wheel +19            # Tokyo
+wait 500
+key SELECT
+wait 3000
+shot three           # New York, London, Tokyo (selected), no map
+key SELECT           # menu
+wait 1200
+key SELECT           # Add
+wait 1200
+wheel +3             # Australia
+wait 500
+key SELECT
+wait 1200
+wheel +5             # Sydney
+wait 500
+key SELECT
+wait 3000
+shot four_scrolled   # London, Tokyo, Sydney (selected)
+wheel -3             # back to New York: the bands scroll back
+wait 800
+shot four_top
+quit

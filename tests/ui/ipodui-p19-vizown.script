@@ -1,0 +1,90 @@
+# 0.8.0, sitting 4c ("the visualiser is bursty: very fast moments, then
+# slow"): the merged image's one overlay region is shared by DECODE
+# (dec-ovl.bin) and the visualizer (viz-ovl-m.bin), and the art pass
+# rebuilding every album's Now Playing box asked for DECODE's overlay at
+# each decode, evicting the visualizer's, which held its frame, reloaded
+# and was evicted again.  Now the open view owns the region and its
+# cadence (art_bcm.h art_bcm_viz_view()): the art pass waits ("art build
+# wait viz"), no DECODE load and no decode on the BCM while it is open,
+# none handed to the PP either, and on the view's close the pass resumes:
+# DECODE's overlay loads at the next decode and the deferred boxes decode
+# on the BCM.  Playing on the charger, lit and idle: the art pass runs
+# under the view (#58).
+#  start-v0  the view opens, its overlay loads (the frames held, owed);
+#  v0-v1     every album's art again (the index removed, a request): the
+#            pass waits for the view; no DECODE load, no decode, no owed
+#            hold, the bars on the BCM throughout;
+#  v1-v2     the view closes: the deferrals said once; paused (playing,
+#            Now Playing lit parks the art's CPU decodes: #58) DECODE's
+#            overlay loads and the boxes decode on the BCM.
+# Every overlay put on the UI pass is timed ("art bcm overlay pass ...
+# us="): none blocks the pass (the BCM's waits are posted and polled).
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p19-vizown.script
+# reset: mainmenu
+# reset: viz
+# needs: library
+# needs: video
+# golden: skip
+# np: viz-full
+# logbetween: start v0 bcmjob overlay load k=0 bytes=19380
+# logbetween: start v0 art bcm viz view open=1
+# logbetween: v0 v1 art build wait viz
+# logbetween: v0 v1 art bcm viz defer what=
+# logbetween: v0 v1 bcmjob submit op=0x34
+# logbetween: v0 v1 no bcmjob overlay load k=1
+# logbetween: v0 v1 no bcmjob overlay evict
+# logbetween: v0 v1 no art bcm decode key=
+# logbetween: v0 v1 no viz hold why=owed
+# logbetween: v0 v1 no art build album key=
+# logbetween: v1 v2 art bcm viz view open=0
+# logbetween: v1 v2 art chip work paused: visualizer open \(\d+ deferred\)
+# logbetween: v1 v2 bcmjob overlay load k=1 bytes=23884
+# logbetween: v1 v2 art bcm box key=[0-9a-f]+ w=\d+ h=\d+ reads=1
+# logbetween: v1 v2 art build album key=
+# logrange: 0 20000 art bcm overlay pass k=\d off=\d+ us=(\d+)
+# nolog: CPU FALLBACK
+# nolog: FAULT bcm decode overlay
+# nolog: FAULT bcm viz overlay
+# nolog: bcmjob overlay refused
+# nolog: art bcm readback bad
+# nolog: FAULT art bcm read
+# nolog: art_wait timed out
+# timeout: 400
+wait 1000
+bcm_decode on       # DECODE offered, once its overlay is in (the model)
+wait_db 30000
+art_wait 240000     # the cache complete first (index.dat there)
+battery 100
+charger on          # playing, lit and idle: the art pass may run (#58)
+repeat one
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait 1500
+key SELECT          # Music
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 1500
+key SELECT          # Scrubber
+wait 400
+key SELECT          # Rating
+wait 600
+key SELECT          # Shuffle
+wait 600
+key SELECT          # Visualizer: its overlay owed, then on the BCM
+wait 3000           # loaded; the keys' quiet (INPUT_QUIET) over
+ab_mark v0
+rm_file /.rockbox/artcache/index.dat     # every album's art again
+rm_file /.rockbox/artcache/index.prev
+art_request
+wait 15000
+shot bars
+ab_mark v1
+key SELECT          # back to Normal: the view closes
+wait 1000
+audio_pause on      # paused (playing, Now Playing lit parks the art's CPU
+art_wait 240000     # decodes, #58): the deferred work, every box on the BCM
+ab_mark v2
+quit

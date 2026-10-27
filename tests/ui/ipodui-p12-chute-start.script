@@ -1,0 +1,35 @@
+# P12 W4 (docs/design/sdk.md 13.3): Chute. SELECT on its row starts
+# a game on the pale LCD: the plane top left, every jumper position
+# printed faintly, the rower in the middle lane, the lake's waves, the
+# score, three faint miss marks and Best. Jumpers step down on the beat;
+# the wheel rows the boat a lane per step (left, then right twice).
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-chute-start.script
+# needs: modules
+# reset: mainmenu
+
+wait 4000
+sdk_clear            # a fresh game
+wheel +2             # Extras
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Games
+wait 600
+key SELECT
+wait 1200
+wheel +2             # Chute, below Bricks and Chess
+wait 600
+key SELECT           # Chute
+wait 800
+shot start
+wait 1300
+shot falling
+wheel -1 100         # the boat a lane left
+wait 300
+shot left
+wheel +2 150         # two lanes right
+wait 300
+shot right
+wait 3000
+shot later
+quit

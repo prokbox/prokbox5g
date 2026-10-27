@@ -29,6 +29,17 @@ CODEC_HEADER
 #define MPA_SYNTH_ON_COP
 #endif
 
+#if defined(MPA_SYNTH_ON_COP) && defined(HAVE_IPOD_UI)
+/* ProkBox P19 19-1c (iii): the synthesis runs inline when playback says
+   this run keeps to one core (ci->cop_assist false: the default, decoding
+   pinned to the CPU). Read at each run's start; the COP thread stays,
+   idle, for a later run of a developer A/B mode */
+static bool synth_inline;
+#define SYNTH_INLINE()  synth_inline
+#else
+#define SYNTH_INLINE()  false
+#endif
+
 static struct mad_stream stream IBSS_ATTR;
 static struct mad_frame frame IBSS_ATTR;
 static struct mad_synth synth IBSS_ATTR;
@@ -148,7 +159,7 @@ static void init_mad(void)
     ci->memset(&synth , 0, sizeof(struct mad_synth));
 
 #ifdef MPA_SYNTH_ON_COP
-    frame.sbsample_prev = &sbsample_prev;
+    frame.sbsample_prev = SYNTH_INLINE() ? &sbsample : &sbsample_prev;
     frame.sbsample      = &sbsample;
 #else
     frame.sbsample_prev = &sbsample;
@@ -299,6 +310,8 @@ static void mad_synth_thread(void)
  * synthesized */
 static inline void mad_synth_thread_wait_pcm(void)
 {
+    if (SYNTH_INLINE())
+        return;
     ci->semaphore_wait(&synth_done_sem, TIMEOUT_BLOCK);
 }
 
@@ -306,6 +319,8 @@ static inline void mad_synth_thread_wait_pcm(void)
  * semaphore count */
 static inline void mad_synth_thread_unwait_pcm(void)
 {
+    if (SYNTH_INLINE())
+        return;
     ci->semaphore_release(&synth_done_sem);
 }
 
@@ -314,6 +329,12 @@ static inline void mad_synth_thread_unwait_pcm(void)
 static void mad_synth_thread_ready(void)
 {
     mad_fixed_t (*temp)[2][36][32];
+
+    if (SYNTH_INLINE())
+    {
+        mad_synth_frame(&synth, &frame);
+        return;
+    }
 
     /*circular buffer that holds 2 frames' samples*/
     temp=frame.sbsample;
@@ -439,6 +460,9 @@ enum codec_status codec_run(void)
     int padding = MAD_BUFFER_GUARD; /* to help mad decode the last frame */
     intptr_t param;
 
+#if defined(MPA_SYNTH_ON_COP) && defined(HAVE_IPOD_UI)
+    synth_inline = !ci->cop_assist;
+#endif
     /* Reinitializing seems to be necessary to avoid playback quircks when seeking. */
     init_mad();
 

@@ -1,0 +1,73 @@
+# Revision 2 (owner request, 2026-10-07, docs/phase-nav-brief.md): the
+# transitions-review.mp4 owner-round video: push and pop split -> split
+# (main menu <-> Music) and split -> full-screen (Music <-> Songs), and
+# the Clocks reveal or its stub (D6: Extras pushes like any other split
+# -> full target in v1, since nothing wires UI_T_REVEAL to a real caller
+# this phase -- see ipodui-nav-reveal.script). Pins the clock and
+# battery; "record" is called right after each key press (it does not
+# block the UI thread, so the slide it captures is the one the key just
+# started) and repeated with the SAME name, so every burst lands in one
+# continuous clip (uisimulator/common/sim_cmd_record.c).
+#
+# Owner round, Revision 3 (2026-10-08): "# drift: live" (IPODUI_SIM_DRIFT,
+# apps/ipodui/preview.c) lets the main menu's Music panel drift instead of
+# staying frozen, and "title_phase auto" (uisimulator/common/sim_cmd_clock.c)
+# lets the header alternate title/clock (2 s / 4 s) instead of staying
+# frozen on the title, so the video shows both live behaviors while moving
+# through the menus. The Music rest after the second pop (back to the main
+# menu) is stretched to 13 s -- one continuous recorded span, so it alone
+# covers more than two 6 s title/clock cycles and several drift steps.
+#
+# Produce the video after running this (scripts/make_video.sh,
+# Revision 2):
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-nav-transitions-review.script
+#   scripts/make_video.sh \
+#       out/shots/ipodui-nav-transitions-review/transitions-review_frames \
+#       24 out/shots/transitions-review.mp4
+# needs: library
+# drift: live
+
+wait 4000           # boot to the main menu, "Music" selected
+wait_db 30000
+time_in_title on    # Time in Title defaults to Off (Phase 11); this script needs the header clock
+sim_clock 15:08
+clock_format 24
+battery 100
+title_phase auto
+shot boot
+
+# split -> split: main menu <-> Music (190 ms each way, D7)
+key SELECT 50
+record 900 24 transitions-review
+wait 300
+key MENU 50
+record 900 24 transitions-review
+wait 300
+
+# split -> full-screen: Music <-> Songs (push 250 ms, pop 290 ms, D7)
+key SELECT 50        # Music
+record 900 24 transitions-review
+wait 300
+wheel +3             # "Songs"  [Compilations off: P11]
+wait 400
+key SELECT 50
+record 900 24 transitions-review
+wait 300
+key MENU 50          # pop: Songs -> Music
+record 1000 24 transitions-review
+wait 300
+key MENU 50          # pop: Music -> the main menu
+record 13000 24 transitions-review  # rest: Music panel drifts, header
+                                     # cycles title/clock more than twice
+wait 300
+
+# the Clocks reveal stub (D6): Extras, a plain push in v1
+wheel +2             # "Extras"
+wait 400
+key SELECT 50
+record 900 24 transitions-review
+wait 300
+key MENU 50
+record 900 24 transitions-review
+
+quit

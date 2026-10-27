@@ -1,0 +1,50 @@
+# P12 W4-1 (docs/design/sdk.md 9.4, Q-SDK-3): Settings > Draw. The pause
+# menu's Settings pushes the SDK's own Settings screen (the shell's list,
+# "Draw" with "Three Cards" in blue on the right); SELECT steps it to
+# "One Card"; MENU comes back to the same deal, which keeps drawing three
+# (a change applies from the next deal); New Game then deals with draw
+# one, and the stock turns a single card.
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-solitaire-draw.script
+# needs: modules
+# reset: mainmenu
+
+wait 4000
+sdk_clear            # a fresh deal (the simulator deals from a fixed seed)
+wheel +2             # Extras
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Games
+wait 600
+key SELECT
+wait 1200
+wheel +5             # Solitaire
+wait 600
+key SELECT
+wait 1500
+key MENU             # the pause menu
+wait 600
+wheel +3 600         # Settings
+wait 400
+key SELECT
+wait 1200
+shot settings
+key SELECT           # Draw: One Card
+wait 600
+shot one_card
+key MENU             # back to the game: the same deal
+wait 1200
+shot back
+key SELECT           # this deal still draws three
+wait 600
+shot still_three
+key MENU
+wait 600
+wheel +1 300         # New Game
+wait 400
+key SELECT
+wait 1000
+key SELECT           # the new deal draws one
+wait 600
+shot draw_one
+quit

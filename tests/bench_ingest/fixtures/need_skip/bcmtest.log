@@ -1,0 +1,17 @@
+  1037 pre: Not available: void: the embedded image differs from the one that passed
+  1074 auto: pre skip answer=- ms=20 pre: Not available: void: the embedded image differs from the one that passed
+  1111 restore: Apple vmcs (stock wake path)
+  1148 Stage 5: PASS
+  1185 auto: s05 pass answer=Yes ms=182330 Stage 5: PASS
+  1222 boot path toggle: DMA (attempt marker and strikes cleared)
+  1259 auto: boot done answer=- ms=0 
+  1296 jobs: self-test rc 1
+  1333 auto: jobs skip answer=- ms=10 
+boot: BCM powered (the ROM's vmcs) at entry
+     0 === boot path: bcmvideo ===
+   137 pre: stage 4 and 5 pass flags there; a restart comes first: the display program isn't running in this start
+   174 auto: pre done answer=- ms=20 pre: stage 4 and 5 pass flags there; a restart comes first: the display program isn't running in this start
+   211 auto: s05 skip answer=- ms=0 not needed: the stage 5 flag is there
+   248 auto: boot no restart seen (asked at 1793012345, this start began at 1793012000)
+   285 jobs: self-test rc 0
+   322 auto: jobs pass answer=- ms=40 jobs: self-test rc 0

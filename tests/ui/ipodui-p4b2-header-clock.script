@@ -1,0 +1,59 @@
+# Phase 4b-2 Time in Title (docs/design/spec/header.md): the header shows
+# the title while the user moves, then the clock once input has rested
+# 2.5 s, and the clock stays until the next input (owner, 2026-10-10).
+# One-frame cross-fade; the clock sits in the title's place.
+# A scripted run starts frozen on the title (sim_cmd_clock.c), so every
+# other script's goldens never depend on timing; this one freezes the
+# clock at 15:04 for its goldens and lets it alternate for the rest.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p4b2-header-clock.script
+# golden: skip auto_title auto_clock auto_stays auto_scroll auto_rest auto_back
+# resume: playing
+# (P11: the panel shows the Music row's drift cover, a pick that varies with
+# the primed disk; the header and the list are what this script checks)
+# golden-region: main_title 0 0 160 240
+# golden-region: main_clock 0 0 160 240
+# golden-region: music_clock 0 0 160 240
+# golden-region: main_clock_12h 0 0 160 240
+
+wait 4000           # boot to the main menu (frozen on the title)
+shot main_title
+
+time_in_title on    # Time in Title defaults to Off (Phase 11); this script needs the header clock
+sim_clock 15:04
+clock_format 24     # P11: the default is 12-hour; main_clock shows 24
+title_phase clock  # the header picks it up on its next poll (<= 1 s)
+wait 1500
+shot main_clock     # half-width main-menu header: "15:04" at the title x
+
+key SELECT          # Music: a new screen keeps the frozen clock
+wait 1000
+shot music_clock
+
+clock_format 12
+key MENU            # back to the main menu
+wait 1000
+sim_clock 15:05     # (format and minute both change)
+wait 1500
+shot main_clock_12h # "3:05 PM"
+clock_format 24
+sim_clock 15:04
+
+title_phase auto    # as on the device (host clock times)
+sim_clock rtc
+key SELECT          # Music again: title first...
+wait 1000
+shot auto_title     # (timing) "Music"
+wait 2500
+shot auto_clock     # (timing) 2.5 s idle: the host's time, 24 h
+wait 7000
+shot auto_stays     # (timing) still the clock: it never swaps back alone
+wheel +1 100         # moving brings the title back at once
+wait 300
+shot auto_scroll    # (timing) "Music"
+wait 3000
+shot auto_rest      # (timing) idle again: the clock
+key MENU            # a screen change shows the title
+wait 800
+shot auto_back      # (timing) the main menu title again
+
+quit

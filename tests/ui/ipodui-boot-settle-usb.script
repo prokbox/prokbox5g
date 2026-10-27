@@ -1,0 +1,33 @@
+# npfix H1 (owner decision 2026-10-23, option a): the settle writes the boot stamp
+# while the session runs, so a crash keeps it. A USB session must not:
+# the host may change the music folders, and a crash before the session's
+# exit (which removed the stamp before, M1) would let the next boot trust
+# a stale stamp. The tagcache thread now removes it at the connect,
+# before its ack: settle, USB connect, a crash with USB still in, and the
+# next boot walks.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-boot-settle-usb.script
+# needs: music
+# timeout: 180
+# golden: skip
+# log: boot stamp settle=1
+# log: boot stamp removed=1 (usb)
+# log: power_cut
+# log: boot stamp walk=1 why=nostamp
+# nolog: unavailable
+
+wait 3000
+wait_db 30000
+boot_nostamp        # setup: the next boot walks
+reboot
+
+expect_boot_walk 1 15000 nostamp
+wait_db 30000
+wait 5000           # the walk settles: its stamp is written
+usb_connect         # removed on the tagcache thread before its ack
+wait 1500
+power_cut           # a crash with USB still in: no exit path runs
+reboot
+
+expect_boot_walk 1 15000 nostamp
+wait_db 30000
+shot after_usb_crash

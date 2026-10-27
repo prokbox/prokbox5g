@@ -86,6 +86,16 @@ int wheel_status(void);
 void wheel_send_events(bool send);
 #endif
 
+#ifdef HAVE_IPOD_UI
+/* fresh touches of the wheel (a finger set down after a lift), counted
+ * by the driver; the shell polls it to wake an overlay */
+unsigned int button_wheel_touches(void);
+#if defined(HAVE_DEVSTATS) && !defined(SIMULATOR)
+/* np-lag probe (developer builds): USEC_TIMER at the last wheel post */
+unsigned long button_wheel_post_usec(void);
+#endif
+#endif
+
 #ifdef HAVE_WHEEL_ACCELERATION
 int button_apply_acceleration(const unsigned int data);
 #endif

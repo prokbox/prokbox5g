@@ -90,6 +90,31 @@
 #define O_BINARY 0
 #endif
 
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+/* The shell fonts (apps/ipodui/fonts) carry the Windows-1252 punctuation
+ * (curly quotes, en and em dash, ellipsis) in the C1 control slots
+ * U+0080..U+009F, which text never displays, so a font stays one small
+ * contiguous range; map those code points onto the slots. */
+static inline ucschar_t font_remap(ucschar_t c)
+{
+    static const unsigned short cp1252[32] = {
+        0, 0, 0, 0, 0, 0x2026, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0x2018, 0x2019, 0x201C, 0x201D, 0, 0x2013, 0x2014,
+        0, 0, 0, 0, 0, 0, 0, 0,
+    };
+    int i;
+    if (c < 0x2013 || c > 0x2026)
+        return c;
+    for (i = 0; i < 32; i++)
+        if (cp1252[i] == c)
+            return 0x80 + i;
+    return c;
+}
+#else
+#define font_remap(c) (c)
+#endif
+
 /* Define this to try loading /.rockbox/.glyphcache    *
  * when a font specific file fails. This requires the  *
  * user to copy and rename a font glyph cache file     */
@@ -838,6 +863,7 @@ int font_get_width(struct font* pf, ucschar_t char_code)
     struct font_cache_entry *e;
 
     /* check input range*/
+    char_code = font_remap(char_code);
     if (char_code < pf->firstchar || char_code >= pf->firstchar+pf->size)
         char_code = pf->defaultchar;
     char_code -= pf->firstchar;
@@ -860,6 +886,7 @@ const unsigned char* font_get_bits(struct font* pf, ucschar_t char_code)
     const unsigned char* bits;
 
     /* check input range*/
+    char_code = font_remap(char_code);
     if (char_code < pf->firstchar || char_code >= pf->firstchar+pf->size)
         char_code = pf->defaultchar;
     char_code -= pf->firstchar;

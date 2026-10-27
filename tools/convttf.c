@@ -108,6 +108,7 @@ int             hv_resolution = 60;
 int             dump_glyphs = 0;
 int             digits_equally_wide = 1; /* Try to make digits equally wide */
 int             trimming    = 0;
+int             use_advance = 0; /* -A: width = hinted advance, place by bearing */
 int             trim_dp     = 0; /* trim descent percent */
 int             trim_da     = 0; /* trim descnet actual  */
 int             trim_ap     = 0; /* trim ascent  precent */
@@ -211,6 +212,7 @@ void usage(void)
         "    -ta    Convert all fonts in ttc (ignores outfile option)\n"
         "    -w     Don't try to make digits (0-9) equally wide\n"
         "    -L     Use lighter hinting algorithm\n"
+        "    -A     Use real advance widths and left bearings\n"
     };
     fprintf(stderr, "%s", help);
     exit( 1 );
@@ -531,6 +533,14 @@ int glyph_width( FT_Face face, FT_Long code, FT_Long digit_width )
         h_adv = face->glyph->metrics.horiAdvance >> 6;
         width = (face->glyph->metrics.width + spacing) >> 6;
 
+        if (use_advance)
+        {
+            int left = face->glyph->bitmap_left > 0 ? face->glyph->bitmap_left : 0;
+            int ink  = left + (int)face->glyph->bitmap.width;
+            width = h_adv + (int)(between_chr + 0.5f);
+            if (width < ink) width = ink;
+            return width;
+        }
         if(pitch == 0)    pitch = h_adv;
         if(width < pitch) width = pitch;
     }
@@ -766,6 +776,7 @@ void convttf(char* path, char* destfile, FT_Long face_index)
 
         /* insert empty pixels on the left */
         int col_off;
+        int copy_w;
         int numbits;
         unsigned int field;
 
@@ -823,15 +834,30 @@ void convttf(char* path, char* destfile, FT_Long face_index)
 
         err = 0;
         /* insert empty pixels on the left */
+        copy_w = stride;
         col_off = w - stride;
         if (col_off > 1) col_off /= 2;
         if (col_off < 0) col_off = 0;
+        if (use_advance)
+        {
+            /* digits forced to a common width are centred; others keep
+               their left side bearing */
+            int bw = (int)source->width;
+            if (code >= '0' && code <= '9' && digit_width)
+                col_off = (w - bw) / 2;
+            else
+                col_off = slot->bitmap_left;
+            if (col_off < 0) col_off = 0;
+            if (col_off + bw > w) col_off = w - bw;
+            if (col_off < 0) col_off = 0;
+            copy_w = bw;   /* skip FreeType's row padding */
+        }
 
         for(row=0; row < glyph_height; row++)
         {
             if(row+start_y < 0 || row+start_y >= h)
                 continue;
-            for(col = empty_first_col; col < stride; col++)
+            for(col = empty_first_col; col < copy_w; col++)
             {
                 unsigned char *tsrc, *dst;
                 dst = buf + (w*(start_y+row)) + col + col_off;
@@ -1278,6 +1304,10 @@ void getopts(int *pac, char ***pav)
                 while (*p && *p != ' ')
                     p++;
                 break;
+            case 'A':     /* Use advance widths and bearings */
+                use_advance = 1;
+                break;
+
             case 'L':     /* Light rendering algorithm */
                 ft_load_opts |= FT_LOAD_TARGET_LIGHT;
                 break;

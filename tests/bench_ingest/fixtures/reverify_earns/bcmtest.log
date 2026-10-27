@@ -1,0 +1,51 @@
+    10 boot path: active: bcmvideo (default), first frame 30100 us; marker cleared
+  1037 pre: stage 5 pass flag: PASS
+  1074 auto: pre pass answer=- ms=20 pre: stage 5 pass flag: PASS
+  1111 auto: s05 skip answer=- ms=0 not needed: the stage 5 flag is there
+  1148 auto: boot skip answer=- ms=0 not needed: the stage 5 flag is there
+  1185 jobs: self-test rc 0
+  1222 auto: jobs pass answer=- ms=40 jobs: self-test rc 0
+  1259 jvpu: J_VPU 3, expected 3 (merged image; checked 1, shift 1, MAC 0) at block 000de000
+  1296 jvpu: forms BSL1 ok BSF1 ok BSM1 differs BSR1 ok BSX1 ok BSS1 ok BSZ1 ok (vpu2 f7)
+  1333 jvpu: forms: first differing BSM1 lane 7 got 00ff exp 0047
+  1370 jvpu: sdram byte 41.2 ns word 38.0 ns; sram byte 7.4 ns word 7.3 ns at 150 MHz
+  1407 auto: jvpu pass answer=- ms=400 jvpu: J_VPU 3, expected 3 (merged image; checked 1, shift 1, MAC 0) at block 000de000
+  1444 auto: b3 pass answer=Yes ms=0 
+  1481 drill2: inject op=0x26 n=2 rc=0
+  1518 auto: drill2 pass answer=Drift or still cover ms=60000 drill2: inject op=0x26 n=2 rc=0
+  1555 video: port KB, MB/s (busy time) (812, 11)
+  1592 video: port CPU ms, blocks (74, 212)
+  1629 video image (merged) 218660 bytes fnv cd8e5d96
+  1666 stage 6: 2 clips, 0 late, A/V within 12 ms
+  1703 auto: s6 pass answer=Smooth, in sync ms=26000 stage 6 PASS
+  1740 auto: b13 pass answer=No ms=9000 Warm swap: PASS
+  1777 lab5: J_VPU 7 (display-only image)
+  1814 auto: b5 pass answer=Yes ms=15000 Window push: PASS
+  1851 stage 4: timing bench (no panel I/O)
+  1851 B4V 0 COP8 ffff0801 00000011 00000022 00000033 00000044 00000000 00000000
+  1852 B4V 1 SUMR ffff0801 00000055 00000000 00000000 00000000 00000000 00000000
+  1853 B4V 2 ASHF ffff0801 00000001 00000002 00000003 00000004 00000000 00000000
+  1854 B4V 3 ASHG ffff0801 00000005 00000006 00000007 00000008 00000000 00000000
+  1855 B4V 4 X15M ffff0801 ffff0000 00000000 fe2001df 0000ffff 00000000 00000000
+  1856 B4V 5 X15S ffff0801 fffa0004 03e7ffff 7ffefc17 00068000 00000000 00000000
+  1857 B4V 6 X15Z ffff0801 fffb0005 03e80000 7ffffc18 00078000 00000000 00000000
+  1858 B4V 7 MHDU ffff0801 0000ffff 7ffec000 0126fed5 e5da3037 00000000 00000000
+  1859 B4V 8 VCLP ffff0801 00000000 00ff00ff 00000000 003300ff 00000000 00000000
+  1860 B4V 9 R48E ffff0801 00000009 00000009 00000009 00000009 00000000 00000000
+  1861 B4V 10 D16R ffff0801 00000007 00000007 00000007 00000007 00000000 00000000
+  1862 B4V 11 REPA ffff0801 02097fff c20401ff 01100211 01fd5bb9 00000000 00000000
+  1863 B4V 12 PUTV ffff0801 00000003 00000003 00000003 00000003 00000000 00000000
+  1888 stage 4b: timing bench at 150 MHz (no panel I/O)
+  1888 B4V 0 COP8 ffff0801 00000011 00000022 00000033 00000044 00000000 00000000
+  1889 B4V 1 SUMR ffff0801 00000055 00000000 00000000 00000000 00000000 00000000
+  1890 B4V 2 ASHF ffff0801 00000001 00000002 00000003 00000004 00000000 00000000
+  1891 B4V 3 ASHG ffff0801 00000005 00000006 00000007 00000008 00000000 00000000
+  1892 B4V 4 X15M ffff0801 ffff0000 00000000 fe2001df 0000ffff 00000000 00000000
+  1893 B4V 5 X15S ffff0801 fffa0004 03e7ffff 7ffefc17 00068000 00000000 00000000
+  1894 B4V 6 X15Z ffff0801 fffb0005 03e80000 7ffffc18 00078000 00000000 00000000
+  1895 B4V 7 MHDU ffff0801 0000ffff 7ffec000 0126fed5 e5da3037 00000000 00000000
+  1896 B4V 8 VCLP ffff0801 00000000 00ff00ff 00000000 003300ff 00000000 00000000
+  1897 B4V 9 R48E ffff0801 00000009 00000009 00000009 00000009 00000000 00000000
+  1898 B4V 10 D16R ffff0801 00000007 00000007 00000007 00000007 00000000 00000000
+  1899 B4V 11 REPA ffff0801 02097fff c20401ff 01100211 01fd5bb9 00000000 00000000
+  1900 B4V 12 PUTV ffff0801 00000003 00000003 00000003 00000003 00000000 00000000

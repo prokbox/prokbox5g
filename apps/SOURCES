@@ -3,65 +3,411 @@ logfdisp.c
 #endif
 action.c
 #ifdef HAVE_RTC_ALARM
+#ifndef IPODUI_TRIM_STOCK_MENUS
 alarm_menu.c
 #endif
+#endif
+#ifndef IPODUI_TRIM_MISC
 abrepeat.c
+#endif
+#ifndef IPODUI_TRIM_BROWSER
 bookmark.c
+#endif
 core_keymap.c
 debug_menu.c
+#ifndef IPODUI_TRIM_BROWSER
 filetypes.c
+#endif
+#ifndef IPODUI_TRIM_BROWSER
 fileop.c
+#endif
 #ifdef HAVE_TOUCHSCREEN
 gesture.c
 #endif
 language.c
 main.c
 menu.c
+#ifndef IPODUI_TRIM_STOCK_MENUS
 menus/menu_common.c
+#endif
+#ifndef IPODUI_TRIM_STOCK_MENUS
 menus/display_menu.c
+#endif
+#ifndef IPODUI_TRIM_STOCK_MENUS
 menus/theme_menu.c
+#endif
+#ifndef IPODUI_TRIM_STOCK_MENUS
 menus/plugin_menu.c
+#endif
 #if CONFIG_TUNER
+#ifndef IPODUI_TRIM_STOCK_MENUS
 menus/radio_menu.c
 #endif
+#endif
 #ifdef HAVE_WM8978
+#ifndef IPODUI_TRIM_STOCK_MENUS
 menus/audiohw_eq_menu.c
 #endif
+#endif
+#ifndef IPODUI_TRIM_STOCK_MENUS
 menus/eq_menu.c
+#endif
 buffering.c
+#ifndef IPODUI_TRIM_VOICE
 voice_thread.c
+#endif
 rbcodec_helpers.c
+#ifndef IPODUI_TRIM_STOCK_MENUS
 menus/main_menu.c
+#endif
+#ifndef IPODUI_TRIM_STOCK_MENUS
 menus/playback_menu.c
+#endif
+#ifndef IPODUI_TRIM_STOCK_MENUS
 menus/playlist_menu.c
+#endif
 #ifdef HAVE_RECORDING
+#ifndef IPODUI_TRIM_STOCK_MENUS
 menus/recording_menu.c
 #endif
+#endif
+#ifndef IPODUI_TRIM_STOCK_MENUS
 menus/settings_menu.c
+#endif
+#ifndef IPODUI_TRIM_STOCK_MENUS
 menus/sound_menu.c
+#endif
 #if CONFIG_RTC
+#ifndef IPODUI_TRIM_STOCK_MENUS
 menus/time_menu.c
 #endif
+#endif
 misc.c
+#ifndef IPODUI_TRIM_PLUGINS
 open_plugin.c
+#endif
+#ifndef IPODUI_TRIM_BROWSER
 onplay.c
+#endif
 playlist.c
+#ifndef IPODUI_TRIM_BROWSER
 playlist_catalog.c
+#endif
+#ifndef IPODUI_TRIM_BROWSER
 playlist_viewer.c
+#endif
+#ifndef IPODUI_TRIM_PLUGINS
 plugin.c
+#endif
+#ifndef IPODUI_TRIM_STOCK_MENUS
 root_menu.c
+#endif
 screens.c
 settings.c
 settings_list.c
+#ifndef IPODUI_TRIM_BROWSER
 shortcuts.c
+#endif
 status.c
+audiobook.c
+audiobook_core.c
+#ifdef HAVE_IPOD_UI
+ipodui/ui_main.c
+#ifdef IPODUI_MODULES /* #106: off by default */
+ipodui/modload.c
+ipodui/modload_core.c
+#endif
+#ifndef IPODUI_MODULES /* P12 W1-F: the class ABI and Extras in a resident build */
+ipodui/modload.c
+ipodui/modload_core.c
+#endif
+ipodui/modclass.c
+ipodui/extras.c
+ipodui/screens/extras.c
+ipodui/xindex.c
+ipodui/xindex_core.c
+#if !defined(IPODUI_MODULES) || defined(SIMULATOR) /* P12 W1-N: modules */
+ipodui/modules/notes_mod.c
+ipodui/screens/notes.c
+ipodui/modules/xindex_mod.c
+ipodui/screens/xindex.c
+ipodui/xindex_build.c /* the builder's pages and Notes layout: MOD_XINDEX in a module build */
+ipodui/xcontact_core.c /* the vCard parser: part of MOD_XINDEX in a module build */
+ipodui/modules/contacts_mod.c
+ipodui/screens/contacts.c
+ipodui/screens/xical_build.c
+ipodui/xical_core.c
+ipodui/xical_read.c
+ipodui/modules/calendars_mod.c
+ipodui/screens/calendars.c
+#endif
+#if defined(IPODUI_MODULES) && defined(SIMULATOR) /* P12: static module tables */
+ipodui/modules/settings_mod.c
+#ifdef HAVE_IPOD_UI_DEVMODE
+ipodui/modules/devloader_mod.c
+#endif
+#endif
+ipodui/screen_stack.c
+ipodui/header.c
+ipodui/list.c
+ipodui/scroll.c
+ipodui/anim.c
+ipodui/uilat.c
+ipodui/paint.c
+ipodui/material.c
+ipodui/theme.c
+ipodui/input.c
+ipodui/menu.c
+ipodui/library.c
+ipodui/sortkey.c
+ipodui/screens/stub.c
+ipodui/qscroll.c
+ipodui/screens/browse.c
+ipodui/screens/audiobooks.c
+ipodui/screens/playlists.c
+ipodui/artkey.c
+ipodui/artfmt.c
+ipodui/dbgen.c
+ipodui/dbjournal.c
+ipodui/safefile.c
+ipodui/cfgsafe.c
+/* P12 W1-S: the resident timing; its module below */
+ipodui/stopwatch_core.c
+ipodui/stopwatch.c
+#if !defined(IPODUI_MODULES) || defined(SIMULATOR) /* #106: module */
+ipodui/modules/stopwatch_mod.c
+ipodui/screens/stopwatch.c
+#endif
+/* P12 W1-A2: Extras > Alarms (the engine, alarm_core.c and alarm.c, is W1-A1's) */
+#if !defined(IPODUI_MODULES) || defined(SIMULATOR) /* #106: module */
+ipodui/modules/alarms_mod.c
+ipodui/screens/alarms.c
+#endif
+ipodui/artblur.c
+ipodui/artcache.c
+ipodui/rowart.c
+ipodui/nav_core.c
+ipodui/preview.c
+ipodui/drift_jobs.c
+ipodui/mq_jobs.c
+ipodui/art_bcm.c
+ipodui/screens/panels.c
+ipodui/panelart.c
+ipodui/screens/settings.c
+ipodui/screens/nowplaying.c
+ipodui/np_state.c
+ipodui/np_scrub.c
+ipodui/np_draw.c
+ipodui/np_lyrics.c
+ipodui/np_pbcore.c
+ipodui/np_playback.c
+ipodui/viz_tap.c
+ipodui/viz_tap_core.c
+ipodui/viz.c
+ipodui/viz_core.c
+ipodui/viz_jviz.c
+ipodui/lib_shuffle.c
+ipodui/dbqueue.c
+ipodui/dbqueue_core.c
+ipodui/shuffle_core.c
+ipodui/lib_shuffle_rec.c
+ipodui/usbscreen.c
+ipodui/uilog.c
+ipodui/fe_be_core.c         /* P19 S1: the UI boundary, pure logic */
+ipodui/fe_be.c
+#if defined(HAVE_UI_THREAD_SPLIT) && !defined(SIMULATOR)
+ipodui/febe_rpc_stubs.S     /* P19 S3: generated (febe_rpc_gen.py) */
+#endif
+ipodui/battlog.c
+ipodui/maint_core.c
+ipodui/maint.c
+ipodui/bootstamp_core.c
+ipodui/bootstamp.c
+ipodui/usbbusy.c
+ipodui/unlit_core.c
+ipodui/unlit.c
+ipodui/sleep_core.c
+ipodui/sleep.c
+#ifdef HAVE_PLL_IDLE
+ipodui/clockpol_core.c
+ipodui/clockpol.c
+#endif
+#ifdef HAVE_IPOD_UI_DEVMODE
+ipodui/devmode.c
+ipodui/devstatus.c
+ipodui/powerlog_core.c
+ipodui/powerlog.c
+ipodui/litmiss.c
+ipodui/devjobfail.c
+ipodui/apath.c
+#ifdef HAVE_ATA_UDMA_FORCE
+ipodui/udmatest.c
+#endif
+#if defined(HAVE_POWER_SLEEP) || defined(SIMULATOR) /* the sim's over its stub */
+ipodui/sleeplab.c
+#endif
+#if defined(IPODUI_MODULES) && defined(SIMULATOR) /* #106: a module on the target */
+ipodui/modules/devloader.c
+#endif
+#endif
+#ifdef HAVE_BCMFW_DEVTEST
+ipodui/devbcm.c
+ipodui/devbcm_probes.c
+ipodui/devbench.c
+ipodui/devbench_power.c
+ipodui/devbench_vclk.c
+#endif
+#if defined(SIMULATOR) && defined(HAVE_BCMFW_VIDEO) && \
+    defined(HAVE_IPOD_UI) && defined(HAVE_IPOD_UI_DEVMODE)
+/* the bench session's runner in the simulator, its device calls stubbed
+   (devbench_sim.h: DEVBENCH_SIM) */
+ipodui/devbench.c
+ipodui/devbench_sim.c
+#endif
+#if defined(HAVE_BCMFW_VIDEO) || defined(HAVE_BCMFW_RESIDENT)
+/* the image files and the boot path's resident image (p19-release-noplayer:
+ * also without the player, --bcmfw-merged alone) */
+video/bcmres.c
+#endif
+#ifdef HAVE_BCMFW_VIDEO
+/* the video player (#64; docs/research/bcm2722/player.md) */
+video/mp4demux.c
+video/vix.c
+video/vix_file.c
+video/vplay.c
+video/bcmvp.c
+video/vpcore.c
+video/vclk.c
+video/vtrace.c
+video/vplayer.c
+video/vcheck.c
+video/vcheck_store.c
+#endif
+ipodui/ab_book_core.c
+ipodui/ab_store_core.c
+ipodui/ab_book.c
+ipodui/ab_store.c
+ipodui/ab_speed.c
+/* P11 (docs/phase11-brief.md section 4): owners append their files here */
+ipodui/screens/setwidgets.c
+ipodui/menucfg.c
+ipodui/vlimit.c
+ipodui/roller.c
+/* P12 W1-L Screen Lock: the gate and locked screen resident; the setup
+ * screens are MOD_LOCKSET (static in the sim and a resident build) */
+ipodui/lock_core.c
+ipodui/lock.c
+#if !defined(IPODUI_MODULES) || defined(SIMULATOR)
+ipodui/screens/lockset.c
+ipodui/modules/lockset_mod.c
+#endif
+#if !defined(IPODUI_MODULES) || defined(SIMULATOR) /* #106: module */
+ipodui/screens/checklist.c
+#endif
+ipodui/screens/search.c
+ipodui/screens/holdmenu.c
+ipodui/screens/otglist.c
+ipodui/sysscreen.c
+ipodui/screens/about.c
+ipodui/diag_core.c          /* release-plan 6.2: Save Diagnostics */
+ipodui/diag.c
+#if !defined(IPODUI_MODULES) || defined(SIMULATOR) /* #106: module */
+ipodui/screens/legal.c
+#endif
+ipodui/screens/reset.c
+ipodui/notice.c
+ipodui/screens/newsw.c
+ipodui/screens/language.c
+#if !defined(IPODUI_MODULES) || defined(SIMULATOR) /* #106: module */
+ipodui/screens/datetime.c
+#endif
+ipodui/screens/brightness.c
+ipodui/screens/eq.c
+ipodui/eq_hw_presets.c
+ipodui/volcurve.c
+ipodui/sc_hw.c
+ipodui/click.c
+ipodui/audio_out.c         /* P19 ucop-fix2: the DSP's settings, CPU */
+ipodui/search_core.c
+ipodui/otg.c
+ipodui/npmark.c
+#ifdef SIMULATOR
+ipodui/simclock.c
+#endif
+#ifdef HAVE_BATTERY_LEARN
+/* #70: automatic battery calibration (docs/batcal-brief.md) */
+ipodui/batcal_core.c
+ipodui/batcal.c
+#endif
+/* boot battery guard: a flat cell shows the low-battery screen, no boot */
+ipodui/bootbatt_core.c
+ipodui/bootbatt.c
+/* P12 (docs/phase12-brief.md 3.6, M7): the resident time-zone picker */
+ipodui/tzpick_core.c
+ipodui/tzpick.c
+#if !defined(IPODUI_MODULES) || defined(SIMULATOR) /* P12: MOD_CLOCKS */
+ipodui/screens/clocks.c
+ipodui/modules/clocks_mod.c
+#endif
+#ifdef HAVE_BCMFW_VIDEO
+/* Phase 14a (docs/phase14a-brief.md section 5): Videos shell */
+ipodui/vclass_core.c
+ipodui/vixpass_core.c
+ipodui/vixpass.c
+ipodui/screens/videos.c
+ipodui/screens/video.c
+ipodui/screens/setvideos.c
+#endif
+/* P12 (docs/phase12-brief.md section 6): resident Extras engines */
+ipodui/alarm_core.c
+ipodui/alarm.c
+ipodui/screens/alarmring.c
+#ifdef HAVE_IPOD_UI_DEVMODE
+ipodui/alarmlab.c
+#endif
+/* P12 W4-0 (docs/design/sdk.md): the game SDK, resident; the games are
+ * modules on the target and link statically in the simulator */
+ipodui/sdk/sdk_core.c
+ipodui/sdk/sdk_state.c
+ipodui/sdk/sdk.c
+ipodui/sdk/sdk_cold.c
+ipodui/sdk/sdk_table.c
+ipodui/sdk/sdk_games.c
+#ifdef SIMULATOR
+ipodui/games/solitaire/klondike.c
+ipodui/games/solitaire/solitaire.c
+#ifdef HAVE_IPOD_UI_DEVMODE
+ipodui/games/badgame/badgame.c
+#endif
+ipodui/games/quadrus/quadrus_core.c
+ipodui/games/quadrus/quadrus.c
+ipodui/games/bricks/bricks_core.c
+ipodui/games/bricks/bricks.c
+ipodui/games/chute/chute_core.c
+ipodui/games/chute/chute.c
+ipodui/games/chess/chess_core.c
+ipodui/games/chess/chess_engine.c
+ipodui/games/chess/chess_pad.c
+ipodui/games/chess/chess.c
+#endif
+/* P9 (docs/phase9-brief.md section 4.3) */
+#ifdef IPODUI_TRIM_PLUGINS
+scratchbuf.c
+#endif
+#endif
 cuesheet.c
+#ifndef IPODUI_TRIM_VOICE
 talk.c
+#endif
+#ifndef IPODUI_TRIM_BROWSER
 tree.c
+#endif
 #ifdef HAVE_TAGCACHE
 tagtree.c
 #endif
+#ifndef IPODUI_TRIM_BROWSER
 filetree.c
+#endif
 #ifdef IPOD_ACCESSORY_PROTOCOL
 iap/iap-core.c
 iap/iap-lingo0.c
@@ -80,23 +426,34 @@ gui/icon.c
 gui/list.c
 gui/line.c
 gui/bitmap/list.c
+#ifndef IPODUI_TRIM_SKIN
 gui/bitmap/list-skinned.c
+#endif
 gui/option_select.c
 #ifdef HAVE_PITCHCONTROL
+#ifndef IPODUI_TRIM_QUICKSCREEN
 gui/pitchscreen.c
 #endif
+#endif
 #ifdef HAVE_QUICKSCREEN
+#ifndef IPODUI_TRIM_QUICKSCREEN
 gui/quickscreen.c
 #endif
+#endif
+#ifndef IPODUI_TRIM_BROWSER
 gui/folder_select.c
+#endif
 #if defined(HAVE_BACKLIGHT) || !defined(HAS_BUTTON_HOLD)
 gui/mask_select.c
 #endif
 
+#ifndef IPODUI_TRIM_SKIN
 gui/wps.c
+#endif
 gui/scrollbar.c
 gui/splash.c
 gui/statusbar.c
+/* stubs only under IPODUI_TRIM_SKIN (P9) */
 gui/statusbar-skinned.c
 #if (CONFIG_PLATFORM&PLATFORM_ANDROID)
 hosted/android/yesno.c
@@ -106,12 +463,24 @@ gui/yesno.c
 #endif
 gui/viewport.c
 
+#ifndef IPODUI_TRIM_SKIN
 gui/skin_engine/skin_backdrops.c
+#endif
+#ifndef IPODUI_TRIM_SKIN
 gui/skin_engine/skin_display.c
+#endif
+#ifndef IPODUI_TRIM_SKIN
 gui/skin_engine/skin_engine.c
+#endif
+#ifndef IPODUI_TRIM_SKIN
 gui/skin_engine/skin_parser.c
+#endif
+#ifndef IPODUI_TRIM_SKIN
 gui/skin_engine/skin_render.c
+#endif
+#ifndef IPODUI_TRIM_SKIN
 gui/skin_engine/skin_tokens.c
+#endif
 #ifdef HAVE_TOUCHSCREEN
 gui/skin_engine/skin_touchsupport.c
 #endif
@@ -123,11 +492,18 @@ gui/backdrop.c
 recorder/bmp.c
 recorder/icons.c
 #if (CONFIG_PLATFORM&PLATFORM_ANDROID)
+#ifndef IPODUI_TRIM_KEYBOARD
 hosted/android/keyboard.c
+#endif
 #else
+#ifndef IPODUI_TRIM_KEYBOARD
 recorder/keyboard.c
 #endif
+#endif
+/* peak meter: recording screen and skin tags */
+#if defined(HAVE_RECORDING) || !defined(IPODUI_TRIM_SKIN)
 recorder/peakmeter.c
+#endif
 #if defined(HAVE_ALBUMART) || defined(HAVE_JPEG)
 recorder/resize.c
 #endif
@@ -163,6 +539,12 @@ audio_path.c
 audio_thread.c
 pcmbuf.c
 codec_thread.c
+#ifdef HAVE_COP_CODEC
+codec_cop.c
+#endif
+#ifdef HAVE_IPOD_UI
+codec_place_core.c
+#endif
 playback.c
 codecs.c
 #ifndef HAVE_HARDWARE_BEEP

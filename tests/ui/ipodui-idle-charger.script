@@ -1,0 +1,47 @@
+# #58 idle build (owner, 2026-10-09), the charger: playing on external
+# power the builder still does nothing while keys come (input in the last
+# 2 s), then builds freely once 2 s pass without one, even lit (the
+# backlight may stay on on the charger, so the face never comes up). It
+# waits for that with one timed wake, not a poll.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-idle-charger.script
+# needs: library
+# logbetween: req quiet no \bart io\b
+# logbetween: quiet built art io read key=\S+ playing=1 active=\d idle=1
+# golden: skip built
+# timeout: 120
+
+wait 1000
+wait_db 30000
+art_wait 120000
+charger on
+wheel +4            # "Shuffle Songs"
+wait 500
+key SELECT          # plays (Now Playing)
+wait 1500
+expect_playing 300
+key MENU            # main menu
+wait 500
+rm_file /.rockbox/artcache/index.dat
+rm_file /.rockbox/artcache/index.prev
+rm_file /.rockbox/artcache/index.tmp
+rm_file /.rockbox/artcache/thumbs.pak
+art_request         # a build of every album, during playback
+ab_mark req
+wheel +1            # keys under 2 s apart: nothing
+wait 900
+wheel -1
+wait 900
+wheel +1
+wait 900
+wheel -1
+wait 500
+ab_mark quiet       # no key from here
+art_wait 60000      # built, lit, on the charger, still playing
+expect_art art_manifest.txt
+expect_playing 300
+ab_mark built
+shot built
+audio_stop
+charger off
+
+quit

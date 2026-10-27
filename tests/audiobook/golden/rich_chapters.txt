@@ -1,0 +1,17 @@
+Audiobook: yes
+Chapter count: 4
+Chapters read: 4
+Chapter 1: 0 ms "Prologue (UTF-16BE)"
+Chapter 2: 2000 ms "Kapitel Zwei – Überblick"
+Chapter 3: 4000 ms "Chapter Three: Café"
+Chapter 4: 5500 ms "Finale 🎧 終わり"
+Lyrics: mp4-utf8, 41 bytes
+Lyrics read: 41
+Lyrics text: "Line one\nLine two – Ünïcode\nLast line"
+Lyrics read (20-byte buffer): 18 (truncated)
+Lyrics text (short): "Line one\nLine two "
+Chapter art: 4
+Chapter 1 art: jpeg 207 bytes crc32 0ff9f151
+Chapter 2 art: png 103 bytes crc32 5e13d048
+Chapter 3 art: png 103 bytes crc32 5e13d048
+Chapter 4 art: jpeg 207 bytes crc32 0ff9f151

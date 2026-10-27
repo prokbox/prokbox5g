@@ -1,0 +1,67 @@
+# Phase 16-4 (#100, Q8, Q10): the shown panel sets are re-picked at every
+# restart and every PANEL_ROTATE_TICKS (3 h) of wall-clock time (the RTC:
+# time asleep counts), with no image work: recently played and newest
+# stay, the random picks are fresh (none of the previous set's), and the
+# books keep at most 3 random places (all of the mini library's books are
+# pinned, so its book share is the pinned ones; artfmt's host test covers
+# 3 of 8). A due rotation never wakes storage: it waits for a natural
+# wake. The pool is topped up first (a paused window) so the random picks
+# have room to be fresh.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-panel-rotate.script
+# needs: library
+# golden: skip
+# log: expect_panel_rotated ok
+# log: expect_panel_kept ok
+# log: expect_panel_books_random ok
+# logbetween: r0 r1 art panel rotate shown=32
+# logbetween: r0 r1 no art panel stream
+# logbetween: w0 w1 no art panel rotate
+# logbetween: w1 w2 art panel rotate shown=32
+# logbetween: w1 w2 no art panel stream
+# nolog: expect_panel_\w+ failed
+# nolog: art fail
+# timeout: 400
+wait 1000
+wait_db 30000
+art_wait 120000
+wheel +4            # Shuffle Songs
+wait 500
+key SELECT
+wait 2000
+key PLAY            # pause
+wait 1500
+backlight_expire
+art_wait 60000
+pause_age 200       # a window: the pool's top-up
+wait 3000
+art_wait 240000
+key MENU
+wait 1000
+# 1. a restart
+panel_shown_mark
+ab_mark r0
+reboot
+wait 1000
+wait_db 30000
+art_wait 120000
+ab_mark r1
+expect_panel_rotated
+expect_panel_books_random
+shot restart
+# 2. three hours later, storage asleep: nothing until a natural wake
+wait 7000           # the disk's idle hold is over
+panel_shown_mark
+ab_mark w0
+panel_rotate_warp 10800
+wait 3000
+expect_panel_kept
+ab_mark w1
+disk_active 2500    # a natural wake (a refill, a read)
+wait 3000
+ab_mark w2
+expect_panel_rotated
+expect_panel_books_random
+key SELECT          # Music: the drift shows the new set
+wait 3000
+shot rotated
+quit

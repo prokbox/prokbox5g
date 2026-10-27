@@ -1,0 +1,42 @@
+# Budget review H2 (usbfix): a power-off cancels a commit in its in-place
+# phase (point 2: the first tag file already rewritten) and is then
+# aborted. The half-rewritten database is never merged into again (the
+# old retry did that): it is dropped and rebuilt from the files, here
+# after a USB session, and ends with exactly one more entry, as an uncut
+# commit would. With library generations (#85) the cut database is the
+# candidate: it is dropped at the USB connect and the post-USB scan builds
+# a new one from the active library.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-commit-cut-off.script
+# needs: library
+# golden: skip done
+# timeout: 180
+# log: tagcache: commit held at 2
+# log: tagcache: commit cut in place: rebuild
+# nolog: tagcache: commit deferred for USB
+
+wait 4000
+wait_db 30000
+remove /Music/CommitCut/a.mp3
+remove /Music/CommitCut/b.mp3
+remove /Music/CommitCut/c.mp3
+rebuild_db 60000    # a compact database: the counts below are exact
+mkdir /Music/CommitCut
+
+db_count_mark
+commit_hold 2
+copy fixtures/refresh.mp3 /Music/CommitCut/c.mp3
+update_db
+commit_hold_wait 30000
+commit_cancel       # a power-off's cancel; the power-off is then aborted
+commit_release
+wait 2000
+usb_connect
+wait 1500
+usb_disconnect
+expect_db_count 1 120000
+
+shot done
+remove /Music/CommitCut/c.mp3
+update_db_wait_change 30000   # leave the disk as it was
+
+quit

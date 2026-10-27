@@ -1,0 +1,34 @@
+# Phase 5: art PENDING then shown after a commit: a track whose album the
+# builder has not built shows the note glyph; once the pass ends and the
+# index commits, Now Playing re-polls (artcache_commit_seq) and draws the art.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p5-art-pending.script
+# needs: library
+# needs: np
+# golden: skip pending shown
+# timeout: 150
+
+wait 1000
+wait_db 30000
+sim_clock 15:08
+clock_format 24      # P11: the default is 12-hour; this golden shows 24
+repeat off
+mkdir /NPArt
+copy ../../build/np-fixtures/art_169.mp3 /NPArt/art_169.mp3
+update_db_wait_change 60000
+play_files /NPArt/art_169.mp3
+wait 1000
+key SELECT          # Music (the menu re-reads "Now Playing" after a push/pop)
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 1200
+shot pending        # the builder has not reached it yet (or just did)
+wait 4000
+shot shown          # the art, without any key press
+audio_stop
+rm_file /NPArt/art_169.mp3
+update_db_wait_change 60000
+quit

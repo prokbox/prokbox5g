@@ -1,0 +1,119 @@
+# P19 19-6 (album-render.md section 14): covers decoded on the BCM2722.
+# The model offers DECODE (bcm_decode on: jdec) as the merged image does,
+# once its overlay is loaded (the first box's decode loads it, the UI's pass
+# putting each piece: ipodui-p19-dec-ovl.script has the gate's own cases) and the
+# screen is lit, so the art builder's Now Playing boxes
+# (np_write(): every album's, the index removed: the 16:9 cover's 142x80,
+# the square 1000 px cover's 142x142) and np-sharp's 300x300 panels
+# (paused, lit, the user idle on the main menu) decode
+# there, stay resident (the row shows the slot), and are read back in
+# bands once the user is off the row, checked against COMMIT's F16w and stored
+# as the CPU's are.  Every CRC here is the CPU's own: the boxes' equal
+# ipodui-p19-dec-cpu.script's, and the panels' equal the art builder's
+# CPU stream of the same panel in this run (panels.pak, bcm=0): bit for
+# bit.  The 16:9 panel's crop starts at x0 = 117, not a multiple of 16:
+# equal only with the dither phase fix (ps_row_8/ps_row_32x dither at the
+# whole picture's column).
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p19-dec-bcm.script
+# env: IPODUI_NP_NO_PANEL=built
+# reset: mainmenu
+# needs: library
+# needs: np
+# needs: video
+# golden: skip
+# fulls-extra: 1 the main menu's Now Playing row appears (play_files)
+# logbetween: start m1 bcmjob overlay load k=1 bytes=23884 at=0012b000
+# logbetween: start m1 art bcm overlay wait ms=\d+ decode=1 res=0
+# logbetween: start m1 art bcm box key=d041e5ce04cedfc7 w=142 h=142 reads=1
+# logbetween: start m1 art bcm box key=6a1b2f700f283f50 w=142 h=80 reads=1
+# logbetween: start m1 art np box key=d041e5ce04cedfc7 w=142 h=142 crc=5f8944cb
+# logbetween: start m1 art np box key=6a1b2f700f283f50 w=142 h=80 crc=40e3140b
+# logbetween: start m1 art panel crc key=6a1b2f700f283f50 crc=5ac79827 bcm=0
+# logbetween: start m1 art panel crc key=d041e5ce04cedfc7 crc=ce665930 bcm=0
+# logbetween: m1 m2 art bcm decode key=6a1b2f700f283f50 dw=534 dh=300 cw=300 ch=300 rc=0 v=0
+# logbetween: m2 m2b art panel crc key=6a1b2f700f283f50 crc=5ac79827 bcm=1
+# logbetween: m2 m2b art npcover build key=6a1b2f700f283f50 slot=0 state=1
+# logbetween: m3 m4 art bcm decode key=d041e5ce04cedfc7 dw=300 dh=300 cw=300 ch=300 rc=0 v=0
+# logbetween: m4 m4b art panel crc key=d041e5ce04cedfc7 crc=ce665930 bcm=1
+# logbetween: m4 m4b art npcover build key=d041e5ce04cedfc7 slot=1 state=1
+# logbetween: m1 m2 panel bcm dec_ms=\d+ read=later
+# logbetween: m2 m2b panel bcm dec_ms=\d+ read_ms=\d+ ok=1
+# logbetween: start m1 panel cpu ms=\d+ ok=1
+# nolog: art bcm readback bad
+# nolog: FAULT bcm decode overlay
+# nolog: bcmjob decode why=nowork
+# nolog: bcmjob fault op=0x30
+# nolog: glass owned STALE
+# nolog: shot POISONED
+# timeout: 300
+
+wait 1000
+bcm_decode panel    # (the model starts with the shell; the panel too)
+wait_db 30000
+sim_clock 15:04
+clock_format 24
+battery 100
+charger off
+repeat one
+rm_file /.rockbox/artcache/index.dat     # every album's art again (the
+rm_file /.rockbox/artcache/index.prev    # fixtures' albums are in it)
+mkdir /NPDec
+copy ../../build/np-fixtures/art_169.mp3 /NPDec/art_169.mp3
+copy ../../build/np-fixtures/art_big.mp3 /NPDec/art_big.mp3
+update_db_wait_change 60000
+art_wait 240000     # every box, on the BCM (lit, stopped)
+play_files /NPDec/art_169.mp3
+wait 1000
+np_pin 3000 50
+key SELECT          # Music (the menu re-reads "Now Playing" after a push/pop)
+wait 700
+key MENU
+wait 700
+wheel +10 100       # Now Playing: none built, the thumbnail, queued
+disk_active 3000
+wait 2000
+ab_mark m1
+audio_pause on       # paused, lit, idle (playing, Now Playing would come
+disk_active 8000    # back: np_watched()): np-sharp on the BCM
+wait 6000
+ab_mark m2
+wheel -1            # off the row: the file's read-back from the resident
+wait 500            # slot (never while the row shows it: album-render.md
+disk_active 8000    # section 14, the end state)
+wait 6000
+ab_mark m2b
+wheel +1
+wait 2000
+shot sharp_row_169
+audio_stop
+wait 500
+play_files /NPDec/art_big.mp3
+wait 1000
+wheel -20 100       # to Music: audio_stop took the Now Playing row away
+                    # and the cursor fell to Shuffle Songs (SELECT there
+                    # shuffles the library instead of art_big)
+key SELECT
+wait 700
+key MENU
+wait 700
+wheel +10 100
+disk_active 3000
+wait 2000
+ab_mark m3
+audio_pause on
+disk_active 8000
+wait 6000
+ab_mark m4
+wheel -1
+wait 500
+disk_active 8000
+wait 6000
+ab_mark m4b
+wheel +1
+wait 2000
+shot sharp_row_big
+audio_stop
+rm_file /NPDec/art_169.mp3      # leave the shared disk as primed
+rm_file /NPDec/art_big.mp3
+rm_file /.rockbox/artcache/npcover.pak
+quit

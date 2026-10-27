@@ -1,0 +1,72 @@
+name: Pre-release tester report
+description: Tell us how the pre-release runs on your iPod, working or not.
+labels: ["tester-report"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for testing! Reports from **original hard-drive units** and **30 GB (32 MB) models** help most right now.
+  - type: input
+    id: version
+    attributes:
+      label: ProkBox5g version
+      placeholder: "0.8.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: model
+    attributes:
+      label: Model and capacity
+      options:
+        - 5th generation, 30 GB (32 MB)
+        - 5th generation, 60 GB (64 MB)
+        - 5.5 generation, 30 GB (32 MB)
+        - 5.5 generation, 80 GB (64 MB)
+        - Modded or not sure (say below)
+    validations:
+      required: true
+  - type: dropdown
+    id: storage
+    attributes:
+      label: Storage
+      options:
+        - Original hard drive
+        - Flash mod (SD, CF or other)
+    validations:
+      required: true
+  - type: dropdown
+    id: battery
+    attributes:
+      label: Battery
+      options:
+        - Original or same-size replacement
+        - Larger battery
+        - Not sure
+  - type: dropdown
+    id: connector
+    attributes:
+      label: Connector
+      options:
+        - Original 30-pin dock connector
+        - USB-C or other mod
+  - type: dropdown
+    id: os
+    attributes:
+      label: Computer used to install
+      options:
+        - macOS
+        - Windows
+        - Linux
+  - type: textarea
+    id: report
+    attributes:
+      label: How did it go?
+      description: Install, playback, battery life, anything odd. "Everything worked" is a useful report too.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics report (optional, helps a lot)
+      description: |
+        On the iPod: Settings › About › Save Diagnostics. Then connect it to your computer and drag **ProkBox Report.txt** (at the top of the iPod) into this box. It lists the version, model and recent errors; song names and folders are left out.

@@ -1,0 +1,47 @@
+# #58 idle build (owner, 2026-10-09), case 3: once the backlog is done
+# the builder sleeps completely: no poll and no wake ("art wake", any
+# "art io" or "art build" line) over a long idle, playing with the clock
+# face up (the audio refills no longer post to it), lit and browsing,
+# or stopped with the face up. Only a database change, USB or a
+# power-off wakes it (ipodui-idle-resume).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-idle-done.script
+# needs: library
+# logbetween: idle lit_end no \bart (wake|io|build)\b
+# logbetween: stop_a stop_b no \bart (wake|io|build)\b
+# golden: skip face
+# timeout: 150
+
+wait 1000
+wait_db 30000
+art_wait 120000     # the backlog is done
+charger off
+wheel +4            # "Shuffle Songs"
+wait 500
+key SELECT          # plays (Now Playing)
+wait 1500
+expect_playing 300
+key MENU            # main menu (the face is dismissed over it below)
+wait 1000
+ab_mark idle
+backlight_expire    # the face, while playing
+wait 30000          # a long idle
+expect_playing 300
+shot face
+key MENU            # wakes (swallowed)
+wait 2000
+wheel +1
+wait 2000
+wheel -1
+wait 2000
+expect_playing 300
+ab_mark lit_end
+audio_stop
+wait 1500
+backlight_expire    # stopped, the face up
+ab_mark stop_a
+wait 20000
+ab_mark stop_b
+key MENU            # wakes (swallowed)
+wait 1000
+
+quit

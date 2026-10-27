@@ -31,7 +31,19 @@
 #include "bmp.h"
 
 #define HUFF_LOOKAHEAD 8 /* # of bits of lookahead */
+#if defined(HAVE_IPOD_UI) && !defined(PLUGIN)
+/* ProkBox: the source is read in 64 KiB refills (sector-aligned after the
+ * first, into a 16-byte aligned buffer: one storage command each, by DMA)
+ * instead of 16 B, which the file layer served one sector per command
+ * (5,327 commands for a 2.6 MB cover on the device). The buffer is the
+ * last member of struct jpeg, which lives in the caller's decode buffer
+ * (JPEG_DECODE_OVERHEAD grows with it), never on the stack. */
+#define JPEG_BULK_READ
+#define JPEG_READ_BUF_SIZE (64 * 1024)
+#define JPEG_READ_ALIGN 512         /* the file layer's sector */
+#else
 #define JPEG_READ_BUF_SIZE 16
+#endif
 struct derived_tbl
 {
     /* Basic tables: (element [0] of each array is unused) */

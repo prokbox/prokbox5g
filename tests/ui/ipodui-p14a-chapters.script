@@ -1,0 +1,75 @@
+# Phase 14a (#64, docs/phase14a-brief.md 7 A2): Video chapters: Next lands on chapter 2, ticks, speed stays 1x
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p14a-chapters.script
+# (ipodui-p14a-* default to build/sim-ui-video; the gate runs them there)
+# needs: video
+#
+# Disk: tests/fixtures/videos/mkvideos.sh (installed by the gate's prime
+# step, or by shots.sh for a standalone run):
+#   Movies/        Audio First  High Profile  Late Chapter  Short Film
+#   TV Shows/      Show A (S1 x2, S2 x2, tagged)  Show B (S1 x2, untagged)
+#   Misc/          Show.C.S01E02.m4v  S01E03.m4v (nameless)
+#   Podcasts/Pod One/  Audio Episode.m4a  Video Episode.m4v
+#   Music/         Fixture Singer/Audio Only.mp4 (a song)
+#                  Fixture Author/Image Book.m4b (a book)
+# Main menu with Videos on (T1 default): Music, Videos, Podcasts, Extras,
+# Settings, Shuffle Songs. Videos: Movies, TV Shows, Settings.
+
+# golden: skip tick_overlay chapter2
+# trace: video
+# nolog: ab speed 125
+# Short Film chapters: 0 s, 4 s, 8 s. Late Chapter's first chapter is at
+# 2 s (lead_trim must be 0 for videos, M6). The audiobook speed is set to
+# Faster first: a video never plays at 1.25x (brief 3.2a, ab_speed.c).
+wait 4000
+wait_db 45000
+art_wait 60000
+
+# audiobook speed -> Faster (Settings > Audiobooks > Playback Speed)
+wheel +4 300        # Settings (Music, Videos, Podcasts, Extras, Settings)
+wait 600
+key SELECT
+wait 900
+wheel +8 300        # Audiobooks
+wait 400
+key SELECT
+wait 900
+key SELECT          # Playback Speed
+wait 900
+wheel +1 300        # Faster
+wait 500
+shot faster_set
+key MENU
+wait 700
+key MENU
+wait 700
+key MENU
+wait 700
+
+wheel -4 300        # Music
+wait 300
+wheel +1 300        # Videos
+wait 600
+key SELECT
+wait 900
+key SELECT          # Movies
+wait 1200
+wheel +3 300        # Short Film
+wait 400
+key SELECT
+wait_pos 1500 30000 Film.m4v
+expect_video 8 playing
+key PLAY            # pause so the overlay can show
+wait 500
+key NEXT            # chapter 2 starts at 4.0 s
+wait 1200
+expect_pos 3500 4500        # +-0.5 s of 4.0
+video_shot chapter2
+key SELECT
+wait 700
+shot tick_overlay   # ticks at 4 s and 8 s on the progress bar
+video_shot overlay_video
+key SELECT
+key PLAY
+wait 400
+key MENU
+wait 1500

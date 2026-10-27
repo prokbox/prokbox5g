@@ -116,6 +116,14 @@ void lcd_enable(bool on)
 }
 #endif
 
+#ifdef HAVE_LCD_SLEEP
+/* P18 18-A review: the sleep state alone (expect_lcd_sleep, sim_cmd_sys.c) */
+bool sim_lcd_sleeping(void)
+{
+    return lcd_sleeping;
+}
+#endif
+
 #if defined(HAVE_LCD_ENABLE) || defined(HAVE_LCD_SLEEP)
 bool lcd_active(void)
 {

@@ -398,6 +398,11 @@ int get_action(int context, int timeout);
 
 /* call this if you need to check for ACTION_STD_CANCEL only (i.e user abort! */
 bool action_userabort(int timeout);
+#ifdef HAVE_IPOD_UI
+/* Called once by the thread that reads input (the shell's main loop):
+ * action_userabort() reads input on that thread only */
+void action_set_input_thread(void);
+#endif
 
 /* no other code should need this apart from action.c */
 const struct button_mapping* get_context_mapping(int context);

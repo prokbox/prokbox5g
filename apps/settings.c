@@ -83,8 +83,17 @@
 
 #ifndef __PCTOOL__
 #include "open_plugin.h"
+#ifdef HAVE_UI_THREAD_SPLIT
+/* ProkBox P19 S3 (docs/design/p19-ui-on-cop.md 2.2): the UI front end may
+ * run on the COP while playback reads these on the CPU, and both write
+ * them: uncached, so no core holds a stale or dirty line of them */
+#include "xcore.h"
+struct user_settings global_settings XCORE_BSS;
+struct system_status global_status XCORE_BSS;
+#else
 struct user_settings global_settings;
 struct system_status global_status;
+#endif
 static uint32_t user_settings_crc;
 static long next_status_update_tick;
 static long lasttime = 0;
@@ -125,6 +134,44 @@ static char *debug_get_flags(uint32_t flags);
 #define CONFIGFILE_TEMP CONFIGFILE
 #define RESUMEFILE_TEMP RESUMEFILE
 #define rename_temp_file(a,b,c)
+#elif defined(HAVE_IPOD_UI)
+/* ProkBox (cfgsafe, 2026-10-26): a save writes a temporary completely,
+ * fsyncs it and renames it over the file at once (ipodui/cfgsafe.h); the
+ * boot never promotes an empty file. The stock scheme below lost every
+ * settings file on the device: an O_TRUNC'd .new cut before its close
+ * is 0 bytes, and the next boot renamed it over config.cfg */
+#include "ipodui/cfgsafe.h"
+#include "ipodui/safefile.h"
+#include "ipodui/uilog.h"
+#include "ipodui/modclass.h"   /* a due save is no module's reads */
+#include "xcore.h"              /* save_due: the UI may be on the COP */
+#define CONFIGFILE_TEMP CONFIGFILE".tmp"
+#define RESUMEFILE_TEMP RESUMEFILE".tmp"
+#define CONFIGFILE_OLD  CONFIGFILE".old"
+#define RESUMEFILE_OLD  RESUMEFILE".old"
+/* the debounced save: written this long after the last change, and no
+ * later than SAVE_MAX after the first unsaved one */
+#define SAVE_DELAY      (2*HZ)
+#define SAVE_MAX        (8*HZ)
+
+static void debug_available_settings(void);
+/* the storage thread's idle flush and a due save on the back end's
+ * service thread may run the same callback: one writer at a time */
+static struct mutex cfg_write_mutex XCORE_BSS;  /* kernel object (S0) */
+static long save_due XCORE_BSS;         /* 0: none (read by the UI's wait) */
+static long save_first;
+
+static void settings_recover(const char *file, const char *tmp,
+                             const char *old)
+{
+    char legacy[MAX_PATH];
+    unsigned r;
+
+    snprintf(legacy, sizeof(legacy), "%s.new", file);
+    r = cfgsafe_recover(file, tmp, legacy, old);
+    if (r)
+        ui_log("cfg", "recover %s r=%u", file, r);
+}
 #else /* creates temp files on save, renames next load, saves old file if desired */
 #define CONFIGFILE_TEMP CONFIGFILE".new"
 #define RESUMEFILE_TEMP RESUMEFILE".new"
@@ -142,7 +189,16 @@ static void rename_temp_file(const char *tempfile,
     if (file_exists(tempfile))
     {
         if (oldfile != NULL && file_exists(file))
+        {
+#ifdef HAVE_IPOD_UI
+            /* no rename over an existing name: the firmware's overwrite
+             * rename left two .resume.cfg.old entries on the device
+             * (docs/handoff-2026-10-19-crash-fat.md section 6); a cut
+             * here leaves file and tempfile, both complete */
+            remove(oldfile);
+#endif
             rename(file, oldfile);
+        }
         rename(tempfile, file);
     }
 }
@@ -201,9 +257,16 @@ void settings_load(void)
     logf("\r\n%s()\r\n", __func__);
     debug_available_settings();
 
+#if defined(HAVE_IPOD_UI) && !defined(ROCKBOX_NO_TEMP_SETTINGS_FILE)
+    mutex_init(&cfg_write_mutex);
+    /* a stock .new only when whole; a missing or empty file from .old */
+    settings_recover(RESUMEFILE, RESUMEFILE_TEMP, RESUMEFILE_OLD);
+    settings_recover(CONFIGFILE, CONFIGFILE_TEMP, CONFIGFILE_OLD);
+#else
     /* make temp files current make current files .old */
     rename_temp_file(RESUMEFILE_TEMP, RESUMEFILE, RESUMEFILE".old");
     rename_temp_file(CONFIGFILE_TEMP, CONFIGFILE, CONFIGFILE".old");
+#endif
 
     settings_load_config(CONFIGFILE, false); /* load user_settings items */
     settings_load_config(RESUMEFILE, false); /* load system_status items */
@@ -434,7 +497,7 @@ bool settings_load_config(const char* file, bool apply)
 
     close(fd);
 
-#ifndef __PCTOOL__
+#if !defined(__PCTOOL__) && !defined(IPODUI_TRIM_PLUGINS)
     if (import_open_plugins)
         open_plugin_import(file);
 #else
@@ -445,8 +508,10 @@ bool settings_load_config(const char* file, bool apply)
     {
         settings_save();
         settings_apply(true);
+#ifndef IPODUI_TRIM_SKIN /* P9: no skins in the shell */
         if (theme_changed)
             settings_apply_skins();
+#endif
     }
     return true;
 }
@@ -591,19 +656,29 @@ static bool is_changed(const struct settings_list *setting)
     return true;
 }
 
+#ifdef HAVE_IPOD_UI
+/* ProkBox (cfgsafe): a failed write fails the save, which then keeps the
+ * last good file (the stock code reported success whatever happened) */
+#define cfg_fdprintf(...) do { if (fdprintf(__VA_ARGS__) < 0) ok = false; } \
+                          while (0)
+#else
+#define cfg_fdprintf(...) fdprintf(__VA_ARGS__)
+#endif
 static bool settings_write_config(const char* filename, int options)
 {
     logf("%s\r\n", __func__);
     int i;
     int fd;
     char value[MAX_PATH];
+    bool ok = true;
+    (void)ok;
     fd = open(filename,O_CREAT|O_TRUNC|O_WRONLY, 0666);
     if (fd < 0)
         return false;
 
     if (options != SETTINGS_SAVE_RESUMEINFO)
     {
-        fdprintf(fd, "# .cfg file created by rockbox %s - "
+        cfg_fdprintf(fd, "# .cfg file created by rockbox %s - "
                  "http://www.rockbox.org\r\n\r\n", rbversion);
     }
 
@@ -658,18 +733,61 @@ static bool settings_write_config(const char* filename, int options)
         cfg_to_string(setting, value, MAX_PATH);
         logf("Written: '%s: %s'\r\n",setting->cfg_name, value);
 
-        fdprintf(fd,"%s: %s\r\n",setting->cfg_name,value);
+        cfg_fdprintf(fd,"%s: %s\r\n",setting->cfg_name,value);
     } /* for(...) */
-#ifndef __PCTOOL__
+#if !defined(__PCTOOL__) && !defined(IPODUI_TRIM_PLUGINS)
     if (options == SETTINGS_SAVE_ALL)
     {
         /* add openplugin entries to the open settings file */
         open_plugin_export(fd);
     }
 #endif
+#ifdef HAVE_IPOD_UI
+    /* the data and the entry's size on the disk before any rename */
+    if (fsync(fd) < 0)
+        ok = false;
+    if (close(fd) < 0)
+        ok = false;
+    return ok;
+#else
     close(fd);
     return true;
+#endif
 }
+
+#if defined(HAVE_IPOD_UI) && !defined(ROCKBOX_NO_TEMP_SETTINGS_FILE)
+/* write tmp whole, then it replaces file (ipodui/cfgsafe.h); false keeps
+ * the last good file */
+static bool settings_write_safe(const char *tmp, const char *file,
+                                const char *old, int options)
+{
+    bool ok;
+
+    mutex_lock(&cfg_write_mutex);
+    ok = settings_write_config(tmp, options)
+         && cfgsafe_commit(tmp, file, old) == 0;
+    if (!ok)
+    {
+        /* never anybody's fallback; only its name if a failed rename
+         * left it on file's chain */
+        safefile_remove(tmp, file);
+        ui_log("cfg", "save failed %s", file);
+    }
+    mutex_unlock(&cfg_write_mutex);
+    return ok;
+}
+#define write_resume_file() \
+    settings_write_safe(RESUMEFILE_TEMP, RESUMEFILE, RESUMEFILE_OLD, \
+                        SETTINGS_SAVE_RESUMEINFO)
+#define write_config_file() \
+    settings_write_safe(CONFIGFILE_TEMP, CONFIGFILE, CONFIGFILE_OLD, \
+                        SETTINGS_SAVE_CHANGED)
+#else
+#define write_resume_file() \
+    settings_write_config(RESUMEFILE_TEMP, SETTINGS_SAVE_RESUMEINFO)
+#define write_config_file() \
+    settings_write_config(CONFIGFILE_TEMP, SETTINGS_SAVE_CHANGED)
+#endif
 
 static void flush_global_status_callback(void)
 {
@@ -681,18 +799,24 @@ static void flush_global_status_callback(void)
         DEBUGF("Writing system_status to disk\n");
         logf("Writing system_status to disk");
 
-        settings_write_config(RESUMEFILE_TEMP, SETTINGS_SAVE_RESUMEINFO);
+        write_resume_file();
     }
 }
 
 static void flush_config_block_callback(void)
 {
+#if defined(HAVE_IPOD_UI) && !defined(ROCKBOX_NO_TEMP_SETTINGS_FILE)
+    /* the check and the write as one (recursive: the status flush below
+     * takes it again) */
+    mutex_lock(&cfg_write_mutex);
+    save_due = 0;
+#endif
     if (settings_crc_changed())
     {
         DEBUGF("Writing changed user_settings to disk\n");
         logf("Writing changed user_settings to disk");
 
-        if (!settings_write_config(CONFIGFILE_TEMP, SETTINGS_SAVE_CHANGED))
+        if (!write_config_file())
         {
             user_settings_crc = 0;
             DEBUGF("Error failed to write settings to disk\n");
@@ -706,6 +830,9 @@ static void flush_config_block_callback(void)
     /* remove any outstanding status_cb and call it unconditionally */
     next_status_update_tick = current_tick - 1;
     unregister_storage_idle_func(flush_global_status_callback, true);
+#if defined(HAVE_IPOD_UI) && !defined(ROCKBOX_NO_TEMP_SETTINGS_FILE)
+    mutex_unlock(&cfg_write_mutex);
+#endif
 }
 
 void reset_runtime(void)
@@ -751,8 +878,51 @@ int settings_save(void)
     /* remove any oustanding status_cb we will call it in the config_block_cb */
     unregister_storage_idle_func(flush_global_status_callback, false);
     register_storage_idle_func(flush_config_block_callback);
+#if defined(HAVE_IPOD_UI) && !defined(ROCKBOX_NO_TEMP_SETTINGS_FILE)
+    /* ProkBox (cfgsafe): also written SAVE_DELAY after the last change
+     * (settings_save_service()), not only when the disk next goes idle,
+     * which may be never before a reset; at most SAVE_MAX after the
+     * first unsaved change, so a value being scrubbed is written once */
+    {
+        long now = current_tick, due = save_due;
+
+        if (!due)
+            save_first = now;
+        due = now + SAVE_DELAY;
+        if (TIME_AFTER(due, save_first + SAVE_MAX))
+            due = save_first + SAVE_MAX;
+        save_due = due ? due : 1;
+    }
+#endif
     return 0;
 }
+
+#if defined(HAVE_IPOD_UI) && !defined(ROCKBOX_NO_TEMP_SETTINGS_FILE)
+long settings_save_wait(void)
+{
+    long due = save_due, left;
+
+    if (!due)
+        return TIMEOUT_BLOCK;
+    left = due - current_tick;
+    return left > 0 ? left : 1;         /* a tick: the wait must yield */
+}
+
+void settings_save_service(void)
+{
+    long due = save_due;
+
+    if (!due || TIME_BEFORE(current_tick, due))
+        return;
+    save_due = 0;
+    /* every pending idle write in the same burst (the resume file, the
+     * logs, the stores), as fe_idle_flush() does; on the UI thread
+     * (FE_INLINE) the burst is a save, not the top module's reads */
+    modclass_save(true);
+    call_storage_idle_notifys(true);
+    modclass_save(false);
+}
+#endif
 
 bool settings_save_config(int options)
 {
@@ -786,6 +956,7 @@ bool settings_save_config(int options)
     create_numbered_filename(filename, folder, namebase, ".cfg", 2
                              IF_CNFN_NUM_(, NULL));
 
+#ifndef IPODUI_TRIM_KEYBOARD /* P9: no keyboard; keep the numbered name */
     /* allow user to modify filename */
     while (true) {
         if (!kbd_input(filename, sizeof(filename), NULL)) {
@@ -795,6 +966,7 @@ bool settings_save_config(int options)
             return false;
         }
     }
+#endif
 
     if (settings_write_config(filename, options))
         splash(HZ, ID2P(LANG_SETTINGS_SAVED));
@@ -829,7 +1001,11 @@ void settings_apply_pm_range(void)
     }
 
     /* apply the range */
+#if defined(HAVE_RECORDING) || !defined(IPODUI_TRIM_SKIN) /* peakmeter.c */
     peak_meter_init_range(global_settings.peak_meter_dbfs, pm_min, pm_max);
+#else
+    (void)pm_min; (void)pm_max;
+#endif
 }
 
 void sound_settings_apply(void)
@@ -979,9 +1155,11 @@ void settings_apply(bool read_disk)
 #endif
     lcd_update(); /* refresh after flipping the screen */
     settings_apply_pm_range();
+#if defined(HAVE_RECORDING) || !defined(IPODUI_TRIM_SKIN) /* peakmeter.c */
     peak_meter_init_times(
         global_settings.peak_meter_release, global_settings.peak_meter_hold,
         global_settings.peak_meter_clip_hold);
+#endif
 
 #ifdef HAVE_SPEAKER
     audio_enable_speaker(global_settings.speaker_mode);
@@ -1025,6 +1203,7 @@ void settings_apply(bool read_disk)
             }
         }
 #endif
+#ifndef IPODUI_TRIM_KEYBOARD /* P9: no on-screen keyboard in the shell */
         if ( global_settings.kbd_file[0]
              && global_settings.kbd_file[0] != '-') {
             snprintf(buf, sizeof buf, ROCKBOX_DIR "/%s.kbd",
@@ -1035,6 +1214,7 @@ void settings_apply(bool read_disk)
         }
         else
             load_kbd(NULL);
+#endif
         if ( global_settings.lang_file[0]) {
             snprintf(buf, sizeof buf, LANG_DIR "/%s.lng",
                      global_settings.lang_file);
@@ -1051,7 +1231,8 @@ void settings_apply(bool read_disk)
         icons_init();
         CHART("<icons_init");
 
-#ifdef HAVE_LCD_COLOR
+#if defined(HAVE_LCD_COLOR) && !defined(IPODUI_TRIM_BROWSER)
+        /* P9: file-type colours are file-browser only */
         CHART(">read_color_theme_file");
         read_color_theme_file();
         CHART("<read_color_theme_file");

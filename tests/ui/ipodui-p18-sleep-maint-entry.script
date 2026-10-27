@@ -1,0 +1,50 @@
+# Phase 18 (§8; Q7): an update found while playing is owed (the commit
+# waits for the stop); hold PLAY: the sleep-entry window lands it before
+# the sleep. Then a held commit in the window and a key: the job is cut
+# at its safe point, no sleep, the wake immediate (SQ_WOKEN).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p18-sleep-maint-entry.script
+# needs: library
+# golden: skip
+# timeout: 300
+# log: sleep job=commit ran
+# log: sleep job=commit cut
+# logrange: 0 100 sleep lit ms=(\d+)
+# logbetween: k0 k1 no sim_sleep: sleep enter
+# logbetween: start a0 no sleep job=commit
+# fulls-extra: 1          (the wake pushes the left screen in full)
+
+sleep_mode soft       # soft sleep is off by default (developer switch)
+wait 4000
+wait_db 45000
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait_pos 3000 60000
+db_mark
+copy fixtures/refresh.mp3 /Music/refresh-fixture.mp3
+update_db               # owed: the commit waits for the stop
+wait 5000
+ab_mark a0
+hold PLAY 1500          # the hold: dark at once, PLAY's release awaited
+expect_sleep asleep 45000   # the window (<= 30 s) then the sleep
+expect_db_grew 1000     # landed in the window, before the sleep
+key SELECT
+expect_sleep button 3000
+wait 1000
+
+commit_hold 1
+db_mark
+copy fixtures/refresh.mp3 /Music/refresh-fixture2.mp3
+update_db
+wait 5000
+hold PLAY 1500          # (paused: the hold sleeps)
+commit_hold_wait 30000  # the window's commit, held
+ab_mark k0
+key SELECT              # SQ_WOKEN: lit at once, swallowed
+wait 300
+ab_mark k1
+expect_sleep awake 100
+shot lit
+commit_release
+expect_db_grew 90000    # finished later, never cancelled
+rm_file /Music/refresh-fixture.mp3
+rm_file /Music/refresh-fixture2.mp3
+quit

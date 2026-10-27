@@ -51,6 +51,11 @@ enum {
     /* Next track medadata was just loaded
        data = &(struct track_event){} */
     PLAYBACK_EVENT_NEXTTRACKID3_AVAILABLE,
+#ifdef HAVE_IPOD_UI
+    /* Playback stopped or paused (audio thread)
+       data = NULL */
+    PLAYBACK_EVENT_STOP_OR_PAUSE,
+#endif
 };
 
 /** VOICE events **/
@@ -67,7 +72,12 @@ enum {
     BUFFER_EVENT_CLOSED,
     BUFFER_EVENT_MOVED,
     BUFFER_EVENT_FINISHED,
-    BUFFER_EVENT_BUFFER_RESET
+    BUFFER_EVENT_BUFFER_RESET,
+#ifdef HAVE_IPOD_UI
+    /* A fill ended and storage is told to sleep (about 200 ms later on
+       ATA): the shell's art builder works inside this wake-up */
+    BUFFER_EVENT_FILL_DONE,
+#endif
 };
 
 /** Generic GUI class events **/

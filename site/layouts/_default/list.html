@@ -1,0 +1,18 @@
+{{ define "main" }}
+<div class="doc{{ if eq .Section "guide" }} with-nav{{ end }}">
+  {{ if eq .Section "guide" }}{{ partial "guide-nav.html" . }}{{ end }}
+  <main id="main" class="article" data-pagefind-body>
+    <h1>{{ .Title }}</h1>
+    {{ .Content }}
+    {{ $pages := .Pages.ByWeight }}{{ if eq .Section "releases" }}{{ $pages = .Pages.ByDate.Reverse }}{{ end }}
+    {{ with $pages }}
+    <ol class="cards" data-pagefind-ignore>
+      {{ range . }}
+      <li><a href="{{ .RelPermalink }}"><strong>{{ .Title }}</strong>{{ with .Description }}<span>{{ . }}</span>{{ end }}</a></li>
+      {{ end }}
+    </ol>
+    {{ end }}
+    {{ if eq .Section "guide" }}{{ partial "prevnext.html" . }}{{ end }}
+  </main>
+</div>
+{{ end }}

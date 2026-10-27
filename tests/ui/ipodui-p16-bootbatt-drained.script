@@ -1,0 +1,25 @@
+# Boot battery guard, drained latch (owner decision 2026-10-22): the last
+# session ended in the firmware's own low-battery shutdown, so the cell is
+# refused on battery however far it recovered at rest. The sim boots at
+# 3,570 mV (the owner's rest after the cut-off: 3,576 / 3,569) with no
+# charger and a drained record (IPODUI_SIM_DRAINED=1, written at boot
+# before the read). Stage 1 passes (over the 3,400 floor); stage 2,
+# bootbatt_latch_check() right after the boot logo (the target: right
+# after the mount), refuses: the low-battery image, the 2 s hold, power
+# off, nothing written.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-bootbatt-drained.script
+# env: IPODUI_SIM_BATT_MV=3570
+# env: IPODUI_SIM_DRAINED=1
+# illusion: preboot the guard powers off right after lcd_init(), before the shell and its text watch
+# boot_shot
+# golden: skip
+# log: bootbatt boot mv=3570 thr=3400
+# log: bootbatt latch drained=1 drained mv=3570
+# log: sys deadbatt drawn=1
+# log: bootbatt off writes=0
+# nolog: bootbatt latch cleared
+# nolog: bootbatt plugged
+# nolog: splash-pass
+
+wait 3000
+shot never_reached       # the sim powered off in init(): no such shot

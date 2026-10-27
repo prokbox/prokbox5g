@@ -394,14 +394,21 @@ simcc () {
    ;;
 
    Darwin)
-   # FIXME: sigaltstack fails with "Operation not permitted"
-   # in make_context (firmware/asm/thread-unix.c) on latest
-   # versions of macOS (≥ 26.4). Fall back to SDL threads.
+   # sigaltstack threads work on macOS >= 26.4 since thread-unix.c
+   # uses _setjmp/_longjmp there (plain setjmp also saves the
+   # on-signal-stack state, which made make_context fail with EPERM).
+   sigaltstack=`check_sigaltstack`
    echo "Darwin host detected"
    if $CC --version | grep -q "clang"; then
-    CC=gcc-16
-    AR=gcc-ar-16
-    CPP=cpp-16
+    # use the newest Homebrew GCC available
+    for v in 19 18 17 16 15 14; do
+     if command -v gcc-$v >/dev/null 2>&1; then
+      CC=gcc-$v
+      AR=gcc-ar-$v
+      CPP=cpp-$v
+      break
+     fi
+    done
    fi
    LDOPTS="$LDOPTS -ldl"
    SHARED_LDFLAGS="-dynamiclib -Wl,-no_warn_duplicate_libraries"
@@ -1485,6 +1492,7 @@ help() {
                       (which depends on the target). Watch the output.  Run
                       without this option if you are not sure which the right
                       number is.
+                      iPod Video: 64 (default) or 32.
 
     --type=TYPE       Sets the build type. Shortcuts are also valid.
                       Run without this option to see all available types.
@@ -1537,6 +1545,75 @@ help() {
     --32-bit          Force a 32-bit simulator (use with --sdl-threads for duke3d)
     --prefix          Target installation directory
     --compiler-prefix Override compiler prefix (inherently dangerous)
+    --ipodui          Build the iPod 7G-style UI shell (defines HAVE_IPOD_UI,
+                      HAVE_IPOD_BOOTSCREEN and HAVE_IPOD_UI_DEVMODE; for a
+                      bootloader build only HAVE_IPOD_BOOTSCREEN)
+    --ipodui-release  With --ipodui: compile developer mode out; in iPod
+                      Video firmware it also turns the module loader on
+                      (IPODUI_WITH_MODULES; "make zip" packs modules.pak)
+    --dock30          With --ipodui: the unit has a 30-pin dock connector
+                      (defines HAVE_IPOD_DOCK30)
+    --haptics, --no-haptics
+                      With --ipodui: the unit has (default) or lacks the
+                      haptic clicker mod (defines HAVE_IPOD_HAPTICS)
+    --ipodui-trim=LIST
+                      With --ipodui: name Phase 9 trims explicitly, a comma
+                      list from firmware/export/config/ipodvideo-variant.h
+                      (recording,radio,...) or "all". The header turns the
+                      whole set on by default, so this is a no-op unless
+                      the header's lines are removed (scripts/trim-revert.sh)
+    --ipodui-plugins  With --ipodui: keep the plugin API and build the plugins
+                      (defines HAVE_IPOD_UI_PLUGINS; lifts the PLUGINS trim and
+                      the UI trims it depends on: the Videos path)
+    --core-sections=MODE
+                      With --ipodui (firmware): per-function/data sections for
+                      the core objects (codecs and plugins untouched), so
+                      --gc-sections can drop unreferenced functions.
+                      MODE: func,data (default), func or off
+    --[no-]thumb-cold With --ipodui (firmware): compile the cold-code list in
+                      tools/thumb-cold.txt as Thumb (on by default; the
+                      list is read by tools/root.make)
+    --storage=TYPE    iPod Video: flash (default) or hdd (IPOD_STORAGE_HDD)
+    --battery=MAH     iPod Video: 3000 (default), stock (400/600 by model) or
+                      a capacity in mAh (IPOD_BATTERY_MAH)
+    --bcmfw-devtest   With --ipodui, iPod Video only: the BCM2722 device test
+                      in the developer debug menu (defines HAVE_BCMFW_DEVTEST;
+                      a test build, never a release; issue #60)
+    --bcmfw           iPod Video firmware: the boot path to our own VideoCore
+                      image (defines HAVE_BCMFW).  With --bcmfw-devtest it is
+                      opt-in: off at run time until the debug menu's toggle
+                      is set and the needed stage passed (docs/research/
+                      bcm2722/device-session-1.md).  Without it (the release
+                      shape; needs --bcmfw-default) only the boot path is
+                      built: verified.txt alone gates it, no stages, labs,
+                      rows or test images (docs/research/bcm2722/memory-
+                      contract.md section 6).  Release (0.8.0): --ipodui
+                      --ipodui-release --bcmfw --bcmfw-default --bcmfw-video
+                      --bcmfw-l1 --bcmfw-merged
+    --bcmfw-default   With --bcmfw: our DMA image is the default display driver
+                      (defines HAVE_BCMFW_DEFAULT) when a stage 5 pass flag or
+                      bcmfw/verified.txt allows it; Apple's vmcs otherwise and
+                      as the fallback (docs/research/bcm2722/pipeline.md)
+    --bcmfw-video     With --bcmfw (device) or --ipodui (simulator): the
+                      video player on our VideoCore image and the Videos
+                      screens (defines HAVE_BCMFW_VIDEO; a release ships
+                      it: --ipodui --ipodui-release --bcmfw --bcmfw-default
+                      --bcmfw-video --bcmfw-l1 --bcmfw-merged;
+                      docs/research/bcm2722/player.md)
+    --bcmfw-l1        With --bcmfw: #62 level 1 (defines HAVE_BCMFW_L1): the
+                      swap right after the disk mounts, bounded host-port
+                      waits, and the fallback ladder (our DMA image, our CPU
+                      image with --bcmfw-devtest, Apple's vmcs);
+                      docs/research/bcm2722/independence.md
+    --bcmfw-merged    With --bcmfw (device) or --ipodui (simulator): the
+                      resident image (bcmvideo.bin) is the merged one, video
+                      plus the display jobs (defines HAVE_BCMFW_MERGED_VIDEO;
+                      the jobs run once bcmfw/verified.txt lists it).  With
+                      --bcmfw-video the player plays from it too (the
+                      release and bench builds); without it only the boot
+                      path's resident image and the jobs are built, no
+                      player and no Videos screens.  The probe rows keep the
+                      plain image (bcmprobe.bin) either way
     --help            Shows this message (must not be used with other options)
 
 EOF
@@ -1562,6 +1639,16 @@ ARG_ADDR_SAN=
 ARG_UBSAN=
 ARG_STACK_PROTECTOR=
 ARG_PLUGINS=
+ARG_IPODUI=
+ARG_IPODUI_RELEASE=
+ARG_DOCK30=
+ARG_HAPTICS=
+ARG_IPODUI_TRIM=
+ARG_STORAGE=
+ARG_BATTERY=
+ARG_IPODUI_PLUGINS=
+ARG_CORE_SECTIONS=
+ARG_THUMB_COLD=
 err=
 for arg in "$@"; do
 	case "$arg" in
@@ -1591,6 +1678,24 @@ for arg in "$@"; do
         --with-stack-protector) ARG_STACK_PROTECTOR=default;;
         --prefix=*)   ARG_PREFIX=`echo "$arg" | cut -d = -f 2`;;
         --compiler-prefix=*)   ARG_COMPILER_PREFIX=`echo "$arg" | cut -d = -f 2`;;
+        --ipodui)     ARG_IPODUI=1;;
+        --ipodui-release) ARG_IPODUI_RELEASE=1;;
+        --dock30)     ARG_DOCK30=1;;
+        --haptics)    ARG_HAPTICS=1;;
+        --no-haptics) ARG_HAPTICS=0;;
+        --ipodui-trim=*) ARG_IPODUI_TRIM=`echo "$arg" | cut -d = -f 2`;;
+        --storage=*)  ARG_STORAGE=`echo "$arg" | cut -d = -f 2`;;
+        --battery=*)  ARG_BATTERY=`echo "$arg" | cut -d = -f 2`;;
+        --ipodui-plugins) ARG_IPODUI_PLUGINS=1;;
+        --core-sections=*) ARG_CORE_SECTIONS=`echo "$arg" | cut -d = -f 2`;;
+        --thumb-cold) ARG_THUMB_COLD=1;;
+        --no-thumb-cold) ARG_THUMB_COLD=0;;
+        --bcmfw-devtest) ARG_BCMFW_DEVTEST=1;;
+        --bcmfw)      ARG_BCMFW=1;;
+        --bcmfw-default) ARG_BCMFW_DEFAULT=1;;
+        --bcmfw-video) ARG_BCMFW_VIDEO=1;;
+        --bcmfw-l1)   ARG_BCMFW_L1=1;;
+        --bcmfw-merged) ARG_BCMFW_MERGED=1;;
 		--help)       help;;
 		*)            err=1; echo "[ERROR] Option '$arg' unsupported";;
 	esac
@@ -4611,6 +4716,29 @@ else
   CCACHE_ARG="export CCACHE_DISABLE=true"
 fi
 
+# process audit 2 #3: one shared cache dir across every build dir and
+# every worktree of this repo (plain ccache defaults keep a separate,
+# per-user cache that still keys on the absolute source path, so two
+# worktrees building the identical file never share a hit). CCACHE_DIR
+# is one fixed path regardless of which worktree configure runs in;
+# CCACHE_BASEDIR is *this* checkout's own root, so ccache rewrites the
+# absolute paths gcc is invoked with (root.make always passes
+# $(ROOTDIR)/apps/foo.c, not a relative path) down to "apps/foo.c"
+# before hashing -- identical across any worktree with the same file
+# content, however different their absolute paths are. CCACHE_NOHASHDIR
+# additionally drops the compile working directory from the hash (it
+# would otherwise vary per worktree too, e.g. for -g debug info).
+# time_macros sloppiness covers the handful of files that read
+# __DATE__/__TIME__ directly; it does not help the small number of
+# files whose *command line* changes across midnight ($(BUILDDATE) in
+# tools/root.make's DEFINES) -- pin SOURCE_DATE_EPOCH for that.
+if test -n "$ccache"; then
+  CCACHE_ENV_ARG="export CCACHE_DIR=$HOME/.cache/rockbox-ccache
+export CCACHE_BASEDIR=${rootdir}
+export CCACHE_NOHASHDIR=1
+export CCACHE_SLOPPINESS=time_macros"
+fi
+
 # figure out the full path to the various commands if possible
 HOSTCC=`findtool gcc --lit`
 HOSTAR=`findtool ar --lit`
@@ -4742,10 +4870,235 @@ if test -n "$ccache"; then
   CC="$ccache $CC"
 fi
 
+if test "$ARG_IPODUI" = "1"; then
+  if test "$bootloader" = "1"; then
+    # the bootloader shares only the boot screen; it never sees HAVE_IPOD_UI
+    echo "Building the iPod UI boot screen (HAVE_IPOD_BOOTSCREEN)"
+    extradefines="$extradefines -DHAVE_IPOD_BOOTSCREEN"
+  else
+    echo "Building the iPod UI shell (HAVE_IPOD_UI)"
+    extradefines="$extradefines -DHAVE_IPOD_UI -DHAVE_IPOD_BOOTSCREEN"
+    if test "$ARG_IPODUI_RELEASE" = "1"; then
+      echo "  release build: developer mode compiled out"
+      if test "$modelname" = "ipodvideo" && test "$simulator" != "yes"; then
+        # p19-relmods: a release always has the module loader (Extras and
+        # games load on demand from modules.pak, which "make zip" packs);
+        # without it the resident image is over the 1.5 MB cap
+        # (docs/hardware.md, "Module loader").  Firmware only: the
+        # simulator links the modules statically and its UI scripts use
+        # sim-ui-mod; a release simulator with the define warns
+        # (modload.c used_spans unused without the loader or devmode)
+        echo "  release build: module loader (IPODUI_WITH_MODULES)"
+        extradefines="$extradefines -DIPODUI_WITH_MODULES"
+      fi
+    else
+      extradefines="$extradefines -DHAVE_IPOD_UI_DEVMODE"
+    fi
+    if test "$modelname" = "ipodvideo"; then
+      # #70: the discharge table learned from each full run-down
+      extradefines="$extradefines -DHAVE_BATTERY_LEARN"
+    fi
+  fi
+  if test "$ARG_DOCK30" = "1"; then
+    extradefines="$extradefines -DHAVE_IPOD_DOCK30"
+  fi
+  if test "$ARG_BCMFW_DEVTEST" = "1"; then
+    if test "$modelname" != "ipodvideo" || test "$ARG_IPODUI_RELEASE" = "1" || \
+       test "$bootloader" = "1" || test "$simulator" = "yes"; then
+      echo "[ERROR] --bcmfw-devtest is for an iPod Video developer build only"
+      exit 1
+    fi
+    echo "  BCM2722 device test in the debug menu (HAVE_BCMFW_DEVTEST)"
+    extradefines="$extradefines -DHAVE_BCMFW_DEVTEST"
+  fi
+  if test "$ARG_BCMFW" = "1"; then
+    if test "$modelname" != "ipodvideo" || test "$bootloader" = "1" || \
+       test "$simulator" = "yes"; then
+      echo "[ERROR] --bcmfw is for an iPod Video firmware build only"
+      exit 1
+    fi
+    # without the device test nothing could turn the boot path on (its
+    # toggle and pass flags are the debug menu's): the build's default
+    if test "$ARG_BCMFW_DEVTEST" != "1" && test "$ARG_BCMFW_DEFAULT" != "1"; then
+      echo "[ERROR] --bcmfw without --bcmfw-devtest needs --bcmfw-default"
+      exit 1
+    fi
+    if test "$ARG_BCMFW_DEVTEST" = "1"; then
+      echo "  BCM2722 opt-in boot path to our image (HAVE_BCMFW)"
+    else
+      echo "  BCM2722 boot path to our image, no device test (HAVE_BCMFW)"
+    fi
+    extradefines="$extradefines -DHAVE_BCMFW"
+    if test "$ARG_BCMFW_DEFAULT" = "1"; then
+      echo "  BCM2722: our DMA image is the default display driver (HAVE_BCMFW_DEFAULT)"
+      extradefines="$extradefines -DHAVE_BCMFW_DEFAULT"
+    fi
+    if test "$ARG_BCMFW_L1" = "1"; then
+      echo "  BCM2722: level 1 (early swap, bounded waits, fallback ladder; HAVE_BCMFW_L1)"
+      extradefines="$extradefines -DHAVE_BCMFW_L1"
+    fi
+  elif test "$ARG_BCMFW_DEFAULT" = "1" || test "$ARG_BCMFW_L1" = "1"; then
+    echo "[ERROR] --bcmfw-default and --bcmfw-l1 need --bcmfw"
+    exit 1
+  fi
+  if test "$ARG_BCMFW_VIDEO" = "1"; then
+    if test "$simulator" = "yes"; then
+      if test "$modelname" != "ipodvideo"; then
+        echo "[ERROR] --bcmfw-video is for the iPod Video only"
+        exit 1
+      fi
+    elif test "$ARG_BCMFW" != "1"; then
+      echo "[ERROR] --bcmfw-video needs --bcmfw on the device"
+      exit 1
+    fi
+    echo "  BCM2722 video player (HAVE_BCMFW_VIDEO)"
+    extradefines="$extradefines -DHAVE_BCMFW_VIDEO"
+    if test "$ARG_BCMFW_MERGED" = "1"; then
+      echo "  BCM2722: the player's image is the merged one (HAVE_BCMFW_MERGED_VIDEO)"
+      extradefines="$extradefines -DHAVE_BCMFW_MERGED_VIDEO"
+    fi
+  elif test "$ARG_BCMFW_MERGED" = "1"; then
+    # p19-release-noplayer: the merged image resident and the display
+    # jobs, no video player or Videos screens (the release line)
+    if test "$modelname" != "ipodvideo"; then
+      echo "[ERROR] --bcmfw-merged is for the iPod Video only"
+      exit 1
+    fi
+    if test "$simulator" != "yes" && test "$ARG_BCMFW" != "1"; then
+      echo "[ERROR] --bcmfw-merged needs --bcmfw on the device"
+      exit 1
+    fi
+    echo "  BCM2722: the merged image resident, the display jobs, no player (HAVE_BCMFW_MERGED_VIDEO)"
+    extradefines="$extradefines -DHAVE_BCMFW_MERGED_VIDEO"
+  fi
+  if test "$bootloader" != "1"; then
+    # Phase 9 (docs/phase9-brief.md section 3.5): haptics default on
+    if test "$ARG_HAPTICS" != "0"; then
+      extradefines="$extradefines -DHAVE_IPOD_HAPTICS"
+    fi
+    # --ipodui-plugins: the plugin API stays (the Videos path, section 3.3.2);
+    # ipodvideo-variant.h then leaves PLUGINS and its closure untrimmed
+    if test "$ARG_IPODUI_PLUGINS" = "1"; then
+      echo "  plugins: kept (HAVE_IPOD_UI_PLUGINS)"
+      extradefines="$extradefines -DHAVE_IPOD_UI_PLUGINS"
+    fi
+    # Core-only function/data sections (section 3.3.1). Target firmware
+    # only: the sim never links with --gc-sections. Codec and plugin objects
+    # have their own compile rules and never see these flags (root.make).
+    if test "$simulator" != "yes"; then
+      case "$ARG_CORE_SECTIONS" in
+        func) core_sections_cflags="-ffunction-sections" ;;
+        # default func,data: the A/B (T1) measured -25,252 B more than func
+        # alone, net of the section-anchor loss (+232 B .iram/.init)
+        ""|func,data|data,func) core_sections_cflags="-ffunction-sections -fdata-sections" ;;
+        off) core_sections_cflags= ;;
+        *) echo "[ERROR] --core-sections must be func, func,data or off"; exit 1 ;;
+      esac
+      echo "  core sections: ${core_sections_cflags:-off}"
+      # Phase 8b-T: on by default for the shell firmware (--no-thumb-cold
+      # turns it off); a whole-image --thumb build makes it moot
+      if test "$ARG_THUMB_COLD" = "1" && test "$ARG_ARM_THUMB" = "1"; then
+        echo "[ERROR] --thumb-cold and --thumb are exclusive"
+        exit 1
+      fi
+      if test "$ARG_THUMB_COLD" != "0" && test "$ARG_ARM_THUMB" != "1"; then
+        thumb_cold=1
+      fi
+    elif test -n "$ARG_CORE_SECTIONS" || test "$ARG_THUMB_COLD" = "1"; then
+      echo "[ERROR] --core-sections and --thumb-cold apply to target firmware builds"
+      exit 1
+    fi
+    # Phase 9 trims (contract: the default set is off)
+    if test -n "$ARG_IPODUI_TRIM"; then
+      variant_h="$rootdir/firmware/export/config/ipodvideo-variant.h"
+      for t in `echo "$ARG_IPODUI_TRIM" | tr ',' ' '`; do
+        if test "$t" = "all"; then
+          echo "  trims: the default set (IPODUI_TRIM_DEFAULTS)"
+          extradefines="$extradefines -DIPODUI_TRIM_DEFAULTS"
+          continue
+        fi
+        T=`echo "$t" | tr 'a-z-' 'A-Z_'`
+        if ! grep -qE "^#define IPODUI_TRIM_${T}( |\$)" "$variant_h"; then
+          echo "[ERROR] --ipodui-trim: unknown trim '$t'"
+          exit 1
+        fi
+        echo "  trim: IPODUI_TRIM_${T}"
+        extradefines="$extradefines -DIPODUI_TRIM_${T}="
+      done
+    fi
+  fi
+elif test "$ARG_IPODUI_RELEASE" = "1" || test "$ARG_DOCK30" = "1" \
+     || test -n "$ARG_HAPTICS" || test -n "$ARG_IPODUI_TRIM" \
+     || test -n "$ARG_IPODUI_PLUGINS" || test -n "$ARG_CORE_SECTIONS" \
+     || test -n "$ARG_THUMB_COLD" || test "$ARG_BCMFW_DEVTEST" = "1" \
+     || test "$ARG_BCMFW" = "1" || test "$ARG_BCMFW_DEFAULT" = "1" \
+     || test "$ARG_BCMFW_VIDEO" = "1" || test "$ARG_BCMFW_L1" = "1" \
+     || test "$ARG_BCMFW_MERGED" = "1"; then
+  echo "[ERROR] --ipodui-release, --dock30, --[no-]haptics, --ipodui-trim,"
+  echo "        --ipodui-plugins, --core-sections, --thumb-cold,"
+  echo "        --bcmfw-devtest, --bcmfw, --bcmfw-default, --bcmfw-video,"
+  echo "        --bcmfw-l1 and --bcmfw-merged need --ipodui"
+  exit 1
+fi
+
+# Phase 9 hardware variant of the iPod Video (CLAUDE.md rule 7, docs/hardware.md
+# "Build variants"). The defaults are the owner's unit and add no define, so a
+# default build is unchanged.
+ipod_variant_define=
+if test "$modelname" = "ipodvideo"; then
+  v_storage=flash
+  case "$ARG_STORAGE" in
+    ""|flash) ;;
+    hdd) v_storage=hdd; extradefines="$extradefines -DIPOD_STORAGE_HDD" ;;
+    *) echo "[ERROR] --storage must be flash or hdd"; exit 1 ;;
+  esac
+  case "$ARG_RAM" in
+    ""|64) memory=64 ;;
+    32) memory=32 ;;
+    *) echo "[ERROR] --ram must be 64 or 32 for the iPod Video"; exit 1 ;;
+  esac
+  v_battery=3000
+  case "$ARG_BATTERY" in
+    "") ;;
+    stock) v_battery=stock; extradefines="$extradefines -DIPOD_BATTERY_MAH=0" ;;
+    *[!0-9]*) echo "[ERROR] --battery must be stock or a capacity in mAh"; exit 1 ;;
+    *) if test "$ARG_BATTERY" -lt 300; then
+         echo "[ERROR] --battery: $ARG_BATTERY mAh is below the 300 mAh minimum"
+         exit 1
+       fi
+       v_battery=$ARG_BATTERY
+       extradefines="$extradefines -DIPOD_BATTERY_MAH=$ARG_BATTERY" ;;
+  esac
+  if test "$ARG_IPODUI" = "1" && test "$bootloader" != "1"; then
+    v_dock=usbc
+    test "$ARG_DOCK30" = "1" && v_dock=dock30
+    v_haptic=haptic
+    test "$ARG_HAPTICS" = "0" && v_haptic=nohaptic
+    ipod_variant="$v_storage-$memory-$v_battery-$v_dock-$v_haptic"
+    echo "iPod Video variant: $ipod_variant"
+    ipod_variant_define="#define IPOD_VARIANT \"$ipod_variant\""
+  fi
+elif test -n "$ARG_STORAGE" || test -n "$ARG_BATTERY"; then
+  echo "[ERROR] --storage and --battery apply to the iPod Video only"
+  exit 1
+fi
+
 if test "$ARG_ARM_THUMB" = "1"; then
   extradefines="$extradefines -DUSE_THUMB"
   GCCOPTS="$GCCOPTS -mthumb-interwork"
   CC="$toolsdir/thumb-cc.py $CC"
+fi
+
+# Phase 9 --thumb-cold (section 3.3.3), Phase 8b-T: Thumb only for the
+# sources listed in tools/thumb-cold.txt (tools/root.make adds -mthumb to
+# exactly those objects); everything else stays ARM. Interworking for all,
+# and USE_THUMB so the ARMv4T assembly returns with bx.
+thumb_cold_list=
+if test "$thumb_cold" = "1"; then
+  echo "  thumb-cold: tools/thumb-cold.txt"
+  extradefines="$extradefines -DUSE_THUMB"
+  GCCOPTS="$GCCOPTS -mthumb-interwork"
+  thumb_cold_list="$rootdir/tools/thumb-cold.txt"
 fi
 
 if test "X$endian" = "Xbig"; then
@@ -4861,6 +5214,9 @@ ${app_lcd_height}
 /* linker feature test macro for validating cross-section references */
 ${have_nocrossrefs_to}
 
+/* Phase 9 iPod Video variant name (ipodvideo-variant.h) */
+${ipod_variant_define}
+
 #endif /* __BUILD_AUTOCONF_H */
 EOF
 
@@ -4942,6 +5298,32 @@ else
 fi
 
 ### end of cmdline
+
+# Phase 9 (docs/phase9-brief.md section 3.3.2, H3): no_utf8proc and the
+# plugin build follow the trim macros themselves, so deleting a trim line in
+# ipodvideo-variant.h also restores libutf8proc / the plugins with no second
+# edit. One preprocessor pass over the variant header with this build's
+# defines (including every --ipodui-trim / --ipodui-plugins define).
+if test "$modelname" = "ipodvideo" && test "$ARG_IPODUI" = "1" \
+   && test "$bootloader" != "1"; then
+  # CC may hold make syntax ($(ROOTDIR)/tools/thumb-cc.py ...)
+  trim_cc=`echo "$CC" | sed "s,\\$(ROOTDIR),$rootdir,g"`
+  trim_dm=`echo '#include "ipodvideo-variant.h"' | \
+    $trim_cc -x c -dM -E -I"$rootdir/firmware/export/config" $extradefines - 2>&1`
+  if test $? -ne 0; then
+    echo "$trim_dm"
+    echo "[ERROR] ipodvideo-variant.h does not preprocess with these options"
+    exit 1
+  fi
+  if echo "$trim_dm" | grep -qE '^#define IPODUI_TRIM_UTF8PROC( |$)'; then
+    echo "  derived: no utf8proc (IPODUI_TRIM_UTF8PROC)"
+    no_utf8proc=1
+  fi
+  if echo "$trim_dm" | grep -qE '^#define IPODUI_TRIM_PLUGINS( |$)'; then
+    echo "  derived: no plugins (IPODUI_TRIM_PLUGINS)"
+    plugins=""
+  fi
+fi
 
 cat > Makefile <<EOF
 ## Automatically generated. http://www.rockbox.org/
@@ -5033,7 +5415,10 @@ export ANDROID_PLATFORM_VERSION=${ANDROID_PLATFORM_VERSION}
 export TOOLSET=${toolset}
 export PIPER_MODEL_DIR=${PIPER_MODEL_DIR}
 export NO_UTF8PROC=${no_utf8proc}
+export CORE_SECTIONS_CFLAGS=${core_sections_cflags}
+export THUMB_COLD_LIST=${thumb_cold_list}
 $CCACHE_ARG
+$CCACHE_ENV_ARG
 $LTO_ARG
 
 CONFIGURE_OPTIONS=${cmdline}
@@ -5042,3 +5427,26 @@ include \$(TOOLSDIR)/root.make
 EOF
 
 echo "Created Makefile"
+
+# Phase 8b-T (review H1): objects compiled under different code-generation
+# flags must never be linked together. ARMv4T has no BLX: an assembly or C
+# object built without USE_THUMB/-mthumb-interwork returns with "ldm {..pc}"
+# and leaves a Thumb caller in ARM state. make tracks neither GCCOPTS nor
+# the defines (and the .S rules track no headers), so when they change
+# here, every object this build dir holds goes (ccache serves the rebuild).
+flags_now="GCCOPTS=$GCCOPTS
+DEFINES=$extradefines
+THUMB_COLD_LIST=$thumb_cold_list"
+if [ "`cat flags.stamp 2>/dev/null`" != "$flags_now" ]; then
+    if [ "`pwd -P`" != "`cd $rootdir && pwd -P`" ] && \
+       [ -n "`find . -name '*.o' -type f 2>/dev/null | head -1`" ]; then
+        echo "Code generation flags changed: removing this build's objects"
+        # never the simulator's disk (its installed codecs and plugins:
+        # shots.sh reinstalls them only when the folder is missing)
+        find . \( -name simdisk -o -name 'simdisk-*' \) -prune -o -type f \
+            \( -name '*.o' -o -name '*.a' -o -name '*.elf' \
+            -o -name '*.codec' -o -name '*.rock' -o -name '*.ovl' \) \
+            -exec rm -f {} +
+    fi
+    printf '%s\n' "$flags_now" > flags.stamp
+fi

@@ -1,0 +1,4 @@
+s,mv,pct,charger,charging,play,boost_pct,bl_pct,lcd_pct,disk_pct,dac_allow,dac_sb,dac_sleeps,dac_wakes,vol_db,dropped,mark,idle_pct,cop_idle_pct,cpu1,cpu1_pct,cpu2,cpu2_pct,disk_cmds,disk_kb,disk_wakes,disk_by,stor_on_pct,stor_ons,stor_ons_total
+0,4012,88,0,0,0,10,100,100,0,1,0,0,0,-20,0,boot 2026-10-25T13:58,90,95,ui,3,-,0,0,0,0,-,0,0,0
+60,4012,88,0,0,0,10,100,100,0,1,0,0,0,-20,0,ab_A1,90,95,ui,3,-,0,0,0,0,-,0,0,0
+120,4012,88,0,0,0,10,100,100,0,1,0,0,0,-20,0,ab_B1,90,95,ui,3,-,0,0,0,0,-,0,0,0

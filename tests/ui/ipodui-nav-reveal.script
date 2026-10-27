@@ -1,0 +1,53 @@
+# #38 (docs/phase-nav-brief.md, "C: verification"): D6's reveal/split
+# stub ("ship UI_T_REVEAL as a push stub marked (warning), ... UI_T_SPLIT
+# is likewise a push stub until Phase 7"). The round-trip itself (kind
+# recorded and mirrored on pop for all three kinds, and all five D7
+# duration values) is already a host test: tests/nav/test_nav.c
+# test_transitions(), committed with the #38 contracts -- it is exact and
+# needs no UI script. Nothing in this phase's menu wiring ever calls
+# ui_push_t(..., UI_T_REVEAL) or UI_T_SPLIT) though (D6: "Its only caller,
+# Extras > Clocks, is itself a stub this phase" -- Extras has no
+# sub-items at all yet, just ui_stub_screen), so there is no UI path to
+# exercise the *runtime* stub behaviour end to end. This script is the
+# closest proxy and a regression baseline for when Extras grows a real
+# Clocks item: Extras pushes today exactly like any other split -> full
+# push (D7: 250 ms in, 290 ms out; 8b-4a: the parting plus its 120 ms
+# header bar, 370 and 410), the same generic motion a real
+# UI_T_REVEAL would also get in v1 (ui_main.c does not special-case the
+# kind). When Extras > Clocks becomes real and wires UI_T_REVEAL, this
+# script's "Extras is still a plain push" assumption needs revisiting.
+# P12 W1-F: Extras is now the split Extras list (a split -> split push,
+# 190 ms each way) and Extras > Clocks is the UI_T_REVEAL caller
+# (extras_table); W1-C's real Clocks screen (the world map and analog
+# clock, full width, no panel) is the reveal target, a push in v1:
+# split -> full: 250 in (D7); the pop back to the split list measures
+# 240 (D7 says 290: flagged to the nav owner, P12 W1-F report).
+# P12 W2-W: Clocks is real and the reveal is wired (ui_main.c, the
+# measured motion of nav_reveal_offsets(): the map stays, the list and
+# the panel's clock leave left, the band comes in), 250 ms each way;
+# ipodui-p12-clocks-reveal records its frames.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-nav-reveal.script
+# golden: skip push_mid pop_mid
+# log: reveal start dir=1
+# log: reveal start dir=-1
+# transitions: 190 250 250 190
+
+wait 4000           # boot to the main menu, "Music" selected
+
+wheel +2             # "Extras" (3rd main-menu row)
+wait 400
+key SELECT 50
+wait 700             # the Extras list (split), "Clocks" selected
+key SELECT 50        # Clocks: UI_T_REVEAL
+shot push_mid        # (timing) sliding in
+wait 700
+shot extras          # the Clocks page, no header, no panel
+
+key MENU 50
+shot pop_mid         # (timing) sliding back
+wait 700
+key MENU 50          # the Extras list, then the main menu
+wait 700
+shot back
+
+quit

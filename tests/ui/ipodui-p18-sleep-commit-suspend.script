@@ -1,0 +1,42 @@
+# Phase 18 (§4.3 step 3; Rev 1 H2): a commit that cannot finish inside
+# SLEEP_MAINT_MS is suspended at a safe point, never cancelled: the old
+# generation stays published, the unit sleeps, and a later window
+# finishes it (no dirty database, no rebuild).
+# commit_hold 1 holds the commit past the 30 s cap; how a held commit
+# reaches its safe point is agent B's (adjust the hold stage if needed).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p18-sleep-commit-suspend.script
+# needs: library
+# golden: skip
+# fulls-extra: 1          (the Now Playing row appears: play_files)
+# timeout: 360
+# log: sleep job=commit owed
+# log: sleep job=commit ran
+# nolog: sleep job=rebuild
+# nolog: dirty
+
+sleep_mode soft       # soft sleep is off by default (developer switch)
+wait 4000
+wait_db 45000
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait_pos 3000 60000
+key PLAY
+wait 500                # the toggle lands (the expect does not wait)
+expect_paused 500
+db_gen_mark
+commit_hold 1
+copy fixtures/refresh.mp3 /Music/refresh-fixture.mp3
+update_db
+wait 5000
+hold PLAY 1500          # the hold: dark at once, PLAY's release awaited
+expect_sleep asleep 45000            # after the 30 s cap and the suspend
+expect_db_gen_same 1000
+key SELECT
+expect_sleep button 3000
+commit_release
+wait 1000
+hold PLAY 1500          # the hold: dark at once, PLAY's release awaited
+expect_sleep asleep 45000            # the next window finishes it
+expect_db_gen_change 60000
+shot end                # the gate needs one shot
+rm_file /Music/refresh-fixture.mp3
+quit

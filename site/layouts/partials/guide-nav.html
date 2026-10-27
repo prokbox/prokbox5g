@@ -1,0 +1,16 @@
+{{ $cur := . }}
+{{ with site.GetPage "/guide" }}
+<nav class="guide-nav" aria-label="Guide chapters">
+  <details open>
+    <summary>Chapters</summary>
+    <ol>
+      <li><a href="{{ .RelPermalink }}"{{ if eq $cur . }} aria-current="page"{{ end }}>Introduction</a></li>
+      {{ range .Pages.ByWeight }}
+      <li><a href="{{ .RelPermalink }}"{{ if eq $cur . }} aria-current="page"{{ end }}>{{ .Title }}</a></li>
+      {{ end }}
+    </ol>
+    {{ with site.Params.pdf }}<a class="pdf-link" href="{{ . | relURL }}">Download the guide (PDF)</a>{{ end }}
+  </details>
+</nav>
+<script>if (matchMedia('(max-width: 900px)').matches) document.querySelector('.guide-nav details').removeAttribute('open');</script>
+{{ end }}

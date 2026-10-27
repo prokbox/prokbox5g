@@ -1,0 +1,111 @@
+# P12 W2-W (9 "-lock-wake"; item 1): a locked unit wakes from a soft sleep
+# straight onto the locked screen, never the screen beneath it, not even
+# for one frame, whatever woke it: the first full update after each wake
+# is the locked screen's (or the ring's). A button wake: the locked
+# screen. An alarm wake: the ring over the locked screen (its first lit
+# frame), MENU dismisses, the locked screen again. A USB wake: a data
+# host unlocks (Q10); after the session the screen beneath, unlocked.
+# A locked unit whose locked screen is not on the stack, woken by an
+# alarm: ipodui-p12-lock-wake-unstacked (its own seeded alarm and lever).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p12-lock-wake.script
+# golden: skip
+# timeout: 150
+# env: IPODUI_SIM_ALARM_IN=900
+# alarm-rings: 1
+# log: lock engage ok=1
+# log: sleep wake why=1
+# log: sleep wake why=3
+# log: sleep wake why=2
+# log: alarm dismiss how=1
+# log: lock usb unlock
+# logbetween: sleep1 woke1 update full lock\b
+# logbetween: sleep1 woke1 no update full (?!lock\b)
+# logbetween: sleep2 woke2 update full alarm-ring\b
+# logbetween: sleep2 woke2 no update full (?!alarm-ring\b)
+# nolog: 1234
+# reset: mainmenu
+
+sleep_mode soft         # soft sleep is off by default (developer switch)
+wait 4000            # boot to the main menu, "Music" selected
+wheel +2 300         # "Extras"
+wait 600
+key SELECT
+wait 1200
+wheel +7 200         # the last row (Stopwatch; the list does not wrap)
+wait 600
+wheel -1 200         # "Screen Lock", from the end: with or without a Games row
+wait 800
+key SELECT
+wait 1200
+# New Combination 1234, then Confirm 1234: Lock / Reset
+wheel +1 250
+wait 300
+key SELECT
+wait 200
+wheel +2 250
+wait 300
+key SELECT
+wait 200
+wheel +3 250
+wait 300
+key SELECT
+wait 200
+wheel +4 250
+wait 300
+key SELECT
+wait 200
+wait 800
+wheel +1 250
+wait 300
+key SELECT
+wait 200
+wheel +2 250
+wait 300
+key SELECT
+wait 200
+wheel +3 250
+wait 300
+key SELECT
+wait 200
+wheel +4 250
+wait 300
+key SELECT
+wait 200
+wait 800
+key SELECT           # Lock
+wait 1200
+shot locked             # the locked screen
+# 1. a button wake
+ab_mark sleep1
+hold PLAY 1500          # the hold: dark, then asleep (PLAY passes the lock)
+expect_sleep asleep 8000
+sleep_warp 600
+key MENU                # the wake press (swallowed)
+expect_sleep button 3000
+wait 300
+ab_mark woke1
+shot woken_button       # the locked screen
+# 2. an alarm wake (900 s after boot: inside the next warp)
+ab_mark sleep2
+hold PLAY 1500
+expect_sleep asleep 8000
+sleep_warp 300          # past the alarm (the sim RTC moves the whole warp)
+expect_sleep alarm 3000
+wait 300
+ab_mark woke2
+shot woken_alarm        # the ring, over the locked screen
+key MENU                # dismiss (at the release)
+wait 1500
+shot relocked           # the locked screen again
+# 3. a USB wake: a data host unlocks (Q10)
+ab_mark sleep3
+hold PLAY 1500
+expect_sleep asleep 8000
+usb_connect
+expect_sleep vbus 3000
+wait 2000
+shot usb
+usb_disconnect
+wait 3000
+shot unlocked           # the Screen Lock page beneath, unlocked
+quit

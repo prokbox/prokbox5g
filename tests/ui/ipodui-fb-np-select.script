@@ -1,0 +1,99 @@
+# #58 (owner, 2026-10-09): SELECT after a change on a Now Playing mode page
+# returns to Normal; an untouched page advances to the next mode. The
+# screen traces every mode move as "np mode <from> -> <to> ev=<type>"
+# (ev 0 = SELECT). Untouched: Normal -> Scrubber -> Rating -> Shuffle by
+# SELECT. Touched: a rating set (Rating -> Normal), a shuffle toggled
+# (Shuffle -> Normal), a scrub (Scrubber -> Normal). Nothing is left
+# changed: the rating goes back to 0 and shuffle back to Off.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-fb-np-select.script
+# needs: library
+# trace: np
+# golden: skip rated_normal shuffled_normal scrubbed_normal
+# log: np mode rating -> shuffle ev=0
+# log: np mode rating -> normal ev=0
+# log: np mode shuffle -> normal ev=0
+# log: np mode scrubber -> normal ev=0
+# log: np mode visualizer -> normal ev=0
+# np: viz-full
+
+wait 1000
+wait_db 30000
+sim_clock 15:08
+repeat off
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3 /Music/Tone%20Collective/Sine%20Studies/02%20Low%20E.mp3
+wait 1000
+np_pin 2000 50
+key SELECT          # Music (the menu re-reads "Now Playing" after a push/pop)
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 1200
+
+# untouched: Scrubber -> Rating -> Shuffle, then Normal from the shelf
+key SELECT          # Scrubber
+wait 500
+key SELECT          # Rating (untouched)
+wait 500
+key SELECT          # Shuffle (advanced)
+wait 500
+key SELECT          # Visualizer (music: #126, full screen)
+wait 800
+key SELECT          # Normal (the end of the cycle)
+wait 800
+
+# Rating touched -> Normal
+key SELECT          # Scrubber
+wait 500
+key SELECT          # Rating
+wait 500
+wheel +2 300        # 2 stars (from 0)
+wait 300
+key SELECT          # rated: Normal
+wait 900
+shot rated_normal
+key SELECT          # Scrubber
+wait 500
+key SELECT          # Rating
+wait 500
+wheel -6 100        # back to 0
+wait 300
+key SELECT          # Normal
+wait 900
+
+# Shuffle touched -> Normal
+key SELECT          # Scrubber
+wait 500
+key SELECT          # Rating
+wait 500
+key SELECT          # Shuffle
+wait 500
+wheel +1 300        # Songs
+wait 300
+key SELECT          # toggled: Normal
+wait 900
+shot shuffled_normal
+key SELECT
+wait 500
+key SELECT
+wait 500
+key SELECT          # Shuffle
+wait 500
+wheel -2 300        # Off again
+wait 300
+key SELECT          # Normal
+wait 900
+
+# Scrubber touched -> Normal
+key SELECT          # Scrubber
+wait 500
+wheel +3 300        # scrub
+wait 300
+key SELECT          # scrubbed: Normal
+wait 900
+shot scrubbed_normal
+expect_rating /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3 0 4000
+audio_stop
+quit

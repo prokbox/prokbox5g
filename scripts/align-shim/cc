@@ -1,0 +1,25 @@
+#!/bin/sh
+# Host-compiler shim: every host test compiled through it aborts on a
+# misaligned load/store (-fsanitize=alignment, no recovery). The PP5022
+# data-aborts on a misaligned halfword/word access (docs/pp5022-reference/
+# quirks.md #51); macOS/x86/arm64 hosts accept it silently, so without this
+# the bug only shows on the device.
+#
+# scripts/test.sh puts this directory first on PATH (after building warble)
+# and the shim is installed as cc, gcc and gcc-NN (symlinks to this file).
+# ALIGN_SHIM=0 turns it off (e.g. to compare); a test that must keep a
+# deliberate misaligned access sets ALIGN_SHIM_ALLOW=1 for that command.
+real=
+me=$(basename "$0")
+d=$(cd "$(dirname "$0")" && pwd)
+IFS=:
+for p in $PATH; do
+    [ "$p" = "$d" ] && continue
+    if [ -x "$p/$me" ]; then real="$p/$me"; break; fi
+done
+unset IFS
+[ -n "$real" ] || { echo "align-shim: no real $me on PATH" >&2; exit 127; }
+if [ "${ALIGN_SHIM:-1}" = 0 ] || [ "${ALIGN_SHIM_ALLOW:-0}" = 1 ]; then exec "$real" "$@"; fi
+# preprocess-only / version probes need no sanitizer
+for a in "$@"; do case "$a" in -E|-M|-MM|--version|-dumpversion|-dumpmachine|-v) exec "$real" "$@";; esac; done
+exec "$real" -fsanitize=alignment -fno-sanitize-recover=alignment "$@"

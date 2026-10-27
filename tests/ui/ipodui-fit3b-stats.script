@@ -1,0 +1,59 @@
+# Fit-3b (docs/fit3-brief.md section 3): the data-path counters' developer
+# rows and their once-a-minute ipodui.log lines. The idle art build decodes
+# the mini library's covers, so the Art row moves in the simulator (LCD,
+# tick reads and PCM write-backs live in target-only files: 0 here). After
+# the first minute a rebuild from scratch reads with the disk awake, the
+# main loop logs the window ("f3 lcd s=..": no art yet, so no art line)
+# and the Art row shows the rebuild's rates in the window since. No file name on screen.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-fit3b-stats.script
+# timeout: 200
+# log: f3 lcd s=
+# golden: skip f3_rows
+#   (live rates: the window and the build's pace vary run to run)
+
+wait 1000
+wait_db 30000
+art_wait 60000      # the boot's own pass (a warm cache: no decodes)
+wait 60000          # past the first minute's window
+rm_file /.rockbox/artcache/index.dat
+rm_file /.rockbox/artcache/index.prev
+rm_file /.rockbox/artcache/index.tmp
+rm_file /.rockbox/artcache/thumbs.pak
+rm_file /.rockbox/artcache/panels.pak
+art_request         # every cover decoded again (DEVSTATS_ART)
+wait 300
+wheel +1            # main-loop passes while the build reads: the
+wait 300            # disk is awake, so the window is logged
+wheel -1
+wait 300
+wheel +1
+wait 300
+wheel -1
+art_wait 60000
+wait 500
+wheel +3            # Settings
+wait 400
+key SELECT
+wait 1500
+key SELECT          # About
+wait 1500
+chord SELECT+LEFT 3200
+wait 1000
+wheel -2            # Advanced (above Back; the list wraps)
+wait 400
+key SELECT
+wait 800
+wheel +1            # Diagnostics
+wait 400
+key SELECT
+wait 800
+wheel +3            # the counters (after Audio path test and the two crash rows)
+wait 600
+shot f3_rows
+key LEFT            # Advanced
+wait 600
+key LEFT            # Developer
+wait 600
+key LEFT            # leave developer mode
+wait 1500
+quit

@@ -1,0 +1,107 @@
+# Ten video plays in a row.  The 7th used to crash the simulator: every
+# thread that left by thread_exit() kept its host context buffer
+# (firmware/asm/thread-unix.c, sim-only; docs/changes-from-rockbox.md).
+# Each play must show pictures.  After each stop, video_res logs what a
+# play could leak, against the first stop's counts: the thread slots in
+# use, the core bytes free and the host fds open. None may drift.
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p19-play10.script
+# needs: video
+# golden: skip
+# timeout: 200
+# fulls-extra: 20 each play's start and stop hand the panel over in full
+# logrange: 0 0 video_res .* drift threads (-?\d+)
+# logrange: 0 0 video_res .* drift threads -?\d+ core (-?\d+)
+# logrange: 0 0 video_res .* fds (-?\d+)$
+# log: ab_mark p10
+wait 3000
+video_start /Movies/Short%20Film.m4v
+play_files /Movies/Short%20Film.m4v
+wait 1500
+expect_video 10 playing
+video_stop
+audio_stop
+wait 500
+video_res
+ab_mark p1
+video_start /Movies/Short%20Film.m4v
+play_files /Movies/Short%20Film.m4v
+wait 1500
+expect_video 10 playing
+video_stop
+audio_stop
+wait 500
+video_res
+ab_mark p2
+video_start /Movies/Short%20Film.m4v
+play_files /Movies/Short%20Film.m4v
+wait 1500
+expect_video 10 playing
+video_stop
+audio_stop
+wait 500
+video_res
+ab_mark p3
+video_start /Movies/Short%20Film.m4v
+play_files /Movies/Short%20Film.m4v
+wait 1500
+expect_video 10 playing
+video_stop
+audio_stop
+wait 500
+video_res
+ab_mark p4
+video_start /Movies/Short%20Film.m4v
+play_files /Movies/Short%20Film.m4v
+wait 1500
+expect_video 10 playing
+video_stop
+audio_stop
+wait 500
+video_res
+ab_mark p5
+video_start /Movies/Short%20Film.m4v
+play_files /Movies/Short%20Film.m4v
+wait 1500
+expect_video 10 playing
+video_stop
+audio_stop
+wait 500
+video_res
+ab_mark p6
+video_start /Movies/Short%20Film.m4v
+play_files /Movies/Short%20Film.m4v
+wait 1500
+expect_video 10 playing
+video_stop
+audio_stop
+wait 500
+video_res
+ab_mark p7
+video_start /Movies/Short%20Film.m4v
+play_files /Movies/Short%20Film.m4v
+wait 1500
+expect_video 10 playing
+video_stop
+audio_stop
+wait 500
+video_res
+ab_mark p8
+video_start /Movies/Short%20Film.m4v
+play_files /Movies/Short%20Film.m4v
+wait 1500
+expect_video 10 playing
+video_stop
+audio_stop
+wait 500
+video_res
+ab_mark p9
+video_start /Movies/Short%20Film.m4v
+play_files /Movies/Short%20Film.m4v
+wait 1500
+expect_video 10 playing
+video_stop
+audio_stop
+wait 500
+video_res
+ab_mark p10
+shot end

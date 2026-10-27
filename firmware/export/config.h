@@ -985,12 +985,20 @@ Lyre prototype 1 */
  * plenty of RAM. Both features can be enabled independently. */
 #if (MEMORYSIZE >= 8) && !defined(BOOTLOADER) && (defined(CHECKWPS) || !defined(__PCTOOL__)) \
     && !defined(APPLICATION)
-#ifndef SIMULATOR
-#define HAVE_DIRCACHE
+#if !defined(SIMULATOR) && !defined(IPODUI_TRIM_DIRCACHE)
+#define HAVE_DIRCACHE   /* Phase 9: off in the shell (device path == sim path) */
 #endif
 #ifdef HAVE_TAGCACHE
 #define HAVE_TC_RAMCACHE
 #endif
+#endif
+
+/* Tag normalisation: utf8proc (stock), or the shell's compact NFC composer
+ * (Phase 9, firmware/common/nfc.c). Exactly one of them provides
+ * utf8_normalize(); stock defines this exactly when it defines
+ * UTF8PROC_EXPORTS. */
+#if defined(UTF8PROC_EXPORTS) || defined(IPODUI_TRIM_UTF8PROC)
+#define HAVE_UTF8_NORMALIZE   /* utf8_normalize(): utf8proc, or nfc.c */
 #endif
 
 #if defined(HAVE_TAGCACHE)
@@ -1403,17 +1411,20 @@ Lyre prototype 1 */
 #endif /* USB_HAS_BULK */
 
 #ifdef USB_HAS_INTERRUPT
+#ifndef IPODUI_TRIM_USB_CLASSES  /* Phase 9: the shell keeps only MSC */
 #define USB_ENABLE_HID
+#endif
 #else
 #define USB_ENABLE_CHARGING_ONLY
 #endif
 #endif
 
-#ifdef USB_HAS_ISOCHRONOUS
+#if defined(USB_HAS_ISOCHRONOUS) && !defined(IPODUI_TRIM_USB_CLASSES)
 #define USB_ENABLE_AUDIO
 #endif
 
-#if defined(USB_HAS_INTERRUPT) && defined(USB_HAS_ISOCHRONOUS) && USB_VENDOR_ID == 0x05ac
+#if defined(USB_HAS_INTERRUPT) && defined(USB_HAS_ISOCHRONOUS) && USB_VENDOR_ID == 0x05ac \
+    && !defined(IPODUI_TRIM_USB_CLASSES)
 #define USB_ENABLE_IAP
 #endif
 

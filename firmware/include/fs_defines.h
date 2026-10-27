@@ -94,6 +94,14 @@
 #if MEMORYSIZE < 8
 #define DC_NUM_ENTRIES      32
 #define DC_MAP_NUM_ENTRIES  128
+#elif defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+/* Phase 8b-T: the same 64 buffers, 32 hash buckets per volume instead of
+ * 256. The map is NUM_VOLUMES (4 with multivolume) x buckets x 8 B and sits
+ * after the page-aligned inquiry_static, so it is resident byte for byte:
+ * 8,192 -> 1,024 B. A probe now checks ~2 candidate entries instead of
+ * ~0.25 (~15 more instructions per cache lookup, against a sector read) */
+#define DC_NUM_ENTRIES      64
+#define DC_MAP_NUM_ENTRIES  32
 #else
 #define DC_NUM_ENTRIES      64
 #define DC_MAP_NUM_ENTRIES  256

@@ -23,6 +23,9 @@
  *
  ****************************************************************************/
 #include "config.h"
+#if defined(IPOD_VIDEO) && defined(HAVE_IPOD_UI)
+#include "powermgmt.h"   /* P18 18-A: power_thread_kick() */
+#endif
 #include "system.h"
 #include "usb.h"
 #include "button.h"
@@ -175,6 +178,10 @@ void usb_init_device(void)
 void usb_enable(bool on)
 {
     if (on) {
+#ifdef HAVE_PLL_IDLE
+        /* Fit-1 C6: never at 24 MHz with the PLL off while USB runs */
+        cpu_pll_hold(CPU_PLL_HOLD_USB, true);
+#endif
         /* if USB is detected, re-enable the USB-devices, otherwise make sure it's disabled */
         DEV_EN |= DEV_USB0;
         DEV_EN |= DEV_USB1;
@@ -185,12 +192,42 @@ void usb_enable(bool on)
         usb_core_exit();
         /* Disable USB devices */
         usb_reset_controller();
+#ifdef HAVE_PLL_IDLE
+        cpu_pll_hold(CPU_PLL_HOLD_USB, false);
+#endif
     }
 }
 
 void usb_attach(void)
 {
+#if defined(IPOD_VIDEO) && defined(HAVE_IPOD_UI)
+    if (usb_drv_attach_reinit())
+    {
+    /* PP5022/iPod Video USB-C trial: upstream carried a second ARC
+     * initialization here for Videos which did not reliably establish a
+     * connection. It was removed for dock compatibility, not because it
+     * was disproven on this controller. Our USB-C board is the test scope;
+     * usb_drv_init() runs after the local-storage handover and before the
+     * host selects a configuration. */
+    usb_drv_init();
+    }
+#endif
 }
+
+#if defined(IPOD_VIDEO) && defined(HAVE_IPOD_UI)
+/* Preserve the existing USB-C policy until its A/B result is known. */
+static bool attach_reinit = true;
+
+void usb_drv_set_attach_reinit(bool enabled)
+{
+    attach_reinit = enabled;
+}
+
+bool usb_drv_attach_reinit(void)
+{
+    return attach_reinit;
+}
+#endif
 
 bool usb_plugged(void)
 {
@@ -215,6 +252,9 @@ void usb_insert_int(void)
     GPIO_WRITE_BITWISE(USB_GPIO_INT_LEV, val ^ USB_GPIO_MASK, USB_GPIO_MASK);
     USB_GPIO_INT_CLR = USB_GPIO_MASK;
     timeout_register(&usb_oneshot, usb_timeout_event, HZ/5, val);
+#if defined(IPOD_VIDEO) && defined(HAVE_IPOD_UI)
+    power_thread_kick();    /* P18 18-A: charger detection on the edge */
+#endif
 }
 #endif /* USB_STATUS_BY_EVENT */
 
@@ -271,6 +311,9 @@ void firewire_insert_int(void)
     GPIO_WRITE_BITWISE(GPIOC_INT_LEV, val ^ 0x02, 0x02);
     GPIOC_INT_CLR = 0x02;
     timeout_register(&firewire_oneshot, firewire_timeout_event, HZ/5, val);
+#if defined(IPOD_VIDEO) && defined(HAVE_IPOD_UI)
+    power_thread_kick();
+#endif
 }
 #endif /* USB_STATUS_BY_EVENT */
 #endif /* USB_FIREWIRE_HANDLING */

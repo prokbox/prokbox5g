@@ -1,0 +1,23 @@
+# #47: an unchanged library at the upgrade (no re-sort marker) is
+# re-sorted once: the boot walks, commits with nothing new and publishes
+# ("db resort done ok=1"). The next boot neither re-sorts nor commits (its
+# probe walk vouches for the stamp: the re-sort's candidate walk does not);
+# the third trusts the stamp and walks nothing
+# (tests/perf/resort_once_check.sh checks the log).
+# boot-stamp: keep
+
+wait 4000
+wait_db 45000
+wait 20000          # the walk, the empty commit and the publication
+shot first
+reboot
+wait 4000
+wait_db 45000
+wait 10000
+shot second
+reboot
+wait 4000
+wait_db 45000
+wait 5000
+shot third
+quit

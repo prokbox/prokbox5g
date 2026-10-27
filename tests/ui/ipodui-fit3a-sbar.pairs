@@ -1,0 +1,13 @@
+# Fit-3a #74: outside the bar's rectangle the shot with the bar forced
+# on equals the one without it (zero pixels); the hide restores exactly.
+# Run from the repo root after ipodui-fit3a-sbar.script:
+#   scripts/pngdiff.py --batch tests/ui/ipodui-fit3a-sbar.pairs
+split on/off above	out/shots/fit3a-sbar/split_on.png	out/shots/fit3a-sbar/split_off.png	0,0,320,22
+split on/off below	out/shots/fit3a-sbar/split_on.png	out/shots/fit3a-sbar/split_off.png	0,238,320,240
+split on/off left	out/shots/fit3a-sbar/split_on.png	out/shots/fit3a-sbar/split_off.png	0,22,152,238
+split on/off right	out/shots/fit3a-sbar/split_on.png	out/shots/fit3a-sbar/split_off.png	159,22,320,238
+split off/off2 whole	out/shots/fit3a-sbar/split_off2.png	out/shots/fit3a-sbar/split_off.png
+full on/off above	out/shots/fit3a-sbar/full_on.png	out/shots/fit3a-sbar/full_off.png	0,0,320,22
+full on/off below	out/shots/fit3a-sbar/full_on.png	out/shots/fit3a-sbar/full_off.png	0,238,320,240
+full on/off left	out/shots/fit3a-sbar/full_on.png	out/shots/fit3a-sbar/full_off.png	0,22,313,238
+full off/off2 whole	out/shots/fit3a-sbar/full_off2.png	out/shots/fit3a-sbar/full_off.png

@@ -1,0 +1,60 @@
+# P19 ucop-fix2 (review S1): the Now Playing visualizer with the UI split
+# off (ui_split=cpu). The tap's open and close run on the CPU (remote
+# calls from the COP on the device: the hook under the PCM lock, the
+# clean and the free where the FIQ runs); the simulator has one core, so
+# it runs the split at "cpu" and checks that the view opens the tap,
+# reopens it on a style change (close, then open), and closes it on the
+# way back to Normal, with the music playing throughout. The switch is
+# removed at the end.
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p19-viz-split.script
+# needs: music
+# golden: skip
+# log: fe be_svc up mode=cpu
+# log: np mode shuffle -> visualizer ev=0
+# log: viz start style=0
+# log: viz start style=1
+# log: np mode visualizer -> normal ev=0
+# log: viz light hold=0
+# log: expect_playing ok
+# nolog: expect_playing failed
+# nolog: tap open rc=
+# np: viz-full
+# reset: viz
+# timeout: 120
+wait 2000
+copy fixtures/p19/ui_split_cpu /.rockbox/ui_split
+reboot
+wait 4000
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait 1500
+key SELECT          # Music
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 1500
+key SELECT          # Scrubber
+wait 400
+key SELECT          # Rating
+wait 600
+key SELECT          # Shuffle
+wait 600
+key SELECT          # Visualizer: the tap opens (be_svc's side)
+wait 1500
+shot bars_split
+expect_playing 400
+hold SELECT 1200    # the hold list: the styles
+wait 1200
+wheel +1            # Mirror: the tap closes and opens again
+wait 400
+key SELECT
+wait 1800
+shot mirror_split
+key SELECT          # back to Normal: the tap closes
+wait 1200
+expect_playing 400
+shot normal_split
+rm_file /.rockbox/ui_split
+quit

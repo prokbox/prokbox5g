@@ -1,0 +1,68 @@
+# P19 19-2 (B3 parity): ipodui-nav-drift.script's scenario with the drift
+# sent as display jobs to the simulator's host model (bcm_drift on).  Every
+# jobs frame is also drawn by the CPU path and compared with the model's
+# panel ("drift parity frames=N bad=0"); the shots show the glass (the
+# BCM-owned panel from the model), so they must equal ipodui-nav-drift's
+# pixel for pixel:
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p19-drift-parity.script
+#   python3 scripts/pngdiff.py out/shots/ipodui-nav-drift out/shots/ipodui-p19-drift-parity
+# needs: library
+# golden: skip
+# needs: video
+# nolog: drift parity bad
+# nolog: glass owned STALE
+# nolog: shot POISONED
+# log: drift parity frames=
+
+bcm_drift parity
+wait 4000           # boot to the main menu, "Music" selected
+wait_db 30000
+sim_clock 15:04      # pinned header (title/clock alternation frozen on
+clock_format 24      # the title by default, see sim_cmd_clock.c)
+battery 100
+
+drift_phase 0 frozen # (frozen: exact framing; scripted runs start frozen)
+wait 500             # past the cross-fade (NAV_DRIFT_FADE = 400 ms)
+shot fade_done       # cycle 0, panning begins
+
+drift_phase 350 frozen # mid-dwell (cycle 0, ~half the 6.6 s pan)
+wait 100
+shot mid_pan
+
+drift_phase 690 frozen # just before the cycle ends (NAV_DRIFT_CYCLE = 700
+wait 100             # ticks, 7 s): the window is still inside the
+                     # 300x300 source (D4: tested on every tick of 16
+                     # cycles in tests/nav; this is the sim-visible case)
+shot near_cycle_end
+
+# -- storage asleep: the cycle changes with nothing to read -------------
+wheel +4             # "Shuffle Songs"
+wait 400
+key SELECT           # starts playback (shuffled). NAV-H1's stub enter()
+wait 1500            # calls today's gui_wps_show() path, the stock
+                     # Rockbox WPS, which blocks until it is left; "key
+                     # MENU" below does that (ipodui-p2-wps.script),
+                     # landing back on the main menu with its selection
+                     # unchanged ("Shuffle Songs" still selected)
+key MENU
+wait 700
+wheel -4             # back to "Music": the drift panel, now with audio
+                     # playing and storage not marked awake (no
+                     # disk_active call)
+drift_phase 650      # live from here: the boundary must really be crossed
+wait 1600            # crosses the cycle boundary (650 -> ~750 ticks)
+                     # (P11: 1.6 s, past the REDWELL fade even on a loaded
+                     # machine; at 1.0 s a slow run caught it mid-fade)
+                     # with storage asleep: the held pan (#58: the same
+                     # cover pans back from where it was, no fade into
+                     # itself), never a cut and never a stall
+shot cycle_change_asleep
+
+# -- storage awake: the same boundary, but readable now ------------------
+disk_active 2000      # storage counts as awake, as an audio refill would
+drift_phase 1350       # the next cycle boundary (two cycles on from 650)
+wait 1000
+shot cycle_change_awake   # D5: a fade to the next cover (FADE_STRIP if
+                          # the prefetch was kept, else FADE_DIRECT)
+
+quit

@@ -1,0 +1,46 @@
+# P12 W1-A2: Extras > Alarms > Sleep Timer. The values (Off, 15 ... 120
+# Minutes), setting 30 Minutes, the row's "Minutes Left" subtitle and
+# turning it Off again.
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-sleeptimer-set.script
+# golden: skip
+# timeout: 120
+# log: ipodui: alarms sleep set=30
+# log: ipodui: alarms sleep set=0
+# trace: modclass
+# needs: modules
+# reset: mainmenu
+
+wait 4000
+rtc_at 2026-10-06 15:06:00
+sim_clock 15:06
+wheel +2              # Extras
+wait 400
+key SELECT
+wait 1200
+wheel +3              # Alarms
+wait 800
+key SELECT
+wait 1500
+wheel +1              # Sleep Timer
+wait 400
+shot row_inactive
+key SELECT
+wait 1200
+shot values           # Off selected
+wheel +2
+wait 500
+shot value_30
+key SELECT            # 30 Minutes
+wait 1200
+shot list_running     # 30 Minutes Left
+key SELECT
+wait 1200
+shot values_running   # 30 highlighted
+wheel -2
+wait 400
+key SELECT            # Off
+wait 1200
+shot list_off
+key MENU
+wait 1000
+quit

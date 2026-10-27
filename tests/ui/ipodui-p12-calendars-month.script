@@ -1,0 +1,77 @@
+# P12 W3-C (docs/phase12-brief.md 9, spec extras.md, photo 1196): calendar
+# files copied over USB are indexed at the post-USB moment (xidx build
+# kind=3), never while browsing. Extras > Calendars: the split list (All
+# Calendars, each calendar when there are several, To Do's) with the
+# calendar-page panel; All Calendars opens the month grid (October 2026,
+# today selected, a dot on each day with events, other months grey); the
+# wheel moves a day, NEXT/PREVIOUS a month; SELECT opens the day's events
+# (two-line rows: title, time or All Day); SELECT opens an event's page.
+# Entry is one open and two reads of the index; nothing while turning.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p12-calendars-month.script
+# timeout: 180
+# log: xidx build kind=3 n=
+# log: xcal open n=
+# log: xcal month filter=-1
+# log: xcal day d=
+# log: xcal event lines=
+# log: modclass calendars
+# nolog: modclass viol
+# golden: skip
+# reset: mainmenu
+
+wait 4000
+rtc_at 2026-10-06 15:06:00
+sim_clock 15:06
+rm_file /Calendars/Work.ics
+rm_file /Calendars/Home.ics
+rm_file /.rockbox/calendars.idx
+rm_file /.rockbox/xindex.owe
+
+usb_connect
+wait 2500
+mkdir /Calendars
+copy fixtures/calendars/Work.ics /Calendars/Work.ics
+copy fixtures/calendars/Home.ics /Calendars/Home.ics
+usb_disconnect
+wait 3500           # the grace and gap windows end the busy moment: the
+storage_idle        # indexer runs there (xidx build)
+wait 1500
+wheel +2            # Main Menu: "Extras"
+wait 800
+key SELECT
+wait 1200
+wheel +1            # Extras: "Calendars"
+wait 800
+key SELECT
+wait 1500
+shot root           # All Calendars, Home, Work, To Do's; the page panel
+key SELECT          # All Calendars
+wait 1500
+shot month          # October 2026, the 6th selected
+wheel +10
+wait 600
+shot month_16       # the trip's first day
+key NEXT
+wait 800
+shot november
+key PREV
+wait 800
+wheel -10
+wait 600
+key SELECT          # the 6th: Dentist, Design review, Stand-up? (no: Tue)
+wait 1200
+shot day
+wheel +1
+wait 400
+key SELECT          # Design review
+wait 1200
+shot event
+key MENU
+wait 1000
+key MENU
+wait 1000
+shot back_month
+key MENU
+wait 1000
+shot back_root
+quit

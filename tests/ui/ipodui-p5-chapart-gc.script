@@ -1,0 +1,24 @@
+# Phase 5 (#39): chapter records of a deleted book are collected: the book is
+# built, deleted, the database updated; the next pass's index GC drops the
+# chapter records and their bundles (trace "art build commit ... gc=").
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p5-chapart-gc.script
+# needs: library
+# needs: np
+# log: art build commit
+# timeout: 150
+
+wait 1000
+wait_db 30000
+sim_clock 15:08
+clock_format 24      # P11: the default is 12-hour; this golden shows 24
+repeat off
+mkdir /NPBook
+copy ../../build/np-fixtures/book_chart.mp3 /NPBook/book_chart.mp3
+update_db_wait_change 60000
+art_wait 120000
+rm_file /NPBook/book_chart.mp3
+update_db_wait_change 60000
+art_request
+art_wait 120000
+shot done
+quit

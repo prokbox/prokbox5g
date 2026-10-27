@@ -1,0 +1,90 @@
+# Phase 18 (§8; Q11): soft-sleep wakes after >= SLEEP_BOOT_EQUIV_S (6 h)
+# count as boots toward P16's tenth-boot walk; after nine such wakes the
+# walk runs in the next sleep-entry window (P16: skipped 0..8 trust, the
+# tenth walks). Then the calendar trigger (SLEEP_WALK_DAYS, 7 days since
+# the last walk, owner 2026-10-22): owed, run in the next window.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p18-sleep-walk-due.script
+# needs: library
+# golden: skip
+# timeout: 400
+# logbetween: start c9 no sleep job=walk
+# logbetween: c9 d0 sleep job=walk ran
+# logbetween: d0 d1 no sleep job=walk
+# logbetween: d1 end sleep job=walk ran
+
+sleep_mode soft       # soft sleep is off by default (developer switch)
+wait 4000
+wait_db 45000
+expect_boot_walk 1 20000    # the first boot walks (no stamp)
+hold PLAY 1500          # the hold: dark at once, PLAY's release awaited
+expect_sleep asleep 8000
+sleep_warp 21600        # 6 h
+key SELECT              # counted wake 1
+expect_sleep button 3000
+wait 1000
+hold PLAY 1500          # the hold: dark at once, PLAY's release awaited
+expect_sleep asleep 8000
+sleep_warp 21600        # 6 h
+key SELECT              # counted wake 2
+expect_sleep button 3000
+wait 1000
+hold PLAY 1500          # the hold: dark at once, PLAY's release awaited
+expect_sleep asleep 8000
+sleep_warp 21600        # 6 h
+key SELECT              # counted wake 3
+expect_sleep button 3000
+wait 1000
+hold PLAY 1500          # the hold: dark at once, PLAY's release awaited
+expect_sleep asleep 8000
+sleep_warp 21600        # 6 h
+key SELECT              # counted wake 4
+expect_sleep button 3000
+wait 1000
+hold PLAY 1500          # the hold: dark at once, PLAY's release awaited
+expect_sleep asleep 8000
+sleep_warp 21600        # 6 h
+key SELECT              # counted wake 5
+expect_sleep button 3000
+wait 1000
+hold PLAY 1500          # the hold: dark at once, PLAY's release awaited
+expect_sleep asleep 8000
+sleep_warp 21600        # 6 h
+key SELECT              # counted wake 6
+expect_sleep button 3000
+wait 1000
+hold PLAY 1500          # the hold: dark at once, PLAY's release awaited
+expect_sleep asleep 8000
+sleep_warp 21600        # 6 h
+key SELECT              # counted wake 7
+expect_sleep button 3000
+wait 1000
+hold PLAY 1500          # the hold: dark at once, PLAY's release awaited
+expect_sleep asleep 8000
+sleep_warp 21600        # 6 h
+key SELECT              # counted wake 8
+expect_sleep button 3000
+wait 1000
+hold PLAY 1500          # the hold: dark at once, PLAY's release awaited
+expect_sleep asleep 8000
+sleep_warp 21600        # 6 h
+key SELECT              # counted wake 9
+expect_sleep button 3000
+wait 1000
+ab_mark c9
+hold PLAY 1500          # the hold: dark at once, PLAY's release awaited
+expect_sleep asleep 70000            # due: the walk runs in this window
+key SELECT
+expect_sleep button 3000
+wait 1000
+ab_mark d0
+hold PLAY 1500          # the hold: dark at once, PLAY's release awaited
+expect_sleep asleep 8000                 # just walked: nothing owed
+key SELECT
+expect_sleep button 3000
+wait 1000
+shot lit                # the same screen after the wake
+sleep_warp 604800       # awake (e.g. on the charging screen): 7 days
+ab_mark d1
+hold PLAY 1500          # the hold: dark at once, PLAY's release awaited
+expect_sleep asleep 70000            # owed by the calendar
+quit

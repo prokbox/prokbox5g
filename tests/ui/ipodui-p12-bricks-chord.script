@@ -1,0 +1,29 @@
+# P12 W4 (docs/design/sdk.md 3.1, 13.3): the exit chord in Bricks.
+# SELECT + PREV overlapping 1.9 s does nothing (the ball stays on the
+# paddle: the SELECT was withheld; no skip back); held 2.3 s it leaves
+# through the graceful exit, back to the Games list.
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-bricks-chord.script
+# needs: modules
+# reset: mainmenu
+
+wait 4000
+sdk_clear            # a fresh game
+wheel +2             # Extras
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Games
+wait 600
+key SELECT
+wait 1200
+shot games           # the Games list, Bricks first
+wait 600
+key SELECT           # Bricks
+wait 800
+press_hold PREV SELECT 1900
+wait 600
+shot after_1900      # still serving
+press_hold PREV SELECT 2300
+wait 1500
+shot exited          # the Games list
+quit

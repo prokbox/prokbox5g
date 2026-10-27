@@ -1,0 +1,26 @@
+# Phase 18 (§8; Q8): time asleep counts toward #100's 3 h panel
+# rotation by the RTC; the rotation is never run at the wake, but in the
+# next sleep-entry window (or the next natural disk wake).
+# Also needs #100's rotation (P16 16-4).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p18-sleep-rotate-overnight.script
+# needs: library
+# golden: skip
+# logbetween: w0 w1 no sleep job=rotation
+# logbetween: w0 w1 no art panel rotate
+# logbetween: w1 end sleep job=rotation ran
+
+sleep_mode soft       # soft sleep is off by default (developer switch)
+wait 4000
+wait_db 45000
+hold PLAY 1500          # the hold: dark at once, PLAY's release awaited
+expect_sleep asleep 8000
+sleep_warp 14400        # 4 h asleep
+ab_mark w0
+key SELECT
+expect_sleep button 3000
+wait 3000               # awake: no rotation at the wake
+shot lit
+ab_mark w1
+hold PLAY 1500          # the hold: dark at once, PLAY's release awaited
+expect_sleep asleep 8000
+quit

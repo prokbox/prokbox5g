@@ -1,0 +1,29 @@
+# The Now Playing visualizer's PCM tap (apps/ipodui/viz_tap.c,
+# docs/research/bcm2722/visualizer.md section 11): while a song plays the
+# tap delivers fresh, unsilent windows of 512 samples; a book (the mini
+# library's M4B) is refused, by the audiobook Now Playing's own flag; and
+# after a stop the tap gives no fresh window (the mixer's 3 s of padding
+# reads as silence, then the head stops: stale). No shell screen uses the tap yet,
+# so the script drives it from the script thread.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p19-viztap.script
+# golden: skip
+# fulls-extra: 2   (the main menu gains its Now Playing row at the first play_files and loses it at audio_stop)
+# log: viz_tap ok (sound)
+# log: viz_tap ok (book)
+# log: viz_tap ok (quiet)
+# nolog: viz_tap failed
+
+wait 3000
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait 2500
+expect_playing 300
+viz_tap 2000 512 sound
+viz_tap 1000 256 sound
+shot playing
+play_files /Music/Fixture%20Author/Mini%20Audiobook/Mini%20Audiobook.m4b
+wait 2500
+expect_playing 300
+viz_tap 1000 512 book
+audio_stop
+wait 500
+viz_tap 500 512 quiet

@@ -1,0 +1,441 @@
+# P12 W3-K (docs/phase12-brief.md 2.1, 3.5): a Notes index past the
+# working block's cache (90 notes and a folder of 30, ~4.5 KB; the
+# resident block caches ~1.4 KB) is paged: entry reads the head (header,
+# directory, page 0) in one read; scrolling down the list, opening the
+# folder (its notes sit after every root entry) and coming back read one
+# page at a time (one open, one range read: a page load, booked apart
+# under the manifest's pages rate). No viol. The notes are removed at the
+# end so the other -notes-* scripts see their own eight.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p12-notes-pages.script
+# needs: library
+# timeout: 300
+# modclass: paged
+# log: xidx build kind=1 n=121
+# log: notes open n=121 whole=0 rc=0
+# log: notes page p=
+# nolog: notes row blank
+# golden: skip
+# reset: mainmenu
+
+sim_clock 15:06
+wait 4000
+wait_db 30000
+rm_file /Notes/Shopping.txt
+rm_file /Notes/Welcome.txt
+rm_file /Notes/Long%20note.txt
+rm_file /Notes/Unicode%20note.txt
+rm_file /Notes/Windows%20note.txt
+rm_file /Notes/._Shopping.txt
+rm_file /Notes/readme.md
+rm_file /Notes/Trips/Paris.txt
+rm_file /Notes/Trips/Lisbon.TXT
+rm_file /Notes/Trips
+rm_file /Notes/Meeting%20notes%20001.txt
+rm_file /Notes/Meeting%20notes%20002.txt
+rm_file /Notes/Meeting%20notes%20003.txt
+rm_file /Notes/Meeting%20notes%20004.txt
+rm_file /Notes/Meeting%20notes%20005.txt
+rm_file /Notes/Meeting%20notes%20006.txt
+rm_file /Notes/Meeting%20notes%20007.txt
+rm_file /Notes/Meeting%20notes%20008.txt
+rm_file /Notes/Meeting%20notes%20009.txt
+rm_file /Notes/Meeting%20notes%20010.txt
+rm_file /Notes/Meeting%20notes%20011.txt
+rm_file /Notes/Meeting%20notes%20012.txt
+rm_file /Notes/Meeting%20notes%20013.txt
+rm_file /Notes/Meeting%20notes%20014.txt
+rm_file /Notes/Meeting%20notes%20015.txt
+rm_file /Notes/Meeting%20notes%20016.txt
+rm_file /Notes/Meeting%20notes%20017.txt
+rm_file /Notes/Meeting%20notes%20018.txt
+rm_file /Notes/Meeting%20notes%20019.txt
+rm_file /Notes/Meeting%20notes%20020.txt
+rm_file /Notes/Meeting%20notes%20021.txt
+rm_file /Notes/Meeting%20notes%20022.txt
+rm_file /Notes/Meeting%20notes%20023.txt
+rm_file /Notes/Meeting%20notes%20024.txt
+rm_file /Notes/Meeting%20notes%20025.txt
+rm_file /Notes/Meeting%20notes%20026.txt
+rm_file /Notes/Meeting%20notes%20027.txt
+rm_file /Notes/Meeting%20notes%20028.txt
+rm_file /Notes/Meeting%20notes%20029.txt
+rm_file /Notes/Meeting%20notes%20030.txt
+rm_file /Notes/Meeting%20notes%20031.txt
+rm_file /Notes/Meeting%20notes%20032.txt
+rm_file /Notes/Meeting%20notes%20033.txt
+rm_file /Notes/Meeting%20notes%20034.txt
+rm_file /Notes/Meeting%20notes%20035.txt
+rm_file /Notes/Meeting%20notes%20036.txt
+rm_file /Notes/Meeting%20notes%20037.txt
+rm_file /Notes/Meeting%20notes%20038.txt
+rm_file /Notes/Meeting%20notes%20039.txt
+rm_file /Notes/Meeting%20notes%20040.txt
+rm_file /Notes/Meeting%20notes%20041.txt
+rm_file /Notes/Meeting%20notes%20042.txt
+rm_file /Notes/Meeting%20notes%20043.txt
+rm_file /Notes/Meeting%20notes%20044.txt
+rm_file /Notes/Meeting%20notes%20045.txt
+rm_file /Notes/Meeting%20notes%20046.txt
+rm_file /Notes/Meeting%20notes%20047.txt
+rm_file /Notes/Meeting%20notes%20048.txt
+rm_file /Notes/Meeting%20notes%20049.txt
+rm_file /Notes/Meeting%20notes%20050.txt
+rm_file /Notes/Meeting%20notes%20051.txt
+rm_file /Notes/Meeting%20notes%20052.txt
+rm_file /Notes/Meeting%20notes%20053.txt
+rm_file /Notes/Meeting%20notes%20054.txt
+rm_file /Notes/Meeting%20notes%20055.txt
+rm_file /Notes/Meeting%20notes%20056.txt
+rm_file /Notes/Meeting%20notes%20057.txt
+rm_file /Notes/Meeting%20notes%20058.txt
+rm_file /Notes/Meeting%20notes%20059.txt
+rm_file /Notes/Meeting%20notes%20060.txt
+rm_file /Notes/Meeting%20notes%20061.txt
+rm_file /Notes/Meeting%20notes%20062.txt
+rm_file /Notes/Meeting%20notes%20063.txt
+rm_file /Notes/Meeting%20notes%20064.txt
+rm_file /Notes/Meeting%20notes%20065.txt
+rm_file /Notes/Meeting%20notes%20066.txt
+rm_file /Notes/Meeting%20notes%20067.txt
+rm_file /Notes/Meeting%20notes%20068.txt
+rm_file /Notes/Meeting%20notes%20069.txt
+rm_file /Notes/Meeting%20notes%20070.txt
+rm_file /Notes/Meeting%20notes%20071.txt
+rm_file /Notes/Meeting%20notes%20072.txt
+rm_file /Notes/Meeting%20notes%20073.txt
+rm_file /Notes/Meeting%20notes%20074.txt
+rm_file /Notes/Meeting%20notes%20075.txt
+rm_file /Notes/Meeting%20notes%20076.txt
+rm_file /Notes/Meeting%20notes%20077.txt
+rm_file /Notes/Meeting%20notes%20078.txt
+rm_file /Notes/Meeting%20notes%20079.txt
+rm_file /Notes/Meeting%20notes%20080.txt
+rm_file /Notes/Meeting%20notes%20081.txt
+rm_file /Notes/Meeting%20notes%20082.txt
+rm_file /Notes/Meeting%20notes%20083.txt
+rm_file /Notes/Meeting%20notes%20084.txt
+rm_file /Notes/Meeting%20notes%20085.txt
+rm_file /Notes/Meeting%20notes%20086.txt
+rm_file /Notes/Meeting%20notes%20087.txt
+rm_file /Notes/Meeting%20notes%20088.txt
+rm_file /Notes/Meeting%20notes%20089.txt
+rm_file /Notes/Meeting%20notes%20090.txt
+rm_file /Notes/Archive/Old%20note%2001.txt
+rm_file /Notes/Archive/Old%20note%2002.txt
+rm_file /Notes/Archive/Old%20note%2003.txt
+rm_file /Notes/Archive/Old%20note%2004.txt
+rm_file /Notes/Archive/Old%20note%2005.txt
+rm_file /Notes/Archive/Old%20note%2006.txt
+rm_file /Notes/Archive/Old%20note%2007.txt
+rm_file /Notes/Archive/Old%20note%2008.txt
+rm_file /Notes/Archive/Old%20note%2009.txt
+rm_file /Notes/Archive/Old%20note%2010.txt
+rm_file /Notes/Archive/Old%20note%2011.txt
+rm_file /Notes/Archive/Old%20note%2012.txt
+rm_file /Notes/Archive/Old%20note%2013.txt
+rm_file /Notes/Archive/Old%20note%2014.txt
+rm_file /Notes/Archive/Old%20note%2015.txt
+rm_file /Notes/Archive/Old%20note%2016.txt
+rm_file /Notes/Archive/Old%20note%2017.txt
+rm_file /Notes/Archive/Old%20note%2018.txt
+rm_file /Notes/Archive/Old%20note%2019.txt
+rm_file /Notes/Archive/Old%20note%2020.txt
+rm_file /Notes/Archive/Old%20note%2021.txt
+rm_file /Notes/Archive/Old%20note%2022.txt
+rm_file /Notes/Archive/Old%20note%2023.txt
+rm_file /Notes/Archive/Old%20note%2024.txt
+rm_file /Notes/Archive/Old%20note%2025.txt
+rm_file /Notes/Archive/Old%20note%2026.txt
+rm_file /Notes/Archive/Old%20note%2027.txt
+rm_file /Notes/Archive/Old%20note%2028.txt
+rm_file /Notes/Archive/Old%20note%2029.txt
+rm_file /Notes/Archive/Old%20note%2030.txt
+rm_file /Notes/Archive
+rm_file /.rockbox/notes.idx
+rm_file /.rockbox/xindex.owe
+
+usb_connect
+wait 2500
+mkdir /Notes
+mkdir /Notes/Archive
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20001.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20002.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20003.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20004.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20005.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20006.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20007.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20008.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20009.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20010.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20011.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20012.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20013.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20014.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20015.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20016.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20017.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20018.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20019.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20020.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20021.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20022.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20023.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20024.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20025.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20026.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20027.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20028.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20029.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20030.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20031.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20032.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20033.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20034.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20035.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20036.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20037.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20038.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20039.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20040.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20041.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20042.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20043.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20044.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20045.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20046.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20047.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20048.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20049.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20050.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20051.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20052.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20053.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20054.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20055.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20056.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20057.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20058.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20059.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20060.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20061.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20062.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20063.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20064.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20065.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20066.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20067.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20068.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20069.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20070.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20071.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20072.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20073.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20074.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20075.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20076.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20077.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20078.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20079.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20080.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20081.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20082.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20083.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20084.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20085.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20086.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20087.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20088.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20089.txt
+copy fixtures/notes/Shopping.txt /Notes/Meeting%20notes%20090.txt
+copy fixtures/notes/Shopping.txt /Notes/Archive/Old%20note%2001.txt
+copy fixtures/notes/Shopping.txt /Notes/Archive/Old%20note%2002.txt
+copy fixtures/notes/Shopping.txt /Notes/Archive/Old%20note%2003.txt
+copy fixtures/notes/Shopping.txt /Notes/Archive/Old%20note%2004.txt
+copy fixtures/notes/Shopping.txt /Notes/Archive/Old%20note%2005.txt
+copy fixtures/notes/Shopping.txt /Notes/Archive/Old%20note%2006.txt
+copy fixtures/notes/Shopping.txt /Notes/Archive/Old%20note%2007.txt
+copy fixtures/notes/Shopping.txt /Notes/Archive/Old%20note%2008.txt
+copy fixtures/notes/Shopping.txt /Notes/Archive/Old%20note%2009.txt
+copy fixtures/notes/Shopping.txt /Notes/Archive/Old%20note%2010.txt
+copy fixtures/notes/Shopping.txt /Notes/Archive/Old%20note%2011.txt
+copy fixtures/notes/Shopping.txt /Notes/Archive/Old%20note%2012.txt
+copy fixtures/notes/Shopping.txt /Notes/Archive/Old%20note%2013.txt
+copy fixtures/notes/Shopping.txt /Notes/Archive/Old%20note%2014.txt
+copy fixtures/notes/Shopping.txt /Notes/Archive/Old%20note%2015.txt
+copy fixtures/notes/Shopping.txt /Notes/Archive/Old%20note%2016.txt
+copy fixtures/notes/Shopping.txt /Notes/Archive/Old%20note%2017.txt
+copy fixtures/notes/Shopping.txt /Notes/Archive/Old%20note%2018.txt
+copy fixtures/notes/Shopping.txt /Notes/Archive/Old%20note%2019.txt
+copy fixtures/notes/Shopping.txt /Notes/Archive/Old%20note%2020.txt
+copy fixtures/notes/Shopping.txt /Notes/Archive/Old%20note%2021.txt
+copy fixtures/notes/Shopping.txt /Notes/Archive/Old%20note%2022.txt
+copy fixtures/notes/Shopping.txt /Notes/Archive/Old%20note%2023.txt
+copy fixtures/notes/Shopping.txt /Notes/Archive/Old%20note%2024.txt
+copy fixtures/notes/Shopping.txt /Notes/Archive/Old%20note%2025.txt
+copy fixtures/notes/Shopping.txt /Notes/Archive/Old%20note%2026.txt
+copy fixtures/notes/Shopping.txt /Notes/Archive/Old%20note%2027.txt
+copy fixtures/notes/Shopping.txt /Notes/Archive/Old%20note%2028.txt
+copy fixtures/notes/Shopping.txt /Notes/Archive/Old%20note%2029.txt
+copy fixtures/notes/Shopping.txt /Notes/Archive/Old%20note%2030.txt
+usb_disconnect
+wait 150
+wait_db 45000
+wait 3500
+storage_idle
+wait 1500
+wheel +2            # Main Menu: "Extras"
+wait 800
+key SELECT
+wait 1200
+wheel +7            # Extras: to the last row (Stopwatch; the list does not wrap)
+wait 600
+wheel -2            # "Notes", counted from the end: the same with or without a Games row
+wait 800
+key SELECT
+wait 1200
+shot first          # Archive, then Meeting notes 001..
+wheel +45
+wait 1200
+shot middle
+wheel +60
+wait 1200
+shot end            # Meeting notes 090
+wheel -100
+wait 1500
+shot top_again
+key SELECT          # the Archive folder: its notes come as pages
+wait 1200
+shot folder
+wheel +25
+wait 1200
+shot folder_end
+key MENU
+wait 1200
+shot back_root
+key MENU
+wait 800
+key MENU
+wait 800
+rm_file /Notes/Meeting%20notes%20001.txt
+rm_file /Notes/Meeting%20notes%20002.txt
+rm_file /Notes/Meeting%20notes%20003.txt
+rm_file /Notes/Meeting%20notes%20004.txt
+rm_file /Notes/Meeting%20notes%20005.txt
+rm_file /Notes/Meeting%20notes%20006.txt
+rm_file /Notes/Meeting%20notes%20007.txt
+rm_file /Notes/Meeting%20notes%20008.txt
+rm_file /Notes/Meeting%20notes%20009.txt
+rm_file /Notes/Meeting%20notes%20010.txt
+rm_file /Notes/Meeting%20notes%20011.txt
+rm_file /Notes/Meeting%20notes%20012.txt
+rm_file /Notes/Meeting%20notes%20013.txt
+rm_file /Notes/Meeting%20notes%20014.txt
+rm_file /Notes/Meeting%20notes%20015.txt
+rm_file /Notes/Meeting%20notes%20016.txt
+rm_file /Notes/Meeting%20notes%20017.txt
+rm_file /Notes/Meeting%20notes%20018.txt
+rm_file /Notes/Meeting%20notes%20019.txt
+rm_file /Notes/Meeting%20notes%20020.txt
+rm_file /Notes/Meeting%20notes%20021.txt
+rm_file /Notes/Meeting%20notes%20022.txt
+rm_file /Notes/Meeting%20notes%20023.txt
+rm_file /Notes/Meeting%20notes%20024.txt
+rm_file /Notes/Meeting%20notes%20025.txt
+rm_file /Notes/Meeting%20notes%20026.txt
+rm_file /Notes/Meeting%20notes%20027.txt
+rm_file /Notes/Meeting%20notes%20028.txt
+rm_file /Notes/Meeting%20notes%20029.txt
+rm_file /Notes/Meeting%20notes%20030.txt
+rm_file /Notes/Meeting%20notes%20031.txt
+rm_file /Notes/Meeting%20notes%20032.txt
+rm_file /Notes/Meeting%20notes%20033.txt
+rm_file /Notes/Meeting%20notes%20034.txt
+rm_file /Notes/Meeting%20notes%20035.txt
+rm_file /Notes/Meeting%20notes%20036.txt
+rm_file /Notes/Meeting%20notes%20037.txt
+rm_file /Notes/Meeting%20notes%20038.txt
+rm_file /Notes/Meeting%20notes%20039.txt
+rm_file /Notes/Meeting%20notes%20040.txt
+rm_file /Notes/Meeting%20notes%20041.txt
+rm_file /Notes/Meeting%20notes%20042.txt
+rm_file /Notes/Meeting%20notes%20043.txt
+rm_file /Notes/Meeting%20notes%20044.txt
+rm_file /Notes/Meeting%20notes%20045.txt
+rm_file /Notes/Meeting%20notes%20046.txt
+rm_file /Notes/Meeting%20notes%20047.txt
+rm_file /Notes/Meeting%20notes%20048.txt
+rm_file /Notes/Meeting%20notes%20049.txt
+rm_file /Notes/Meeting%20notes%20050.txt
+rm_file /Notes/Meeting%20notes%20051.txt
+rm_file /Notes/Meeting%20notes%20052.txt
+rm_file /Notes/Meeting%20notes%20053.txt
+rm_file /Notes/Meeting%20notes%20054.txt
+rm_file /Notes/Meeting%20notes%20055.txt
+rm_file /Notes/Meeting%20notes%20056.txt
+rm_file /Notes/Meeting%20notes%20057.txt
+rm_file /Notes/Meeting%20notes%20058.txt
+rm_file /Notes/Meeting%20notes%20059.txt
+rm_file /Notes/Meeting%20notes%20060.txt
+rm_file /Notes/Meeting%20notes%20061.txt
+rm_file /Notes/Meeting%20notes%20062.txt
+rm_file /Notes/Meeting%20notes%20063.txt
+rm_file /Notes/Meeting%20notes%20064.txt
+rm_file /Notes/Meeting%20notes%20065.txt
+rm_file /Notes/Meeting%20notes%20066.txt
+rm_file /Notes/Meeting%20notes%20067.txt
+rm_file /Notes/Meeting%20notes%20068.txt
+rm_file /Notes/Meeting%20notes%20069.txt
+rm_file /Notes/Meeting%20notes%20070.txt
+rm_file /Notes/Meeting%20notes%20071.txt
+rm_file /Notes/Meeting%20notes%20072.txt
+rm_file /Notes/Meeting%20notes%20073.txt
+rm_file /Notes/Meeting%20notes%20074.txt
+rm_file /Notes/Meeting%20notes%20075.txt
+rm_file /Notes/Meeting%20notes%20076.txt
+rm_file /Notes/Meeting%20notes%20077.txt
+rm_file /Notes/Meeting%20notes%20078.txt
+rm_file /Notes/Meeting%20notes%20079.txt
+rm_file /Notes/Meeting%20notes%20080.txt
+rm_file /Notes/Meeting%20notes%20081.txt
+rm_file /Notes/Meeting%20notes%20082.txt
+rm_file /Notes/Meeting%20notes%20083.txt
+rm_file /Notes/Meeting%20notes%20084.txt
+rm_file /Notes/Meeting%20notes%20085.txt
+rm_file /Notes/Meeting%20notes%20086.txt
+rm_file /Notes/Meeting%20notes%20087.txt
+rm_file /Notes/Meeting%20notes%20088.txt
+rm_file /Notes/Meeting%20notes%20089.txt
+rm_file /Notes/Meeting%20notes%20090.txt
+rm_file /Notes/Archive/Old%20note%2001.txt
+rm_file /Notes/Archive/Old%20note%2002.txt
+rm_file /Notes/Archive/Old%20note%2003.txt
+rm_file /Notes/Archive/Old%20note%2004.txt
+rm_file /Notes/Archive/Old%20note%2005.txt
+rm_file /Notes/Archive/Old%20note%2006.txt
+rm_file /Notes/Archive/Old%20note%2007.txt
+rm_file /Notes/Archive/Old%20note%2008.txt
+rm_file /Notes/Archive/Old%20note%2009.txt
+rm_file /Notes/Archive/Old%20note%2010.txt
+rm_file /Notes/Archive/Old%20note%2011.txt
+rm_file /Notes/Archive/Old%20note%2012.txt
+rm_file /Notes/Archive/Old%20note%2013.txt
+rm_file /Notes/Archive/Old%20note%2014.txt
+rm_file /Notes/Archive/Old%20note%2015.txt
+rm_file /Notes/Archive/Old%20note%2016.txt
+rm_file /Notes/Archive/Old%20note%2017.txt
+rm_file /Notes/Archive/Old%20note%2018.txt
+rm_file /Notes/Archive/Old%20note%2019.txt
+rm_file /Notes/Archive/Old%20note%2020.txt
+rm_file /Notes/Archive/Old%20note%2021.txt
+rm_file /Notes/Archive/Old%20note%2022.txt
+rm_file /Notes/Archive/Old%20note%2023.txt
+rm_file /Notes/Archive/Old%20note%2024.txt
+rm_file /Notes/Archive/Old%20note%2025.txt
+rm_file /Notes/Archive/Old%20note%2026.txt
+rm_file /Notes/Archive/Old%20note%2027.txt
+rm_file /Notes/Archive/Old%20note%2028.txt
+rm_file /Notes/Archive/Old%20note%2029.txt
+rm_file /Notes/Archive/Old%20note%2030.txt
+rm_file /Notes/Archive
+quit

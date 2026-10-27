@@ -27,13 +27,19 @@
  /* Returns true if the interface hasn't been initialised yet */
 bool ata_is_coldstart(void) STORAGE_INIT_ATTR;
 /* Initializes the interface */
+#if defined(HAVE_STORAGE_POWEROFF)
+/* ProkBox P18/#114: called again at every power-on, so not discarded
+ * after boot (INIT_ATTR code is overwritten once root_menu() runs) */
+void ata_device_init(void);
+#else
 void ata_device_init(void) STORAGE_INIT_ATTR;
+#endif
 /* ata_enable(true) is used after ata_device_init() to enable the interface
  * ata_enable(false) is used to disable the interface so 
  * an ATA to USB bridge chip can use it instead.*/
 void ata_enable(bool on);
 /* ATA hard reset: pulse the RESET pin */
-#ifdef HAVE_ATA_POWER_OFF
+#if defined(HAVE_ATA_POWER_OFF) || defined(HAVE_STORAGE_POWEROFF)
 void ata_reset(void);
 #else
 void ata_reset(void) STORAGE_INIT_ATTR;

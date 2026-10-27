@@ -1,0 +1,30 @@
+# P12 W4 (docs/design/sdk.md 3.1, 13.2): the exit chord in Quadrus.
+# SELECT + PREV overlapping 1.9 s does nothing (the piece doesn't turn,
+# the music doesn't skip back); held 2.3 s it leaves the game through
+# its graceful exit (the game saved), back to the Games list.
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-quadrus-chord.script
+# needs: modules
+# reset: mainmenu
+
+wait 4000
+sdk_clear            # a fresh game (the simulator seeds from a fixed value)
+wheel +2             # Extras
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Games
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Quadrus
+wait 600
+key SELECT
+wait 800
+shot start
+press_hold SELECT PREV 1900
+wait 600
+shot after_1900      # the piece fell, but never turned
+press_hold SELECT PREV 2300
+wait 1500
+shot exited          # the Games list
+quit

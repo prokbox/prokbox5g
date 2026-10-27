@@ -1,0 +1,59 @@
+# Phase 14a (#64, docs/phase14a-brief.md 7 A2): the video screen reached directly with video_screen (V6, no list involved)
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p14a-screen.script
+# (ipodui-p14a-* default to build/sim-ui-video; the gate runs them there)
+# needs: video
+#
+# Disk: tests/fixtures/videos/mkvideos.sh (installed by the gate's prime
+# step, or by shots.sh for a standalone run):
+#   Movies/        Audio First  High Profile  Late Chapter  Short Film
+#   TV Shows/      Show A (S1 x2, S2 x2, tagged)  Show B (S1 x2, untagged)
+#   Misc/          Show.C.S01E02.m4v  S01E03.m4v (nameless)
+#   Podcasts/Pod One/  Audio Episode.m4a  Video Episode.m4v
+#   Music/         Fixture Singer/Audio Only.mp4 (a song)
+#                  Fixture Author/Image Book.m4b (a book)
+# Main menu with Videos on (T1 default): Music, Videos, Podcasts, Extras,
+# Settings, Shuffle Songs. Videos: Movies, TV Shows, Settings.
+
+# golden: skip playing picture paused volume overlay scrub
+# trace: video
+# log: video
+# env: IPODUI_SIM_VIDEO=1
+# From V6 (f895b7c5f2 tests/video/ui_video_screen.script). The video_screen
+# command (sim_cmd_video.c) calls ui_video_play(path, -1). S01E03.m4v has no
+# chapters: NEXT ends the video.
+wait 4000
+wait_db 45000
+video_screen /Misc/S01E03.m4v
+wait 2500
+expect_video 20 playing
+shot playing             # BCM owns the panel: nothing of the shell shows
+video_shot picture
+wheel +3                 # volume, silent
+wait 300
+key PLAY                 # pause
+wait 600
+shot paused
+wheel +3                 # the strip shows the volume bar
+wait 300
+shot volume
+key SELECT               # overlay: progress, elapsed, remaining
+wait 400
+shot overlay
+key SELECT               # the wheel is on the scrubber
+wait 300
+wheel +4
+wait 800
+shot scrub
+key SELECT               # seek applied, wheel back on the volume
+wait 300
+key PLAY                 # resume
+wait 1500
+expect_video 40 playing
+key RIGHT                # no chapters: NEXT ends the video
+wait 3000
+shot after_next          # the screen below
+video_screen /Misc/S01E03.m4v
+wait 2000
+key MENU                 # stops, back to the list
+wait 1500
+shot after_menu

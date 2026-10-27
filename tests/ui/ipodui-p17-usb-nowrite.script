@@ -1,0 +1,74 @@
+# P17 (#118): nothing writes a file while the host owns the disk. The
+# device's usb.c enters slave mode at the last SYS_USB_CONNECTED ack and
+# leaves it before SYS_USB_DISCONNECTED; the sim's hook (sim_tasks.c,
+# filesystem-sim.c) logs "usb host write op=... path=..." for any open for
+# writing, write, remove, rename, mkdir or rmdir in that window, and the
+# window's count at the unplug. Every writer that the session needs runs
+# in system_flush() before the UI thread's ack: the playlist control file
+# and the playback stop, the settings, the power log (a pending mark), the
+# shell log; the queued play statistics wait in RAM for the worker after
+# the unplug. The session lasts past the 30 s storage-idle lock and many
+# 5 s power-log rows, so a periodic writer would show up.
+# "usb ack ms=" is the connect-to-last-ack time (sim); "usb flush ms=" the
+# UI thread's share (also in the device's ipodui.log).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p17-usb-nowrite.script
+# needs: library
+# timeout: 240
+# log: usb ack ms=
+# log: usb flush ms=
+# log: usb host window close writes=0
+# nolog: usb host write
+# logbetween: u0 u1 usb enter
+# expect-file: /.rockbox/power.csv ,pre-usb
+# expect-file: /.rockbox/power.csv ,in-usb
+# expect-file: /.rockbox/power.csv ,off
+# golden: skip usb
+
+wait 5000           # boot to the main menu
+wait_db 45000
+rm_file /.rockbox/power.csv
+rm_file /.rockbox/power.cfg
+wheel +3            # Settings
+wait 400
+key SELECT
+wait 1500
+key SELECT          # About
+wait 1500
+chord SELECT+LEFT 3200
+wait 1000
+wheel +1            # Power log: off (the row after Status)
+wait 400
+key SELECT          # on, every 30 s
+wait 800
+wheel +1            # Power log every: 30 s
+wait 400
+key SELECT          # 60 s
+wait 600
+key SELECT          # 5 s
+wait 600
+key LEFT            # leave developer mode (About again)
+wait 1500
+
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait_pos 3000 60000
+powerlog_mark pre-usb   # pending: the pre-ack flush writes it
+ab_mark u0
+usb_connect
+wait 3000
+shot usb
+wait 37000          # past the 30 s idle lock; seven or eight 5 s rows
+powerlog_mark in-usb    # RAM only until the device has the disk again
+wait 6000
+ab_mark u1
+usb_disconnect
+wait 5000
+
+chord SELECT+LEFT 3200
+wait 1000
+wheel +1            # Power log: on (the row after Status)
+wait 400
+key SELECT          # off: the "off" row (and the ring) written now
+wait 1000
+key LEFT
+wait 1000
+quit

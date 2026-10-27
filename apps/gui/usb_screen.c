@@ -39,6 +39,13 @@
 #include "usb_screen.h"
 #include "skin_engine/skin_engine.h"
 #include "playlist.h"
+#ifdef HAVE_TAGCACHE
+#include "tagcache.h"
+#endif
+#ifdef HAVE_IPOD_UI
+#include "ipodui/artcache.h"
+#include "ipodui/modload.h"     /* #106 */
+#endif
 #include "misc.h"
 #include "icons.h"
 
@@ -50,6 +57,9 @@
 
 #if (CONFIG_STORAGE & STORAGE_MMC)
 #include "ata_mmc.h"
+#endif
+#ifdef HAVE_IPOD_UI
+#include "ipodui/usbscreen.h"
 #endif
 
 struct usb_screen_vps_t
@@ -63,6 +73,7 @@ struct usb_screen_vps_t
 };
 
 int usb_keypad_mode;
+#ifndef HAVE_IPOD_UI /* the shell's USB screen ignores HID (Phase 8a) */
 static void draw_usb_keypad_mode(struct viewport *title)
 {
     struct screen *screen = &screens[SCREEN_MAIN];
@@ -73,8 +84,10 @@ static void draw_usb_keypad_mode(struct viewport *title)
         screen->puts_scroll(0, 0, str(keypad_mode_name_get(usb_keypad_mode)));
     screen->set_viewport(last_vp);
 }
+#endif /* !HAVE_IPOD_UI */
 #endif /* USB_ENABLE_HID */
 
+#ifndef HAVE_IPOD_UI /* replaced by ui_usb_screen_loop() (Phase 8a) */
 static void handle_usb_events(struct viewport *title)
 {
 #if (CONFIG_STORAGE & STORAGE_MMC) && !defined(SIMULATOR)
@@ -223,6 +236,7 @@ static void usb_screens_draw(struct usb_screen_vps_t *usb_screen_vps_ar)
         draw_usb_keypad_mode(&usb_screen_vps_ar[SCREEN_MAIN].title);
 #endif
 }
+#endif /* !HAVE_IPOD_UI */
 
 void gui_usb_screen_run(bool early_usb, intptr_t seqnum)
 {
@@ -233,8 +247,10 @@ void gui_usb_screen_run(bool early_usb, intptr_t seqnum)
     in_usb_screen = true;
 #endif
 
+#ifndef HAVE_IPOD_UI
     struct usb_screen_vps_t usb_screen_vps_ar[NB_SCREENS];
     struct viewport *title = NULL;
+#endif
 #if defined HAVE_TOUCHSCREEN
     enum touchscreen_mode old_mode = touchscreen_get_mode();
 
@@ -247,8 +263,10 @@ void gui_usb_screen_run(bool early_usb, intptr_t seqnum)
 
 #ifdef USB_ENABLE_HID
     usb_keypad_mode = global_settings.usb_keypad_mode;
+#ifndef HAVE_IPOD_UI
     title = &usb_screen_vps_ar[SCREEN_MAIN].title;
-#else
+#endif
+#elif !defined(HAVE_IPOD_UI)
     title = NULL;
 #endif
 
@@ -261,7 +279,11 @@ void gui_usb_screen_run(bool early_usb, intptr_t seqnum)
          * generic cleanup here */
         screen->set_viewport(NULL);
         screen->scroll_stop();
+#ifdef HAVE_IPOD_UI
+        viewportmanager_theme_enable(i, false, NULL); /* the push the undo pops */
+#else
         usb_screen_fix_viewports(screen, &usb_screen_vps_ar[i]);
+#endif
     }
 
 #if 0 /* handled in usb_screen_fix_viewports() */
@@ -275,13 +297,46 @@ void gui_usb_screen_run(bool early_usb, intptr_t seqnum)
         /* The font system leaves the .fnt fd's open, so we need for force close them all */
         font_disable_all();
     }
+    /* A queued tag-cache scan can otherwise run for minutes before its
+     * thread reaches SYS_USB_CONNECTED. Set its lock-free abort gate before
+     * allowing USB storage ownership to proceed. */
+#ifdef HAVE_TAGCACHE
+    tagcache_usb_prepare();
+#endif
+#ifdef HAVE_IPOD_UI
+    /* A panel-art decode may already be running. Arm its cooperative stop
+     * gate before our ACK starts exclusive storage handover. */
+    artcache_usb_prepare();
+#ifdef IPODUI_MODULES
+    mod_usb_connect();      /* #106: the pack closes; no write */
+#endif
+#endif
     usb_acknowledge(SYS_USB_CONNECTED_ACK, seqnum);
+#ifdef HAVE_IPOD_UI
+    ui_usb_screen_loop(early_usb);
+#else
     usb_screens_draw(usb_screen_vps_ar);
     handle_usb_events(title);
+#endif
+
+    /* A delayed entry can consume a queued disconnect after tagcache has
+     * already unwound its own USB event. Do not leave the GUI-side abort
+     * request armed after this USB screen has ended. */
+#ifdef HAVE_TAGCACHE
+    tagcache_usb_finish();
+#endif
+#ifdef HAVE_IPOD_UI
+    artcache_usb_finish();
+#ifdef IPODUI_MODULES
+    mod_usb_release();      /* #106: reopen lazily, a new generation */
+#endif
+#endif
 
 #if defined(USB_ENABLE_HID)
+#ifndef HAVE_IPOD_UI
     if (global_settings.usb_hid)
         screens[SCREEN_MAIN].scroll_stop_viewport(title);
+#endif
     if (global_settings.usb_keypad_mode != usb_keypad_mode)
     {
         global_settings.usb_keypad_mode = usb_keypad_mode;
@@ -307,6 +362,13 @@ void gui_usb_screen_run(bool early_usb, intptr_t seqnum)
         screens[i].backlight_on();
         viewportmanager_theme_undo(i, false);
     }
+#if defined(HAVE_IPOD_UI) && defined(HAVE_BACKDROP_IMAGE)
+    /* settings_apply() above reloads the theme's backdrop and the undo
+     * leaves it set; the shell draws no backdrop, and with one set every
+     * DRMODE_INVERSEVID fill copies from it (into an offscreen buffer:
+     * out of bounds, P11 integration crash in build_atlas()) */
+    lcd_set_backdrop(NULL);
+#endif
 
     pop_current_activity();
 #ifdef SIMULATOR

@@ -1,0 +1,61 @@
+# P12 W1-C (9 "-clocks-delete"): Edit and Delete. With two clocks the menu
+# has Add, Edit, Delete, Cancel; Edit opens the picker on the clock's own
+# region and city (London); Paris replaces it; Delete removes the selected
+# clock and the map comes back; the list is saved on the way out.
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-clocks-delete.script
+# needs: modules
+# reset: clocks
+# modclass: steady
+# log: clocks add city=42 n=2
+# log: clocks menu n=2 items=4
+# log: clocks edit city=46 n=2
+# log: clocks delete city=46 n=1
+# log: clocks save list=0
+# reset: mainmenu
+
+wait 4000
+sim_clock 15:05
+wheel +2             # Extras
+wait 1500
+key SELECT
+wait 2500
+key SELECT           # Clocks
+wait 1500
+key SELECT
+wait 1200
+key SELECT           # Add
+wait 1200
+wheel +4             # Europe
+wait 500
+key SELECT
+wait 1200
+wheel +10            # London
+wait 500
+key SELECT
+wait 3000
+key SELECT           # menu: Add, Edit, Delete, Cancel
+wait 1500
+shot menu_two
+wheel +1             # Edit
+wait 500
+key SELECT
+wait 1500
+shot edit_regions    # Europe highlighted (London's region)
+key SELECT
+wait 1500
+shot edit_cities     # London highlighted
+wheel +4             # Paris
+wait 500
+key SELECT
+wait 3000
+shot edited          # New York, Paris (selected)
+key SELECT           # menu
+wait 1200
+wheel +2             # Delete
+wait 500
+key SELECT
+wait 2000
+shot deleted         # New York alone, the map back
+key MENU
+wait 1500
+quit

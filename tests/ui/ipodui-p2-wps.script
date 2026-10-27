@@ -1,0 +1,25 @@
+# Phase 2 acceptance: Shuffle Songs -> stock WPS -> back to the shell menu
+# (docs/phase2-brief.md §6/§7). Needs the mini library, which shots.sh sets
+# up automatically for ipodui-* scripts (tests/ui/setup_music.sh).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p2-wps.script
+# needs: music
+
+wait 4000           # boot to the main menu
+
+wheel +4            # "Shuffle Songs"
+wait 500
+
+key SELECT          # start shuffle playback, stock WPS
+wait 2000
+shot nowplaying
+
+key MENU            # back to the main menu: "Now Playing" + header play glyph
+wait 700
+shot wps_back
+
+key h               # HOLD (SDL "h" toggles the switch); hold on: lock glyph left of play, battery (main-hold.png)
+wait 1000
+shot hold
+key h
+
+quit

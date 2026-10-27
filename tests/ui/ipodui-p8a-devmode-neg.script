@@ -1,0 +1,36 @@
+# Phase 8a (docs/phase8a-brief.md 3.4, 7.5): the chord does nothing off the
+# About screen, and a short chord on About does nothing either.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p8a-devmode-neg.script
+# needs: library
+# trace: devmode
+# devmode: none
+# same: settings_before settings_after
+# same: about_before about_after
+# nolog: devmode enter
+# nolog: splash-pass
+#
+# `devmode: none` makes check_trace.py p8a-devmode require zero
+# "devmode enter" lines (it still fails on any stray enter/exit). The
+# 1500 ms chord on About is below DEVMODE_HOLD_TICKS (3 s).
+# Route to About: Settings > About by keys (hook H3); MENU then pops to
+# Settings, the off-About case.
+
+wait 4000
+wheel +3            # Settings (4th main-menu row)
+wait 400
+key SELECT          # Settings; About is its first row
+wait 1500
+key SELECT          # About
+wait 1500
+shot about_before
+chord SELECT+LEFT 1500      # armed, but released before 3 s
+wait 800
+shot about_after            # == about_before
+
+key MENU                    # About -> Settings
+wait 1500
+shot settings_before
+chord SELECT+LEFT 3500      # Settings: not armed
+wait 800
+shot settings_after             # == settings_before
+quit

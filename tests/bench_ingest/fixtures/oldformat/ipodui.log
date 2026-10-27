@@ -1,0 +1,6 @@
+boot build=4e57b3b9a1 rtc=2026-10-25 13:58:02
+1 boot variant 5.5G
+2 mem floor dev audio=39845888 bcm_res=218112 free=1048576
+3 bcmjob up epoch=1 ops=00003fff
+4 bcmjob vpu=0x3 expect=0x3
+5 panel drift jobs mode=on

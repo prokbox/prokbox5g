@@ -1,0 +1,36 @@
+# Phase 18 (§8; Rev 3 H1): the waking press is swallowed with its long
+# press and release. SELECT on the main menu wakes without opening Music;
+# the next SELECT opens it; MENU wakes without going back; a long SELECT
+# wakes without its long-press action.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p18-sleep-wake-swallow.script
+# needs: library
+# golden: skip
+# same: before after_select
+# same: music after_menu
+# same: music after_long
+
+sleep_mode soft       # soft sleep is off by default (developer switch)
+wait 4000
+shot before             # main menu, Music selected
+hold PLAY 1500          # the hold: dark at once, PLAY's release awaited
+expect_sleep asleep 8000
+key SELECT
+expect_sleep button 3000
+wait 1000
+shot after_select
+key SELECT              # now it acts
+wait 1500
+shot music
+hold PLAY 1500          # the hold: dark at once, PLAY's release awaited
+expect_sleep asleep 8000
+key MENU
+expect_sleep button 3000
+wait 1000
+shot after_menu
+hold PLAY 1500          # the hold: dark at once, PLAY's release awaited
+expect_sleep asleep 8000
+hold SELECT 1500
+expect_sleep button 3000
+wait 1000
+shot after_long
+quit

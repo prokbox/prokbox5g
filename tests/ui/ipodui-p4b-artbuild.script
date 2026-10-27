@@ -1,0 +1,42 @@
+# Phase 4b: the art builder fills thumbnails in after a fresh database
+# build (docs/phase4b-brief.md, Agent B): rows show the note/podcast
+# glyph until the background builder (unboosted, background priority)
+# reaches each album, then its mini art appears without a layout jump.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p4b-artbuild.script
+# needs: library
+# fresh-db
+# trace: art
+# golden: skip pending
+#
+# "art_wait" blocks on the builder's idle state (uisimulator/common/
+# sim_cmd_art.c); expect_art then checks every album's state (OK / NOART
+# / FAILED) against tests/ui/art_manifest.txt, none pending. Trace rules
+# ("# trace: art"): the rows read thumbnails ("art get"), only at rest.
+
+rm_file /.rockbox/artcache/index.dat    # no art cache either: every
+rm_file /.rockbox/artcache/index.prev
+rm_file /.rockbox/artcache/index.tmp
+rm_file /.rockbox/artcache/thumbs.pak   # album starts pending
+wait 4000           # boot to the main menu, "Music" selected
+wait_db 45000       # the shell builds the database itself (fresh-db)
+
+key SELECT          # Music (first open: "Playlists" selected)
+wait 800
+wheel +2            # "Albums" (Playlists, Artists, Albums)
+wait 400
+key SELECT
+wait 800
+shot pending        # the builder has not reached these albums yet: note
+                    # glyph everywhere, no mini art (timing-sensitive)
+
+art_wait 120000     # block until the builder is idle (the brief's 0.5-2s
+                    # per album on the device; the 59-album sim library
+                    # finishes in well under this)
+expect_art art_manifest.txt
+wait 1500           # the list polls the builder about once a second at
+                    # rest and redraws the rows still showing a glyph
+shot built          # mini art on every album with a usable source; the
+                    # note glyph only on NOART/FAILED albums
+                    # (tests/ui/art_manifest.txt)
+
+quit

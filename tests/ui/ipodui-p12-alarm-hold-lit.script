@@ -1,0 +1,27 @@
+# P12 integration M1: an alarm that comes due while the unit is awake
+# with Hold on lights the screen (backlight_on_through_hold(): the hidden
+# "backlight on Hold" setting, Off by default, would keep a plain
+# backlight_on() dark) and the ring shows over the Hold face. As on the
+# 7G, Hold keeps the keys dead while it is on (PLAY does nothing); Hold
+# off, the ring's own keys work: MENU at its release dismisses.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p12-alarm-hold-lit.script
+# golden: skip
+# env: IPODUI_SIM_ALARM_IN=30
+# alarm-rings: 1
+# log: ipodui: alarm lit hold=1
+# log: ipodui: alarm dismiss
+# nolog: ipodui: alarm snooze
+# reset: mainmenu
+wait 4000
+key HOLD            # Hold on, awake: the Hold face, the light off
+wait 32000
+shot ringing-held   # the ring, lit through Hold
+key PLAY            # dead under Hold
+wait 1500
+shot still-ringing
+key HOLD            # Hold off
+wait 800
+key MENU            # dismiss at its release
+wait 1500
+shot dismissed
+quit

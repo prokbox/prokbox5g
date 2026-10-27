@@ -1,0 +1,50 @@
+# P12 W4 (docs/design/sdk.md 8.2, 13.2): a game in progress survives.
+# Two pieces dropped (SELECT double taps), a long MENU (the pause menu,
+# owner's controls 2026-10-24) and MENU out (the record written through
+# safefile), then Quadrus again: the same board under the pause menu,
+# nothing fell meanwhile; Resume carries on.
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-quadrus-resume.script
+# needs: modules
+# reset: mainmenu
+
+wait 4000
+sdk_clear            # a fresh game (the simulator seeds from a fixed value)
+wheel +2             # Extras
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Games
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Quadrus
+wait 600
+key SELECT
+wait 800
+wheel -4 120
+wait 200
+key SELECT           # the first piece, hard dropped at the left
+wait 100
+key SELECT
+wait 400
+wheel +4 120
+wait 200
+key SELECT           # the second, at the right
+wait 100
+key SELECT
+wait 400
+shot before
+hold MENU 900        # the pause menu
+wait 600
+key MENU             # out: the state is written
+wait 1500
+shot games
+key SELECT           # Quadrus again (its row is still selected)
+wait 1500
+shot resumed         # the same board, paused
+wait 2000
+shot still_paused    # nothing moved
+key SELECT           # Resume
+wait 800
+shot playing
+quit

@@ -1,0 +1,59 @@
+# Phase 4 review F2: an open list survives a background database update.
+# Songs is open when a new track lands in /Music and the update commits
+# (the RAM cache reloads, a new generation): the list must not go blank,
+# it reopens on its own with the new song, keeping the selected song
+# selected and in place.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p4-refresh.script
+# needs: library
+# trace: lib
+# golden: skip during_update
+#
+# The new track is tests/ui/fixtures/refresh.mp3 (1 s, title "Aardvark
+# Refresh", artist/album "Refresh Fixture"): it sorts first in Songs. The
+# script removes it again at the end (a second update: the list drops it),
+# so the other library scripts see the usual library; a leftover from an
+# interrupted run is removed first. The database keeps the deleted entry
+# (flagged); it loads at the next boot like any other (it used to fail the
+# RAM cache load, so the script deleted the database with "# drop-db").
+
+wait 4000           # boot to the main menu, "Music" selected
+wait_db 30000
+remove /Music/refresh-fixture.mp3   # leftover of an interrupted run (if any)
+update_db_wait 30000 # (no change unless a leftover was removed)
+
+key SELECT          # Music
+wait 800
+wheel +3 300        # "Songs"  [Compilations off: P11]
+wait 400
+key SELECT
+wait 800
+wheel +3 300        # the 4th song, Amber Harbour (slow clicks: one row each)
+wait 1500
+shot before         # Amber Comet first, 4th row selected
+
+copy fixtures/refresh.mp3 /Music/refresh-fixture.mp3
+update_db_wait_change 30000 # scan, commit, RAM cache reload (a new generation)
+shot during_update  # rows still drawn (labels from the view's cache)
+wait 2500           # browse_tick notices within 1 s and reopens
+shot after          # Amber Harbour still selected and in the same place
+                    # on screen, now the 5th song: the new one is above
+wheel -4 300        # up to the top of the reopened list
+wait 1500
+shot after_top      # "Aardvark Refresh" first, then Amber Comet ...
+
+key MENU            # pop and push again: the reopened view is the new one
+wait 800
+key SELECT
+wait 800
+shot reopened       # Aardvark Refresh first
+
+remove /Music/refresh-fixture.mp3
+update_db_wait_change 30000 # dropped again (one new generation)
+wait 2500
+key MENU
+wait 800
+key SELECT
+wait 800
+shot restored       # Amber Comet first again
+
+quit

@@ -1,0 +1,48 @@
+# P12 integration L5: in a game, the exit chord with PREV pressed first.
+# PREV held past the long press (500 ms) with no SELECT is the firmware's
+# seek (Class A: PREV stays the firmware's); from then on it is no part
+# of the chord (sdk prev seek), so SELECT joining it later does not
+# exit, and a chord exit never lands a seek. The chord itself (PREV
+# leading by 20 ms, under the long press) still exits, with no seek.
+# Not scripted: SELECT joining a PREV already seeking. press_hold's lead
+# argument is its 5th token, which sim_script.c's 4-token line parser
+# drops (tooling); the mask is sdki_chord_feed()'s prev_seek.
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-bricks-chord-prev.script
+# needs: modules
+# needs: music
+# golden: skip
+# logbetween: prevhold chord sdk prev seek bricks
+# logbetween: prevhold chord seek back
+# logbetween: prevhold chord no sdk chord
+# logbetween: chord end sdk chord exit
+# logbetween: chord end no seek back
+# reset: mainmenu
+wait 4000
+sdk_clear            # a fresh game
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait 2000
+key MENU             # back to the Main Menu
+wait 1000
+wheel -20
+wait 600
+wheel +2             # Extras
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Games
+wait 600
+key SELECT
+wait 1200
+wait 600
+key SELECT           # Bricks
+wait 800
+ab_mark prevhold
+hold PREV 900        # a seek back, the game still on
+wait 1500
+shot after_prevhold  # still in Bricks
+ab_mark chord
+press_hold PREV SELECT 2300
+wait 1500
+shot exited          # the Games list
+ab_mark end
+quit

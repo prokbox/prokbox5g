@@ -1,0 +1,39 @@
+# P15 (docs/phase15-brief.md 3.3, 7): pause and resume fade through the
+# index-based table (apps/ipodui/fadecurve.h, 25 steps). pcmbuf.c logs
+# "ipodui: fade dir=in|out steps=<n>" when a fade starts, n = the ticks
+# left to run it: 25 from silence or full volume, fewer when it turns
+# around part-way. Here the queue is paused, then resumed while the
+# fade-out still runs, so the second line is "dir=in" with steps < 25 (a
+# reversal from where the level is, not a restart); check_trace.py's
+# p15fade rule checks 0 <= steps <= 25 for every line and, with
+# "# fade: reverse", that an opposite-direction line has 0 < steps < 25.
+# A later, unhurried pause/resume pair shows two full 25-step fades.
+# Timing-sensitive: how far the first fade got depends on the machine, so
+# the shots are not goldens.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p15-fade.script
+# needs: music
+# timeout: 90
+# trace: p15fade
+# fade: reverse
+# logbetween: calm end dir=out steps=25
+# logbetween: calm end dir=in steps=25
+# fulls-extra: 1 the main menu redraws in full when its Now Playing row appears
+# golden: skip turned settled
+
+wait 3000
+repeat off
+wait_db 30000
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait_pos 3000 20000 Concert
+key PLAY 30         # pause: the fade-out starts
+wait 120            # a part of the fade-out has run
+key PLAY 30         # resume mid-fade: the fade-in turns it around
+wait 2500
+shot turned
+ab_mark calm
+key PLAY 30         # pause and let it settle
+wait 3000
+shot settled
+key PLAY 30         # resume from silence
+wait 2000
+quit

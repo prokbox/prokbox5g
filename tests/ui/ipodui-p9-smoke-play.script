@@ -1,0 +1,27 @@
+# Phase 9 smoke (docs/phase9-brief.md 7.8): play a song with the trims on
+# (voice, skin/WPS and the tagtree menus gone; the stats handlers kept,
+# H1) until its position passes 2 s, then pause.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p9-smoke-play.script
+# needs: library
+# nolog: splash-pass
+# golden: skip playing paused
+
+wait 5000           # boot to the main menu, "Music" selected
+wait_db 30000       # database built (shots.sh primes it if missing)
+key SELECT          # Music
+wait 800
+wheel +1            # "Artists"
+wait 400
+key SELECT
+wait 800
+key SELECT          # the first artist
+wait 800
+key SELECT          # "All Songs"
+wait 800
+key SELECT          # its first song: Now Playing
+wait_pos 2000 30000 # position past 2 s (wall clock, dummy audio driver)
+shot playing
+key PLAY            # pause
+wait 800
+shot paused
+quit

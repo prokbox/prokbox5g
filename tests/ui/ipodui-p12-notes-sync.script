@@ -1,0 +1,85 @@
+# P12 W1-N (docs/phase12-brief.md 3.5, 9 "-notes-sync", "-notes-list"):
+# notes copied over USB are indexed at the post-USB moment, never while
+# browsing. The Notes list (photo 1200: full width, a note row has no
+# chevron, a folder row has one) shows /Notes by name with folders mixed
+# in; ".txt" in any case, no sidecar, no other file. A folder opens its
+# notes; MENU comes back; a note opens in the reader. Entry is one open
+# and one read of the index (whole=1, no window reads), a note one more.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p12-notes-sync.script
+# needs: library
+# timeout: 180
+# log: xidx build kind=1 n=8
+# log: notes open n=8 whole=1 rc=0
+# log: notes view
+# log: modclass notes
+# nolog: notes win
+# nolog: modclass viol
+# golden: skip
+# reset: mainmenu
+
+sim_clock 15:06
+wait 4000
+wait_db 30000
+rm_file /Notes/Shopping.txt
+rm_file /Notes/Welcome.txt
+rm_file /Notes/Long%20note.txt
+rm_file /Notes/Unicode%20note.txt
+rm_file /Notes/Windows%20note.txt
+rm_file /Notes/._Shopping.txt
+rm_file /Notes/readme.md
+rm_file /Notes/Trips/Paris.txt
+rm_file /Notes/Trips/Lisbon.TXT
+rm_file /Notes/Trips
+rm_file /.rockbox/notes.idx
+rm_file /.rockbox/xindex.owe
+
+usb_connect
+wait 2500
+mkdir /Notes
+mkdir /Notes/Trips
+copy fixtures/notes/Shopping.txt /Notes/Shopping.txt
+copy fixtures/notes/Welcome.txt /Notes/Welcome.txt
+copy fixtures/notes/long-note.txt /Notes/Long%20note.txt
+copy fixtures/notes/unicode-note.txt /Notes/Unicode%20note.txt
+copy fixtures/notes/windows-note.txt /Notes/Windows%20note.txt
+copy fixtures/notes/._Shopping.txt /Notes/._Shopping.txt   # a sidecar: left out
+copy fixtures/notes/readme.md /Notes/readme.md             # not a note
+copy fixtures/notes/Trips/Paris.txt /Notes/Trips/Paris.txt
+copy fixtures/notes/Trips/Lisbon.TXT /Notes/Trips/Lisbon.TXT
+usb_disconnect
+wait 150
+wait_db 45000
+wait 3500           # the grace and gap windows end the busy moment: the
+storage_idle        # indexer runs there (xidx build)
+wait 1500
+wheel +2            # Main Menu: "Extras"
+wait 800
+key SELECT
+wait 1200
+wheel +7            # Extras: to the last row (Stopwatch; the list does not wrap)
+wait 600
+wheel -2            # "Notes", counted from the end: the same with or without a Games row
+wait 800
+key SELECT
+wait 1200
+shot list           # Long note, Shopping, Trips >, Unicode note, Welcome,
+wheel +2            # Windows note
+wait 600
+shot list_trips     # the folder row: the chevron on the selection
+key SELECT
+wait 1200
+shot folder         # Lisbon, Paris
+key MENU
+wait 1000
+shot back_list      # Trips still selected
+wheel -1
+wait 600
+key SELECT          # Shopping
+wait 1200
+shot shopping
+key MENU
+wait 1000
+key MENU
+wait 1000
+shot back_extras    # the Extras list, Notes selected
+quit

@@ -1,0 +1,20 @@
+# Phase 8a fix round, finding 12 (brief 3.3, D2): the yes/no funnel. A
+# probe gui_syncyesno_run() (what any stock code path would call, e.g.
+# "Boot changed, reboot now?") is suppressed in the shell: nothing is
+# drawn, the first line is logged and the prompt answers No.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p8a-splash-yesno.script
+# needs: library
+# trace: splash
+# same: before after
+# log: yesno-suppressed probe
+# log: yesno_probe probe -> no
+# nolog: splash-pass
+
+wait 4000
+key SELECT 50       # Music (a screen to compare)
+wait 1000
+shot before
+yesno_probe probe
+wait 1500
+shot after          # == before
+quit

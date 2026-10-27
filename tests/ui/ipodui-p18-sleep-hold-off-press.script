@@ -1,0 +1,20 @@
+# Phase 18 (§8; Rev 3 H2, Q12): Hold on then off inside
+# SLEEP_HOLD_WAKE_S (600 s after entry) wakes by itself; the next SELECT
+# is an ordinary press (nothing swallowed) and opens Music.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p18-sleep-hold-off-press.script
+# needs: library
+# golden: skip
+# log: sleep wake why=6 s=0 polls=0 spurious=0 resyncs=0 buttons=0 holds=2
+
+sleep_mode soft       # soft sleep is off by default (developer switch)
+wait 4000
+hold PLAY 1500          # the hold: dark at once, PLAY's release awaited
+expect_sleep asleep 8000
+hold_switch on
+hold_switch off
+expect_sleep hold 3000
+wait 1000
+key SELECT
+wait 1500
+shot music
+quit

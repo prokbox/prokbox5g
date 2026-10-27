@@ -1,0 +1,36 @@
+# P16 gate fix (item 2): a yielded candidate in a paused window whose
+# reload does not fit, 32 MB, 50k tracks (tests/perf/resort_play_check.sh
+# 32; a 50k disk without the #47 marker). The first boot's re-sort
+# commits stopped, PLAY follows, the candidate yields its RAM; 6 MB of
+# the memory it freed is then held (floor_reserve: other allocations),
+# so the window's regrow gets back too little for the reload. Whether it
+# fits is decided from its size at the yield, with no disk access: at
+# most one master index open in the window (none: no take, no load); no
+# refused take leaves the job owed, so the regrow is not held off; the
+# floor holds throughout. At the stop it loads and publishes.
+# golden: skip
+wait 300
+floor_watch begin
+wait_commit 300000  # the re-sort's commit, then PLAY at once
+snapshot_play
+wait 2500
+expect_playing 500
+wait 10000          # refused, retried: the candidate yields its RAM
+floor pause_yield
+floor_reserve 0 6000000
+snapshot_pause
+expect_paused 500
+backlight_expire
+pause_age 200       # paused 3 min 20 s: the window opens
+wait 20000          # the statistics of the songs played reach the journal
+db_opens_mark       # (each append reads its filename from the disk)
+wait 20000          # twenty once-a-second retries
+expect_db_opens 1
+floor pause_window
+expect_paused 500
+floor_release 0
+audio_stop
+wait 20000          # at the stop: its RAM again, then the publication
+shot end
+floor_watch end all_cases
+quit

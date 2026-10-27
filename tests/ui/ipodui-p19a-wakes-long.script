@@ -1,0 +1,39 @@
+# P19 19-1a: wakes per thread in dark playback of one 90 s track, between
+# track changes: the old fixed polls ("quietpoll legacy") for 30 s, then
+# the deadline waits for 40 s. Read the "sim_script: wakes|polls" lines;
+# the expectations hold the quiet window's audio, power and tagcache
+# rows (the old cadence: 2/s, 0.5/s, 1/s). No storage thread in the
+# simulator (its waits: tests/quietwait/).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p19a-wakes-long.script
+# needs: music
+# needs: np
+# golden: skip
+# timeout: 200
+# nolog: pcm underrun
+# nolog: splash-pass
+
+wait 3000
+repeat off          # a shared disk may hold "repeat: one" (np-sharp)
+mkdir /P19
+copy ../../build/np-fixtures/book_held.mp3 /P19/long.mp3
+quietpoll legacy
+play_files /P19/long.mp3
+wait 3000
+backlight_expire
+wait 3000
+wakes start
+wait 30000
+wakes legacy_dark
+quietpoll on
+wait 2000
+wakes skip
+wait 40000
+wakes quiet_dark
+expect_wakes_le audio 4
+expect_wakes_le power 6
+expect_wakes_le tagcache 4
+expect_playing 500
+key MENU
+wait 1500
+shot end
+quit

@@ -1,0 +1,30 @@
+# P12 W2-W (review HIGH-1): a soft sleep shorter than the time to the
+# alarm, then a key wake. The tick stood still while asleep, so the
+# engine takes its deadline again from the RTC at the wake: it rings on
+# time (about 55 s after the wake), not 340 s late and marked missed.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p12-alarm-softsleep-early.script
+# golden: skip
+# timeout: 150
+# env: IPODUI_SIM_ALARM_IN=400
+# Trace: sleep wake why=1 (button), alarm wake alarm=0, alarm ring i=0
+# alarm-rings: 1
+# log: sleep wake why=1
+# log: alarm wake alarm=0
+# nolog: alarm late
+# nolog: alarm missed
+# trace: piezo
+# reset: mainmenu
+
+sleep_mode soft         # soft sleep is off by default (developer switch)
+wait 4000
+hold PLAY 1500
+expect_sleep asleep 8000
+sleep_warp 340          # 340 s asleep; the alarm ~55 s after
+expect_sleep asleep 1000
+key MENU                # wakes; swallowed
+expect_sleep button 3000
+wait 70000              # the RTC reaches the alarm
+shot ringing
+key MENU                # dismiss
+wait 1500
+quit

@@ -1,0 +1,13 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:fold@test
+DTSTART:20260305T123000
+DTEND:20260305T133000
+SUMMARY:Team lunch\, with everyone at the caf√
+ © on the corner
+LOCATION:Main St\; upstairs
+DESCRIPTION:First line\nSecond line which is long enough that it gets fo
+	lded with a tab
+END:VEVENT
+END:VCALENDAR

@@ -1,0 +1,35 @@
+# npfix (owner log run-1137, "why=nostamp": a 19.8 s boot walk): the boot
+# stamp is written once a completed walk has settled (with the disk up),
+# not only at a clean shutdown, so a session that ends any other way after
+# its walk does not walk again at the next boot. "boot_unclean": the
+# session ends as a crash from that point (nothing more written; the
+# settled stamp stays, as on the device). "boot_nostamp": test setup, no
+# stamp at the next boot.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-boot-settle.script
+# needs: music
+# timeout: 180
+# golden: skip
+# log: boot_unclean
+# log: boot stamp settle=1 skipped=0
+# log: boot stamp walk=1 why=nostamp
+# log: boot stamp walk=0 why=trust
+# nolog: unavailable
+
+wait 3000
+wait_db 30000
+wait 3000
+reboot              # clean
+
+expect_boot_walk 0 15000
+wait 2000
+boot_nostamp        # no stamp at the next boot
+reboot
+
+expect_boot_walk 1 15000 nostamp
+wait_db 30000
+wait 5000           # the walk settles: its stamp is written
+boot_unclean        # a crash from here on
+reboot
+
+expect_boot_walk 0 15000 trust
+shot after_crash

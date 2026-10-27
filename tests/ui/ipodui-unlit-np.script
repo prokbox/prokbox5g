@@ -1,0 +1,52 @@
+# #58: the unlit clock face dismissed over Now Playing. The face comes up
+# (backlight timeout, the real BACKLIGHT_OFF path) while Now Playing is
+# the screen underneath, playing; the wake press (SELECT) is swallowed and
+# Now Playing comes back. The screen after the dismissal must be the same
+# picture as Now Playing before the face (header, art, reflection,
+# progress bar, times: np_pin freezes the clock-driven parts), and the
+# p8a-unlit rule checks the first LCD update after "unlit exit".
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-unlit-np.script
+# needs: library
+# trace: unlit
+# same: np_before np_after
+# log: unlit enter
+# log: unlit exit key
+# log: unlit swallow select
+# nolog: splash-pass
+
+wait 4000
+sim_clock 04:01
+clock_format 12
+battery 55
+repeat off
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait 1000
+np_pin 12000 50
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 1500
+shot np_before      # Now Playing, lit
+backlight_expire
+wait 3500           # 2 s fade-out, then the face
+shot face
+key SELECT          # wakes: dismissed and swallowed
+wait 1500
+shot np_after       # Now Playing again
+# scene 2: a mode page (Rating) times out back to Normal while the face
+# is up: the row's slide must not start from the face's pixels
+key SELECT          # Scrubber
+wait 300
+key SELECT          # Rating
+wait 600
+shot rating         # the page the light went out on
+backlight_expire
+wait 6000           # the face; the 4 s mode timeout is due under it
+key SELECT          # wakes
+wait 40
+shot row_a         # the row slides from Rating to Normal
+wait 80
+shot row_b
+wait 1500
+shot row_after      # Normal again
+quit

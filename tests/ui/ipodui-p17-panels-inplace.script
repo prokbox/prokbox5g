@@ -1,0 +1,57 @@
+# #117: a built panel is written IN PLACE into panels.pak (its slot, then
+# fsync, then the 792-byte header), never by copying the whole file (up
+# to 5.77 MB per panel before). A: the panel set built from nothing
+# (panels.pak and the pool removed, the thumbnails kept): every panel is
+# an in-place commit, no stage copies a byte of an old file, and the
+# result is a sound version-1 file an 8b build reads (rollback). B: a
+# header a power cut tore (this build's fields, a bad CRC) with no
+# panels.pak.prev: the set restarts over the same file, rebuilt in place.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p17-panels-inplace.script
+# needs: library
+# golden: skip
+# timeout: 400
+# logbetween: a0 a1 art panel commit in place
+# logbetween: a0 a1 art build panel key=\S+ slot=\d+ state=1
+# logbetween: a0 a1 no art panel stage copied=[1-9]
+# logbetween: a1 b0 expect_panels_valid ok covers=[1-9]
+# logbetween: b0 b1 art panels header torn: rebuilt in place
+# logbetween: b0 b1 art panel commit in place
+# logbetween: b0 b1 no art panel stage copied
+# logbetween: b1 end expect_panels_valid ok covers=[1-9]
+# nolog: expect_panels_valid failed
+# nolog: art retain panels
+# nolog: art fail
+
+wait 1000
+wait_db 60000
+art_wait 120000
+
+# A: no panels.pak, no pool: the next boot builds the set from nothing
+ab_mark a0
+rm_file /.rockbox/artcache/panels.pak
+rm_file /.rockbox/artcache/panels.pak.prev
+rm_file /.rockbox/artcache/panelpool.pak
+rm_file /.rockbox/artcache/panelpool.idx
+rm_file /.rockbox/artcache/panelpool.idx.prev
+reboot
+wait 3000
+wait_db 60000
+art_wait 120000
+ab_mark a1
+expect_panels_valid
+
+# B: the header torn, no previous copy
+ab_mark b0
+rm_file /.rockbox/artcache/panels.pak.prev
+copy fixtures/panels-torn.pak /.rockbox/artcache/panels.pak
+reboot
+wait 3000
+wait_db 60000
+art_wait 120000
+ab_mark b1
+expect_panels_valid
+ab_mark end
+key MENU
+wait 1500
+shot main
+quit

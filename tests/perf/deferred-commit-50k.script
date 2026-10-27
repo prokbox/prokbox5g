@@ -1,0 +1,126 @@
+# #109 re-review L1: a commit that waits for the stop never loads its
+# candidate's RAM cache (6.9 MB at 50k) while audio plays on the
+# post-USB pass either: in floor-50k.script's state (its first sections,
+# replayed here), a file arrives over USB, playback starts again during
+# the post-USB scan and its commit waits; the floor watch covers it.
+# The boot pass's variant can't be driven in the sim: after a restart
+# the free heap fits the commit before any playback starts (the sim's
+# boot commits at once), so the same guard is checked by code path only.
+#   SIM_BUILD=build/sim-ui32 SIMDISK=<a clone of build/sim-50k/simdisk> \
+#     scripts/shots.sh tests/perf/deferred-commit-50k.script
+# golden: skip np_open
+# timeout: 900
+# log: candidate RAM cache waits for the commit
+wait 4000
+wait_db 300000
+repeat all
+floor_watch begin
+snapshot_play
+wait 2000
+expect_playing 500
+floor shell_start
+# #109 (16-7, M6) steady state: snapshot_play is lib_play() of Songs row
+# 0, so the queue is all 50,000 rows (indices[] and the slot table,
+# ~406 KB from the heap, design 1.3); a second play-all from playing
+# takes the hard stop (reserve=stop) and must clear the floor again
+snapshot_play
+wait 2500
+expect_playing 500
+floor dbq_playall_50k
+
+# Now Playing open (the 58,368 B block)
+key SELECT
+wait 700
+key MENU
+wait 700
+wheel +10
+wait 500
+key SELECT
+wait 1500
+shot np_open
+floor np_open
+
+# runtime reservations, each as a real core_alloc beside the playing
+# buffer (they shrink it exactly as the shell's would):
+# chap_bytes (69,640 + 8,192 B, artcache.c)
+floor_reserve 0 77832
+wait 300
+floor chap_bytes
+floor_release 0
+wait 300
+# the panel transient (785,844 B, hardware.md; now also possible in
+# paused windows through the 16-4 top-up)
+floor_reserve 0 785844
+wait 300
+floor panel_transient
+floor_release 0
+wait 300
+# the module / loader arena (placeholder 64 KB, 16-6)
+floor_reserve 0 65536
+wait 300
+floor module_arena
+floor_release 0
+wait 300
+# all three at once, with Now Playing open: the stacked worst case
+floor_reserve 0 77832
+floor_reserve 1 785844
+floor_reserve 2 65536
+wait 300
+floor worst_stack
+floor_release 2
+floor_release 1
+floor_release 0
+wait 300
+
+# HOOK (16-1, #88): the paused window's shrink. A library update found
+# while paused waits while the pause is young; once it is 3 min old
+# (pause_age) with the user idle, the window takes the commit's peak by
+# one partial shrink (the paused song restarts silently), only if the
+# buffer stays >= the floor, and the update publishes with the queue
+# still paused. The watch above sees the dip. PLAY afterwards keeps the
+# smaller buffer (no regrow at an unpause): "after_shrink_play". The
+# 32 MB wait case (the commit too big for the floor) is
+# tests/perf/paused-floor-wait-50k.script.
+snapshot_pause
+expect_paused 500
+floor before_shrink
+backlight_expire
+copy ../../tests/ui/fixtures/refresh.mp3 /zz-floor-window.mp3
+db_mark
+update_db
+expect_snapshot_deferred 5000
+pause_age 200
+expect_db_grew 300000
+expect_paused 500
+floor after_shrink
+wait 3000                   # the job is done, still paused and dark:
+floor after_window_regrow   # its memory goes back to the buffer (M3)
+key MENU
+wait 800
+snapshot_play
+wait 2500
+expect_playing 500
+floor after_shrink_play
+# the space comes back at the next cold start (a stop, then play): the
+# sections below start from a full buffer, as before the window
+audio_stop
+wait 1000
+snapshot_play
+wait 2500
+expect_playing 500
+floor after_shrink_regrow
+copy ../../tests/ui/fixtures/refresh.mp3 /zz-deferred-usb.mp3
+usb_connect
+wait 2000
+usb_disconnect
+wait 300
+snapshot_play                           # plays during the post-USB pass
+wait 20000
+expect_playing 500
+floor post_usb_playing
+audio_stop
+wait 5000
+floor_watch end all_cases
+key MENU                                # leave the unlit screen
+wait 800
+quit

@@ -73,4 +73,11 @@ int clip_jpeg_fd(int fd, int flags,
                  int format,
                  const struct custom_format *cformat);
 
+#if defined(HAVE_IPOD_UI) && !defined(PLUGIN) && !defined(JDEC_ALONE)
+/* iPod UI shell: 'fn' runs after each per-MCU yield (NULL: none) */
+void jpeg_set_pause_hook(void (*fn)(void));
+/* asked before each MCU row: true calls the decode off (np-sharp) */
+void jpeg_set_abort_hook(bool (*fn)(void));
+#endif
+
 #endif /* _JPEG_JPEG_DECODER_H */

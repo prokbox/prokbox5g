@@ -1,0 +1,59 @@
+# Phase 16-1 review 3 (M): another thread's core_alloc arrives while the
+# window's restart is held (5 s). The paused queue's shrink_callback must
+# not wait inside buflib's walk for the restart (deadlock if the caller
+# holds what the restart needs; the heap would change under the walk):
+# the allocation is refused at once ("shrink refused paused ... posted"),
+# the give is posted and runs after the held restart, the song stays
+# paused at its spot. After the pause's one regrow (the commit ended),
+# the next allocation is refused and posted the same way, and its retry
+# fits in the freed memory (no second regrow takes it back).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-restart-alloc.script
+# needs: library
+# needs: ab
+# golden: skip
+# timeout: 300
+# fulls-extra: 3
+# log: audio give held ms=5000
+# logbetween: held a1 audio shrink refused paused want=\d+ give=posted
+# logbetween: held a1 floor_reserve 0 400000 refused
+# logbetween: held a1 no audio give (done|regrow|FAILED)
+# logbetween: a1 a2 audio give done want=\d+
+# logbetween: a2 a3 floor_reserve 1 400000 refused
+# logbetween: a2 a3 audio give done want=\d+
+# logbetween: a3 end floor_reserve 2 400000 ok
+# logbetween: a2 end no audio give regrow
+# logbetween: held end no audio give FAILED
+# logbetween: held fin no stats finish
+
+wait 4000
+wait_db 45000
+mkdir /Audiobooks/H16
+copy ../../build/ab-fixtures/pref.m4b /Audiobooks/H16/pref.m4b
+update_db_wait_change 60000
+play_files /Audiobooks/H16/pref.m4b
+wait_pos 17000 90000
+snapshot_pause
+expect_paused 500
+backlight_expire            # dark
+pause_age 200               # the window is open
+give_hold 5000              # the next window restart holds 5 s
+copy ../../tests/fixtures/plain.mp3 /Audiobooks/H16/new.mp3
+update_db                   # its commit takes the window's memory
+wait 2500                   # ... and the restart is held now
+ab_mark held
+floor_reserve 0 400000      # another thread's allocation: refused now
+ab_mark a1
+wait 8000                   # the held restart, then the posted give
+ab_mark a2
+floor_reserve 1 400000      # refused again: the regrow took the bytes
+wait 2000                   # its posted give
+ab_mark a3
+floor_reserve 2 400000      # the retry fits in the freed memory
+expect_paused 500
+expect_pos 16000 21000
+floor_release 2
+ab_mark fin
+key MENU                    # light the screen again before quitting
+wait 500
+shot after
+quit

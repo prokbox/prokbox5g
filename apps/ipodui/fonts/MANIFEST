@@ -1,0 +1,5 @@
+# Fonts installed to .rockbox/fonts by the ipodui build (checked by scripts/check_fonts.sh)
+15-ShellSans-Bold.fnt  list text
+12-ShellSans-Bold.fnt  header, Now Playing secondary
+12-ShellSans.fnt       small text
+35-ShellSans-Letters.fnt quick-scroll letter (A-Z only, drawn scaled)

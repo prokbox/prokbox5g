@@ -1,0 +1,73 @@
+# 0.8.0, sitting 4c ("the elapsed counter stalls, then catches up, while
+# a cover goes to the BCM"): an overlay's load ran its BCM waits inside
+# the UI pass (the FENCE before the region is rewritten, then OVERLAY's
+# reply: the BCM's sums, init and start-up checks, about 30 ms).  Now no
+# UI pass blocks on one: each wait is posted and its answer polled at the
+# next passes (bcmjob-core.h BJC_OVL_AGAIN; the model answers AGAIN as
+# the device does: the first piece once, the last for 30 ms), the art
+# thread waking them while it waits.  Each put on the pass is timed
+# ("art bcm overlay pass ... us="), and the pass's longest BCM work a
+# minute is logged ("bcmjob pass max us=N what=W") for the device logs.
+#  start-c0  the visualizer's overlay loads (owed, then on the BCM): its
+#            first and last pieces answered AGAIN at least once each;
+#  c0-c5     a cut every 15 s (a new epoch: the overlay gone, loaded
+#            again each time): over a minute of loads, so the minute's
+#            max is logged, under the bound like every put.
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p19-ovlpass.script
+# reset: viz
+# np: viz-full
+# golden: skip
+# logbetween: start c0 art bcm overlay pass k=0 off=0 us=\d+ rc=1
+# logbetween: start c0 art bcm overlay pass k=0 off=16384 us=\d+ rc=1
+# logbetween: start c0 art bcm overlay piece k=0 off=16384 n=2996 rc=0
+# logbetween: start c0 art bcm viz load pieces=3 res=0
+# logbetween: c4 c5 art bcm viz load pieces=3 res=0
+# logbetween: c0 c5 bcmjob pass max us=\d+ what=
+# logrange: 0 20000 art bcm overlay pass k=\d off=\d+ us=(\d+)
+# logrange: 0 20000 bcmjob pass max us=(\d+)
+# nolog: CPU FALLBACK
+# nolog: bcmjob overlay refused
+# nolog: FAULT bcm viz overlay
+# nolog: FAULT art_bcm_ready_ovl
+# timeout: 200
+wait 3000
+repeat one          # the 45 s track outlasts the 66 s of cuts (a fresh
+                    # gate disk has no repeat: the track ended, the
+                    # visualizer closed before c4)
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait 1500
+key SELECT          # Music
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 1500
+key SELECT          # Scrubber
+wait 400
+key SELECT          # Rating
+wait 600
+key SELECT          # Shuffle
+wait 600
+key SELECT          # Visualizer: its overlay owed, then on the BCM
+wait 2000
+shot bars
+ab_mark c0
+bcm_fault cut
+wait 15000
+ab_mark c1
+bcm_fault cut
+wait 15000
+ab_mark c2
+bcm_fault cut
+wait 15000
+ab_mark c3
+bcm_fault cut
+wait 15000
+ab_mark c4
+bcm_fault cut
+wait 3000
+ab_mark c5
+key SELECT          # back to Normal
+wait 1000

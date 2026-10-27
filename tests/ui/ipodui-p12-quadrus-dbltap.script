@@ -1,0 +1,38 @@
+# Quadrus controls (owner, 2026-10-24; docs/design/sdk.md 13.2): a SELECT
+# press turns the piece at once; two presses 500 ms apart turn it twice
+# (two taps, outside the 300 ms double-tap window); a second press within
+# 300 ms of a release takes that tap's turn back and drops the piece hard:
+# it lands as it was before the double tap (two turns), two points a row.
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-quadrus-dbltap.script
+# needs: modules
+# log: sdk quadrus dbltap score=
+# nolog: sdk quadrus soft on
+# nolog: sdk kill
+# reset: mainmenu
+
+wait 4000
+sdk_clear            # a fresh game (the simulator seeds from a fixed value)
+wheel +2             # Extras
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Games
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Quadrus
+wait 600
+key SELECT
+wait 800
+shot start
+key SELECT           # a turn
+wait 500
+key SELECT           # and another: two taps, not a double tap
+wait 500
+shot two_turns
+key SELECT           # a double tap: a third turn, taken back, dropped
+wait 100
+key SELECT
+wait 500
+shot dropped         # landed with two turns; the next piece is in
+quit

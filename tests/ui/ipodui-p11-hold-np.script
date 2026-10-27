@@ -1,0 +1,40 @@
+# Phase 11 hold-SELECT menu from Now Playing (docs/phase11-brief.md
+# section 3.3; owner photo hold-select-popup-np-b): Add to On-The-Go /
+# Browse Album / Browse Artist / Cancel under the normal header. Browse
+# Album leaves the menu and Now Playing, then shows the album's songs;
+# MENU returns to the list Now Playing was opened from (⚠️ H2).
+# Playback goes on throughout.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p11-hold-np.script
+# needs: library
+# golden: skip
+#
+# Needs Q's one call in nowplaying.c (ui_hold_open_np(), its hold-SELECT
+# branch); without it the hold does nothing and the shots stay on Now
+# Playing.
+
+wait 4000           # boot to the main menu, "Music" selected
+wait_db 30000
+
+key SELECT          # Music
+wait 800
+wheel +3 300        # "Songs"  [Compilations off: P11]
+wait 400
+key SELECT
+wait 800
+wheel +2 300        # "Amber Garden"
+wait 400
+key SELECT          # plays, Now Playing
+wait 1500
+hold SELECT 1500    # the hold menu
+wait 600
+shot hold_np        # next to hold-select-popup-np-b
+wheel +1 300        # Browse Album
+wait 400
+key SELECT
+wait 1000
+shot browse_album   # "Night Ferry": its songs
+expect_playing 1000
+key MENU            # back to Songs: Now Playing has left
+wait 800
+shot back_songs
+quit

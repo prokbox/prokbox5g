@@ -1,0 +1,36 @@
+# P12 W4 (docs/design/sdk.md 8.2, 13.3): a game in progress survives a
+# long MENU out: back in, the same jumpers, boat and score under the
+# pause menu, nothing moving; Resume carries on.
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-chute-resume.script
+# needs: modules
+# reset: mainmenu
+
+wait 4000
+sdk_clear            # a fresh game
+wheel +2             # Extras
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Games
+wait 600
+key SELECT
+wait 1200
+wheel +2             # Chute, below Bricks and Chess
+wait 600
+key SELECT           # Chute
+wait 800
+wheel +1 100         # the boat right
+wait 2000
+shot before
+hold MENU 900        # out: the state is written
+wait 1500
+shot games
+key SELECT           # Chute again
+wait 1500
+shot resumed
+wait 2000
+shot still_paused
+key SELECT           # Resume
+wait 1500
+shot playing
+quit

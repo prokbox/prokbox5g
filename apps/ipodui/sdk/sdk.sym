@@ -1,0 +1,54 @@
+/* The SDK table, ABI 0.1 (docs/design/sdk.md section 11.1): the whole
+ * surface an SDK module may link against, in table order. Append only
+ * within an ABI major: an entry's index is its ABI. Read three ways:
+ *  - sdk_table.c builds the resident table (SDK_SYM(n) -> (void *)n);
+ *  - sdk_stubs.S builds the modules' stub library (one stub an entry);
+ *  - tools/modpak.py check reads the names as the allow list (plus
+ *    libgcc's own helpers, linked statically into each module).
+ * One SDK_SYM(name) a line; nothing else but comments. */
+SDK_SYM(memcpy)
+SDK_SYM(memset)
+SDK_SYM(memmove)
+SDK_SYM(memcmp)
+SDK_SYM(strlen)
+SDK_SYM(strcmp)
+SDK_SYM(sdk_exit_request)
+SDK_SYM(sdk_header)
+SDK_SYM(sdk_now_ms)
+SDK_SYM(sdk_now_us)
+SDK_SYM(sdk_rand32)
+SDK_SYM(sdk_boost_burst)
+SDK_SYM(sdk_boost_end)
+SDK_SYM(sdk_wheel_mode)
+SDK_SYM(sdk_wheel_pos)
+SDK_SYM(sdk_area)
+SDK_SYM(sdk_fill)
+SDK_SYM(sdk_rows)
+SDK_SYM(sdk_bitmap)
+SDK_SYM(sdk_bitmap_key)
+SDK_SYM(sdk_mask)
+SDK_SYM(sdk_material)
+SDK_SYM(sdk_text)
+SDK_SYM(sdk_text_num)
+SDK_SYM(sdk_text_fmt)
+SDK_SYM(sdk_text_width)
+SDK_SYM(sdk_dirty)
+SDK_SYM(sdk_menu_open)
+SDK_SYM(sdk_menu_close)
+SDK_SYM(sdk_menu_is_open)
+SDK_SYM(sdk_work)
+SDK_SYM(sdk_borrow)
+SDK_SYM(sdk_click)
+SDK_SYM(sdk_music_playing)
+SDK_SYM(sdk_music_pause)
+SDK_SYM(sdk_music_resume)
+SDK_SYM(sdk_state)
+SDK_SYM(sdk_state_commit)
+SDK_SYM(sdk_setting)
+SDK_SYM(sdk_settings_open)
+SDK_SYM(sdk_setting_changed)
+SDK_SYM(sdk_log)
+/* appended at the P12 integration (still ABI 0.1: nothing shipped) */
+SDK_SYM(sdk_num_width)
+/* appended for Quadrus's controls (2026-10-24; still ABI 0.1) */
+SDK_SYM(sdk_long_menu)

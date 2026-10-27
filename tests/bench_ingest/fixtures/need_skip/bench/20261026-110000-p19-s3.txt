@@ -1,0 +1,13 @@
+session build=p19-s3 date=2026-10-26 11:00 steps=16 mode=reverify image=218660 fnv=cd8e5d96 kind=merged
+step=pre result=start
+step=pre log=pre: stage 4 and 5 pass flags there; a restart comes first: the display program isn't running in this start
+step=pre result=done answer=- ms=20 note=pre: stage 4 and 5 pass flags there; a restart comes first: the display program isn't running in this start
+step=s05 result=skip answer=- ms=0 note=not needed: the stage 5 flag is there
+step=boot result=start
+step=boot log=restart asked: wall=1793012345
+step=boot log=No restart seen: still the start that asked for it
+step=boot result=done answer=- ms=0 note=restart seen; the display driver runs
+resume after=boot
+step=jobs result=start
+step=jobs log=jobs: self-test rc 0
+step=jobs result=pass answer=- ms=40 note=jobs: self-test rc 0

@@ -1,0 +1,117 @@
+# P19 19-6, sitting 3's RESPANEL (album-render.md 5.3): the merged image
+# offers DECODE only once its overlay (dec-ovl.bin) is loaded, in each
+# epoch.  On the device the new album's panel decoded on the PP (20 s):
+# the art thread started it off the Now Playing row, where nothing loaded
+# the overlay.  The model holds the same gate (bcm_decode ovl on, its
+# default), so here:
+#  start-m0  the boxes' first decode loads the overlay: the art thread
+#            reads it, the UI's pass puts each piece, and the boxes decode
+#            on the BCM (the freeze audit: no file read on the UI thread);
+#  m1-m2     a cut (a new epoch: the overlay gone, as after a wake), the
+#            user in the Music list (the strip the list's, not Now
+#            Playing's): the panel's decode loads it again, the pass puts
+#            it at rest (no strip), the panel decodes on the BCM and
+#            is read back at once (the row doesn't show it), never the PP;
+#  m3-m4     the load refused (bcm_decode ovl refuse: no file), another
+#            cut and album: the PP's net, said once ("FAULT bcm decode
+#            overlay why=refused"), the panel on the PP.
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p19-dec-ovl.script
+# env: IPODUI_NP_NO_PANEL=built
+# reset: mainmenu
+# needs: library
+# needs: np
+# needs: video
+# golden: skip
+# fulls-extra: 1 the main menu's Now Playing row appears (play_files)
+# logbetween: start m0 art bcm overlay load by=art pieces=3 ok=1
+# logbetween: start m0 bcmjob overlay load k=1 bytes=23884 at=0012b000
+# logbetween: start m0 art bcm box key=d041e5ce04cedfc7 w=142 h=142 reads=1
+# logbetween: m1 m2 bcmjob overlay load k=1 bytes=23884
+# logbetween: m1 m2 art bcm overlay load by=art pieces=3 ok=1
+# logbetween: m1 m2 art bcm overlay piece k=1 off=16384 n=7500 rc=0
+# logbetween: m1 m2 art bcm overlay wait ms=\d+ decode=1 res=0
+# logbetween: m1 m2 art bcm decode key=6a1b2f700f283f50 dw=534 dh=300 cw=300 ch=300 rc=0 v=0
+# logbetween: m1 m2 art panel crc key=6a1b2f700f283f50 crc=5ac79827 bcm=1
+# logbetween: m1 m2 panel bcm dec_ms=\d+ read_ms=\d+ ok=1
+# logbetween: m1 m2 no panel cpu ms=
+# logbetween: m3 m4 bcmjob overlay refused why=nofile
+# logbetween: m3 m4 FAULT bcm decode overlay why=refused: the PP decodes
+# logbetween: m3 m4 art panel crc key=d041e5ce04cedfc7 crc=ce665930 bcm=0
+# logbetween: m3 m4 panel cpu ms=\d+ ok=1
+# logbetween: m3 m4 no art bcm decode key=d041e5ce04cedfc7 dw=300
+# logbetween: start m3 no FAULT bcm decode overlay
+# logbetween: m4 end no FAULT bcm decode overlay
+# nolog: FAULT art bcm read
+# nolog: art bcm readback bad
+# nolog: bcmjob fault op=0x30
+# nolog: bcmjob decode why=nowork
+# nolog: glass owned STALE
+# nolog: shot POISONED
+# timeout: 300
+
+wait 1000
+bcm_decode panel    # (the model starts with the shell; the panel too)
+wait_db 30000
+sim_clock 15:04
+clock_format 24
+battery 100
+charger off
+repeat one
+rm_file /.rockbox/artcache/index.dat     # every album's art again (the
+rm_file /.rockbox/artcache/index.prev    # fixtures' albums are in it)
+mkdir /NPDec
+copy ../../build/np-fixtures/art_169.mp3 /NPDec/art_169.mp3
+copy ../../build/np-fixtures/art_big.mp3 /NPDec/art_big.mp3
+update_db_wait_change 60000
+art_wait 240000     # every box, on the BCM once the overlay is in
+ab_mark m0
+play_files /NPDec/art_169.mp3
+wait 1000
+np_pin 3000 50
+key SELECT          # Music (the menu re-reads "Now Playing" after a push/pop)
+wait 700
+key MENU
+wait 700
+wheel +10 100       # Now Playing: none built, the thumbnail, queued
+wait 1000
+wheel -20 100       # back to Music, and into its list: off the row
+key SELECT
+wait 700
+bcm_fault cut       # a new epoch: the overlay is gone
+wait 2500
+ab_mark m1
+audio_pause on      # paused, lit, idle: np-sharp's panel now
+disk_active 8000
+wait 6000
+ab_mark m2
+shot music_after_169
+bcm_decode ovl refuse
+key MENU            # the main menu
+wait 700
+audio_stop
+wait 500
+play_files /NPDec/art_big.mp3
+wait 1000
+wheel -20 100
+key SELECT
+wait 700
+key MENU
+wait 700
+wheel +10 100       # the row: art_big queued
+wait 1000
+wheel -20 100
+key SELECT          # the Music list again
+wait 700
+bcm_fault cut       # another epoch: the load refused in it
+wait 2500
+ab_mark m3
+audio_pause on
+disk_active 8000
+wait 10000
+ab_mark m4
+bcm_decode ovl on
+audio_stop
+rm_file /NPDec/art_169.mp3      # leave the shared disk as primed
+rm_file /NPDec/art_big.mp3
+rm_file /.rockbox/artcache/npcover.pak
+quit

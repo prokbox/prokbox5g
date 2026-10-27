@@ -1,0 +1,171 @@
+# ProkBox5g release build (docs/release-plan.md section 3.3, docs/legal.md L4/L5).
+#
+# Pushing a tag vX.Y.Z (or vX.Y.Z-beta.N for post-1.0 feature betas) builds
+# every release asset from that tag and publishes them together on one
+# GitHub release, as a draft for the owner to review and publish:
+#   ProkBox5g-<ver>-{stock,modded}-{flash,hdd}-{64,32}MB.zip   firmware (8 zips)
+#   ProkBox5g-<ver>-source.tar.gz                        corresponding source
+#   ProkBox5g-<ver>-User-Guide.pdf                       the user guide
+#   SHA256SUMS
+# The draft is NOT published by CI. Owner's release gate (2026-10-26): the
+# draft's zip is checksum-compared with a local build of the same commit,
+# installed on the owner's iPod (backup first, owner's go), and passes the
+# ~10 min release smoke checklist; only then is the draft published.
+# 0.x tags are marked pre-release (owner, 2026-10-26: 0.8 is "the
+# pre-release"; "beta" is only for new features after 1.0).
+#
+# Toolchain: Linux runners inside the pinned release container
+# (ci/toolchain/Dockerfile: GCC 16.2.0 and binutils 2.47 from checksummed
+# GNU tarballs, host tools from a fixed Debian snapshot), pulled by digest
+# from a private package (env TOOLCHAIN_IMAGE below); CI never builds GCC.
+# The owner's Linux host has the same image for the local side of
+# scripts/release_compare.py. The BCM2722
+# images are prebuilt in bcmfw/video/ (their sources are in bcmfw/ and ship
+# in the source tarball). The zips themselves: scripts/release_build.sh.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to (re)build, e.g. v0.8.0"
+        required: true
+
+permissions:
+  contents: write
+  packages: read
+
+env:
+  # The pinned release toolchain and docs images (ci/toolchain/Dockerfile,
+  # ci/docs/Dockerfile), built once on the owner's Linux host and kept as
+  # PRIVATE packages linked to this repository: CI downloads them, it never
+  # builds GCC. Rebuild and re-push (and update these digests) only when a
+  # Dockerfile changes.
+  TOOLCHAIN_IMAGE: ghcr.io/prokbox/prokbox5g-toolchain@sha256:ce11db75441b3d6a494d25883547ccc38b8d1267b8170de2909a36b8db47a692
+  DOCS_IMAGE: ghcr.io/prokbox/prokbox5g-docs@sha256:261c0936fc83e235b10a9ddbb0b59cc3d48489474a7b2902396a018a51a2e44a
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.v.outputs.tag }}
+      ver: ${{ steps.v.outputs.ver }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+    steps:
+      - id: v
+        run: |
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          echo "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta)(\.[0-9]+)?)?$' \
+            || { echo "::error::tag $tag is not vX.Y.Z, vX.Y.Z-alpha[.N] or vX.Y.Z-beta.N"; exit 1; }
+          ver="${tag#v}"
+          pre=false
+          case "$ver" in 0.*|*-alpha*|*-beta*) pre=true ;; esac
+          { echo "tag=$tag"; echo "ver=$ver"; echo "prerelease=$pre"; } >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.v.outputs.tag }}
+      - name: release text checks
+        run: |
+          ver="${{ steps.v.outputs.ver }}"
+          # About and the first-boot notice show "ProkBox5g <ver>" (docs/legal.md section 1).
+          grep -q ": \"ProkBox5g $ver\"" apps/lang/english.lang \
+            || { echo "::error::apps/lang/english.lang does not say \"ProkBox5g $ver\""; exit 1; }
+          # GPL v2 section 2(c): the device must name the real source address (docs/legal.md L4).
+          if grep -q 'prokbox\.example' apps/lang/english.lang; then
+            echo "::error::LANG_IPODUI_NOTICE_URL still holds the placeholder address"; exit 1
+          fi
+
+  firmware:
+    needs: check
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: true
+      matrix:
+        ram: [64, 32]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check.outputs.tag }}
+      - name: the pinned toolchain image
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker pull -q "$TOOLCHAIN_IMAGE"
+      - name: build the four zips
+        run: |
+          docker run --rm -u "$(id -u):$(id -g)" -v "$PWD":/w -w /w \
+            -e VERSION="${{ needs.check.outputs.ver }}" \
+            "$TOOLCHAIN_IMAGE" scripts/release_build.sh ${{ matrix.ram }} out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fw-${{ matrix.ram }}
+          path: out/*.zip
+          if-no-files-found: error
+
+  guide:
+    needs: check
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check.outputs.tag }}
+      - name: the pinned docs image
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker pull -q "$DOCS_IMAGE"
+      - name: the user guide (PDF), same source as the site
+        run: |
+          ver="${{ needs.check.outputs.ver }}"
+          docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD":/w -w /w "$DOCS_IMAGE" \
+            sh scripts/docs_build.sh --pdf --version "$ver" --out /w/_site
+          mkdir -p out && cp _site/downloads/ProkBox5g-User-Guide.pdf "out/ProkBox5g-$ver-User-Guide.pdf"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: guide
+          path: out/*.pdf
+          if-no-files-found: error
+
+  publish:
+    needs: [check, firmware, guide]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check.outputs.tag }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - name: source tarball and checksums
+        run: |
+          ver="${{ needs.check.outputs.ver }}"
+          git archive --format=tar.gz --prefix="ProkBox5g-$ver/" \
+            -o "out/ProkBox5g-$ver-source.tar.gz" "${{ needs.check.outputs.tag }}"
+          cd out && sha256sum *.zip *.pdf *.tar.gz > SHA256SUMS && cat SHA256SUMS
+      - name: draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ needs.check.outputs.tag }}"
+          ver="${{ needs.check.outputs.ver }}"
+          pre=""; [ "${{ needs.check.outputs.prerelease }}" = true ] && pre="--prerelease"
+          notes=release-notes.md
+          src="docs/user/releases/$ver.md"
+          if [ -f "$src" ]; then
+            # the release notes page of the site, without its front matter
+            awk 'NR==1 && /^---$/ {fm=1; next} fm && /^---$/ {fm=0; next} !fm' "$src" \
+              | sed -e "s#](\.\./guide/#](https://github.com/${{ github.repository }}/blob/$tag/docs/user/guide/#g" \
+                    -e "s#](\.\./images/#](https://raw.githubusercontent.com/${{ github.repository }}/$tag/docs/user/images/#g" > "$notes"
+          else
+            echo "::error::no release notes: $src"; exit 1
+          fi
+          cat >> "$notes" <<'NOTE'
+
+          ---
+          ProkBox5g is not Apple software. It is an independent, community-driven fork of Rockbox, and Apple Inc. has not made, approved, endorsed or supported it in any way. It contains no Apple software. iPod is a trademark of Apple Inc.
+          NOTE
+          # Binaries and source go up together, never binaries alone (GPL v2 section 3(a)).
+          gh release create "$tag" out/* --draft $pre \
+            --title "ProkBox5g $ver" --notes-file "$notes" --verify-tag

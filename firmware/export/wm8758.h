@@ -174,6 +174,15 @@ void audiohw_enable_lineout(bool enable);
 #define EQ_CUTOFF_MASK          (3 << 5)
 #define EQ_GAIN_VALUE(x)        (((-x) + 12) & 0x1f)
 #define EQ_CUTOFF_VALUE(x)      ((((x) - 1) & 0x03) << 5)
+#ifdef HAVE_IPOD_UI
+#define EQ_BW_WIDE              (1 << 8) /* EQ2-EQ4: EQnBW, wide peak */
+/* S1 spike (docs/phase15-brief.md section 3.1): the last DAC_REGLOG_LEN
+ * codec writes, each (reg << 9) | value. Copies the entries after *seq
+ * (oldest kept if overwritten) into out, advances *seq, returns the
+ * count. Thread context. */
+#define DAC_REGLOG_LEN          32
+int dac_reglog_read(unsigned int *seq, uint16_t *out, int max);
+#endif
 
 #define DACLIMITER1             0x18 /* default 032 unused */
 #define DACLIMITER2             0x19 /* default 000 unused */

@@ -32,6 +32,12 @@
 bool is_backlight_on(bool ignore_always_off);
 void backlight_on_ignore(bool value, int timeout);
 void backlight_on(void);
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+/* ProkBox P18 (the Sleep lab): backlight_on() for one lit period even with
+ * Hold on and "backlight on button hold" at Off; it ends at the timeout,
+ * a BACKLIGHT_OFF or a Hold change */
+void backlight_on_through_hold(void);
+#endif
 void backlight_off(void);
 void backlight_set_timeout(int value);
 

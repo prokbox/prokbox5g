@@ -1,0 +1,59 @@
+# H1 (#41.1, #41.2), DB state "fresh" (docs/process.md checklist item 10):
+# no database at shell start, so no precompute block is reserved ("lib
+# reserve none"); the precompute then runs only while audio is stopped,
+# in a transient block. The first build's precompute runs stopped
+# ("block=transient playing=0"); a deleted-file pass during playback
+# leaves it waiting ("lib precompute wait") until the stop, when it runs
+# in a transient block. Meanwhile the builder has no new album table, so
+# nothing to build or collect while playing; after the stop the new
+# table's pass drops the deleted album ("art build commit ... gc=1
+# playing=0") and the panel set is updated. Playback never stops.
+# With library generations (#85, cache-persist): a deleted-file pass while
+# music plays builds a candidate whose RAM cache cannot be allocated
+# beside the playing audio buffer, so the new generation waits for the
+# stop ("RAM cache reload ... waits for playback to stop"); the active
+# library stays as it was (and browsable) meanwhile. The pass is started
+# with update_db and checked with expect_db_gen_same while playing and
+# expect_db_gen_change after the stop, instead of update_db_wait_change
+# during playback; the precompute then runs after the stop.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-h1-pre-fresh.script
+# needs: library
+# fresh-db
+# golden: skip stopped
+
+rm_file /.rockbox/artcache/index.dat    # no art cache either
+rm_file /.rockbox/artcache/index.prev
+rm_file /.rockbox/artcache/index.tmp
+rm_file /.rockbox/artcache/thumbs.pak
+rm_file /.rockbox/artcache/panels.pak
+wait 1000
+wait_db 45000       # built and committed in this boot
+art_wait 120000
+remove /Music/refresh-fixture.mp3
+copy fixtures/refresh.mp3 /Music/refresh-fixture.mp3
+update_db_wait_change 30000
+art_wait 120000
+
+wheel +4            # "Shuffle Songs"
+wait 500
+key SELECT          # plays
+wait 1500
+expect_playing 300
+db_gen_mark
+remove /Music/refresh-fixture.mp3
+update_db                           # the deleted-file pass, while playing
+wait 3000           # the precompute waits: no reserved block
+expect_db_gen_same 1000             # the generation waits for the stop
+expect_playing 2000
+audio_reload        # a refill: nothing (no fill windows since #58, and
+                    # no new album table to build from)
+wait 2500           # (no art_wait: the table waits for the stop)
+expect_playing 300
+audio_stop       # stop: precompute (transient), GC, panels
+expect_db_gen_change 60000
+wait 3000
+art_wait 60000
+expect_art art_manifest.txt
+shot stopped
+
+quit

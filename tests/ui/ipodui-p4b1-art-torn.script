@@ -1,0 +1,24 @@
+# Phase 4b-1 (docs/phase4b-brief.md, Revision 2 D3; checklist item 8):
+# torn files lead to a silent rebuild. Boot 1 overwrites the art index
+# and the library precompute file (database_lib.dat) with garbage. At
+# boot 2 the precompute's header check fails, so it is rewritten (lists
+# scan meanwhile) and a build is requested; the builder finds index.dat
+# invalid, wipes the cache and builds it again. No splash, no crash
+# (the main-menu shot), every album in its manifest state.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p4b1-art-torn.script
+# needs: library
+
+wait 1000
+wait_db 30000
+art_wait 120000
+copy fixtures/refresh.mp3 /.rockbox/artcache/index.dat
+copy fixtures/refresh.mp3 /.rockbox/database_lib.dat
+reboot
+
+wait 1000           # boot 2
+wait_db 30000
+art_wait 120000
+expect_art art_manifest.txt
+shot rebuilt        # the main menu: nothing shown to the user
+
+quit

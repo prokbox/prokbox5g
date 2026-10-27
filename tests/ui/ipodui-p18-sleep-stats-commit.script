@@ -1,0 +1,53 @@
+# Review M2 (checklist 8): statistics owed while a commit runs survive a
+# battery death in the sleep. The play count of a track that ends while
+# the commit holds the tagcache thread cannot drain until the commit
+# stops, so sleep entry cuts the commit and waits for its stop first,
+# then drains (persist()), then checks the drain finished. A power cut
+# while asleep keeps the count, as a clean power-off would.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p18-sleep-stats-commit.script
+# needs: music
+# fresh-db
+# golden: skip
+# timeout: 360
+# fulls-extra: 4          (the Now Playing row comes and goes with the plays)
+# log: sleep job=commit owed
+# log: sleep job=commit cut
+# nolog: sleep refused why=stats
+# nolog: sleep refused why=busy
+#
+# The first boot only builds the database (the journal's replay waits for
+# the lookup table there), as in ipodui-p16-playcount-reboot.
+
+sleep_mode soft       # soft sleep is off by default (developer switch)
+wait 3000
+wait_db 45000
+reboot
+sleep_mode soft
+
+wait 3000
+repeat off
+wait_db 45000
+expect_stat /Music/Tone%20Collective/Sine%20Studies/03%20Warble.mp3 playcount=0..0
+play_files /Music/Tone%20Collective/Sine%20Studies/03%20Warble.mp3
+wait_pos 3000 60000 Warble
+key PLAY
+wait 500                # the toggle lands (the expect does not wait)
+expect_paused 500
+commit_hold 1           # the commit holds the tagcache thread
+copy fixtures/refresh.mp3 /Music/refresh-fixture.mp3
+update_db
+wait 5000
+key PLAY                # the commit goes on while it plays
+wait_pos 23000 60000 Warble
+wait 4000               # past the end (25 s): the count is owed
+hold PLAY 1500          # the window's 30 s cap, the cut, the drain
+expect_sleep asleep 60000
+power_cut               # no shutdown path runs
+reboot
+sleep_mode soft
+wait 3000
+wait_db 45000
+expect_stat /Music/Tone%20Collective/Sine%20Studies/03%20Warble.mp3 playcount=1..1 5000
+shot kept               # the gate needs one shot
+rm_file /Music/refresh-fixture.mp3
+quit

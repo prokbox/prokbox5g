@@ -1,0 +1,53 @@
+# #58 idle build (owner, 2026-10-09), case 1: while audio plays and the
+# user browses, the art builder does nothing: no "art io", no album, no
+# panel, however long the pauses between keys (the old 2 s INPUT_QUIET
+# rule and the fill windows are gone for playback). The pending build
+# waits on an event ("art build wait lit"), not a poll. Once playback
+# stops, the stopped throttle (unchanged) builds everything.
+# On battery: "charger off" (on the charger, 2 s without a key counts as
+# idle; that case is ipodui-idle-charger).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-idle-browse.script
+# needs: library
+# log: art build wait lit
+# logbetween: req played no \bart io\b
+# logbetween: req played no \bart build (start|album|panel)\b
+# logafter: played art io read key=\S+ playing=0
+# golden: skip browsing
+# timeout: 120
+
+wait 1000
+wait_db 30000
+art_wait 120000
+charger off
+wheel +4            # "Shuffle Songs"
+wait 500
+key SELECT          # plays (Now Playing)
+wait 1500
+expect_playing 300
+rm_file /.rockbox/artcache/index.dat
+rm_file /.rockbox/artcache/index.prev
+rm_file /.rockbox/artcache/index.tmp
+rm_file /.rockbox/artcache/thumbs.pak
+art_request         # a build of every album, during playback
+ab_mark req
+wait 3000           # Now Playing, lit, no key: still nothing
+key MENU            # main menu
+wait 2500
+wheel -4            # "Music"
+wait 2500
+key SELECT          # the Music menu
+wait 3000
+wheel +2            # (pauses longer than the old 2 s quiet rule)
+wait 3000
+key SELECT          # a list: its rows PENDING (hints for later)
+wait 3000
+shot browsing
+key MENU
+wait 1000
+expect_playing 300  # never stopped
+ab_mark played
+audio_stop          # stopped: the old throttle builds it all
+art_wait 120000
+expect_art art_manifest.txt
+
+quit

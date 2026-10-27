@@ -1,0 +1,87 @@
+# P12 (9 "-alarm-locked"; W1-A1 x W1-L): an alarm rings over the locked
+# screen (the ring is a system screen; the lock gate defers to it), MENU
+# dismisses it, and the locked screen is back: the ring never opens the
+# lock. The right code then opens the Main Menu.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p12-alarm-locked.script
+# golden: skip
+# timeout: 120
+# env: IPODUI_SIM_ALARM_IN=60
+# alarm-rings: 1
+# log: ipodui: lock engage ok=1
+# log: ipodui: alarm dismiss how=1
+# log: ipodui: lock try ok=1
+# nolog: 1234
+# reset: mainmenu
+wait 4000            # boot to the main menu, "Music" selected
+wheel +2 300         # "Extras"
+wait 600
+key SELECT
+wait 1200
+wheel +7 200         # the last row (Stopwatch; the list does not wrap)
+wait 600
+wheel -1 200         # "Screen Lock", from the end: with or without a Games row
+wait 800
+key SELECT
+wait 1200
+# New Combination 1234, then Confirm 1234: Lock / Reset
+wheel +1 250
+wait 300
+key SELECT
+wait 200
+wheel +2 250
+wait 300
+key SELECT
+wait 200
+wheel +3 250
+wait 300
+key SELECT
+wait 200
+wheel +4 250
+wait 300
+key SELECT
+wait 200
+wait 800
+wheel +1 250
+wait 300
+key SELECT
+wait 200
+wheel +2 250
+wait 300
+key SELECT
+wait 200
+wheel +3 250
+wait 300
+key SELECT
+wait 200
+wheel +4 250
+wait 300
+key SELECT
+wait 200
+wait 800
+key SELECT           # Lock
+wait 1200
+shot locked          # the locked screen
+wait 40000           # the ring, 60 s after boot
+shot ringing         # the ring screen over the locked screen
+key MENU             # dismiss (at the release)
+wait 1500
+shot relocked        # the locked screen again
+wheel +1 250
+wait 300
+key SELECT
+wait 200
+wheel +2 250
+wait 300
+key SELECT
+wait 200
+wheel +3 250
+wait 300
+key SELECT
+wait 200
+wheel +4 250
+wait 300
+key SELECT
+wait 200
+wait 800
+shot opened          # the main menu
+quit

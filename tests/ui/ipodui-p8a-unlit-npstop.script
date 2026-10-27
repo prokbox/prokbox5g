@@ -1,0 +1,42 @@
+# Phase 8a fix round, finding M2: playback ends while the unlit face is
+# up over Now Playing. The wake press (SELECT) dismisses the face and is
+# swallowed; Now Playing then sees playback stopped and pops by itself
+# (frozen default 9.15) through ui_pop_request(), not through a posted
+# key-less release that the wake swallowing used to eat. "woken" must be
+# the main menu, not Now Playing stuck on the stopped track. Since the P6
+# merge the stopped queue also hides the menu's Now Playing row (P6
+# Revision 3), so the cursor lands on Shuffle Songs.
+# np_seq_bump stands in for the producer's change that makes Now Playing
+# re-snapshot (on this branch only PLAYBACK_EVENT_TRACK_CHANGE moves the
+# seq, and audio_stop() sends none: reported to P6, see the fix-round
+# report); the pop path under test is the same either way.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p8a-unlit-npstop.script
+# needs: library
+# trace: unlit
+# log: unlit enter
+# log: unlit exit key
+# log: unlit swallow select
+# log: pop request nowplaying
+# nolog: splash-pass
+
+wait 4000
+sim_clock 04:01
+clock_format 12
+battery 55
+repeat off
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait 1000
+np_pin 12000 50
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 1500
+backlight_expire
+wait 3500           # 2 s fade-out, then the face
+audio_stop          # playback ends under the face
+np_seq_bump         # ...and Now Playing will notice at its next tick
+wait 1000
+key SELECT          # wakes: dismissed and swallowed
+wait 1500
+shot woken          # Now Playing popped by itself: the main menu
+quit

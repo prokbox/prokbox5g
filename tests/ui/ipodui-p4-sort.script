@@ -1,0 +1,77 @@
+# Phase 4: 7G sorting (docs/phase4-brief.md): case-insensitive, accents
+# folded, leading "The " ignored, digits and symbols after Z as '#'
+# (2.0.5, #34). Scrolls both ends of Artists, the B and T regions, the top
+# of Albums and both ends of Songs.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p4-sort.script
+# needs: library
+# trace: lib
+#
+# Expected (tests/ui/setup_library.py + the mini library):
+#   Artists top:  The Alder Trio, Amber Coast, Ångström Lane, aurora drift,
+#                 Basalt, The Bellwethers, Björvik, Cedar & Pine
+#   Artists end:  ... Velvet Static, Willow Creek, Xylem, Yarrow,
+#                 Zephyr Lane, The Zephyrs, Zoë Marchetti, then the '#'
+#                 group !!!, 10dd, 2Gem
+#   "The The" sorts as "The" under T, before "Theory of Tides".
+#   Songs top:    Amber Comet, Amber Ember, ...
+#   Songs end:    ... then #9 Dream Machine, (Untitled), ¿Dónde Estás?,
+#                 99 Red Kites ('#')
+#   Never listed: audiobook/podcast authors and titles
+#                 (tests/ui/library_manifest.txt)
+
+wait 4000           # boot to the main menu, "Music" selected
+wait_db 30000
+art_wait 40000      # Albums shows mini art (4b-2): albums_top must not
+                    # depend on how far the builder got (~7 s after a
+                    # library change; it pauses on input, so wait here)
+
+key SELECT          # Music
+wait 800
+wheel +1            # "Artists"
+wait 400
+key SELECT
+wait 800
+shot artists_top
+
+wheel +6 300        # slow clicks: one row each, no acceleration
+wait 1500
+shot artists_b      # Björvik selected; Basalt, The Bellwethers above it
+
+wheel +120          # fast spin, clamps at the last artist
+wait 2500
+shot artists_end    # Zoë Marchetti, then !!!, 10dd, 2Gem last
+
+wheel -14 300       # back up into the T region (slow: one row each)
+wait 1500
+shot artists_t      # The The selected; Theory of Tides, Tin Sparrow, Tone ...
+
+key MENU            # back to Music
+wait 800
+wheel +1            # "Albums"
+wait 400
+key SELECT
+wait 800
+shot albums_top     # "A Field Guide to Tones" (a book) must NOT be here
+
+key MENU
+wait 800
+wheel +1            # "Songs" (Albums + 2) [Compilations off: P11]
+wait 400
+key SELECT
+wait 800
+shot songs_top      # Amber Comet first
+
+wheel +400 10       # fast spin, clamps at the last song (10 ms: the
+                    # run fits the 60 s shots.sh watchdog)
+wait 2500
+shot songs_end      # the '#' songs last: #9 Dream Machine ... 99 Red Kites
+
+key MENU            # back to Music
+wait 800
+wheel +1            # "Genres" (Songs + 1)
+wait 400
+key SELECT
+wait 800
+shot genres         # Ambient ... Rock; no Audiobook, Podcast, Spoken Word
+
+quit

@@ -1,0 +1,60 @@
+# #47: an artist's albums from one range of the precompute file. Music ->
+# Artists -> five artists (the first, a case variant, a non-ASCII name,
+# the '#' group at the end), each list checked against its shot. Every
+# "lib open albums" line should say src=slice and cmds=4 (open, header,
+# the artist's 8-byte start pair, its records); a stale or missing file
+# falls back to src=scan with the same rows. Proposed goldens: the five
+# shots, which must match the scan's (pixel-identical at capture).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-artist-open.script
+# needs: library
+# trace: lib
+
+wait 4000           # boot to the main menu, "Music" selected
+wait_db 30000       # database built (shots.sh primes it if missing)
+
+key SELECT          # Music
+wait 800
+wheel +1            # "Artists"
+wait 400
+key SELECT
+wait 800
+
+key SELECT          # The Alder Trio
+wait 800
+shot alder
+key MENU
+wait 800
+
+wheel +2 300        # Ångström Lane
+wait 1500
+key SELECT
+wait 800
+shot angstrom
+key MENU
+wait 800
+
+wheel +1 300        # aurora drift (lower case)
+wait 1500
+key SELECT
+wait 800
+shot aurora
+key MENU
+wait 800
+
+wheel +2 300        # The Bellwethers
+wait 1500
+key SELECT
+wait 800
+shot bellwethers
+key MENU
+wait 800
+
+wheel +100 20       # the end of the list: the '#' group
+wait 1500
+key SELECT
+wait 800
+shot last
+key MENU
+wait 800
+
+quit

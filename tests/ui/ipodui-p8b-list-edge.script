@@ -1,0 +1,81 @@
+# #52 polish (owner 2026-10-20): moving the selection keeps one row in
+# view beyond it before the list scrolls (UI_LIST_EDGE_ROWS, list.h),
+# except at the list's ends. Checked on each list type: the split
+# Settings list (9 rows), the full two-line Songs list, the two-line
+# Albums list with art, a fast spin (jump mode, quick-scroll letter) and
+# moving back up.
+# pending: owner to confirm the 7G scrolling rule; UI_LIST_EDGE_ROWS is 0 until then (2026-10-20)
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p8b-list-edge.script
+# needs: library
+#
+# Expected with UI_LIST_EDGE_ROWS 1 (with 0 the view scrolls only when
+# the selection would leave it; rows 0-based, a 9-row view shows rows
+# top..top+8):
+#   set_r7     Brightness (row 7) selected, About at the top, Audiobooks
+#              below it: no scroll yet
+#   set_r8     Audiobooks (row 8): the view moved one row (Shuffle at the
+#              top), EQ visible below the selection
+#   set_end    Reset Settings (last row) on the bottom row: the end
+#   set_up     back up to row 9 then 8: one row above the selection kept
+#   songs_3/4  5-row view: row 3 selected with row 4 below (no scroll),
+#              then row 4 selected with the view moved one row
+#   songs_rest a fast spin's rest: the view on the row grid
+#   songs_up   three rows back up: one row above the selection
+#   albums_2/3 as songs_3/4 on the 4-row two-line Albums list
+
+wait 4000           # boot to the main menu, "Music" selected
+wait_db 30000
+art_wait 40000
+wheel +3 300        # Settings
+wait 600
+key SELECT
+wait 1500
+wheel +7 300
+wait 1200
+shot set_r7
+wheel +1 300
+wait 1200
+shot set_r8
+wheel +8 300
+wait 1500
+shot set_end
+wheel -7 300
+wait 1200
+wheel -1 300
+wait 1200
+shot set_up
+key MENU
+wait 1200
+wheel -3 300        # Music
+wait 600
+key SELECT
+wait 800
+wheel +3 300        # Songs
+wait 400
+key SELECT
+wait 1200
+wheel +3 300
+wait 1200
+shot songs_3
+wheel +1 300
+wait 1200
+shot songs_4
+wheel +60 10        # fast spin: jump mode, the quick-scroll letter
+wait 2500
+shot songs_rest
+wheel -3 300
+wait 1200
+shot songs_up
+key MENU
+wait 1200
+wheel -1 300        # Albums
+wait 400
+key SELECT
+wait 1500
+wheel +2 300
+wait 1200
+shot albums_2
+wheel +1 300
+wait 1500
+shot albums_3
+quit

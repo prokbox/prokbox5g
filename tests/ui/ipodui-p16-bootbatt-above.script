@@ -1,0 +1,19 @@
+# Boot battery guard: a cell that is not drained boots at or above the
+# resting floor (BB_FLOOR_MV 3,400, owner decision 2026-10-22: a cell
+# with hours of playback left always boots). The sim boots at 3,450 mV
+# with no charger and a clear latch record (IPODUI_SIM_DRAINED=0, written
+# at boot before the read); the runtime shutoff (3,200 in the sim) does
+# not fire either.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-bootbatt-above.script
+# env: IPODUI_SIM_BATT_MV=3450
+# env: IPODUI_SIM_DRAINED=0
+# golden: skip
+# log: bootbatt boot mv=3450 thr=3400
+# log: bootbatt latch drained=0 boot mv=3450
+# nolog: bootbatt refuse
+# nolog: bootbatt latch cleared
+# nolog: sys deadbatt
+# nolog: splash-pass
+
+wait 4000
+shot main_menu

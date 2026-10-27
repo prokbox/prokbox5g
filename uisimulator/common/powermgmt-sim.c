@@ -46,6 +46,155 @@ static unsigned int batt_current = 0;
 
 void powermgmt_init_target(void) {}
 
+/* Scripted runs (--script) pin the level so golden shots never depend on
+ * how long the sim has run (the drain is 1 %/s); the "battery" script
+ * command (sim_cmd_clock.c) changes it. -2: default (100 under a script,
+ * else drain), -1: drain, else percent. */
+extern const char *sim_script_file;
+static int batt_pin = -2;
+#ifdef HAVE_IPOD_UI
+/* The boot guard's tests (apps/ipodui/bootbatt.c): the voltage and the
+ * charger as the unit powers on, before any script command can run.
+ * IPODUI_SIM_BATT_MV=<mV> pins the raw voltage (until a "battery"
+ * command); IPODUI_SIM_CHARGER=1 boots with the charger plugged. Scripts
+ * set them with "# env:" lines (scripts/shots.sh). */
+#include <stdlib.h>
+/* "batt_mv" (sim_cmd_sleep.c) or IPODUI_SIM_BATT_MV, 0: off */
+static int batt_pin_mv;
+static long plug_tick;
+static long drain_tick;
+/* IPODUI_SIM_DRAIN_AT_MS: the cell then reads DRAIN_MV, far under the
+ * sim's shutoff, so the 64 s filter crosses it within seconds, or
+ * IPODUI_SIM_DRAIN_MV=<mV> (a slow fall to 0 % that stops over it) */
+#define DRAIN_MV 1000
+static int drain_mv = DRAIN_MV;
+
+static void boot_env(void)
+{
+    static bool done;
+    const char *e;
+
+    if (done)
+        return;
+    done = true;
+    e = getenv("IPODUI_SIM_BATT_MV");
+    if (e && atoi(e) > 0)
+        batt_pin_mv = atoi(e);
+#if CONFIG_CHARGING
+    e = getenv("IPODUI_SIM_CHARGER");
+    if (e && atoi(e) > 0)
+        charger_input_state = CHARGER_PLUGGED;
+    /* IPODUI_SIM_CHARGER_AT_MS=<ms>: the cable goes in that long after
+     * power-on (the guard's "plugged during the screen" case) */
+    e = getenv("IPODUI_SIM_CHARGER_AT_MS");
+    if (e && atoi(e) > 0)
+        plug_tick = current_tick + atoi(e) * HZ / 1000;
+#endif
+    /* IPODUI_SIM_DRAIN_AT_MS=<ms>: the cell empties that long after
+     * power-on (the guard's drained latch: the low-battery shutdown) */
+    e = getenv("IPODUI_SIM_DRAIN_AT_MS");
+    if (e && atoi(e) > 0)
+        drain_tick = current_tick + atoi(e) * HZ / 1000;
+    e = getenv("IPODUI_SIM_DRAIN_MV");
+    if (e && atoi(e) > 0)
+        drain_mv = atoi(e);
+}
+
+static void boot_drain(void)
+{
+    if (drain_tick && TIME_AFTER(current_tick, drain_tick))
+    {
+        drain_tick = 0;
+        batt_pin_mv = drain_mv;
+    }
+}
+
+static void boot_plug(void)
+{
+#if CONFIG_CHARGING
+    if (plug_tick && TIME_AFTER(current_tick, plug_tick))
+    {
+        plug_tick = 0;
+        if (charger_input_state < CHARGER_PLUGGED)
+            charger_input_state = CHARGER_PLUGGED;
+    }
+#endif
+}
+#endif
+
+static bool battery_pinned(void);
+
+/* A pin is a new reading now: the filter restarts from it, so
+ * battery_level() and battery_voltage() follow at once instead of at the
+ * power thread's next step (up to POWER_QUIET_TICKS, 2 s, later; a
+ * script's hold right after "battery 8" read the old level, Phase 18) */
+static void pin_reading_now(void)
+{
+#ifdef HAVE_RESET_BATTERY_FILTER
+    if (battery_pinned())
+        reset_battery_filter(batt_millivolts);
+#endif
+}
+
+void sim_battery_pin(int percent)
+{
+    batt_pin = percent;
+#ifdef HAVE_IPOD_UI
+    batt_pin_mv = 0;
+#endif
+    pin_reading_now();
+}
+
+#ifdef HAVE_IPOD_UI
+/* Pins the voltage; the level follows the linear sim curve (Phase 18) */
+void sim_battery_pin_mv(int mv)
+{
+    batt_pin_mv = mv;
+    if (mv > 0)
+    {
+        int pct = (mv - BATT_MINMVOLT) * 100 / (BATT_MAXMVOLT - BATT_MINMVOLT);
+        batt_pin = pct < 0 ? 0 : pct > 100 ? 100 : pct;
+    }
+    pin_reading_now();
+}
+#endif
+
+static bool battery_pinned(void)
+{
+    int pct = batt_pin == -2 ? (sim_script_file ? 100 : -1) : batt_pin;
+
+#ifdef HAVE_IPOD_UI
+    boot_env();
+    boot_drain();
+    if (batt_pin_mv > 0)
+    {
+        int span = BATT_MAXMVOLT - BATT_MINMVOLT;
+        int p = (batt_pin_mv - BATT_MINMVOLT) * 100 / span;
+        pct = MAX(0, MIN(100, p));
+    }
+#endif
+    if (pct < 0)
+        return false;
+    /* pinned: charging exactly while a charger is plugged ("charger on")
+     * and the battery is not full, as the hardware reports it */
+#if CONFIG_CHARGING
+    charging = charger_input_state >= CHARGER_PLUGGED && pct < 100;
+#else
+    charging = false;
+#endif
+    batt_percent = pct;
+#ifdef HAVE_IPOD_UI
+    if (batt_pin_mv > 0)
+        batt_millivolts = batt_pin_mv;
+    else
+#endif
+        batt_millivolts = BATT_MINMVOLT
+                        + (BATT_MAXMVOLT - BATT_MINMVOLT) * pct / 100;
+    batt_runtime = batt_percent * BATT_MAXRUNTIME;
+    batt_current = charging ? BATT_CHARGE_STEP : BATT_DISCHARGE_STEP;
+    return true;
+}
+
 static void battery_status_update(void)
 {
     /* Delay next battery update until tick */
@@ -54,6 +203,9 @@ static void battery_status_update(void)
     /* When greater than 0, the tick to unplug the external power at */
     static unsigned int ext_power_until_tick = 0;
 #endif
+
+    if (battery_pinned())
+        return;
 
     if(TIME_BEFORE(current_tick, update_after_tick))
         return;
@@ -142,9 +294,20 @@ int _battery_current(void)
 }
 #endif
 
+#ifdef HAVE_IPOD_UI
+int battery_voltage_scan(void)      /* the boot guard's raw reading */
+{
+    return _battery_voltage();
+}
+#endif
+
 #if CONFIG_CHARGING
 unsigned int power_input_status(void)
 {
+#ifdef HAVE_IPOD_UI
+    boot_env();
+    boot_plug();
+#endif
     unsigned int status = charger_input_state >= CHARGER_PLUGGED
             ? POWER_INPUT_CHARGER : POWER_INPUT_NONE;
 

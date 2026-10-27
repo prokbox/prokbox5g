@@ -1,0 +1,45 @@
+# Device panic (owner, 2026-10-26, build 799ff0f8d7): USB plugged in on
+# Now Playing with the song paused. The USB storage buffer (~130 KB) is
+# taken at SET_CONFIGURATION, before SYS_USB_CONNECTED; the paused audio
+# buffer refused the shrink (#88: "shrink refused paused ... give=posted")
+# and usb_storage_init_connection() panicked on the OOM. The simulator now
+# takes that buffer the same way (sim_tasks.c, at usb_connect). Fixed:
+# the allocation stops playback first (disk mode stops it anyway, at
+# SYS_USB_CONNECTED), so the shrink takes the plain stopped path; it never
+# panics. The USB screen runs, the unplug returns to the shell.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-usb-paused-np.script
+# needs: music
+# timeout: 90
+# logafter: usb usb storage alloc stop playback ms=
+# logbetween: usb end no audio shrink refused paused
+# nolog: storage alloc FAILED
+# logafter: usb usb flush ms=
+# golden: skip
+
+wait 3000
+sim_clock 15:08
+clock_format 24
+repeat off
+wait_db 30000
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait 1000
+key SELECT          # Music (the menu re-reads "Now Playing" after a push/pop)
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 1500
+key PLAY            # pause mid-track, on Now Playing
+wait 800
+expect_paused 1000
+ab_mark usb
+usb_glyph usbc
+usb_connect
+wait 2500
+shot usb            # the USB screen, not a panic
+usb_disconnect
+wait 2000
+shot after
+quit

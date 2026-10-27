@@ -1,0 +1,62 @@
+# Phase 5: Rating mode: the wheel turns the 5 dots into stars (clockwise
+# adds, counter-clockwise removes); the value (stars x 2) lands on the right
+# file in the database (expect_rating), and the info row shows the stars after
+# the commit. A library track plays by path, so the entry has a database index.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p5-rating.script
+# needs: library
+# golden: skip slide normal0
+
+wait 1000
+wait_db 30000
+sim_clock 15:08
+clock_format 24      # P11: the default is 12-hour; this golden shows 24
+art_wait 60000      # the cover is built: the shots do not depend on the disk's art state
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3 /Music/Tone%20Collective/Sine%20Studies/02%20Low%20E.mp3
+wait 1000
+np_pin 2000 50
+key SELECT          # Music (the menu re-reads "Now Playing" after a push/pop)
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 1200
+shot normal0
+key SELECT          # Scrubber
+wait 500
+key SELECT          # Rating
+wait 80
+wheel -6 100        # to 0 stars (the rating persists between runs)
+shot slide
+wait 500
+shot rating0
+wheel +2 300        # 2 stars
+wait 400
+shot rating2
+wheel +2 300        # 4 stars
+wait 400
+shot rating4
+wheel -1 300        # 3
+wait 300
+wheel +1 300        # 4 again
+wait 300
+key SELECT          # leaves Rating: commit; rated, so back to Normal (#58)
+wait 1100
+expect_rating /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3 8 4000
+shot info_stars     # the info row shows 4 stars
+expect_rating /Music/Tone%20Collective/Sine%20Studies/02%20Low%20E.mp3 0 500
+# leave the database as found: Concert A back to 0 stars, so no other script's
+# shots (it plays the same track) depend on the order the scripts ran in
+wait 4500           # the mode timeout: back to Normal
+key SELECT          # Scrubber
+wait 500
+key SELECT          # Rating
+wait 500
+wheel -6 100        # to 0 stars
+wait 300
+key SELECT          # commit
+wait 1500
+expect_rating /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3 0 4000
+audio_stop
+quit

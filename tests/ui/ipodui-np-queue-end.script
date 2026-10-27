@@ -1,0 +1,34 @@
+# Now Playing pops, and its main-menu row goes, when the queue ends on its own (spec "When the queue
+# ends"), not only on an explicit stop: a 1-track queue (03 Warble, 25 s)
+# plays to its end with no key and no audio_stop. Path: the audio thread's
+# PLAYBACK_EVENT_STOP_OR_PAUSE (playback stopped) -> np_playback.c
+# stop_or_pause() moves the playback seq -> Now Playing re-snaps, sees
+# nothing playing and pops (fix round, Phase 8a review).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-np-queue-end.script
+# needs: music
+# timeout: 90
+# logafter: np_in np pop stopped
+# logrange: 0 0 after=np_in np row visible=(\d)
+# golden: skip popped
+
+wait 3000
+sim_clock 15:08
+clock_format 24      # P11: the default is 12-hour; this golden shows 24
+repeat off
+wait_db 30000
+play_files /Music/Tone%20Collective/Sine%20Studies/03%20Warble.mp3
+wait 1000
+key SELECT          # Music (the menu re-reads "Now Playing" after a push/pop)
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 1200
+ab_mark np_in       # Now Playing is on top from here
+wait_pos 23000 60000 Warble
+wait 4000           # past the end (25 s): no key, no stop
+shot popped         # the main menu again, without "Now Playing" (owner,
+                    # Revision 3: a natural end of the queue hides it)
+quit

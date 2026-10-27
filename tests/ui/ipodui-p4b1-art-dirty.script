@@ -1,0 +1,28 @@
+# Phase 4b-1 (docs/phase4b-brief.md, checklist item 10, DB state "dirty"):
+# a power cut mid-commit leaves the database dirty; the next boot rebuilds
+# it silently. The builder waits ("art build wait db") while the rebuild
+# runs, then the new database's precompute (a new commit id: a sweep of
+# the image-file sources) requests a build and every album comes out in
+# its manifest state, from an empty art cache.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p4b1-art-dirty.script
+# needs: library
+#
+# shots.sh fails the run on "dirty_db failed" and "expect_art failed".
+
+wait 1000
+wait_db 30000
+art_wait 120000
+rm_file /.rockbox/artcache/index.dat
+rm_file /.rockbox/artcache/index.prev
+rm_file /.rockbox/artcache/index.tmp
+rm_file /.rockbox/artcache/thumbs.pak
+dirty_db            # the power cut mid-commit, as the disk is left
+reboot
+
+wait 1500           # boot 2: dirty, rebuilt in the background
+wait_db 45000
+art_wait 120000
+expect_art art_manifest.txt
+shot rebuilt
+
+quit

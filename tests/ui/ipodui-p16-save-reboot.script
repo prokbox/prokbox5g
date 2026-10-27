@@ -1,0 +1,53 @@
+# #91 (docs/phase16-brief.md 4.3): On-The-Go's Save Playlist writes the
+# list to a temp in /Playlists and renames it to the next free name (never
+# onto an existing one). After a reboot the saved playlist is listed and
+# no temp is left.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-save-reboot.script
+# needs: library
+# timeout: 120
+# golden: skip
+# log: sim_script: rm_file /Playlists/New Playlist 1.m3u8
+# log: rm_file /Playlists/.otgsave.tmp: not removed
+
+wait 4000
+wait_db 30000
+rm_file /Playlists/New%20Playlist%201.m3u8  # an aborted run's copy
+key SELECT          # Music
+wait 800
+wheel +3 300        # "Songs"
+wait 400
+key SELECT
+wait 800
+wheel +2 300        # "Amber Garden"
+wait 400
+hold SELECT 1500
+wait 600
+key SELECT          # Add to On-The-Go
+wait 800
+key MENU            # Music
+wait 800
+wheel -4 300        # "Playlists"
+wait 400
+key SELECT
+wait 800
+key SELECT          # "On-The-Go"
+wait 1000
+wheel +1 300        # "Save Playlist"
+wait 400
+key SELECT
+wait 1200
+shot saved          # Playlists lists New Playlist 1
+reboot
+
+wait 4000
+wait_db 30000
+key SELECT          # Music
+wait 800
+wheel -6 300        # "Playlists"
+wait 400
+key SELECT
+wait 1200
+shot after_reboot   # New Playlist 1 still listed
+rm_file /Playlists/.otgsave.tmp
+rm_file /Playlists/New%20Playlist%201.m3u8
+quit

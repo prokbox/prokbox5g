@@ -1,0 +1,49 @@
+# Now Playing pops when a single-file book plays to its end on its own
+# (no key, no audio_stop): short.m4b (40 s, Opening + Closing) from the
+# Closing entry. The book's queue ending also finishes it (D17).
+# Path: PLAYBACK_EVENT_STOP_OR_PAUSE -> stop_or_pause() (seq move +
+# the finish's record, write-now) -> Now Playing pops to the book page.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p6-book-end.script
+# needs: library
+# needs: ab
+# reset: books
+# timeout: 120
+# trace: ab
+# logafter: np_in np pop stopped
+# logrange: 0 0 after=np_in np row visible=(\d)
+# golden: skip popped main_menu
+# DB state: ready. Rows: 0 A Field Guide, 1 AB Short.
+
+wait 4000
+wait_db 45000
+mkdir /Audiobooks/AB
+copy ../../build/ab-fixtures/short.m4b /Audiobooks/AB/short.m4b
+update_db_wait_change 60000
+art_wait 60000
+
+key SELECT
+wait 800
+wheel +6 300        # Audiobooks (Compilations off: P11)
+wait 400
+key SELECT
+wait 900
+wheel +1 300
+wait 400
+key SELECT          # page: Opening, Closing
+wait 1000
+wheel +1 300        # Closing (20 s)
+wait 300
+key SELECT          # plays; Now Playing on top
+wait 1500
+ab_mark np_in
+wait_pos 39000 60000 short.m4b
+wait 4000           # past the end: no key, no stop
+# "# reset: books" makes the boot seed the store from the database's play
+# stats (other scripts' books): count only records this run wrote.
+expect_ab_store_own 0 1 3000   # the queue's end finished the book
+shot popped         # the book page again
+hold MENU 1000      # the main menu: no "Now Playing" row (Revision 3:
+wait 1200           # a book that ended hides it; its spot is cleared too)
+shot main_menu
+remove /Audiobooks/AB/short.m4b
+quit

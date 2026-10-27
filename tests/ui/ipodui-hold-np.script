@@ -1,0 +1,138 @@
+# #65: sliding Hold on over Now Playing brings up the unlit clock face.
+# The face used to come up only from SYS_IPODUI_BACKLIGHT_OFF. Hold on
+# never sent one: the hidden "Backlight on Hold" setting defaults to Off
+# on this target (the always-off path, which the firmware/backlight.c
+# hook skips), so Now Playing stayed, dark; set to Normal or On it stayed
+# lit with its marquee running (the owner's report).
+# Three scenes: a book with long chapter titles (AB FFmpeg CTOC, 150-char
+# titles), a song with a long scrolling title, a song with a short title.
+# Each: Now Playing up, marquee running, Hold on -> the face (padlock),
+# then nothing at all is pushed to the panel while it stays up (no
+# marquee, no bar, no time label), Hold off -> Now Playing again. The
+# last scene also steps the minute under the face: one digits band.
+# Pushes are asserted, not just pixels (screenshots read the framebuffer).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-hold-np.script
+# needs: library
+# needs: ab
+# needs: np
+# timeout: 240
+# trace: unlit
+# env: SIM_TRACE_LCD_PUSH=1
+# golden: skip
+# same: book_face book_face_later
+# same: long_face long_face_later
+# same: short_face short_face_later
+# log: hold on
+# log: unlit enter
+# log: unlit exit holdoff
+# logbetween: book_on book_off unlit enter
+# logbetween: book_up book_off no sim lcd push
+# logbetween: book_up book_off no update np:
+# logbetween: long_on long_off unlit enter
+# logbetween: long_up long_off no sim lcd push
+# logbetween: long_up long_off no update np:
+# logbetween: short_on short_off unlit enter
+# logbetween: short_up short_min no sim lcd push
+# logbetween: short_up short_off no update np:
+# logbetween: short_min short_off update unlit:digits
+# logbetween: book_off long_on update np:
+# nolog: splash-pass
+
+wait 3000
+wait_db 45000
+sim_clock 04:01      # pinned minute: the face pushes nothing while up
+clock_format 12
+battery 55
+repeat off
+mkdir /Audiobooks/AB
+copy ../../build/ab-fixtures/ffctoc.mp3 /Audiobooks/AB/ffctoc.mp3
+mkdir /NPTest
+copy ../../build/np-fixtures/long_title.mp3 /NPTest/long_title.mp3
+update_db_wait_change 60000
+art_wait 60000
+
+# -- scene 1: an audiobook, long chapter title scrolling
+play_files /Audiobooks/AB/ffctoc.mp3
+wait 1000
+key SELECT          # Music (the menu re-reads "Now Playing" after a push/pop)
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 3000           # the marquee is moving
+shot book_np
+ab_mark book_on
+hold_switch on
+wait 1500
+shot book_face      # the face: 4:01, play, padlock, battery
+ab_mark book_up
+wait 3000           # a marquee/time-label tick would push by now
+shot book_face_later
+ab_mark book_off
+hold_switch off     # Hold off: back to Now Playing
+wait 1500
+shot book_back
+
+# -- scene 2: a song with a long scrolling title
+hold MENU 1000      # to the main menu
+wait 1200
+play_files /NPTest/long_title.mp3
+wait 1000
+key SELECT
+wait 700
+key MENU
+wait 700
+wheel +10
+wait 500
+key SELECT
+wait 3000
+shot long_np
+ab_mark long_on
+hold_switch on
+wait 1500
+shot long_face
+ab_mark long_up
+wait 3000
+shot long_face_later
+ab_mark long_off
+hold_switch off
+wait 1500
+shot long_back
+
+# -- scene 3: a short title (nothing scrolls; the time label still ticks)
+hold MENU 1000
+wait 1200
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait 1000
+key SELECT
+wait 700
+key MENU
+wait 700
+wheel +10
+wait 500
+key SELECT
+wait 2000
+shot short_np
+ab_mark short_on
+hold_switch on
+wait 1500
+shot short_face
+ab_mark short_up
+wait 3000
+shot short_face_later
+ab_mark short_min
+sim_clock 04:02     # the face's own clock moves on
+wait 61000          # its next minute wake
+shot short_face_min # 4:02
+ab_mark short_off
+hold_switch off
+wait 1500
+shot short_back
+
+audio_stop
+rm_file /Audiobooks/AB/ffctoc.mp3
+rm_file /NPTest/long_title.mp3
+update_db_wait_change 60000
+quit

@@ -1,0 +1,46 @@
+# Phase 2 shell core, developer check (agent A). Covers the menu stack and
+# the WPS hand-off in one run. Needs a track under simdisk/Music/.
+# Run with: SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p2-core-dev.script
+
+wait 4000           # boot to the shell main menu
+shot boot
+
+wheel +2            # Music -> Extras: two rows redrawn per step
+wait 400
+shot menu_down
+
+wheel -2
+wait 300
+key SELECT          # into Music
+wait 600
+shot music
+
+wheel +3
+wait 400
+shot music_down
+
+key SELECT          # Songs stub
+wait 500
+shot stub
+
+key MENU
+wait 400
+key MENU            # back to the main menu, Music still selected
+wait 600
+shot back
+
+wheel +4            # Shuffle Songs
+wait 400
+key SELECT
+wait 2500
+shot nowplaying
+
+key MENU            # WPS -> shell
+wait 1000
+shot wps_back
+
+key PLAY            # pause from the shell
+wait 1000
+shot paused
+
+quit

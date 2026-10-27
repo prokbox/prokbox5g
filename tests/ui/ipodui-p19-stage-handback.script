@@ -1,0 +1,85 @@
+# Sitting 4b's surprise (bcm2722-reference quirks #48, data-paths.md D17,
+# sim-fidelity.md "Device surprises" 3): a bench or stage play boots the
+# video image from its file, so its stop hands the chip to Apple's vmcs
+# through the stock wake path, and the shell's chip jobs stay off until
+# our image starts again.  The simulator now models that hand-back at the
+# stop itself (sim_video.c bcm_video_release), not only by "bcm_suspend":
+#  start-s0  the visualizer on the BCM (BARS, 0x34), no fallback;
+#  s0-r0     a stage play's stop (video_start ... stage): the chip on
+#            vmcs, the visualizer on the CPU, said loudly (why=nojobs);
+#  r0-end    a normal play (the resident image's own) hands our image
+#            back: jobs again, the visualizer back on the BCM.
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p19-stage-handback.script
+# needs: video
+# timeout: 150
+# np: viz-full
+# logbetween: start s0 bcmjob submit op=0x34
+# logbetween: start s0 no CPU FALLBACK
+# logbetween: s0 r0 sim_video: stop: the chip on Apple's vmcs
+# logbetween: s0 r0 CPU FALLBACK why=nojobs
+# logbetween: s0 r0 no bcmjob submit op=0x34
+# logbetween: r0 end sim_video: stop: our image handed back
+# logbetween: r0 end bcmjob submit op=0x34
+# logbetween: r0 end no CPU FALLBACK
+wait 3000
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait 1500
+key SELECT          # Music
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 1500
+key SELECT          # Scrubber
+wait 400
+key SELECT          # Rating
+wait 600
+key SELECT          # Shuffle
+wait 600
+key SELECT          # Visualizer: on the BCM
+wait 2500
+shot bars_bcm
+key SELECT          # back to Normal
+wait 1200
+
+ab_mark s0
+video_start /Misc/Audio%20First.m4v stage
+play_files /Misc/Audio%20First.m4v
+wait 3000
+video_stop          # the stage play's stop: the chip to vmcs
+wait 1500
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait 1500
+key SELECT          # Scrubber
+wait 400
+key SELECT          # Rating
+wait 600
+key SELECT          # Shuffle
+wait 600
+key SELECT          # Visualizer: no jobs, the CPU's
+wait 2500
+shot bars_cpu
+key SELECT          # back to Normal
+wait 1200
+
+ab_mark r0
+video_start /Misc/Audio%20First.m4v
+play_files /Misc/Audio%20First.m4v
+wait 3000
+video_stop          # the resident image's play: handed back
+wait 1500
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait 1500
+key SELECT          # Scrubber
+wait 400
+key SELECT          # Rating
+wait 600
+key SELECT          # Shuffle
+wait 600
+key SELECT          # Visualizer: on the BCM again
+wait 2500
+shot bars_bcm_again
+key SELECT          # back to Normal
+wait 1200

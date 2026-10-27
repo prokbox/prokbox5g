@@ -1,0 +1,110 @@
+# Phase 6 (Rev 2 whole-book bar and counter): a multi-file MP3 book ("AB
+# Multi": 4 files x 25 s, files 1 and 3 with CHAP frames, files 2 and 4 none)
+# plays like one m4b: one whole-book bar with ticks, a counter "N of M"
+# across files (6 entries: 2 chapters, file 2, 2 chapters, file 4), chapter
+# skip and a fast scrub that cross file boundaries. First open uses the
+# files-as-entries fallback ("ab map src=fallback"); after the stopped
+# books.pak pass the reopen reads the blob ("ab map src=pak"). The primed
+# disk's own pass already indexed the book, so the index is dropped first.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p6-multifile.script
+# needs: library
+# needs: ab
+# timeout: 150
+# trace: ab
+# trace: np
+# log: ab map src=fallback
+# log: ab pak miss
+# log: ab map src=pak
+# log: ab pak hit
+# nolog: ab map mismatch
+# golden: skip np_start np_file2 np_file4 scrub_mid scrub_end np_pak
+# DB state: ready. Needs B (map, pak), U (whole-book bar/counter) and M.
+# Rows: 0 A Field Guide, 1 AB Multi.
+
+wait 4000
+wait_db 45000
+mkdir /Audiobooks/ABMulti
+copy ../../build/ab-fixtures/multi/01.mp3 /Audiobooks/ABMulti/01.mp3
+copy ../../build/ab-fixtures/multi/02.mp3 /Audiobooks/ABMulti/02.mp3
+copy ../../build/ab-fixtures/multi/03.mp3 /Audiobooks/ABMulti/03.mp3
+copy ../../build/ab-fixtures/multi/04.mp3 /Audiobooks/ABMulti/04.mp3
+update_db_wait_change 60000
+art_wait 60000
+ab_power_cut now idx_drop   # no index yet: the first open is a pak miss
+
+key SELECT
+wait 800
+wheel +6 300   # Audiobooks (Compilations off: P11)
+wait 400
+key SELECT          # Audiobooks
+wait 900
+wheel +1 300        # AB Multi
+wait 400
+key SELECT
+wait 1200
+shot page           # 6 entries across the 4 files
+key SELECT          # entry 1 from 0
+wait 2500
+shot np_start       # counter "1 of 6", whole-book bar at 0
+key NEXT            # Part 1.2 (12 s)
+wait 1200
+ab_mark track_change_begin
+key NEXT            # file 2 (the book's 25 s mark)
+wait 1500
+ab_mark track_change_end   # a track change inside a book is a pending save
+expect_pos 0 3500   # position within file 2
+shot np_file2       # counter "3 of 6", bar a quarter along
+key NEXT
+wait 800
+key NEXT
+wait 800
+key NEXT            # file 4
+wait 1500
+expect_pos 0 3500
+shot np_file4       # counter "6 of 6"
+key SELECT          # Scrubber
+wait 600
+# Book entries start at 0, 12, 25, 50, 62, 75 s (100 s in all). A fast
+# click snaps to the next file start (0, 25, 50, 75) or chapter of the
+# PLAYING file (np_scrub.h: the only table in RAM). The sim posts the
+# driver's speed (0, 6, 11, 16, 21, 25.. clicks/s from 10 ms clicks):
+# five free clicks (1+1+1+2+4 s), then one snap point per click.
+wheel -60 10        # fast scrub back across three files: from ~77 s, 9 s
+                    # free, then 50, 25, 0 and the start holds
+wait_pos 0 5000 01.mp3
+expect_pos 0 2500   # the book's start: file 1 at 0
+shot scrub_mid
+wait 600            # > 250 ms: the next wheel starts slow again
+wheel +9 10         # forward again: 9 s free, then 12 (file 1's Part
+                    # 1.2), 25, 50, 75
+wait_pos 0 5000 04.mp3
+expect_pos 0 2500   # file 4 at its start (the 6th entry)
+shot scrub_end
+audio_stop
+wait 800
+
+art_request
+art_wait 60000      # the stopped pass builds books.pak for this book
+expect_ab_pak 1 60000
+hold MENU 1000
+wait 1200
+key SELECT
+wait 800
+wheel +6 300   # Audiobooks (Compilations off: P11)
+wait 400
+key SELECT
+wait 900
+wheel +1 300
+wait 400
+key SELECT
+wait 1200
+key SELECT          # Resume or entry 1: the map now comes from the blob
+wait 2500
+shot np_pak
+audio_stop
+wait 500
+remove /Audiobooks/ABMulti/01.mp3
+remove /Audiobooks/ABMulti/02.mp3
+remove /Audiobooks/ABMulti/03.mp3
+remove /Audiobooks/ABMulti/04.mp3
+quit

@@ -1,0 +1,66 @@
+# Release-plan 6.2: Settings > About > Save Diagnostics. About's fourth
+# page (ours) saves "ProkBox Report.txt" at the top of the volume on
+# SELECT; the line under the row then says what to do with it. The report
+# carries the redaction markers and none of the synthetic library's names:
+# the playing track's (setup_music.sh) or those in a planted previous-boot
+# log (fixtures/diag/prev.log).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-diag-report.script
+# needs: music
+# log: diag report saved
+# log: about diag=1
+# golden: skip
+# expect-file: "/ProkBox Report.txt" ProkBox diagnostics report
+# expect-file: "/ProkBox Report.txt" variant:
+# expect-file: "/ProkBox Report.txt" last panic:
+# expect-file: "/ProkBox Report.txt" 2 art <path> st=1 e=0
+# expect-file: "/ProkBox Report.txt" 3 video start <path>: 120 samples
+# expect-file: "/ProkBox Report.txt" 4 np title=<title>
+# expect-file: "/ProkBox Report.txt" 6 ab mark <title> pos=3
+# expect-file: "/ProkBox Report.txt" 7 maint job=art ok=1 ms=40
+# expect-file: "/ProkBox Report.txt" 8 db <path> n=2
+# expect-file-lacks: "/ProkBox Report.txt" Concert A
+# expect-file-lacks: "/ProkBox Report.txt" Tone Collective
+# expect-file-lacks: "/ProkBox Report.txt" Sine Studies
+# expect-file-lacks: "/ProkBox Report.txt" Velvet
+# expect-file-lacks: "/ProkBox Report.txt" Lanterns
+# expect-file-lacks: "/ProkBox Report.txt" Glass Harbor
+# expect-file-lacks: "/ProkBox Report.txt" Brisket
+# expect-file-lacks: "/ProkBox Report.txt" Marrowind
+# expect-file-lacks: "/ProkBox Report.txt" Ophelian
+# expect-file-lacks: "/ProkBox Report.txt" Zephyrine
+# expect-file-lacks: "/ProkBox Report.txt" Quornish
+# expect-file-lacks: "/ProkBox Report.txt" /Music
+# expect-file-lacks: "/ProkBox Report.txt" rockbox
+# expect-file-lacks: "/ProkBox Report.txt" serial
+
+wait 4000            # boot to the main menu (the logs rolled on)
+copy fixtures/diag/prev.log /.rockbox/ipodui.log.1
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait 1500
+wheel +3             # Settings
+wait 400
+key SELECT
+wait 1500
+key SELECT           # About
+wait 1500
+key RIGHT
+wait 700
+key RIGHT
+wait 700
+shot page3           # the 7G's last page, now with four dots
+key RIGHT
+wait 700
+shot page4           # Save Diagnostics and its hint
+key SELECT           # save
+wait 1500
+shot saved           # "Saved", and where the file is
+key SELECT           # again: the one file is replaced
+wait 1500
+shot saved_again
+key RIGHT            # no wrap
+wait 700
+shot page4_end
+key MENU
+wait 900
+shot settings
+quit

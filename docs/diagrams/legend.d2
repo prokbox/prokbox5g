@@ -1,0 +1,41 @@
+# Shared legend. Each diagram imports it as a top-level container:
+#   legend: @legend
+#   legend.near: bottom-right        (or another corner)
+# Line samples are 2-3 px tall boxes whose outline reads as one line;
+# styles are spelled out (not classes) so the file stands alone; they match style.d2.
+label: Legend
+style: {fill: "#FFFFFF"; stroke: "#A0AEC0"; border-radius: 6; font-size: 22; bold: true}
+grid-rows: 6
+grid-columns: 4
+grid-gap: 12
+vertical-gap: 10
+
+s1: "___________" {shape: text; style: {font-size: 22; bold: true; font-color: "#1A202C"}}
+t1: "data" {shape: text; style: {font-size: 20}}
+w1: "" {width: 44; height: 26; style: {fill: "#EAF2FB"; stroke: "#2B6CB0"; stroke-width: 2}}
+u1: "PP5022 (host)" {shape: text; style: {font-size: 20}}
+
+s2: "– – – – – –" {shape: text; style: {font-size: 22; bold: true; font-color: "#C05621"}}
+t2: "control / I²C" {shape: text; style: {font-size: 20}}
+w2: "" {width: 44; height: 26; style: {fill: "#F1EAFB"; stroke: "#6B46C1"; stroke-width: 2}}
+u2: "BCM2722 (video)" {shape: text; style: {font-size: 20}}
+
+s3: "· · · · · · · · ·" {shape: text; style: {font-size: 22; bold: true; font-color: "#2F855A"}}
+t3: "clock" {shape: text; style: {font-size: 20}}
+w3: "" {width: 44; height: 26; style: {fill: "#E6F5EC"; stroke: "#2F855A"; stroke-width: 2}}
+u3: "Audio" {shape: text; style: {font-size: 20}}
+
+s4: "___________" {shape: text; style: {font-size: 22; bold: true; font-color: "#B7791F"}}
+t4: "power" {shape: text; style: {font-size: 20}}
+w4: "" {width: 44; height: 26; style: {fill: "#FDF3DE"; stroke: "#B7791F"; stroke-width: 2}}
+u4: "Power" {shape: text; style: {font-size: 20}}
+
+s5: "– – – – – –" {shape: text; style: {font-size: 22; bold: true; font-color: "#718096"}}
+t5: "uncertain link" {shape: text; style: {font-size: 20; italic: true}}
+w5: "" {width: 44; height: 26; style: {fill: "#E2F4F4"; stroke: "#2C7A7B"; stroke-width: 2}}
+u5: "Storage & USB" {shape: text; style: {font-size: 20}}
+
+s6: "" {width: 44; height: 26; style: {fill: "#FAFAFA"; stroke: "#718096"; stroke-width: 2; stroke-dash: 3}}
+t6: "[hypothesis] / absent" {shape: text; style: {font-size: 20; italic: true}}
+w6: "" {width: 44; height: 26; style: {fill: "#FCE8EE"; stroke: "#B83280"; stroke-width: 2}}
+u6: "Input" {shape: text; style: {font-size: 20}}

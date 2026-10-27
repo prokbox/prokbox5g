@@ -1,0 +1,84 @@
+# #132, owner 2026-10-25: Settings > Opponent: Player greys Difficulty and
+# Play As out (the wheel skips them, SELECT can't change them); New Game
+# is then a two-person game passed hand to hand: no engine, White and
+# Black move in turn from the same side of the board (White at the
+# bottom), the panel says whose move it is, and a MENU tap takes back
+# one move (a ply).
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-chess-two.script
+# needs: modules
+# reset: mainmenu
+# log: sdk chess new game side=0 level=1 mode=1
+# log: sdk chess take back 3 -> 2
+# nolog: sdk chess engine d=
+# nolog: sdk viol chess
+# nolog: sdk kill chess
+
+wait 4000
+sdk_clear            # a fresh game and default settings
+wheel +2             # Extras
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Games
+wait 600
+key SELECT
+wait 1200
+wheel +1             # Chess
+wait 800
+key SELECT
+wait 1000
+hold MENU 900        # the pause menu
+wait 600
+wheel +2 300         # Settings
+wait 400
+key SELECT
+wait 1200
+shot settings_cpu    # Opponent: CPU, Difficulty: Medium, Play As: White
+key SELECT           # Opponent: CPU -> Player
+wait 600
+shot settings_player # Difficulty and Play As greyed out
+wheel +2 300         # stays on Opponent: nothing else to choose
+wait 400
+key SELECT           # so this flips Opponent back to CPU...
+wait 400
+key SELECT           # ... and to Player again
+wait 600
+shot settings_still  # the same as settings_player
+key MENU             # back to the game
+wait 1200
+hold MENU 900
+wait 600
+wheel +1 300         # New Game
+wait 400
+key SELECT
+wait 1200
+shot white_to_move   # the start, "White's Move (Human)"
+key SELECT           # e2 ...
+wait 300
+wheel -2 300
+wait 300
+key SELECT           # ... e4
+wait 1500            # no reply comes: Black's turn
+shot black_to_move
+wheel -4 300         # h7, g7, f7, e7
+wait 300
+key SELECT           # e7 ...
+wait 300
+wheel +2 300         # e6, e5
+wait 300
+key SELECT           # ... e5
+wait 1200
+shot white_again
+wheel +12 400        # White's movable pieces up to g1
+wait 300
+key SELECT           # g1 ...
+wait 300
+wheel -3 300         # e2, h3, f3
+wait 300
+key SELECT           # ... f3
+wait 1200
+shot knight_out      # Black's Move (Human)
+key MENU             # a tap: takes back Nf3 only
+wait 1500
+shot taken_back      # White's Move (Human), the knight on g1, e4 e5 stay
+quit

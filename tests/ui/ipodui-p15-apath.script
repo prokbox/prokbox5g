@@ -1,0 +1,48 @@
+# P15 wave 2b (docs/phase15-brief.md 3.5): the developer "Audio path test"
+# (apps/ipodui/apath.c). It writes /.rockbox/apath.wav on the first run
+# (2 s of seeded noise, 44.1 kHz 16-bit stereo), plays it with the EQ off
+# while the mixer tap (firmware/pcm_mixer.c, HAVE_IPOD_UI_DEVMODE, armed
+# only during the test) hashes the frames sent to the sink from an
+# 8-frame signature 0.5 s in, for 1 s, and compares with the file's own
+# samples read back from the disk. In the simulator this covers the WAV
+# decoder, the C DSP path, pcmbuf and the mixer (the device adds the ARM
+# assembly). Developer menu rows: Debug, Back, Variant, EQ test, DAC
+# standby, Audio path test.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p15-apath.script
+# timeout: 90
+# trace: devmode
+# log: devmode enter
+# log: devmode exit
+# log: apath start sw_eq=
+# log: apath frames=44100 hash=adbc1ad8 want=adbc1ad8 match=1
+# golden: skip dev
+
+wait 5000            # boot
+wheel +3             # Settings (4th main-menu row)
+wait 400
+key SELECT           # Settings; About is its first row
+wait 1500
+key SELECT           # About
+wait 1500
+chord SELECT+LEFT 3200
+wait 1000
+wheel -2             # Advanced (above Back; the list wraps)
+wait 400
+key SELECT
+wait 800
+wheel +1             # Diagnostics
+wait 400
+key SELECT           # Audio path test is its first row
+wait 800
+shot dev
+key SELECT           # runs about 3 s, then back in the list
+wait 9000
+key LEFT             # Advanced
+wait 600
+key LEFT             # Developer, on Advanced
+wait 600
+wheel +1             # the Back row
+wait 400
+key SELECT           # Back: leave developer mode
+wait 1500
+quit

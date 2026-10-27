@@ -1,0 +1,108 @@
+# P12 W1-L (9 "-lock-right"): the right code opens the lock and comes
+# back to Screen Lock's Lock / Reset; Reset asks for the code, then
+# forgets it and starts New Combination; MENU there leaves with none set.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p12-lock-right.script
+# golden: skip
+# modclass: none (resident sim-ui: the accountant follows the module
+# loader; a modules-build run, SIM_BUILD=build/sim-ui-mod, is owed)
+# log: ipodui: lock try ok=1
+# log: ipodui: lockset verify ok=1
+# nolog: ipodui: lock try ok=0
+# nolog: 1234
+# reset: mainmenu
+wait 4000            # boot to the main menu, "Music" selected
+wheel +2 300         # "Extras"
+wait 600
+key SELECT
+wait 1200
+wheel +7 200         # the last row (Stopwatch; the list does not wrap)
+wait 600
+wheel -1 200         # "Screen Lock", from the end: with or without a Games row
+wait 800
+key SELECT
+wait 1200
+# New Combination 1234, then Confirm 1234: Lock / Reset
+wheel +1 250
+wait 300
+key SELECT
+wait 200
+wheel +2 250
+wait 300
+key SELECT
+wait 200
+wheel +3 250
+wait 300
+key SELECT
+wait 200
+wheel +4 250
+wait 300
+key SELECT
+wait 200
+wait 800
+wheel +1 250
+wait 300
+key SELECT
+wait 200
+wheel +2 250
+wait 300
+key SELECT
+wait 200
+wheel +3 250
+wait 300
+key SELECT
+wait 200
+wheel +4 250
+wait 300
+key SELECT
+wait 200
+wait 800
+key SELECT           # Lock
+wait 1200
+wheel +1 250
+wait 300
+key SELECT
+wait 200
+wheel +2 250
+wait 300
+key SELECT
+wait 200
+wheel +3 250
+wait 300
+key SELECT
+wait 200
+wheel +4 250
+wait 300
+key SELECT
+wait 200
+wait 800
+shot unlocked        # Lock / Reset again
+wheel +1 250
+wait 300
+key SELECT           # Reset
+wait 1000
+shot reset_enter     # Enter Combination
+wheel +1 250
+wait 300
+key SELECT
+wait 200
+wheel +2 250
+wait 300
+key SELECT
+wait 200
+wheel +3 250
+wait 300
+key SELECT
+wait 200
+wheel +4 250
+wait 300
+key SELECT
+wait 200
+wait 800
+shot reset_new       # New Combination
+key MENU
+wait 1000
+shot list            # back to Extras, nothing set
+key SELECT
+wait 1200
+shot new_again       # New Combination: Reset forgot it
+quit

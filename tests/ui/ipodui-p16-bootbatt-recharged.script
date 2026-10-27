@@ -1,0 +1,20 @@
+# Boot battery guard, drained latch: a charge the firmware never saw
+# (under Apple's firmware, or on a charger that never booted ours) clears
+# the flag on battery. The sim boots at 3,650 mV with no charger and a
+# drained record whose stored 0 % point is the sim table's 3,300
+# (IPODUI_SIM_DRAINED=1): the rest median reaches max(stored, built-in
+# 0 %) + BB_RECHARGE_MV (300) = 3,600, so stage 2 boots and clears it.
+# (The target: 3,720 mV on flash; an empty cell rests at 3,569-3,593.)
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-bootbatt-recharged.script
+# env: IPODUI_SIM_BATT_MV=3650
+# env: IPODUI_SIM_DRAINED=1
+# golden: skip
+# log: bootbatt boot mv=3650 thr=3400
+# log: bootbatt latch drained=1 charged mv=3650 need=3600
+# log: bootbatt latch cleared charged rc=20
+# nolog: bootbatt refuse
+# nolog: sys deadbatt
+# nolog: splash-pass
+
+wait 4000
+shot main_menu

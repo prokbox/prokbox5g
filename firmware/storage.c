@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2008 by Frank Gevaerts
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -23,6 +24,10 @@
 #include "usb.h"
 #include "disk.h"
 #include "pathfuncs.h"
+#include "hang_watch.h"    /* ProkBox: the hang watcher */
+#ifdef STORAGE_QUIET_WAIT
+#include "devstats.h"    /* P19 19-1a: DEVSTATS_POLL */
+#endif
 
 #ifdef HAVE_SDMMC_HOST
 # include "sdmmc_host.h"
@@ -158,15 +163,55 @@ static FORCE_INLINE int storage_event_send(unsigned int route, long id,
 }
 #endif /* ndef CONFIG_STORAGE_MULTI */
 
+#ifdef STORAGE_QUIET_WAIT
+/* P19 19-1a: set while the thread waits with no deadline (the drive off,
+ * or in standby with no cut owed); an access posts one kick then */
+static volatile bool storage_blocked;
+
+void storage_quiet_kick(void)
+{
+    int level = disable_irq_save();     /* test and clear: one kick */
+    bool post = storage_blocked;
+    storage_blocked = false;
+    restore_irq(level);
+    if (post)
+        queue_post(&storage_queue, Q_STORAGE_KICK, 0);
+}
+#endif
+
 static void NORETURN_ATTR storage_thread(void)
 {
     unsigned int bdcast = CONFIG_STORAGE;
     bool usb_mode = false;
     struct queue_event ev;
+#ifdef STORAGE_QUIET_WAIT
+    bool ticked = false;
+#endif
 
+    hang_watch_register(HANG_STOR);     /* ProkBox: the hang watcher */
     while (1)
     {
+        int hw;
+
+        hang_beat(HANG_STOR);
+#ifdef STORAGE_QUIET_WAIT
+        /* the flag first: an access after it posts, one before it is
+         * seen by ata_tick_wait() */
+        storage_blocked = true;
+        long tmo = ata_tick_wait(ticked);
+        if (tmo != TIMEOUT_BLOCK)
+            storage_blocked = false;
+        hw = hang_idle_begin();
+        queue_wait_w_tmo(&storage_queue, &ev, tmo);
+        hang_idle_end(hw);
+        storage_blocked = false;
+        ticked = ev.id == SYS_TIMEOUT;
+        DEVSTATS_POLL(DEVSTATS_POLL_STORAGE, ticked);
+#else
+        hw = hang_idle_begin();
         queue_wait_w_tmo(&storage_queue, &ev, HZ/2);
+        hang_idle_end(hw);
+#endif
 
         switch (ev.id)
         {
@@ -188,6 +233,17 @@ static void NORETURN_ATTR storage_thread(void)
         case Q_STORAGE_MEDIUM_INSERTED:
         case Q_STORAGE_MEDIUM_REMOVED:
             storage_event_send(DRIVE_EVT, ev.id, ev.data);
+            break;
+#endif
+
+#ifdef STORAGE_QUIET_WAIT
+        case Q_STORAGE_KICK:        /* the next wait finds the deadline */
+            break;
+#endif
+
+#ifdef HAVE_STORAGE_JOBS
+        case Q_STORAGE_JOB:         /* ProkBox (#106): a shell module read */
+            ((void (*)(void))ev.data)();
             break;
 #endif
 
@@ -270,6 +326,16 @@ void storage_post_event(long event, intptr_t data)
     if (storage_thread_id)
         queue_post(&storage_queue, event, data);
 }
+
+#ifdef HAVE_STORAGE_JOBS
+bool storage_post_job(void (*fn)(void))
+{
+    if (!storage_thread_id)
+        return false;
+    queue_post(&storage_queue, Q_STORAGE_JOB, (intptr_t)fn);
+    return true;
+}
+#endif
 
 static inline void storage_thread_init(void)
 {

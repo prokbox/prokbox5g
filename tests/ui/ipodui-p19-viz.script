@@ -1,0 +1,101 @@
+# #126: the Now Playing visualizer on the BCM model (sim-ui-video):
+# Normal -> Scrubber -> Rating -> Shuffle -> Visualizer (Concert A has no
+# lyrics), the hold list switches the style (Bars -> Mirror -> Scope ->
+# Spectrogram -> Radial: the v1 five, owner 2026-10-25), the choice is
+# kept, the screen is held lit while it shows, SELECT returns to
+# Normal and lets the light go.  Full screen (owner, 2026-10-25): no
+# header, title, bar or counters while it shows; the volume overlay over
+# the bars' foot for its 2 s, no header with it; the header and Normal
+# come back in one full redraw.  Dark theme (owner, 2026-10-25).  VC
+# first: all five draw on the BCM: Bars, Mirror (J_BARS_FLIP), Scope
+# (POLYLINE), Spectrogram (SCROLL + PALROW) and Radial (SEGMENTS).
+# log: np viz full=1
+# np: viz-full
+# log: viz clip h=198
+# log: viz clip h=240
+# log: np viz full=0
+# log: viz start style=0 path=bcm n=512
+# log: np mode shuffle -> visualizer ev=0
+# log: viz light hold=1
+# log: viz style=1
+# log: viz start style=1
+# log: np mode visualizer -> normal ev=0
+# log: viz light hold=0
+# log: viz style=2
+# log: viz style=3
+# log: viz start style=3 path=bcm
+# log: viz style=4
+# nolog: CPU FALLBACK why=style style=2
+# nolog: CPU FALLBACK why=style style=4
+# log: bcmjob submit op=0x36
+# log: bcmjob submit op=0x37
+# log: bcmjob submit op=0x38
+# nolog: CPU FALLBACK why=style style=0
+# nolog: CPU FALLBACK why=style style=1
+# nolog: viz FALLBACK mirror
+# log: bcmjob submit op=0x25
+# nolog: CPU FALLBACK why=style style=3
+# nolog: CPU FALLBACK why=noop
+# nolog: CPU FALLBACK why=bars
+# nolog: CPU FALLBACK why=spectrum
+# reset: viz
+wait 3000
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait 1500
+key SELECT          # Music
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 1500
+shot normal
+key SELECT          # Scrubber
+wait 400
+key SELECT          # Rating
+wait 600
+key SELECT          # Shuffle
+wait 600
+key SELECT          # Visualizer
+wait 1500
+shot bars
+wait 700
+shot bars2
+wheel +2            # the volume overlay over the bars' foot
+wait 500
+shot volume
+wait 2600           # it times out: the bars take the foot back
+shot volume_gone
+hold SELECT 1200    # the hold list: the styles, While Charging
+wait 1200
+shot styles
+wheel +1            # Mirror
+wait 400
+key SELECT
+wait 1800
+shot mirror
+hold SELECT 1200    # Scope (the list opens on Mirror)
+wait 1200
+wheel +1
+wait 400
+key SELECT
+wait 1800
+shot scope
+hold SELECT 1200    # Spectrogram
+wait 1200
+wheel +1
+wait 400
+key SELECT
+wait 3500
+shot spectro
+hold SELECT 1200    # Radial
+wait 1200
+wheel +1
+wait 400
+key SELECT
+wait 1800
+shot radial
+key SELECT          # back to Normal
+wait 1200
+shot back_normal

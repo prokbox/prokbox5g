@@ -29,6 +29,53 @@
 #include "plugin.h"
 #include "debug.h"
 #include "jpeg_load.h"
+#ifdef JPEG_JDEC
+/* built for jdec (bcmfw/jobs/jdec.c, jpeg-spike.md sections 8-9): bad
+   Huffman codes fail the decode, the rows can feed more outputs, and
+   progressive files decode (bcmfw/jpeg/jprog.h); baseline scans take a
+   table-driven entropy decoder with the same results (huff_block) */
+#include "jhook.h"
+#define HUFF_FAST 9 /* huff_block's lookahead */
+static const struct jpeg_rows_tap *rows_tap;
+
+void jpeg_set_rows_tap(const struct jpeg_rows_tap *tap)
+{
+    rows_tap = tap;
+}
+
+void (*jdec_yuv565)(fb_data *dst, const struct uint8_rgb *src, int n,
+                    unsigned int dy);
+#ifdef JDEC_ALONE
+/* jdec's own builds (bcmfw/jpeg/env: the BCM image, its tests, the Mac's
+   reference): the IDCT hook and its batching.  The PP's twin of jdec has
+   no vector unit, so neither */
+#define JPEG_IDCT8_HOOK
+void (*jdec_idct)(uint8_t *px, int16_t *coef, int size);
+void (*jdec_put)(const uint8_t *px, unsigned char *const *to, int n, int rowstep,
+                 int size, int grey);
+void (*jdec_fill)(unsigned int v, unsigned char *out, int grey, int rowstep,
+                  int size);
+#endif
+#endif
+#if defined(HAVE_IPOD_UI) && !defined(PLUGIN) && !defined(JDEC_ALONE)
+/* iPod UI shell: run at each per-MCU yield (the art builder may park
+ * there; apps/ipodui/artcache.c art_gate()) */
+static void (*pause_hook)(void);
+
+void jpeg_set_pause_hook(void (*fn)(void))
+{
+    pause_hook = fn;
+}
+
+/* ... and asked before each MCU row: true calls the decode off (it fails,
+ * as a read error would; the Now Playing cover's render, np-sharp) */
+static bool (*abort_hook)(void);
+
+void jpeg_set_abort_hook(bool (*fn)(void))
+{
+    abort_hook = fn;
+}
+#endif
 /*#define JPEG_BS_DEBUG*/
 //#define ROCKBOX_DEBUG_JPEG
 /* for portability of below JPEG code */
@@ -142,10 +189,59 @@ struct jpeg
     int mcu_membership[6]; /* component of each block */
     unsigned char mcu_pos[6]; /* position of each block in its component */
     bool resize;
+#ifdef JPEG_JDEC
+    /* the baseline entropy decoder's 9-bit tables (huff_block) */
+    uint32_t dc_fast[2][1 << HUFF_FAST];
+    uint32_t ac_fast[2][1 << HUFF_FAST];
+    uint16_t ac_skip[2][1 << HUFF_FAST]; /* the skip loop's (fix_huff_fast) */
+    int huff_errors; /* codes no table has (each decoded as a zero) */
+    int tap_rows; /* rows given to the rows tap */
+    bool progressive; /* SOF2 (jprog.h) */
+    unsigned char prog_marker; /* the marker a progressive scan stopped at */
+    int prog_mcu_y; /* the MCU row being made from the store */
+    int eobrun;
+    struct jpeg_prog {
+        int16_t *coef; /* k coefficients a block */
+        uint8_t *hist; /* hb bytes a block: coefficients k.. nonzero */
+        int k, hb, bw, bh; /* bw x bh blocks */
+    } prog[3];
+#endif
+#ifdef JPEG_IDCT8_HOOK
+    /* jdec_idct's blocks (mcu_row_fast), a batch for each component
+       scale (0 luma, 1 chroma): their coefficients and pixels, each from
+       the first 32-byte boundary in its buffer (coef 0 between calls),
+       where each block's pixels go, the next block of the batch's ring
+       (the only one whose place is set), how many are taken, the size */
+    struct idct_batch {
+        int16_t coef[JDEC_IDCT_COEF + 16];
+        uint8_t px[JDEC_IDCT_PX_SIZE + 32];
+        unsigned char *to[4];
+        struct hb_blk *cur;
+        int n, size;
+        int pad;        /* 1,632 bytes: what follows keeps its alignment,
+                           32 bytes (the colour stage's rows) */
+    } idct[2];
+#endif
+#ifndef JPEG_BULK_READ
     unsigned char buf[JPEG_READ_BUF_SIZE];
+#endif
     struct img_part part;
+#ifdef JPEG_BULK_READ
+    /* last, so the other members keep short offsets; aligned for ATA DMA */
+    unsigned char buf[JPEG_READ_BUF_SIZE] __attribute__((aligned(16)));
+#endif
 };
 
+#ifdef JPEG_BULK_READ
+#define JPEG_STRUCT_ALIGN 16
+#else
+#define JPEG_STRUCT_ALIGN sizeof(long)
+#endif
+
+#ifdef JPEG_JDEC
+_Static_assert(sizeof(struct jpeg) + JPEG_STRUCT_ALIGN <= JPEG_JDEC_STATE,
+               "jhook.h JPEG_JDEC_STATE");
+#endif
 #ifdef JPEG_FROM_MEM
 static struct jpeg jpeg;
 #endif
@@ -838,6 +934,35 @@ static void jpeg_idct16h(int16_t *ws, unsigned char *out, int16_t *end, int rows
 }
 #endif
 
+#ifdef JPEG_IDCT8_HOOK
+/* jdec_idct's reference (bcmfw/video/jdec_vpu.c checks the vector unit
+   against it at start): the C's IDCT of one block, given in natural order
+   (F[v][u] at 8 v + u), each size in the layout the decoder gives it */
+void jdec_idct_c(int size, const int16_t *ws, unsigned char *out, int rowstep)
+{
+    int16_t t[192];
+    int i;
+
+    for (i = 0; i < 64; i++)        /* transposed (8 and 16), or not (4) */
+        t[size == 4 ? i : 8 * (i & 7) + (i >> 3)] = ws[i];
+    if (size == 4)
+    {
+        jpeg_idct4v(t, t + 4);
+        jpeg_idct4h(t, out, t + 32, rowstep);
+    }
+    else if (size == 8)
+    {
+        jpeg_idct8v(t, t + 64);
+        jpeg_idct8h(t + 64, out, t + 128, rowstep);
+    }
+    else
+    {
+        jpeg_idct16v(t, t + 64);
+        jpeg_idct16h(t + 64, out, t + 192, rowstep);
+    }
+}
+#endif
+
 struct idct_entry {
     int scale;
     void (*v_idct)(int16_t *ws, int16_t *end);
@@ -890,6 +1015,12 @@ INLINE void jpeg_putc(struct jpeg* p_jpeg)
 
 static int read_buf(struct jpeg* p_jpeg, size_t count)
 {
+#ifdef JPEG_BULK_READ
+    /* a full refill from mid-sector ends on a sector boundary, so every
+     * later one is whole sectors from a boundary into the aligned buffer */
+    if (count == JPEG_READ_BUF_SIZE)
+        count -= lseek(p_jpeg->fd, 0, SEEK_CUR) & (JPEG_READ_ALIGN - 1);
+#endif
     return read(p_jpeg->fd, p_jpeg->buf, count);
 }
 
@@ -904,7 +1035,7 @@ INLINE void fill_buf(struct jpeg* p_jpeg)
 #ifdef HAVE_ALBUMART
 static int read_buf_id3_unsync(struct jpeg* p_jpeg, size_t count)
 {
-    count = read(p_jpeg->fd, p_jpeg->buf, count);
+    count = read_buf(p_jpeg, count);
     return id3_unsynchronize(p_jpeg->buf, count, (bool*) &p_jpeg->custom_param);
 }
 
@@ -1001,6 +1132,15 @@ static int process_markers(struct jpeg* p_jpeg)
 
     while (!done)
     {
+#ifdef JPEG_JDEC
+        if (p_jpeg->prog_marker)
+        {   /* the marker a progressive scan's bit reader stopped at */
+            c = p_jpeg->prog_marker;
+            p_jpeg->prog_marker = 0;
+        }
+        else
+#endif
+        {
         c = e_getc(p_jpeg, -1);
         if (c != 0xFF) /* no marker? */
         {
@@ -1009,6 +1149,7 @@ static int process_markers(struct jpeg* p_jpeg)
         }
 
         c = e_getc(p_jpeg, -1);
+        }
         JDEBUGF("marker value %X\n",c);
         switch (c)
         {
@@ -1018,8 +1159,14 @@ static int process_markers(struct jpeg* p_jpeg)
         case 0x00: /* Zero stuffed byte */
             break; /* discard */
 
+#ifdef JPEG_JDEC
+        case 0xC2: /* SOF Huff  - Progressive DCT (jprog.h) */
+#endif
         case 0xC0: /* SOF Huff  - Baseline DCT */
             {
+#ifdef JPEG_JDEC
+                p_jpeg->progressive = c == 0xC2;
+#endif
                 JDEBUGF("SOF marker ");
                 ret |= SOF0;
                 marker_size = e_getc(p_jpeg, -1) << 8; /* Highbyte */
@@ -1083,7 +1230,9 @@ static int process_markers(struct jpeg* p_jpeg)
             break;
 
         case 0xC1: /* SOF Huff  - Extended sequential DCT*/
+#ifndef JPEG_JDEC
         case 0xC2: /* SOF Huff  - Progressive DCT*/
+#endif
         case 0xC3: /* SOF Huff  - Spatial (sequential) lossless*/
         case 0xC5: /* SOF Huff  - Differential sequential DCT*/
         case 0xC6: /* SOF Huff  - Differential progressive DCT*/
@@ -1168,6 +1317,10 @@ static int process_markers(struct jpeg* p_jpeg)
             break;
         case 0xD9: /* End of Image */
             JDEBUGF("EOI\n");
+#ifdef JPEG_JDEC
+            if (p_jpeg->progressive)
+                return ret | PROG_EOI; /* the last scan's end */
+#endif
             break;
         case 0x01: /* for temp private use arith code */
             JDEBUGF("private\n");
@@ -1177,6 +1330,13 @@ static int process_markers(struct jpeg* p_jpeg)
         case 0xDA: /* Start of Scan */
             {
                 ret |= SOS;
+#ifdef JPEG_JDEC
+                if (p_jpeg->progressive)
+                {   /* each scan's header is read by prog_scan */
+                    done = true;
+                    break;
+                }
+#endif
                 marker_size = e_getc(p_jpeg, -1) << 8; /* Highbyte */
                 marker_size |= e_getc(p_jpeg, -1); /* Lowbyte */
                 marker_size -= 2;
@@ -1326,7 +1486,19 @@ static int process_markers(struct jpeg* p_jpeg)
     return (ret); /* return flags with seen markers */
 }
 
-static const struct huffman_table luma_table =
+#ifdef JPEG_JDEC
+/* jdec: the default tables as bytes (every entry fits one), widened as
+   default_huff_tbl copies them: 1.2 KB less in the BCM image */
+struct huffman_table_def
+{
+    unsigned char huffmancodes_dc[DC_LEN];
+    unsigned char huffmancodes_ac[AC_LEN];
+};
+#define HUFFMAN_TABLE_DEF struct huffman_table_def
+#else
+#define HUFFMAN_TABLE_DEF struct huffman_table
+#endif
+static const HUFFMAN_TABLE_DEF luma_table =
 {
     {
         0x00,0x01,0x05,0x01,0x01,0x01,0x01,0x01,0x01,0x00,0x00,0x00,0x00,0x00,
@@ -1349,7 +1521,7 @@ static const struct huffman_table luma_table =
     }
 };
 
-static const struct huffman_table chroma_table =
+static const HUFFMAN_TABLE_DEF chroma_table =
 {
     {
         0x00,0x03,0x01,0x01,0x01,0x01,0x01,0x01,0x01,0x01,0x01,0x00,0x00,0x00,
@@ -1374,9 +1546,26 @@ static const struct huffman_table chroma_table =
 
 static void default_huff_tbl(struct jpeg* p_jpeg)
 {
+#ifdef JPEG_JDEC
+    /* both structs are their two arrays back to back, hufftable[1] right
+       after hufftable[0] and chroma_table's bytes after luma_table's */
+    int *d = (int *)p_jpeg->hufftable;
+    const unsigned char *s = (const unsigned char *)&luma_table;
+    int i;
+
+    _Static_assert(sizeof(struct huffman_table) == (DC_LEN + AC_LEN) * sizeof(int)
+                   && sizeof(struct huffman_table_def) == DC_LEN + AC_LEN,
+                   "the default tables' layout");
+    for (i = 0; i < DC_LEN + AC_LEN; i++)
+        d[i] = s[i];
+    s = (const unsigned char *)&chroma_table;
+    for (; i < 2 * (DC_LEN + AC_LEN); i++)
+        d[i] = s[i - (DC_LEN + AC_LEN)];
+#else
 
     MEMCPY(&p_jpeg->hufftable[0], &luma_table, sizeof(luma_table));
     MEMCPY(&p_jpeg->hufftable[1], &chroma_table, sizeof(chroma_table));
+#endif
 
     return;
 }
@@ -1459,6 +1648,11 @@ static void fix_huff_tbl(int* htbl, struct derived_tbl* dtbl)
              * bit sequences
              */
             lookbits = huffcode[p] << (HUFF_LOOKAHEAD-l);
+#ifdef JPEG_JDEC
+            if (huffcode[p] >= BIT_N(l))
+                continue; /* more codes than fit: no write past the table
+                             (fix_huff_fast fails the decode) */
+#endif
             for (ctr = 1 << (HUFF_LOOKAHEAD-l); ctr > 0; ctr--)
             {
                 dtbl->look_nbits[lookbits] = l;
@@ -1558,6 +1752,79 @@ INLINE void fix_huff_tables(struct jpeg *p_jpeg)
         &p_jpeg->ac_derived_tbls[1]);
 }
 
+#ifdef JPEG_JDEC
+/* huff_block's table for one Huffman table, indexed by the next HUFF_FAST
+ * bits: value << 16 | symbol << 8 | len << 4 | nb, where nb (1..9) is the
+ * length of the code those bits start with, 0 if it is longer or no code;
+ * len = nb + (symbol & 15), the code and its magnitude bits together, if
+ * that is at most HUFF_FAST (and, for a DC table, the symbol is a
+ * magnitude category, below 16), else 0; value (16 bits, signed) the
+ * magnitude bits sign-extended (HUFF_EXTEND), when len is not 0.
+ * For an AC table, skip (NULL for a DC table) gets the skip loop's
+ * table (huff_block), for the coefficients a scaled IDCT doesn't keep:
+ * only how far each symbol goes matters, not its value.  adv << 8 | t:
+ * t (1..24) the code's and its magnitude bits' length together; adv how
+ * far k moves: run + 1, 16 for ZRL, 64 for an end of block (any other
+ * zero size, as huff_decode_ac takes it); HB_SKIP_NONE (t 255) for no
+ * code of up to HUFF_FAST bits.
+ * false for a table with more codes than fit their lengths (up to
+ * HUFF_FAST bits), which no encoder makes: the shell's decoder writes past
+ * its lookahead table for one; jdec fails the decode as for a bad code */
+#define HB_SKIP_NONE 0xFFFF
+static bool fix_huff_fast(const int *htbl, uint32_t *fast, uint16_t *skip)
+{
+    int p = 0, l, i, idx;
+    unsigned int code = 0;
+
+    MEMSET(fast, 0, sizeof(uint32_t) << HUFF_FAST);
+    if (skip)
+        MEMSET(skip, 0xFF, sizeof(uint16_t) << HUFF_FAST); /* HB_SKIP_NONE */
+    for (l = 1; l <= HUFF_FAST; l++)
+    {   /* the canonical codes of length l (Figure C.2) */
+        for (i = 0; i < htbl[l-1]; i++, p++, code++)
+        {
+            int sym = htbl[16+p], s = sym & 15, r = sym >> 4, len = l + s;
+            int first = code << (HUFF_FAST - l), n = 1 << (HUFF_FAST - l);
+
+            if (code >= BIT_N(l))
+                return false;
+            for (idx = first; idx < first + n; idx++)
+            {
+                uint32_t e = sym << 8 | l;
+
+                if (skip)
+                    skip[idx] = (s ? r + 1 : r == 15 ? 16 : 64) << 8 | len;
+                if (len <= HUFF_FAST && (skip || sym < 16))
+                {
+                    int v = s ? (idx >> (HUFF_FAST - len)) & (BIT_N(s) - 1) : 0;
+
+                    if (s && !(v & BIT_N(s - 1)))
+                        v += (-1 << s) + 1; /* HUFF_EXTEND */
+                    e |= (uint32_t)(v & 0xFFFF) << 16 | len << 4;
+                }
+                fast[idx] = e;
+            }
+        }
+        code <<= 1;
+    }
+    return true;
+}
+
+INLINE bool fix_huff_fast_tables(struct jpeg *p_jpeg)
+{
+    bool ok = fix_huff_fast(p_jpeg->hufftable[0].huffmancodes_dc,
+                            p_jpeg->dc_fast[0], NULL);
+
+    ok &= fix_huff_fast(p_jpeg->hufftable[0].huffmancodes_ac,
+                        p_jpeg->ac_fast[0], p_jpeg->ac_skip[0]);
+    ok &= fix_huff_fast(p_jpeg->hufftable[1].huffmancodes_dc,
+                        p_jpeg->dc_fast[1], NULL);
+    ok &= fix_huff_fast(p_jpeg->hufftable[1].huffmancodes_ac,
+                        p_jpeg->ac_fast[1], p_jpeg->ac_skip[1]);
+    return ok;
+}
+#endif
+
 /* Because some of the IDCT routines never multiply by any constants, and
  * therefore do not produce shifted output, we add the shift into the
  * quantization table when one of these IDCT routines is used, rather than
@@ -1638,9 +1905,20 @@ INLINE void fix_quant_tables(struct jpeg *p_jpeg)
 * is evaluated multiple times.
 */
 
+#ifdef JPEG_JDEC
+static void prog_fill(struct jpeg *p);
+#endif
+
 static void fill_bit_buffer(struct jpeg* p_jpeg)
 {
     unsigned char byte, marker;
+#ifdef JPEG_JDEC
+    if (p_jpeg->progressive)
+    {
+        prog_fill(p_jpeg);
+        return;
+    }
+#endif
 
     if (p_jpeg->marker_val)
         p_jpeg->marker_ind += 16;
@@ -1722,13 +2000,29 @@ INLINE void drop_bits(struct jpeg *p_jpeg, int nbits)
     p_jpeg->bitbuf_bits -= nbits;
 }
 
+#ifdef JPEG_JDEC
+#define HUFF_BAD(p_jpeg) ((p_jpeg)->huff_errors++)
+#else
+#define HUFF_BAD(p_jpeg) ((void)0)
+#endif
+
 /* re-synchronize to entropy data (skip restart marker) */
 static void search_restart(struct jpeg *p_jpeg)
 {
     if (p_jpeg->marker_val)
     {
         p_jpeg->marker_val = 0;
-        p_jpeg->bitbuf_bits = p_jpeg->marker_ind;
+        /* keep the marker_ind bits read after the marker.  More than the
+           buffer holds only in a corrupt stream (bits past the marker were
+           taken, or shifted out): keep none, so the count stays within
+           the buffer and never goes negative */
+        if (p_jpeg->marker_ind <= p_jpeg->bitbuf_bits)
+            p_jpeg->bitbuf_bits = p_jpeg->marker_ind;
+        else
+        {
+            HUFF_BAD(p_jpeg);
+            p_jpeg->bitbuf_bits = 0;
+        }
         p_jpeg->marker_ind = 0;
         return;
     }
@@ -1786,6 +2080,7 @@ static void search_restart(struct jpeg *p_jpeg)
         } \
         if (nb > 16) /* error in Huffman */ \
         { \
+            HUFF_BAD(p_jpeg); \
             r = 0; s = 0; /* fake a zero, this is most safe */ \
         } else { \
             s = (tbl)->pub[16 + (tbl)->valptr[nb] + \
@@ -1821,6 +2116,7 @@ static void search_restart(struct jpeg *p_jpeg)
         } \
         if (nb > 16) /* error in Huffman */ \
         { \
+            HUFF_BAD(p_jpeg); \
             s = 0; /* fake a zero, this is most safe */ \
         } else { \
             s = (tbl)->pub[16 + (tbl)->valptr[nb] + \
@@ -1828,6 +2124,606 @@ static void search_restart(struct jpeg *p_jpeg)
         } \
     } /* end slow decode */ \
 }
+
+/* JDEC_BITSERIAL (bcmfw/tests/jskip_test.py only): the shell's own
+   bit-serial loop instead, the reference the fast one must equal */
+#if defined(JPEG_JDEC) && !defined(JPEG_FROM_MEM) && defined(HAVE_LCD_COLOR) \
+    && !defined(JDEC_BITSERIAL)
+#define HB_ROWS /* store_row_jpeg's baseline rows come from mcu_row_fast */
+/* The baseline scan's MCU rows for jdec (algorithms.md section 2): what
+ * store_row_jpeg's loop, huff_decode_dc and huff_decode_ac make, with the
+ * same bit buffer, so the same symbols, coefficients, bad-code count and
+ * stream position: restart markers, stuffed bytes and the end of the data
+ * go exactly as before.
+ *   - The bit buffer lives in registers, and the input buffer is read in
+ *     place: 16 bits are added exactly when the bit-serial decoder adds
+ *     them (a check finding fewer bits than it asks for), straight from
+ *     buf when the next two bytes are there, neither is 0xFF and no
+ *     restart marker is pending; otherwise by fill_bit_buffer itself.
+ *   - One look at the next 9 bits (dc_fast, ac_fast: fix_huff_fast) gives
+ *     the code's length and symbol, and for a short code with its
+ *     magnitude bits, the coefficient too.  An entry is used only when
+ *     its bits are in the buffer (the 9th may be missing after a check
+ *     for 8), and then the bit-serial decoder would not have added any
+ *     before taking them either.  Longer codes and bad ones take the
+ *     bit-serial walk, verbatim.
+ *   - The coefficients the scaled IDCT doesn't keep (from k_need on) are
+ *     only skipped: one look at ac_skip (fix_huff_fast) gives how many
+ *     bits a symbol takes, code and magnitude together, and how far it
+ *     moves k, so no value is made (jpeg-spike.md section 12).
+ *   - What a block needs from its component (tables, scale, IDCT, place)
+ *     is worked out once per MCU row, not per block. */
+typedef uint32_t __attribute__((may_alias)) hb_word;
+
+struct hb_reader
+{
+    unsigned long buf;
+    int bits;
+    unsigned char *bp;
+    uintptr_t lim; /* bp's last place with two bytes after it; 0 while a
+                      restart marker is pending (marker_val) */
+};
+
+struct hb_blk
+{
+    struct derived_tbl *dctbl, *actbl;
+    const uint32_t *dcf, *acf;
+    const uint16_t *skf;            /* ac_skip */
+    const int16_t *qt;
+    const unsigned char *zg;        /* zag, in the IDCT's order */
+    int *last_dc;
+    int k_need, zero_bytes;
+    void (*v_idct)(int16_t *ws, int16_t *end);
+    void (*h_idct)(int16_t *ws, unsigned char *out, int16_t *end, int rowstep);
+    int v_end, h_start, h_end;      /* in coefficients from block */
+#ifdef JPEG_IDCT8_HOOK
+    int16_t *c;                     /* where the coefficients go: block,
+                                       or jdec_idct's next place
+                                       (idct_take); the IDCT's offsets
+                                       above are from there */
+#endif
+    int out_off;                    /* from the MCU's first pixel */
+};
+
+INLINE void hb_sync(struct jpeg *p_jpeg, const struct hb_reader *rd)
+{
+    p_jpeg->bitbuf = rd->buf;
+    p_jpeg->bitbuf_bits = rd->bits;
+    /* buf_index + buf_left, the buffer's end, is as hb_load found it */
+    p_jpeg->buf_left += p_jpeg->buf_index - (rd->bp - p_jpeg->buf);
+    p_jpeg->buf_index = rd->bp - p_jpeg->buf;
+}
+
+INLINE void hb_load(struct jpeg *p_jpeg, struct hb_reader *rd)
+{
+    rd->buf = p_jpeg->bitbuf;
+    rd->bits = p_jpeg->bitbuf_bits;
+    rd->bp = p_jpeg->buf + p_jpeg->buf_index;
+    rd->lim = p_jpeg->marker_val ? 0 :
+              (uintptr_t)rd->bp + p_jpeg->buf_left - 2;
+}
+
+/* fill_bit_buffer's 16 bits: from buf in place when the next two bytes
+   are there, neither is 0xFF and no restart marker is pending, else by
+   fill_bit_buffer itself */
+#define HB_FAST_FILL(bp, lim) \
+    (LIKELY((uintptr_t)(bp) <= (lim) && (bp)[0] != 0xFF && (bp)[1] != 0xFF))
+static void __attribute__((noinline)) hb_fill(struct jpeg *p_jpeg,
+                                              struct hb_reader *rd)
+{
+    if (HB_FAST_FILL(rd->bp, rd->lim))
+    {
+        rd->buf = (rd->buf << 16) | rd->bp[0] << 8 | rd->bp[1];
+        rd->bp += 2;
+        rd->bits += 16;
+        return;
+    }
+    hb_sync(p_jpeg, rd);
+    fill_bit_buffer(p_jpeg);
+    hb_load(p_jpeg, rd);
+}
+
+/* huff_decode_dc's and huff_decode_ac's bit-serial walk, for a code longer
+   than the lookahead, or none: its symbol, or 0 and a bad code counted */
+static int __attribute__((noinline)) hb_slow(struct jpeg *p_jpeg,
+                                             struct hb_reader *rd,
+                                             const struct derived_tbl *tbl)
+{
+    int nb = HUFF_LOOKAHEAD + 1;
+    long code;
+
+    if (nb > rd->bits)
+        hb_fill(p_jpeg, rd);
+    code = ((int)(rd->buf >> (rd->bits -= nb))) & (BIT_N(nb) - 1);
+    while (code > tbl->maxcode[nb])
+    {
+        code <<= 1;
+        if (1 > rd->bits)
+            hb_fill(p_jpeg, rd);
+        code |= ((int)(rd->buf >> (rd->bits -= 1))) & 1;
+        nb++;
+    }
+    if (nb > 16) /* error in Huffman */
+    {
+        HUFF_BAD(p_jpeg);
+        return 0;
+    }
+    return tbl->pub[16 + tbl->valptr[nb] + ((int) (code - tbl->mincode[nb]))];
+}
+
+/* huff_block's skip loop for one symbol it can't take by ac_skip: the
+   old skip code (huff_decode_ac's steps, the coefficient not made); k
+   after it, 64 at an end of block.  A short code with its magnitude bits
+   takes the same bits by the code alone and a check that adds none. */
+static int __attribute__((noinline)) hb_skip_one(struct jpeg *p_jpeg,
+                                                 struct hb_reader *rd,
+                                                 const uint32_t *acf,
+                                                 const struct derived_tbl *tbl,
+                                                 int k)
+{
+    uint32_t e;
+    int nb, s, r;
+
+    if (HUFF_LOOKAHEAD > rd->bits)
+        hb_fill(p_jpeg, rd);
+    e = acf[((int)((rd->buf << 1) >> (rd->bits - 8))) & (BIT_N(HUFF_FAST) - 1)];
+    nb = e & 15;
+    if ((unsigned)nb - 1 < (unsigned)rd->bits)
+    {
+        rd->bits -= nb;
+        s = (e >> 8) & 255;
+    } else
+        s = hb_slow(p_jpeg, rd, tbl);
+    r = s >> 4;
+    s &= 15;
+    if (s)
+    {
+        if (s > rd->bits)
+            hb_fill(p_jpeg, rd);
+        rd->bits -= s;
+    }
+    else if (r != 15)
+        return 64;
+    return k + r + 1;
+}
+
+/* One block's coefficients into block (zeroed as far as the IDCT reads) */
+INLINE void huff_block(struct jpeg *p_jpeg, struct hb_reader *rd,
+                       const struct hb_blk *d, int16_t *block)
+{
+    unsigned long buf = rd->buf;
+    int bits = rd->bits;
+    const uint32_t *acf = d->acf;
+    const unsigned char *zg = d->zg;
+    const int16_t *qt = d->qt;
+    int k = 1, k_need = d->k_need;
+    int nb, s, r, len;
+    uint32_t e;
+
+    /* check_bit_buffer(n): the 16 bits, inline when they come from buf
+       (HB_CHECK8, at each symbol), else by hb_fill */
+#define HB_CALL(fn) (rd->buf = buf, rd->bits = bits, fn, \
+                     buf = rd->buf, bits = rd->bits)
+#define HB_CHECK(n) do { \
+    if ((n) > bits) \
+        HB_CALL(hb_fill(p_jpeg, rd)); \
+    } while (0)
+#define HB_CHECK8() do { \
+    if (HUFF_LOOKAHEAD > bits) \
+    { \
+        if (HB_FAST_FILL(rd->bp, rd->lim)) \
+        { \
+            buf = (buf << 16) | rd->bp[0] << 8 | rd->bp[1]; \
+            rd->bp += 2; \
+            bits += 16; \
+        } else \
+            HB_CALL(hb_fill(p_jpeg, rd)); \
+    } } while (0)
+#define HB_GET(n) (((int)(buf >> (bits -= (n)))) & (BIT_N(n) - 1))
+    /* an entry's n bits (0: none) are in the buffer */
+#define HB_HAVE(n) ((unsigned)(n) - 1 < (unsigned)bits)
+    /* the next 9 bits; after HB_CHECK(8) there are at least 8 */
+#define HB_PEEK9() ((int)((buf << 1) >> (bits - 8)) & (BIT_N(HUFF_FAST) - 1))
+#define HB_SLOW(tbl, s) HB_CALL(s = hb_slow(p_jpeg, rd, tbl))
+
+    /* Section F.2.2.1: the DC coefficient difference */
+    HB_CHECK8();
+    e = d->dcf[HB_PEEK9()];
+    len = (e >> 4) & 15;
+    if (HB_HAVE(len))
+    {
+        bits -= len;
+        s = (int32_t)e >> 16;
+    } else {
+        nb = e & 15;
+        if (HB_HAVE(nb))
+        {
+            bits -= nb;
+            s = (e >> 8) & 255;
+        } else
+            HB_SLOW(d->dctbl, s);
+        if (s)
+        {
+            HB_CHECK(s);
+            r = HB_GET(s);
+            s = HUFF_EXTEND(r, s);
+        }
+    }
+    *d->last_dc += s;
+    /* output it (assumes zag[0] = 0) */
+    block[0] = MULTIPLY16(*d->last_dc, qt[0]);
+    /* coefficient buffer must be cleared: MEMSET(block+1, 0, zero_bytes)
+       with no call; zero_bytes is 4 * zero_need */
+    if (d->zero_bytes)
+    {
+        hb_word *w = (hb_word *)(block + 2);
+        int n;
+
+        block[1] = 0;
+        for (n = d->zero_bytes >> 2; n > 1; n--)
+            *w++ = 0;
+        block[d->zero_bytes >> 1] = 0;
+    }
+    if (k_need <= 1)    /* DC only: every AC coefficient is skipped */
+        goto skip;
+    /* Section F.2.2.2: the AC coefficients kept */
+    while (true)
+    {
+        HB_CHECK8();
+        e = acf[HB_PEEK9()];
+        len = (e >> 4) & 15;
+        if (HB_HAVE(len))
+        {   /* the code and its magnitude bits at once */
+            bits -= len;
+            s = (e >> 8) & 255;
+            k += s >> 4;
+            if (s & 15)
+            {
+                if (k >= k_need)
+                    goto skip_on;
+                block[zg[k]] = MULTIPLY16((int32_t)e >> 16, qt[k]);
+            }
+            else if (s != 0xF0)
+                goto block_end;
+        } else {
+            nb = e & 15;
+            if (HB_HAVE(nb))
+            {
+                bits -= nb;
+                s = (e >> 8) & 255;
+            } else
+                HB_SLOW(d->actbl, s);
+            r = s >> 4;
+            s &= 15;
+            k += r;
+            if (s)
+            {
+                HB_CHECK(s);
+                if (k >= k_need)
+                {
+                    bits -= s;
+                    goto skip_on;
+                }
+                r = HB_GET(s);
+                r = HUFF_EXTEND(r, s);
+                block[zg[k]] = MULTIPLY16(r, qt[k]);
+            }
+            else if (r != 15)
+                goto block_end;
+        }
+        if ((++k) & 64)
+            goto block_end;
+    }
+    /* the rest: only skipped (fix_huff_fast).  With u = 32 - bits, the
+       next HUFF_FAST bits are (buf << u) >> (32 - HUFF_FAST) and a
+       symbol's t bits are all in the buffer when u + t <= 32; then the
+       bit-serial decoder takes them with no fill either.  A symbol that
+       isn't, a fill fill_bit_buffer must make (near a 0xFF, a restart
+       marker or the buffer's end), and a buffer that says it holds more
+       than 32 bits (none since search_restart's bound; a guard) go the
+       general way below. */
+skip:
+    if ((unsigned)bits <= 32)
+    {
+        const uint16_t *skf = d->skf;
+        unsigned char *bp = rd->bp;     /* no calls in here */
+        uintptr_t lim = rd->lim;
+        int u = 32 - bits;
+
+        while (true)
+        {
+            if (u > 32 - HUFF_LOOKAHEAD) /* HB_CHECK8 */
+            {
+                if (!HB_FAST_FILL(bp, lim))
+                    break;          /* fill_bit_buffer's: below */
+                buf = (buf << 16) | bp[0] << 8 | bp[1];
+                bp += 2;
+                u -= 16;
+            }
+            len = skf[((uint32_t)buf << u) >> (32 - HUFF_FAST)];
+            if ((u += len & 255) > 32)
+            {
+                u -= len & 255;
+                break;
+            }
+            if ((k += len >> 8) >= 64)
+                break;
+        }
+        rd->bp = bp;
+        bits = 32 - u;
+        if (k >= 64)
+            goto block_end;
+    }
+    HB_CALL(k = hb_skip_one(p_jpeg, rd, acf, d->actbl, k));
+    if (k < 64)
+        goto skip;
+    goto block_end;
+skip_on:
+    if (++k < 64)
+        goto skip;
+block_end:
+    rd->buf = buf;
+    rd->bits = bits;
+#undef HB_CALL
+#undef HB_CHECK
+#undef HB_CHECK8
+#undef HB_GET
+#undef HB_HAVE
+#undef HB_PEEK9
+#undef HB_SLOW
+}
+
+#ifdef JPEG_IDCT8_HOOK
+/* jdec_idct's coefficient places: zag in natural order, rows 16 apart
+   (jhook.h JDEC_IDCT_AT) */
+static const unsigned char zag16[64] =
+{
+      0,   1,  16,  32,  17,   2,   3,  18,
+     33,  48,  64,  49,  34,  19,   4,   5,
+     20,  35,  50,  65,  80,  96,  81,  66,
+     51,  36,  21,   6,   7,  22,  37,  52,
+     67,  82,  97, 112, 113,  98,  83,  68,
+     53,  38,  23,  39,  54,  69,  84,  99,
+    114, 115, 100,  85,  70,  55,  71,  86,
+    101, 116, 117, 102,  87, 103, 118, 119,
+};
+
+/* jdec_idct's blocks.  A block of the MCU row being made (mcu_row_fast)
+ * whose two scales are equal and 4, 8 or 16 points has idct_take for its
+ * IDCT and no vertical pass; its coefficients go straight to the next of
+ * its batch's places (c), which start clear.  A batch's blocks follow one
+ * another round a ring (v_end: the next one's index).  idct_jpeg: the
+ * row's decoder, if it has such blocks (else NULL); idct_blk: its blocks */
+static struct jpeg *idct_jpeg;
+static struct hb_blk *idct_blk;
+
+#define IDCT_ALIGN(p) ((void *)(((uintptr_t)(p) + 31) & ~31))
+
+/* jdec_idct on batch b's n blocks taken (n > 0), their pixels put
+   (jdec_put); then none are taken */
+static void __attribute__((noinline)) idct_run(struct jpeg *p_jpeg,
+                                               struct idct_batch *b, int n,
+                                               int rowstep)
+{
+    uint8_t *px = IDCT_ALIGN(b->px);
+
+    jdec_idct(px, IDCT_ALIGN(b->coef), b->size);
+    jdec_put(px, b->to, n, rowstep, b->size, p_jpeg->blocks == 1);
+    b->n = 0;
+}
+
+/* The block just decoded (its batch's cur, its coefficients at ws, place
+   n): taken, its pixels to out (four taken: jdec_idct); one whose AC
+   coefficients are all 0 is made at once, what the C's all-zero
+   shortcuts make of it, one value (jdec_fill), and its place is the next
+   block's.
+   Then the next block's place */
+static void idct_take(int16_t *ws, unsigned char *out, int16_t *end,
+                      int rowstep)
+{
+    struct jpeg *p_jpeg = idct_jpeg;
+    struct idct_batch *b = &p_jpeg->idct[ws >= p_jpeg->idct[1].coef];
+    struct hb_blk *d = idct_blk + b->cur->v_end;
+    uint32_t *w = (uint32_t *)ws, any = 0;
+    int dc = ws[0], y;
+
+    (void)end;
+    ws[0] = 0;
+    for (y = 0; y < 8; y += 2, w += 16)     /* two rows a turn */
+        any |= w[0] | w[1] | w[2] | w[3] | w[8] | w[9] | w[10] | w[11];
+    if (any)
+    {
+        ws[0] = dc;
+        b->to[b->n++] = out;
+        if (b->n == 4)
+            idct_run(p_jpeg, b, 4, rowstep);
+    }
+    else
+    {
+        jdec_fill(range_limit(128 + (int) DESCALE((long) (int16_t)
+                                                  (dc << PASS1_BITS),
+                                                  PASS1_BITS+3)),
+                  out, p_jpeg->blocks == 1, rowstep, b->size);
+    }
+    d->c = (int16_t *)IDCT_ALIGN(b->coef) + JDEC_IDCT_AT(b->n);
+    b->cur = d;
+}
+
+/* The MCU row about to be made (blk: its blocks, as mcu_row_fast set them
+   up), or just made (rowstep > 0): the blocks taken, if any, run.  At a
+   row's start, each block whose scales are equal and 2-4 (4, 8, 16
+   points) takes idct_take, its batch the component's scale's; each batch
+   a ring, its first block at place 0; idct_jpeg set if there are any */
+static void __attribute__((noinline)) idct_row(struct jpeg *p_jpeg,
+                                               struct hb_blk *blk, int rowstep)
+{
+    struct hb_blk *prev[2] = { NULL, NULL };
+    int first[2], k, t;
+
+    if (rowstep)
+    {
+        for (t = 0; t < 2; t++)
+            if (p_jpeg->idct[t].n)
+                idct_run(p_jpeg, &p_jpeg->idct[t], p_jpeg->idct[t].n, rowstep);
+        return;
+    }
+    idct_blk = blk;
+    for (k = 0; k < p_jpeg->blocks; k++)
+    {
+        int sc = SCALE_IDX(p_jpeg->mcu_membership[k]);
+        int s = p_jpeg->v_scale[sc];
+        struct hb_blk *d = &blk[k];
+
+        if (s == p_jpeg->h_scale[sc] && s >= 2 && s <= 4)
+        {
+            if (prev[sc])
+                prev[sc]->v_end = k;
+            else
+            {
+                first[sc] = k;
+                p_jpeg->idct[sc].size = 1 << s;
+            }
+            prev[sc] = d;
+            d->v_idct = NULL;
+            d->h_idct = idct_take;
+            d->h_start = 0;
+            d->zg = zag16;
+            d->zero_bytes = 0;
+        }
+    }
+    for (t = 0; t < 2; t++)
+        if (prev[t])
+        {
+            struct idct_batch *b = &p_jpeg->idct[t];
+
+            prev[t]->v_end = first[t];      /* the ring */
+            idct_jpeg = p_jpeg;
+            b->cur = blk + first[t];
+            b->n = 0;
+            b->cur->c = IDCT_ALIGN(b->coef);
+        }
+}
+#endif /* JPEG_IDCT8_HOOK */
+
+/* store_row_jpeg's loop over one row of MCUs, for a baseline scan */
+static void mcu_row_fast(struct jpeg *p_jpeg, unsigned char *out,
+                         const int *store_offs, unsigned int b_width,
+                         int mcu_offset, unsigned int mcu_width, int height,
+                         int16_t *block)
+{
+    struct hb_blk blk[6];
+    struct hb_reader rd;
+    int x, blkn;
+
+    for (blkn = 0; blkn < p_jpeg->blocks; blkn++)
+    {
+        struct hb_blk *d = &blk[blkn];
+        int ci = p_jpeg->mcu_membership[blkn]; /* component index */
+        int sc = SCALE_IDX(ci);
+        int dcs = p_jpeg->scanheader[ci].DC_select;
+        int acs = p_jpeg->scanheader[ci].AC_select;
+        int idct_cols = BIT_N(MIN(p_jpeg->h_scale[sc], 3));
+        int idct_rows = BIT_N(p_jpeg->v_scale[sc]);
+#ifdef JPEG_IDCT_TRANSPOSE
+        bool transpose = p_jpeg->v_scale[sc] > 2;
+#else
+        bool transpose = false;
+#endif
+
+        d->dctbl = &p_jpeg->dc_derived_tbls[dcs];
+        d->actbl = &p_jpeg->ac_derived_tbls[acs];
+        d->dcf = p_jpeg->dc_fast[dcs];
+        d->acf = p_jpeg->ac_fast[acs];
+        d->skf = p_jpeg->ac_skip[acs];
+        d->qt = p_jpeg->quanttable[p_jpeg->frameheader[ci].quanttable_select];
+#ifdef JPEG_IDCT_TRANSPOSE
+        d->zg = zag + (transpose ? 0 : 64);
+#else
+        d->zg = zag;
+#endif
+        d->last_dc = &p_jpeg->last_dc_val[ci];
+        d->k_need = p_jpeg->k_need[sc];
+        d->zero_bytes = p_jpeg->zero_need[sc] * sizeof(int);
+        d->v_idct = idct_tbl[p_jpeg->v_scale[sc]].v_idct;
+        d->h_idct = idct_tbl[p_jpeg->h_scale[sc]].h_idct;
+        d->v_end = transpose ? 8 * idct_cols : idct_cols;
+        d->h_start = transpose ? 64 : 0;
+        d->h_end = d->h_start + idct_rows * 8;
+#ifdef JPEG_IDCT8_HOOK
+        d->c = block;
+#endif
+        /* Y, Cb, Cr go to bytes 0-2 for the YUV conversion;
+           R, G, B to their places in struct uint8_rgb */
+        d->out_off = (p_jpeg->rgb ? 2 - ci : ci)
+            + store_offs[p_jpeg->mcu_pos[blkn]];
+    }
+#ifdef JPEG_IDCT8_HOOK
+    idct_jpeg = NULL;
+    /* the row's batches, if any (jdec_put: the rows 32-byte aligned) */
+    if (jdec_idct && !(((uintptr_t)out | b_width) & 31))
+        idct_row(p_jpeg, blk, 0);
+#endif
+    hb_load(p_jpeg, &rd);
+    for (x = 0; x < p_jpeg->x_mbl; x++)
+    {
+        for (blkn = 0; blkn < p_jpeg->blocks; blkn++)
+        {
+            const struct hb_blk *d = &blk[blkn];
+
+#ifdef JPEG_IDCT8_HOOK
+            int16_t *c = d->c;
+#else
+            int16_t *c = block;
+#endif
+
+            huff_block(p_jpeg, &rd, d, c);
+            if (d->v_idct)
+                d->v_idct(c, c + d->v_end);
+            d->h_idct(c + d->h_start, out + d->out_off, c + d->h_end, b_width);
+        }
+        /* don't starve other threads while an MCU row decodes */
+        yield();
+#if defined(HAVE_IPOD_UI) && !defined(PLUGIN) && !defined(JDEC_ALONE)
+        if (pause_hook)
+            pause_hook();       /* the art builder may park here */
+#endif
+        if (p_jpeg->blocks == 1)
+        {
+            unsigned int xp;
+            int yp;
+            unsigned char *row = out;
+
+            for (yp = 0; yp < height; yp++, row += b_width)
+            {
+                unsigned char *px = row;
+                for (xp = 0; xp < mcu_width; xp++, px += JPEG_PIX_SZ)
+                {
+                    px[1] = px[2] = px[0];
+                }
+            }
+        }
+        out += mcu_offset;
+        if (p_jpeg->restart_interval && --p_jpeg->restart == 0)
+        {   /* if a restart marker is due: */
+            p_jpeg->restart = p_jpeg->restart_interval; /* count again */
+            hb_sync(p_jpeg, &rd);
+            search_restart(p_jpeg); /* align the bitstream */
+            hb_load(p_jpeg, &rd);
+            p_jpeg->last_dc_val[0] = p_jpeg->last_dc_val[1] =
+                             p_jpeg->last_dc_val[2] = 0; /* reset decoder */
+        }
+    }
+#ifdef JPEG_IDCT8_HOOK
+    if (idct_jpeg)
+        idct_row(p_jpeg, blk, b_width);
+#endif
+    hb_sync(p_jpeg, &rd);
+}
+#endif
+
+#ifdef JPEG_JDEC
+#include "jprog.h"
+#endif
 
 static struct img_part *store_row_jpeg(void *jpeg_args)
 {
@@ -1837,11 +2733,20 @@ static struct img_part *store_row_jpeg(void *jpeg_args)
     int mcu_vscale = (p_jpeg->v_scale[0] +
         p_jpeg->frameheader[0].vertical_sampling - 1);
     unsigned int width = p_jpeg->x_mbl << mcu_hscale;
+#ifdef JDEC_ALONE
+    /* rows 32-byte aligned, for jdec_put (clip_jpeg_fd's decode_buf_size) */
+    unsigned int b_width = (width * JPEG_PIX_SZ + 31) & ~31u;
+#else
     unsigned int b_width = width * JPEG_PIX_SZ;
+#endif
     int height = BIT_N(mcu_vscale);
     int x;
     if (!p_jpeg->mcu_row) /* Need to decode a new row of MCUs */
     {
+#if defined(HAVE_IPOD_UI) && !defined(PLUGIN) && !defined(JDEC_ALONE)
+        if (abort_hook && abort_hook())
+            return NULL;            /* called off: the caller fails */
+#endif
         p_jpeg->out_ptr = (unsigned char *)p_jpeg->img_buf;
         int store_offs[4];
 #ifdef HAVE_LCD_COLOR
@@ -1858,6 +2763,12 @@ static struct img_part *store_row_jpeg(void *jpeg_args)
 #ifndef HAVE_LCD_COLOR
         unsigned char rgb_tmp[2][64]; /* R and G of a greyscale RGB MCU */
 #endif
+#ifdef HB_ROWS
+        if (!p_jpeg->progressive)
+            mcu_row_fast(p_jpeg, out, store_offs, b_width, mcu_offset,
+                         mcu_width, height, block);
+        else
+#endif
         for (x = 0; x < p_jpeg->x_mbl; x++)
         {
             int blkn;
@@ -1867,15 +2778,29 @@ static struct img_part *store_row_jpeg(void *jpeg_args)
 #ifdef JPEG_IDCT_TRANSPOSE
                 bool transpose = p_jpeg->v_scale[SCALE_IDX(ci)] > 2;
 #endif
+#ifndef HB_ROWS
                 int k = 1; /* coefficient index */
                 int s, r; /* huffman values */
                 struct derived_tbl* dctbl =
                     &p_jpeg->dc_derived_tbls[p_jpeg->scanheader[ci].DC_select];
                 struct derived_tbl* actbl =
                     &p_jpeg->ac_derived_tbls[p_jpeg->scanheader[ci].AC_select];
+#endif
                 const int16_t *qt = p_jpeg->quanttable[
                     p_jpeg->frameheader[ci].quanttable_select];
 
+#ifdef JPEG_JDEC
+                if (p_jpeg->progressive)
+                {   /* the block from the store */
+#ifdef JPEG_IDCT_TRANSPOSE
+                    prog_block(p_jpeg, ci, x, blkn, block, qt, transpose);
+#else
+                    prog_block(p_jpeg, ci, x, blkn, block, qt, false);
+#endif
+                    goto block_end;
+                }
+#endif
+#ifndef HB_ROWS
                 /* Section F.2.2.1: decode the DC coefficient difference */
                 huff_decode_dc(p_jpeg, dctbl, s, r);
 
@@ -1883,7 +2808,8 @@ static struct img_part *store_row_jpeg(void *jpeg_args)
                 if (!ci || p_jpeg->rgb)
 #endif
                 {
-                    s = HUFF_EXTEND(r, s);
+                    if (s) /* HUFF_EXTEND shifts by s - 1 */
+                        s = HUFF_EXTEND(r, s);
                     p_jpeg->last_dc_val[ci] += s;
                     /* output it (assumes zag[0] = 0) */
                     block[0] = MULTIPLY16(p_jpeg->last_dc_val[ci], qt[0]);
@@ -1940,6 +2866,7 @@ skip_rest:
                         k += r;
                     }
                 }  /* for k */
+#endif /* HB_ROWS */
 block_end:
 #ifndef HAVE_LCD_COLOR
                 if (!ci || p_jpeg->rgb)
@@ -1993,6 +2920,10 @@ block_end:
             } /* for blkn */
             /* don't starve other threads while an MCU row decodes */
             yield();
+#if defined(HAVE_IPOD_UI) && !defined(PLUGIN) && !defined(JDEC_ALONE)
+            if (pause_hook)
+                pause_hook();       /* the art builder may park here */
+#endif
 #ifdef HAVE_LCD_COLOR
             unsigned int xp;
             int yp;
@@ -2018,13 +2949,37 @@ block_end:
                                  p_jpeg->last_dc_val[2] = 0; /* reset decoder */
             }
         }
+#ifdef JPEG_JDEC
+        p_jpeg->prog_mcu_y++;
+#endif
     } /* if !p_jpeg->mcu_row */
     p_jpeg->mcu_row = (p_jpeg->mcu_row + 1) & (height - 1);
     p_jpeg->part.len = width;
     p_jpeg->part.buf = (jpeg_pix_t *)p_jpeg->out_ptr;
     p_jpeg->out_ptr += b_width;
+#ifdef JPEG_JDEC
+    if (rows_tap)
+    {
+        struct img_part row = p_jpeg->part;
+        rows_tap->row(rows_tap->arg, &row, p_jpeg->tap_rows++);
+    }
+#endif
     return &(p_jpeg->part);
 }
+
+#ifdef JPEG_JDEC
+/* After the output's last row: the tap gets every row of the picture
+   (an upscaling output may stop short), and a bad code fails it */
+static int decode_end(struct jpeg *p_jpeg, int rows, int bm_size)
+{
+    while (rows_tap && p_jpeg->tap_rows < rows)
+        store_row_jpeg(p_jpeg);
+    return p_jpeg->huff_errors ? JPEG_E_BADHUFF : bm_size;
+}
+#define DECODE_END(p_jpeg, rows, bm_size) decode_end(p_jpeg, rows, bm_size)
+#else
+#define DECODE_END(p_jpeg, rows, bm_size) (bm_size)
+#endif
 
 /******************************************************************************
  * read_jpeg_file()
@@ -2032,7 +2987,9 @@ block_end:
  * Reads a JPEG file and puts the data in rockbox format in *bitmap.
  *
  *****************************************************************************/
-#ifndef JPEG_FROM_MEM
+#if !defined(JPEG_FROM_MEM) && !defined(JDEC_ALONE)
+/* (jdec's own build, bcmfw/jpeg/env, calls clip_jpeg_fd alone: these are
+   left out of it) */
 int clip_jpeg_file(const char* filename,
                    int offset,
                    unsigned long jpeg_size,
@@ -2118,7 +3075,7 @@ int clip_jpeg_fd(int fd, int flags,
 #else
     struct jpeg *p_jpeg = (struct jpeg*)bm->data;
     int tmp_size = maxsize;
-    ALIGN_BUFFER(p_jpeg, tmp_size, sizeof(long));
+    ALIGN_BUFFER(p_jpeg, tmp_size, JPEG_STRUCT_ALIGN);
     /* not enough memory for our struct jpeg */
     if ((size_t)tmp_size < sizeof(struct jpeg))
         return -1;
@@ -2148,18 +3105,8 @@ int clip_jpeg_fd(int fd, int flags,
 
         // we need 92 bytes for format probing, reuse some available space
         unsigned char* buf_format = (unsigned char*) p_jpeg->quanttable;
-        int type = get_ogg_format_and_move_to_comments(fd, buf_format);
-
-        ogg_file_init(ogg, fd, type, 0);
-        bool packet_found;
-        do
-        {
-            int seek_from_cur_pos = pic_pos - lseek(fd, 0, SEEK_CUR);
-            packet_found = seek_from_cur_pos <= ogg->packet_remaining;
-            if (ogg_file_read(ogg, NULL, packet_found ? seek_from_cur_pos : ogg->packet_remaining) < 0)
-                return -1;
-        }
-        while (!packet_found);
+        if (!ogg_file_open_art(ogg, fd, pic_pos, buf_format))
+            return -1;
 
         p_jpeg->read_buf = read_buf_vorbis_base64;
         p_jpeg->skip_bytes_seek = skip_bytes_read_buf;
@@ -2265,14 +3212,22 @@ int clip_jpeg_fd(int fd, int flags,
         bm_size = cformat->get_size(bm);
     else
         bm_size = BM_SIZE(bm->width,bm->height,FORMAT_NATIVE,false);
+#ifdef JPEG_JDEC
+    if (rows_tap && rows_tap->only)
+        bm_size = 0; /* rows only (jhook.h): no bitmap of our own */
+#endif
 
     char *buf_start = (char *)bm->data + bm_size;
     char *buf_end = (char *)bm->data + maxsize;
     bool return_size = format & FORMAT_RETURN_SIZE;
 #ifndef JPEG_FROM_MEM
-    ALIGN_BUFFER(buf_start, maxsize, sizeof(long));
+    ALIGN_BUFFER(buf_start, maxsize, JPEG_STRUCT_ALIGN);
     if (!return_size)
     {
+#ifdef JPEG_JDEC
+        if (rows_tap && rows_tap->only && maxsize < (int)sizeof(struct jpeg))
+            return JPEG_E_NOMEM;
+#endif
         if (maxsize < (int)sizeof(struct jpeg))
             return -1;
         memmove(buf_start, p_jpeg, sizeof(struct jpeg));
@@ -2286,6 +3241,12 @@ int clip_jpeg_fd(int fd, int flags,
     decode_buf_size <<= p_jpeg->frameheader[0].horizontal_sampling +
         p_jpeg->frameheader[0].vertical_sampling - 2;
     decode_buf_size *= JPEG_PIX_SZ;
+#ifdef JDEC_ALONE
+    /* store_row_jpeg's rows, 32-byte aligned */
+    decode_buf_size = (((p_jpeg->x_mbl << (p_jpeg->h_scale[0] +
+        p_jpeg->frameheader[0].horizontal_sampling - 1)) * JPEG_PIX_SZ + 31) & ~31)
+        << (p_jpeg->v_scale[0] + p_jpeg->frameheader[0].vertical_sampling - 1);
+#endif
     JDEBUGF("decode buffer size: %d\n", decode_buf_size);
     if (return_size)
     {
@@ -2302,28 +3263,56 @@ int clip_jpeg_fd(int fd, int flags,
                       : 0);
     }
 
+#ifdef JPEG_JDEC
+    if (rows_tap && rows_tap->only && buf_end - buf_start < decode_buf_size)
+        return JPEG_E_NOMEM;
+#endif
     if (buf_end - buf_start < decode_buf_size)
         return -1;
 
     fix_huff_tables(p_jpeg);
+#ifdef JPEG_JDEC
+#if !defined(JPEG_FROM_MEM) && defined(HAVE_LCD_COLOR)
+    if (!p_jpeg->progressive && !fix_huff_fast_tables(p_jpeg))
+        HUFF_BAD(p_jpeg);
+#endif
+#endif
 
     p_jpeg->img_buf = (jpeg_pix_t *)buf_start;
     buf_start += decode_buf_size;
     maxsize = buf_end - buf_start;
     memset(p_jpeg->img_buf, 0, decode_buf_size);
+#ifdef JPEG_JDEC
+    if (p_jpeg->progressive)
+    {   /* every scan into the store (jprog.h), at the end of the buffer */
+        status = prog_decode(p_jpeg, (unsigned char *)buf_start, &maxsize,
+                             resize && !(rows_tap && rows_tap->only)
+                             ? (int)(sizeof(struct uint32_argb) * 3
+                                     * bm->width) : 0);
+        if (status < 0)
+            return status;
+    }
+#endif
     p_jpeg->mcu_row = 0;
     p_jpeg->restart = p_jpeg->restart_interval;
     rset.rowstart = 0;
     rset.rowstop = bm->height;
     rset.rowstep = 1;
     p_jpeg->resize = resize;
+#ifdef JPEG_JDEC
+    if (rows_tap)
+        rows_tap->begin(rows_tap->arg, &src_dim,
+                        p_jpeg->blocks > 1 && !p_jpeg->rgb);
+    if (rows_tap && rows_tap->only) /* every row to the tap, nothing more */
+        return DECODE_END(p_jpeg, src_dim.height, 1);
+#endif
     if (resize)
     {
         if (resize_on_load(bm, dither, &src_dim, &rset, buf_start, maxsize,
             cformat, IF_PIX_FMT(p_jpeg->blocks == 1 || p_jpeg->rgb ? 0 : 1,)
             store_row_jpeg,
             p_jpeg))
-            return bm_size;
+            return DECODE_END(p_jpeg, src_dim.height, bm_size);
     } else {
         int row;
         struct scaler_context ctx = {
@@ -2344,6 +3333,19 @@ int clip_jpeg_fd(int fd, int flags,
         for (row = 0; row < bm->height; row++)
         {
             part = store_row_jpeg(p_jpeg);
+#if defined(HAVE_IPOD_UI) && !defined(PLUGIN)
+            if (!part)
+                return 0;           /* called off (abort_hook) */
+#endif
+#if defined(JPEG_JDEC) && defined(HAVE_LCD_COLOR)
+            if (jdec_yuv565 && dither && !cformat && p_jpeg->blocks > 1 &&
+                !p_jpeg->rgb)
+            {   /* the colour stage below and output_row_8, at once */
+                jdec_yuv565((fb_data *)bm->data + row * bm->width, part->buf,
+                            bm->width, DITHERY(row));
+                continue;
+            }
+#endif
 #ifdef HAVE_LCD_COLOR
             if (p_jpeg->blocks > 1 && !p_jpeg->rgb)
             {
@@ -2365,12 +3367,12 @@ int clip_jpeg_fd(int fd, int flags,
 #endif
             output_row_8(row, part->buf, &ctx);
         }
-        return bm_size;
+        return DECODE_END(p_jpeg, src_dim.height, bm_size);
     }
     return 0;
 }
 
-#ifndef JPEG_FROM_MEM
+#if !defined(JPEG_FROM_MEM) && !defined(JDEC_ALONE)
 int read_jpeg_fd(int fd,
                  struct bitmap *bm,
                  int maxsize,

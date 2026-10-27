@@ -1,0 +1,28 @@
+# Phase 18 (§8; Q9): hold PLAY on a charger still shows the Charging
+# screen (no soft sleep); unplugging then soft-sleeps (SLEEP_UNPLUGGED).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p18-sleep-charger.script
+# needs: library
+# golden: skip
+# log: sleep: charging
+# log: sys charging pop=unplug
+# logbetween: c0 c1 no sim_sleep: sleep enter
+# logbetween: c1 end sim_sleep: sleep enter
+
+sleep_mode soft       # soft sleep is off by default (developer switch)
+wait 4000
+battery 60
+charger on
+wait 3000               # the power thread notices the charger
+ab_mark c0
+hold PLAY 1500
+wait 1500
+expect_sleep awake 100
+shot charging
+ab_mark c1
+charger off             # unplugged: leaves Charging, then soft sleep
+expect_sleep asleep 15000
+key SELECT
+expect_sleep button 3000
+wait 1000
+shot woken
+quit

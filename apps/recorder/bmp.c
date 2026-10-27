@@ -138,6 +138,9 @@ const unsigned short vi_pattern[4] = {
 };
 #endif
 
+#ifndef JDEC_ALONE
+/* (jdec's own build of this file, bcmfw/jpeg/env, wants output_row_8_native
+   and the dither table alone: the BMP loader is left out of it) */
 /******************************************************************************
  * read_bmp_file()
  *
@@ -383,6 +386,8 @@ static inline int rgbcmp(const struct uint8_rgb *rgb1, const struct uint8_rgb *r
     return memcmp(rgb1, rgb2, sizeof(struct uint8_rgb));
 }
 
+#endif /* !JDEC_ALONE */
+
 #if LCD_DEPTH > 1
 #if !defined(PLUGIN) && !defined(HAVE_JPEG) && !defined(HAVE_BMP_SCALING)
 static inline
@@ -497,6 +502,7 @@ void output_row_8_native(uint32_t row, void * row_in,
 }
 #endif
 
+#ifndef JDEC_ALONE
 /******************************************************************************
  * read_bmp_fd()
  *
@@ -935,3 +941,4 @@ int read_bmp_fd(int fd,
 #endif
     return totalsize; /* return the used buffer size. */
 }
+#endif /* !JDEC_ALONE */

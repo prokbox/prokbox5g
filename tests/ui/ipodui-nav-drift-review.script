@@ -1,0 +1,40 @@
+# Revision 2 (owner request, 2026-10-07, docs/phase-nav-brief.md): the
+# drift-review.mp4 owner-round video. The main menu rests on "Music" for
+# three drift cycles (NAV_DRIFT_CYCLE = 7 s each, D4), 21 s total, so the
+# clip shows three covers and their ~400 ms cross-fades (NAV_DRIFT_FADE).
+# Pins the clock, battery and the panel phase (sim_cmd_nav.c's
+# drift_phase) so the recording is deterministic. Needs agent A's
+# preview.c, which has landed.
+#
+# Owner round, Revision 3 (2026-10-08): "# drift: live" documents the
+# same live panel phase the explicit "drift_phase 0" below already forces
+# (uisimulator/common/sim_cmd_nav.c unfreezes whenever no "frozen" suffix
+# is given); "title_phase auto" (sim_cmd_clock.c) lets the header
+# alternate title/clock (2 s / 4 s) during the 21 s clip instead of
+# staying frozen on the title -- already more than two full cycles.
+#
+# Produce the video after running this (scripts/make_video.sh,
+# Revision 2):
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-nav-drift-review.script
+#   scripts/make_video.sh \
+#       out/shots/ipodui-nav-drift-review/drift-review_frames 20 \
+#       out/shots/drift-review.mp4
+# needs: library
+# drift: live
+
+wait 4000           # boot to the main menu, "Music" selected
+wait_db 30000
+time_in_title on    # Time in Title defaults to Off (Phase 11); this script needs the header clock
+sim_clock 15:08
+clock_format 24
+battery 100
+title_phase auto
+drift_phase 0
+
+shot boot            # a still reference frame (also satisfies
+                     # scripts/shots.sh's "no screenshots taken" check:
+                     # "record" writes .bmp frames, not a "shot" line)
+
+record 21000 20 drift-review   # 3 cycles x 7 s = 21 s, 20 fps: 420 frames
+
+quit

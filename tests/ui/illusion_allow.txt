@@ -1,0 +1,21 @@
+# Drawn texts that may name Rockbox (scripts/check_trace.py, rule
+# "illusion"). One sentence per line; a drawn text that contains "rockbox"
+# passes only if it is a piece of four words or more of one of these
+# sentences (the shell wraps them, so a line on screen is a fragment; a
+# bare "Rockbox" never passes). Each entry needs a reason.
+#
+# Legal, paragraph 1 (LANG_IPODUI_LEGAL_1): the GPL credit to the base
+# firmware, required attribution (README.md, owner).
+Based on Rockbox (rockbox.org), licensed under the GNU GPL v2 or later.
+
+# The first-boot notice (apps/ipodui/notice.h) and the top of Legal,
+# paragraph 1 (LANG_IPODUI_NOTICE_1, docs/legal.md section 2): the credit
+# to the base firmware (CLAUDE.md rule 1's exception). Listed from after
+# its "%s" (the version string), so a version bump keeps it matching.
+is independent firmware built by the community on Rockbox. Apple Inc. did not make it, has not approved or endorsed it, and does not support it. Apple's own software is not part of it.
+# The notice, paragraph 4 (LANG_IPODUI_NOTICE_4): the copyright notice
+# GPL v2 section 2(c) asks for.
+Copyright © the Rockbox contributors and the ProkBox contributors. Free software under the GNU GPL, version 2 or later. It comes with no warranty.
+# Legal, paragraph 5 (LANG_IPODUI_LEGAL_5): the long disclaimer's
+# independence text, "a fork of Rockbox" (docs/legal.md section 2).
+ProkBox5g is not Apple software and not an Apple product. It is free, open-source, community-driven firmware: a fork of Rockbox, tuned for the iPod Video (5th generation and 5.5). Apple Inc. did not make it, has not approved or endorsed it, does not support it, and has no connection with this project. If something goes wrong with ProkBox5g, ask the ProkBox community, not Apple.

@@ -1,0 +1,2 @@
+    10 boot path: active: bcmvideo (default), first frame 30100 us; marker cleared
+   900 drill2: inject op=0x26 n=2 rc=0

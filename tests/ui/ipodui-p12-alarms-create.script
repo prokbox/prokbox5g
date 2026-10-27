@@ -1,0 +1,73 @@
+# P12 W1-A2: Extras > Alarms. The list (Create Alarm, Sleep Timer), the
+# Create Alarm editor, the Time picker, Repeat > Custom with its days, the
+# commit when the editor is left, and the new alarm's two-line row.
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-alarms-create.script
+# golden: skip
+# timeout: 120
+# log: ipodui: alarms open count=0
+# log: ipodui: alarms edit idx=-1
+# log: ipodui: alarms save idx=0 on=1 rep=4 08:30
+# trace: modclass
+# needs: modules
+# reset: mainmenu
+
+wait 4000
+rtc_at 2026-10-06 15:06:00
+sim_clock 15:06
+wheel +2              # Extras
+wait 700
+key SELECT
+wait 1200
+wheel +3              # Alarms
+wait 800
+shot extras_row
+key SELECT
+wait 1500
+shot list_empty       # Create Alarm / New Alarm, Sleep Timer / Inactive
+key SELECT            # Create Alarm
+wait 1200
+shot editor_new       # Alarm On, Date, Time, Repeat Once, Alerts, Label, Snooze
+wheel +2
+wait 700
+key SELECT            # Time
+wait 1000
+shot time_picker      # 7:00 AM
+wheel +1
+wait 700
+key SELECT            # minutes
+wait 700
+wheel +30
+wait 700
+shot time_set         # 8:30 AM
+key SELECT            # AM/PM
+wait 700
+key SELECT            # done
+wait 1000
+shot editor_time      # Time 8:30 AM
+wheel +1
+wait 700
+key SELECT            # Repeat
+wait 1200
+shot repeat_list
+wheel +4
+wait 600
+key SELECT            # Custom
+wait 1200
+shot editor_custom    # a Custom row has appeared (and is selected); Date is gone
+key SELECT            # Custom days
+wait 1200
+shot days             # Mon-Fri On
+wheel +1
+wait 700
+key SELECT            # Monday off
+wait 600
+shot days_edit
+key MENU
+wait 1000
+key MENU              # leave the editor: the commit
+wait 1200
+shot list_one         # 8:30 AM / Tue Wed Thu Fri
+key MENU
+wait 1000
+shot back_extras
+quit

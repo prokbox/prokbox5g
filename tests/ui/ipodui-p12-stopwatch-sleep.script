@@ -1,0 +1,50 @@
+# P12 W1-S (Q18): a running stopwatch does not keep the unit awake and
+# the RTC carries it across a sleep. Part 1: a clock jump of an hour while
+# awake (the ticks keep going); part 2: a real soft sleep of an hour. The
+# timer shows 1:00:0x after each, with the tenths still counting.
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-stopwatch-sleep.script
+# golden: skip
+# timeout: 120
+# log: sleep wake why=
+# trace: modclass
+# needs: modules
+# reset: mainmenu
+
+sleep_mode soft       # soft sleep is off by default (developer switch)
+wait 4000
+rm_file /.rockbox/stopwatch.dat   # no logs left by an earlier run
+rtc_at 2026-10-06 15:06:00
+sim_clock 15:06
+wheel +2              # Extras
+wait 400
+key SELECT
+wait 1200
+wheel +7              # Stopwatch
+wait 800
+key SELECT
+wait 1200
+key SELECT            # New Timer
+wait 1000
+key PLAY              # start
+wait 1500
+shot before           # 0:01.x
+sleep_warp 3600       # awake: the RTC jumps, the ticks do not
+wait 2500
+shot warped           # 1:00:03 and counting
+hold PLAY 1500        # the hold: dark at once (a running stopwatch does
+expect_sleep asleep 8000    # not block it, Q18)
+sleep_warp 3600
+key MENU              # the wake press
+expect_sleep button 3000
+wait 1500
+shot woken            # 2:00:06: fresh from the RTC, running on
+wait 700
+shot woken2           # the tenths moved
+key PLAY              # stop
+wait 600
+shot stopped
+key MENU
+wait 600
+key MENU
+wait 500
+quit

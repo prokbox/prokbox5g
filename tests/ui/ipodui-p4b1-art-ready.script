@@ -1,0 +1,33 @@
+# Phase 4b-1 (docs/phase4b-brief.md, checklist item 10, DB state "ready"):
+# a usable database whose precompute file is current, but no art cache.
+# At boot the precompute finds its file current and only requests a build
+# (lib_committed()); the builder builds every album. A third boot finds
+# everything up to date. Boot 1 removes the cache only after the
+# builder's pass, so nothing rebuilds it before the reboot (the builder
+# runs on requests: a load, a precompute, USB).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p4b1-art-ready.script
+# needs: library
+
+wait 1000
+wait_db 30000
+art_wait 120000     # whatever this boot's pass does
+rm_file /.rockbox/artcache/index.dat
+rm_file /.rockbox/artcache/index.prev
+rm_file /.rockbox/artcache/index.tmp
+rm_file /.rockbox/artcache/thumbs.pak
+reboot
+
+wait 1000           # boot 2: ready database, no art cache
+wait_db 30000
+art_wait 120000
+expect_art art_manifest.txt
+shot built
+reboot
+
+wait 1000           # boot 3: the cache is up to date (no rebuild)
+wait_db 30000
+art_wait 120000
+expect_art art_manifest.txt
+shot kept
+
+quit

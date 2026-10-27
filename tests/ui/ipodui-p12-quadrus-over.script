@@ -1,0 +1,74 @@
+# P12 W4 (docs/design/sdk.md 13.2): game over. Every piece dropped hard
+# where it spawns stacks the middle of the well until the next piece has
+# no room: the Game Over panel with the score and "New Best", Best on
+# the side panel; the release of that last double tap starts nothing, a
+# new SELECT tap starts a fresh game (the best kept). The drop is a
+# SELECT double tap (owner's controls, 2026-10-24).
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-quadrus-over.script
+# needs: modules
+# reset: mainmenu
+
+wait 4000
+sdk_clear            # a fresh game (the simulator seeds from a fixed value)
+wheel +2             # Extras
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Games
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Quadrus
+wait 600
+key SELECT
+wait 800
+# ten double-tap drops fill the middle (the seed is fixed); another
+# tap after Game Over would start a new game
+key SELECT
+wait 100
+key SELECT
+wait 400
+key SELECT
+wait 100
+key SELECT
+wait 400
+key SELECT
+wait 100
+key SELECT
+wait 400
+key SELECT
+wait 100
+key SELECT
+wait 400
+key SELECT
+wait 100
+key SELECT
+wait 400
+key SELECT
+wait 100
+key SELECT
+wait 400
+key SELECT
+wait 100
+key SELECT
+wait 400
+key SELECT
+wait 100
+key SELECT
+wait 400
+key SELECT
+wait 100
+key SELECT
+wait 400
+key SELECT
+wait 100
+key SELECT
+wait 400
+wait 600
+shot over
+wait 1000
+shot still_over
+key SELECT           # a new game
+wait 800
+shot new_game
+quit

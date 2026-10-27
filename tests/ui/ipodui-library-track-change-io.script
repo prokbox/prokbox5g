@@ -1,0 +1,24 @@
+# #85 B-H1: a track change's statistics (play count, play time, last
+# played, resume point) open no database file on the audio thread and never
+# wait for a publication: the row the buffer event found binds from RAM
+# (tagcache_ui_update_stats()), and only another snapshot's row goes by its
+# path to the tagcache thread. Warble (25 s) plays to its end into Low E;
+# its play count must still be recorded.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-library-track-change-io.script
+# needs: music
+# timeout: 120
+# golden: skip changed
+# fulls-extra: 1   (the main menu gains its Now Playing row at play_files)
+
+wait 3000
+repeat off
+wait_db 30000
+play_files /Music/Tone%20Collective/Sine%20Studies/03%20Warble.mp3 /Music/Tone%20Collective/Sine%20Studies/02%20Low%20E.mp3
+wait_pos 20000 60000 Warble
+dbrec audio_opens_mark
+wait_pos 3000 60000 Low
+wait 2000
+dbrec expect_audio_db_opens 0
+dbrec expect_playcount_ge /Music/Tone%20Collective/Sine%20Studies/03%20Warble.mp3 1
+shot changed
+quit

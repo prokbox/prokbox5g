@@ -1,0 +1,57 @@
+# Phase 4 round-3 review H1/L1 (#3), DB state "dirty": a power cut in the
+# middle of a commit leaves the database dirty (dirty_db sets the master
+# header's flag, as the cut commit does). The next boot finds it unusable
+# and rebuilds it silently in the background, keeping the statistics
+# (export, import). Music is resumed right at boot, so the rebuild's
+# commit has to wait for playback to stop ("Updating Library..."
+# meanwhile); once it stops the library comes back in the SAME boot.
+# DB states for the delayed commit: ready (ipodui-p4-commit-playing),
+# fresh (ipodui-p4-rebuild-playing), dirty (this one); docs/process.md
+# checklist item 10.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p4-dirty-playing.script
+# needs: library
+# golden: skip updating restored
+#
+# shots.sh fails the run on "expect_* failed", "dirty_db failed" and
+# "wait_db commit delayed" (the commit still waiting after the stop).
+# #87: no boot hold here (the device's boot check outlasts it; the sim's would finish inside it)
+# env: SIM_BOOT_NOHOLD=1
+
+wait 4000           # boot to the main menu
+wait_db 30000
+wheel +4            # "Shuffle Songs"
+wait 500
+key SELECT          # plays (the resume point is saved at power-off)
+wait 2000
+expect_playing 300
+dirty_db            # the power cut mid-commit, as the disk is left
+boot_unclean        # a cut: no clean shutdown's boot stamp (#89)
+reboot
+
+wait 1500           # the main menu is up; the tagcache thread finds the
+key PLAY            # database dirty; PLAY resumes the music before the
+wait 1000           # background rebuild reaches its commit
+expect_playing 3000
+expect_lib_updating 4000    # scanned; the commit waits for the stop
+key SELECT          # Music
+wait 1000
+shot updating
+key MENU            # main menu
+wait 1000
+wheel +10           # "Now Playing" (the last item)
+wait 800
+key SELECT          # WPS
+wait 1500
+audio_stop       # stop; the commit runs at the thread's next timeout
+wait 3000           # (1 s); wait_db fails on "commit delayed"
+wait_db 30000       # the library is back in this boot
+expect_boot_walk 1 15000 db # its rebuild was this boot's walk (#89)
+key MENU
+wait 1000
+wheel -10           # "Music"
+wait 800
+key SELECT
+wait 1000
+shot restored
+
+quit

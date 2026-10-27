@@ -1,0 +1,28 @@
+  1037 pre: stage 4 and 5 pass flags and the display driver: PASS
+  1074 auto: pre pass answer=- ms=20 pre: stage 4 and 5 pass flags and the display driver: PASS
+  1111 auto: s05 skip answer=- ms=0 not needed: the stage 5 flag is there
+  1148 auto: boot skip answer=- ms=0 not needed: the display driver runs
+  1185 jobs: self-test rc 0
+  1222 auto: jobs pass answer=- ms=40 jobs: self-test rc 0
+  1259 jvpu: J_VPU 3, expected 3 (merged image; checked 1, shift 1, MAC 0) at block 000de000
+  1296 auto: jvpu pass answer=- ms=400 jvpu: J_VPU 3, expected 3 (merged image; checked 1, shift 1, MAC 0) at block 000de000
+  1333 auto: c1 pass answer=- ms=3000 C1: PASS
+  1370 auto: s4b pass answer=- ms=60000 
+  1407 auto: s4c pass answer=Yes ms=30000 
+  1444 auto: b3 pass answer=Yes ms=0 
+  1481 auto: respanel pass answer=Sharp, steady ms=0 
+  1518 auto: uviz pass answer=Smooth ms=0 
+  1555 auto: b13 pass answer=No ms=9000 Warm swap: PASS
+  1592 auto: b5 pass answer=Yes ms=15000 Window push: PASS
+  1629 auto: s6 fail answer=No picture ms=26000 stage 6 FAIL
+  1666 auto: vfeed skip answer=- ms=0 auto-skip: needs s6 (fail)
+  1703 auto: s7 skip answer=- ms=0 auto-skip: needs s6 (fail)
+  1740 auto: vbv skip answer=- ms=0 auto-skip: needs s6 (fail)
+  1777 auto: vgov skip answer=- ms=0 auto-skip: needs s6 (fail)
+  1814 auto: vplay skip answer=- ms=0 auto-skip: needs s6 (fail)
+  1851 auto: ucop fail answer=- ms=0 ucop: the UI runs cpu after the restart, not on the COP (refused or fell back: fe lines)
+  1888 auto: uck1 skip answer=- ms=0 auto-skip: needs ucop (fail)
+  1925 auto: uck2 skip answer=- ms=0 auto-skip: needs ucop (fail)
+  1962 auto: ufeel skip answer=- ms=0 auto-skip: needs ucop (fail)
+  1999 auto: upanel skip answer=- ms=0 auto-skip: needs ucop (fail)
+  2036 auto: ucop2 skip answer=- ms=0 auto-skip: needs ucop (fail)

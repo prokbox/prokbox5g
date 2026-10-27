@@ -1,0 +1,40 @@
+# Phase 18 (§8; Rev 3 H1, Rev 4 N6): PLAY's release after the hold
+# never wakes. A: released 2 s after dark, before the sleep (the shell
+# awaits it). B: held past SLEEP_QUIESCE_MS: the sleep starts with PLAY
+# at entry and its release while asleep is spurious, not a wake; its
+# late release, delivered after the wake, is swallowed (still paused,
+# Rev 4a); the next PLAY resumes.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p18-sleep-play-release.script
+# needs: library
+# golden: skip
+# fulls-extra: 1          (one wake by a key the trace rule does not count)
+# log: sleep wake why=1 s=0 polls=0 spurious=0 resyncs=0 buttons=0x1
+# log: sleep wake why=1 s=0 polls=0 spurious=1 resyncs=0 buttons=0x1
+
+sleep_mode soft       # soft sleep is off by default (developer switch)
+wait 4000
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait_pos 3000 60000
+hold PLAY 3000          # A
+expect_sleep asleep 8000
+wait 2000
+expect_sleep asleep 100
+key SELECT
+expect_sleep button 3000
+wait 1000
+expect_paused 500
+hold PLAY 9000          # B: asleep before the release
+expect_sleep asleep 100
+wait 2000
+expect_sleep asleep 100
+key SELECT
+expect_sleep button 3000
+wait 1000
+expect_paused 1000      # PLAY's late release did not resume (swallowed:
+                        # buttons_at_entry, Rev 4a)
+key PLAY                # the next PLAY acts
+wait 500                # the toggle lands (the expect does not wait)
+expect_playing 1000
+wait 1000
+shot woken              # the gate needs one shot
+quit

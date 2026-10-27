@@ -1,0 +1,34 @@
+# P12 W2-W (9 "-clocks-reveal"; spec index.md Transitions item 4, VIDEO-2
+# A3): Extras > Clocks reveals. The world map stays put; the Extras list,
+# its header and the panel's clock and date leave left (out=, clear at
+# 80 % of the time) while the blue band comes in from the right (in=,
+# the measured 245/183/125/81/22/0 px at 40/80/130/170/210/250 ms); MENU
+# is the exact mirror. 250 ms each way, the whole screen pushed per frame.
+# The recorded frames (reveal_in_frames/, reveal_out_frames/) are the
+# side-by-side source against the owner video.
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-clocks-reveal.script
+# needs: modules
+# golden: skip
+# transitions: 190 250 250
+# log: reveal start dir=1 bands=80
+# log: reveal frame ms=250 out=320 in=0
+# log: reveal start dir=-1 bands=80
+# log: reveal frame ms=250 out=0 in=320
+# reset: mainmenu
+
+wait 4000            # boot to the main menu
+sim_clock 15:05      # the panels' time (Tuesday 6 October 2026)
+wheel +2             # Extras
+wait 1500
+key SELECT
+wait 2500            # the Extras list, Clocks selected, its panel
+shot extras_clocks
+key SELECT 50        # the reveal in
+record 400 30 reveal_in
+wait 800
+shot clocks
+key MENU 50          # the reveal back
+record 400 30 reveal_out
+wait 800
+shot back_to_extras
+quit

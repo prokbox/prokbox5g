@@ -1,0 +1,106 @@
+# Phase 6 (#5) [database rebuilt in between]: per-book resume across a reboot, from books.dat (the shell is
+# the only resume authority). Two books each get a spot; after a reboot each
+# page shows Resume and Resume plays from that book's own spot.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p6-resume-rebuild.script
+# needs: library
+# needs: ab
+# timeout: 200
+# trace: ab
+# log: ab store w=now
+# log: ab resume book=
+# golden: skip page_resume_pref page_resume_nochap
+# DB state: fresh/rebuilding. A full rebuild between save and reboot: every resume point survives.
+# Needs B and U. Rows: 0 A Field Guide, 1 AB No Chapters, 2 AB Preface Book.
+
+wait 4000
+wait_db 45000
+mkdir /Audiobooks/AB
+copy ../../build/ab-fixtures/pref.m4b /Audiobooks/AB/pref.m4b
+copy ../../build/ab-fixtures/nochap.m4b /Audiobooks/AB/nochap.m4b
+update_db_wait_change 60000
+art_wait 60000
+
+# Preface Book: Chapter 2 (45 s)
+key SELECT
+wait 800
+wheel +6 300   # Audiobooks (Compilations off: P11)
+wait 400
+key SELECT
+wait 900
+wheel +2 300
+wait 400
+key SELECT          # its page
+wait 1000
+wheel +2 300        # Chapter 2 (no Resume yet: Preface, Ch 1, Ch 2)
+wait 300
+key SELECT
+wait_pos 47000 60000 pref.m4b # playback progress, not wall clock
+expect_pos 47000 56000
+key PLAY            # pause: record written
+wait 800
+
+# No Chapters: from 0, 5 s
+hold MENU 1000
+wait 1200
+key SELECT
+wait 800
+wheel +6 300   # Audiobooks (Compilations off: P11)
+wait 400
+key SELECT
+wait 900
+wheel +2 300        # No Chapters (#67: Preface, paused, pinned on top)
+wait 400
+key SELECT
+wait 1000
+key SELECT          # the one entry
+wait_pos 5500 60000 nochap.m4b
+key PLAY
+wait 800
+expect_ab_store 2 0 3000
+audio_stop          # the commit waits for audio to stop (tagcache)
+wait 800
+rebuild_db 120000   # a full rebuild: books.dat lives outside the database
+art_wait 60000
+reboot
+
+wait 4000
+wait_db 45000
+key SELECT
+wait 800
+wheel +6 300   # Audiobooks (Compilations off: P11)
+wait 400
+key SELECT
+wait 900
+wheel +2 300        # Preface (#67: No Chapters, the last played, on top)
+wait 400
+key SELECT
+wait 1000
+shot page_resume_pref     # Resume first, chapters below it
+key SELECT                # Resume
+wait 3000
+expect_pos 46000 62000    # after its own spot (~49 s), not the other book's
+key PLAY
+wait 600
+
+hold MENU 1000
+wait 1200
+key SELECT
+wait 800
+wheel +6 300   # Audiobooks (Compilations off: P11)
+wait 400
+key SELECT
+wait 900
+wheel +2 300        # No Chapters (#67: Preface, paused, on top)
+wait 400
+key SELECT
+wait 1000
+shot page_resume_nochap
+key SELECT                # Resume
+wait 3000
+expect_pos 5000 14000
+audio_stop
+wait 500
+expect_ab_store 2 0 3000
+remove /Audiobooks/AB/pref.m4b
+remove /Audiobooks/AB/nochap.m4b
+quit

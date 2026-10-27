@@ -1,0 +1,61 @@
+# Phase 6 (D1-D3, #50): the chapter pages of the stress fixtures. "AB FFmpeg
+# CTOC" is an ffmpeg ID3v2.4 book with non-synchsafe CHAP/CTOC sizes (all 4
+# chapters must be found, #50); "AB Many Chapters" has 1,100 chapters (the
+# page lists the first 1,024, each "NNNN" + CJK, cut on a UTF-8 boundary,
+# never a broken glyph); "AB Utf8 Cut" has 2/3/4-byte titles longer than 63 B.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p6-titles.script
+# needs: library
+# needs: ab
+# timeout: 120
+# trace: ab
+# (no "ab view cap": it is traced only when a pak miss while playing caps
+# the view, ipodui-p6-pool-cap; these pages are opened stopped)
+# golden: skip ffctoc_page many_top many_end utf8_page
+# DB state: ready. Needs M (packed table, fair-share cut, #50) and B/U (the
+# page). The shots are for the reviewer (CJK glyph coverage of ShellSans is
+# the owner's call, so no goldens). Rows: 0 A Field Guide, 1 AB FFmpeg CTOC,
+# 2 AB Many Chapters, 3 AB Utf8 Cut.
+
+wait 4000
+wait_db 45000
+mkdir /Audiobooks/AB
+copy ../../build/ab-fixtures/ffctoc.mp3 /Audiobooks/AB/ffctoc.mp3
+copy ../../build/ab-fixtures/many.m4b /Audiobooks/AB/many.m4b
+copy ../../build/ab-fixtures/utf8.m4b /Audiobooks/AB/utf8.m4b
+update_db_wait_change 60000
+art_wait 60000
+
+key SELECT
+wait 800
+wheel +6 300   # Audiobooks (Compilations off: P11)
+wait 400
+key SELECT
+wait 900
+wheel +1 300        # AB FFmpeg CTOC
+wait 400
+key SELECT
+wait 1200
+shot ffctoc_page    # Intro / Part A / Part B / Part C (4 entries)
+key MENU
+wait 700
+wheel +1 300        # AB Many Chapters
+wait 400
+key SELECT
+wait 1800
+shot many_top       # 0000.. rows
+wheel +1100 4       # to the end of the page
+wait 800
+shot many_end       # row 1,024, never a half glyph
+key MENU
+wait 700
+wheel +1 300        # AB Utf8 Cut
+wait 400
+key SELECT
+wait 1200
+shot utf8_page      # 3 entries, titles cut at a character boundary
+key MENU
+wait 500
+remove /Audiobooks/AB/ffctoc.mp3
+remove /Audiobooks/AB/many.m4b
+remove /Audiobooks/AB/utf8.m4b
+quit

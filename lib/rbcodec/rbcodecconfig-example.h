@@ -5,10 +5,10 @@
 #define HAVE_SW_TONE_CONTROLS
 #define HAVE_ALBUMART
 #define NUM_CORES 1
-/* All the same unless a configuration option is added to warble */
-#define DSP_OUT_MIN_HZ     44100
+/* warble's outrate= option can pick any rate the iPod Video plays */
+#define DSP_OUT_MIN_HZ     8000
 #define DSP_OUT_DEFAULT_HZ 44100
-#define DSP_OUT_MAX_HZ     44100
+#define DSP_OUT_MAX_HZ     48000
 
 #ifndef __ASSEMBLER__
 

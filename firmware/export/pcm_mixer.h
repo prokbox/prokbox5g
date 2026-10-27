@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2011 by Michael Sevakis
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -39,6 +40,10 @@
 /* iBasso Devices: Match Rockbox PCM buffer size to ALSA PCM buffer size
    to minimize memory transfers. */
 #define MIX_FRAME_SAMPLES 2048
+#elif defined(SIMULATOR) && defined(SIM_DEVICE_MIXER)
+/* ProkBox: opt-in (-DSIM_DEVICE_MIXER) device-sized frames in the simulator,
+   so the sim mixes in the same 256-sample steps as the iPod (docs/sim-fidelity.md) */
+#define MIX_FRAME_SAMPLES 256
 #elif (CONFIG_PLATFORM & PLATFORM_HOSTED)
 /* Hosted targets need larger buffers for decent performance due to
    OS locking/scheduling overhead */
@@ -155,5 +160,19 @@ void mixer_set_frequency(unsigned int samplerate);
 
 /* Get output samplerate */
 unsigned int mixer_get_frequency(void);
+
+#if defined(HAVE_IPOD_UI_DEVMODE) || defined(HAVE_VIZ_TAP)
+/* The shell's "Audio path test" (docs/phase15-brief.md section 3.5) and
+ * the visualizer's PCM tap (apps/ipodui/viz_tap.c, HAVE_VIZ_TAP): while
+ * a tap is set, it sees every frame the mixer sends to the PCM sink
+ * (interleaved 16-bit stereo, size in bytes), from the PCM callback (FIQ
+ * on PP5022), just after the frame is mixed and one frame before it
+ * plays: it must be quick and must not block. One tap at a time (the
+ * test runs from the developer menu, the visualizer from Now Playing).
+ * Set under the PCM lock: once mixer_set_tap(NULL) returns on the CPU,
+ * no callback is in the old tap. */
+typedef void (*mixer_tap_fn)(const void *frames, size_t size);
+void mixer_set_tap(mixer_tap_fn fn);
+#endif
 
 #endif /* PCM_MIXER_H */

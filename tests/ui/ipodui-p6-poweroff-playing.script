@@ -1,0 +1,66 @@
+# Phase 6 fix round H1: power-off while a book PLAYS keeps the exact stop
+# position. Path: SYS_POWEROFF -> the UI thread's default_event_handler()
+# -> clean_shutdown(): audio_stop() (audio thread: TRACK_FINISH, then
+# STOP_OR_PAUSE -> ab_store_pending_now()) -> system_flush() ->
+# call_storage_idle_notifys(true) -> the store's persistent idle handler
+# on the UI thread -> flush_pass() writes it ("ab store w=now"). Before
+# the fix the stop record waited for a UI pass that never came, and the
+# flush wrote the stale track-change checkpoint (15 s) or nothing.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p6-poweroff-playing.script
+# needs: library
+# needs: ab
+# timeout: 150
+# trace: ab
+# log: ab store w=now
+# logrange: 44000 47000 after=poweroff until=rebooted ab store w=now book=\S+ ms=(\d+)
+# golden: skip page_resume
+# DB state: ready. Rows: 0 A Field Guide, 1 AB Preface Book.
+
+wait 4000
+wait_db 45000
+mkdir /Audiobooks/AB
+copy ../../build/ab-fixtures/pref.m4b /Audiobooks/AB/pref.m4b
+update_db_wait_change 60000
+art_wait 60000
+
+key SELECT          # Music
+wait 800
+wheel +6 300        # Audiobooks (Compilations off: P11)
+wait 400
+key SELECT
+wait 900
+wheel +1 300        # AB Preface Book
+wait 400
+key SELECT          # its page (no Resume yet: Preface, Chapter 1, ..)
+wait 1000
+wheel +1 300        # Chapter 1 (15 s)
+wait 300
+key SELECT
+wait_pos 45000 60000 pref.m4b   # 30 s of playback, still playing
+ab_mark poweroff
+power_off_now       # hold PLAY's sys_poweroff(), while playing
+wait 3000
+reboot
+
+ab_mark rebooted    # the logrange needs the shutdown's own write before it
+wait 4000
+wait_db 45000
+key SELECT
+wait 800
+wheel +6 300   # Audiobooks (Compilations off: P11)
+wait 400
+key SELECT
+wait 900
+# (#67: AB Preface Book, the power-off record, is pinned: row 0, no step)
+wait 400
+key SELECT
+wait 1000
+shot page_resume    # Resume first: a spot was saved
+key SELECT          # Resume
+wait 1500
+expect_pos 44500 48500   # the power-off spot (~45 s) + 1.5 s, within ~2 s
+audio_stop
+wait 500
+expect_ab_store 1 0 3000
+remove /Audiobooks/AB/pref.m4b
+quit

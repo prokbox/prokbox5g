@@ -1,0 +1,23 @@
+# #85 device regression (2026-10-19): an old build removed its database
+# after USB but left database_import.pending; the new build booted with no
+# database and re-posted the import every second, so the initial build
+# never ran ("Updating Library..." for over an hour). The initial build
+# must go first; the import follows its commit.
+# The boot state (no manifest, no database, the marker, an empty tmp file
+# and a complete changelog giving 01 Narrow Echo playcount 5) is made by
+# shots.sh before the first boot.
+# needs: library
+# stale-import
+# timeout: 240
+# golden: skip
+wait 4000
+wait_db 90000
+dbrec expect_published 90000
+dbrec expect_not_updating 90000
+# the library is non-empty: a known track is found (playcount -2 if not)
+dbrec expect_playcount_ge /Library/Basalt/Columns/01%20Narrow%20Echo.mp3 0
+# the import that follows the initial build restored the changelog's count
+wait 10000
+dbrec expect_playcount_ge /Library/Basalt/Columns/01%20Narrow%20Echo.mp3 5
+shot imported
+quit

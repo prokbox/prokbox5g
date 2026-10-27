@@ -1,0 +1,85 @@
+# P12 W2-W (review, item 3): a locked unit whose locked screen is not on
+# the stack (the sim lever IPODUI_SIM_LOCK_UNSTACKED refuses it for the
+# first 600 RTC s, as a push the screen arena refused) wakes on an alarm:
+# the wake's gate puts the locked screen up first, then the ring goes over
+# it, so the first lit frame is the ring and MENU dismisses onto the
+# locked screen, never onto the Screen Lock page beneath. Companion of
+# ipodui-p12-lock-wake (the locked screen on the stack).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p12-lock-wake-unstacked.script
+# golden: skip
+# timeout: 120
+# env: IPODUI_SIM_ALARM_IN=900 IPODUI_SIM_LOCK_UNSTACKED=600
+# alarm-rings: 1
+# log: lock engage ok=1
+# log: lock screen push refused (sim)
+# log: sleep wake why=3
+# log: alarm dismiss how=1
+# logbetween: sleep woke lock screen push rc=
+# logbetween: sleep woke update full alarm-ring\b
+# logbetween: sleep woke no update full (?!alarm-ring\b)
+# logbetween: woke end no lock screen push
+# nolog: 1234
+# reset: mainmenu
+
+sleep_mode soft         # soft sleep is off by default (developer switch)
+wait 4000            # boot to the main menu, "Music" selected
+wheel +2 300         # "Extras"
+wait 600
+key SELECT
+wait 1200
+wheel +7 200         # the last row (Stopwatch; the list does not wrap)
+wait 600
+wheel -1 200         # "Screen Lock", from the end: with or without a Games row
+wait 800
+key SELECT
+wait 1200
+# New Combination 1234, then Confirm 1234: Lock / Reset
+wheel +1 250
+wait 300
+key SELECT
+wait 200
+wheel +2 250
+wait 300
+key SELECT
+wait 200
+wheel +3 250
+wait 300
+key SELECT
+wait 200
+wheel +4 250
+wait 300
+key SELECT
+wait 200
+wait 800
+wheel +1 250
+wait 300
+key SELECT
+wait 200
+wheel +2 250
+wait 300
+key SELECT
+wait 200
+wheel +3 250
+wait 300
+key SELECT
+wait 200
+wheel +4 250
+wait 300
+key SELECT
+wait 200
+wait 800
+key SELECT           # Lock
+wait 1200
+shot unstacked          # locked, the Screen Lock page still up
+ab_mark sleep
+hold PLAY 1500          # dark, then asleep (PLAY passes the lock)
+expect_sleep asleep 8000
+sleep_warp 1000         # past the alarm and the lever's 600 s
+expect_sleep alarm 3000
+wait 300
+ab_mark woke
+shot woken_alarm        # the ring, over the locked screen
+key MENU                # dismiss (at the release)
+wait 1500
+shot locked             # the locked screen, not the page beneath
+quit

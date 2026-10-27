@@ -1,0 +1,46 @@
+# P12 W4 (docs/design/sdk.md 9, 13.3): Bricks' Settings: Speed (Slow,
+# Normal, Fast; Normal by default) and Balls (3 or 5). SELECT steps Speed
+# to Fast and Balls to 5; back in the pause menu, New Game starts with
+# four balls in hand.
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-bricks-settings.script
+# needs: modules
+# reset: mainmenu
+
+wait 4000
+sdk_clear            # a fresh game
+wheel +2             # Extras
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Games
+wait 600
+key SELECT
+wait 1200
+shot games           # the Games list, Bricks first
+wait 600
+key SELECT           # Bricks
+wait 800
+key MENU             # the pause menu
+wait 600
+shot paused
+wheel +2 300         # Settings
+wait 400
+key SELECT
+wait 1200
+shot settings
+key SELECT           # Speed: Fast
+wait 400
+wheel +1 300
+wait 400
+key SELECT           # Balls: 5
+wait 600
+shot changed
+key MENU             # back: the pause menu again
+wait 1200
+shot back
+wheel +1 300         # New Game
+wait 400
+key SELECT
+wait 800
+shot five_balls
+quit

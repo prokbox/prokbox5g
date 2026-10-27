@@ -25,8 +25,9 @@
 #include "debug.h"
 #include "logf.h"
 #include "metadata.h"
+#include "chapters.h"
 
-#ifdef UTF8PROC_EXPORTS
+#ifdef HAVE_UTF8_NORMALIZE
 #include "rbunicode.h"
 #endif
 
@@ -101,7 +102,11 @@ const struct afmt_entry audio_formats[AFMT_NUM_CODECS] =
         AFMT_ENTRY("ALAC",  "alac", "N/A",       get_mp4_metadata,   "m4a\0m4b\0"),
     /* Advanced Audio Coding in M4A container */
     [AFMT_MP4_AAC] =
+#if defined(HAVE_IPOD_UI) || defined(HAVE_BCMFW_VIDEO)
+        AFMT_ENTRY("AAC",   "aac",  "N/A",       get_mp4_metadata,   "mp4\0m4v\0"),
+#else
         AFMT_ENTRY("AAC",   "aac",  "N/A",       get_mp4_metadata,   "mp4\0"),
+#endif
     /* Shorten */
     [AFMT_SHN] =
         AFMT_ENTRY("SHN","shorten", "N/A",       get_shn_metadata,   "shn\0"),
@@ -479,8 +484,17 @@ bool get_metadata_afmt(struct mp3entry* id3, int fd, const char* trackname, int 
         success = false;
         wipe_mp3entry(id3); /* ensure the mp3entry is clear */
     }
+    else if (metadata_is_audiobook_ext(trackname)
+#if defined(HAVE_IPOD_UI) || defined(HAVE_BCMFW_VIDEO)
+             && !id3->is_video      /* a video is never an audiobook */
+#endif
+            )
+    {
+        /* id3->path is not filled in yet, so check the name here */
+        id3->is_audiobook = true;
+    }
 
-#ifdef UTF8PROC_EXPORTS
+#ifdef HAVE_UTF8_NORMALIZE
     if (success && (flags & METADATA_EXCLUDE_NORMALIZE) == 0) {
         utf8_normalize(id3->title);
         utf8_normalize(id3->artist);
@@ -493,6 +507,9 @@ bool get_metadata_afmt(struct mp3entry* id3, int fd, const char* trackname, int 
         utf8_normalize(id3->comment);
         utf8_normalize(id3->albumartist);
         utf8_normalize(id3->grouping);
+#ifdef HAVE_BCMFW_VIDEO
+        utf8_normalize(id3->tv_show);
+#endif
     }
 #endif
 
@@ -558,6 +575,9 @@ void adjust_mp3entry(struct mp3entry *entry, void *dest, const void *orig)
     MOVE_ENTRY(entry->albumartist)
     MOVE_ENTRY(entry->grouping)
     MOVE_ENTRY(entry->mb_track_id)
+#ifdef HAVE_BCMFW_VIDEO
+    MOVE_ENTRY(entry->tv_show)
+#endif
 }
 
 void copy_mp3entry(struct mp3entry *dest, const struct mp3entry *orig)

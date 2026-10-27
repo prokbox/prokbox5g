@@ -28,6 +28,7 @@
 #include "kernel.h"
 #include "panic.h"
 #include "usb_drv.h"
+#include "usb-arc-reset.h"
 
 /*#define LOGF_ENABLE*/
 #include "logf.h"
@@ -51,6 +52,7 @@
 #define REG_ENDPOINTLISTADDR (*(volatile unsigned int *)(USB_BASE+0x158))
 #define REG_BURSTSIZE        (*(volatile unsigned int *)(USB_BASE+0x160))
 #define REG_ULPI             (*(volatile unsigned int *)(USB_BASE+0x170))
+#define REG_ENDPTNAK         (*(volatile unsigned int *)(USB_BASE+0x178))
 #define REG_CONFIGFLAG       (*(volatile unsigned int *)(USB_BASE+0x180))
 #define REG_PORTSC1          (*(volatile unsigned int *)(USB_BASE+0x184))
 #define REG_OTGSC            (*(volatile unsigned int *)(USB_BASE+0x1a4))
@@ -281,7 +283,16 @@
 #define EP_QUEUE_CURRENT_OFFSET_MASK         (0x00000FFF)
 #define EP_QUEUE_HEAD_NEXT_POINTER_MASK      (0xFFFFFFE0)
 #define EP_QUEUE_FRINDEX_MASK                (0x000007FF)
+#ifdef USB_ARC_SMALL_DTD
+/* PP5022 / macOS reliability experiment: the observed stall is a partly
+ * consumed 16 KiB BULK-IN dTD (usually its final ~4 KiB). Four-KiB dTDs
+ * retain the 64 KiB BOT transaction while avoiding that partial tail. */
+#define EP_MAX_LENGTH_TRANSFER               (0x1000)
+#define NUM_TDS_PER_EP 16
+#else
 #define EP_MAX_LENGTH_TRANSFER               (0x4000)
+#define NUM_TDS_PER_EP 4
+#endif
 
 #define DTD_NEXT_TERMINATE                   (0x00000001)
 #define DTD_IOC                              (0x00008000)
@@ -303,9 +314,8 @@
 #define DTD_RESERVED_PIPE_OFFSET             20
 /*-------------------------------------------------------------------------*/
 
-/* 4 transfer descriptors per endpoint allow 64k transfers, which is the usual MSC
-   transfer size, so it seems like a good size */
-#define NUM_TDS_PER_EP 4
+/* NUM_TDS_PER_EP descriptors of EP_MAX_LENGTH_TRANSFER bytes cover the
+ * 64 KiB transfers used by mass storage. */
 
 struct usb_drv_ep_spec usb_drv_ep_specs[USB_NUM_ENDPOINTS]; /* filled in usb_drv_startup */
 uint8_t usb_drv_ep_specs_flags = USB_ENDPOINT_SPEC_FORCE_IO_TYPE_MATCH;
@@ -372,6 +382,61 @@ static void init_control_queue_heads(void);
 /*-------------------------------------------------------------------------*/
 static bool address_status;
 static bool handle_set_address(struct usb_ctrlrequest *req);
+/* the address the host gave us, 0 until SET_ADDRESS completes and after
+ * every reset taken (usb-arc-reset.h compares it with DEVICEADDR) */
+static unsigned drv_address;
+
+#ifdef HAVE_USB_STATS
+/* ProkBox (USB resets): the controller's interrupts per session */
+static struct usb_drv_stats dstats;
+static uint32_t last_rst_us, last_in_us, last_out_us;
+static uint32_t last_in_fr;     /* FRINDEX at the last bulk IN completion */
+#ifdef USEC_TIMER
+#define DRV_NOW_US() ((uint32_t)USEC_TIMER)
+#else
+#define DRV_NOW_US() ((uint32_t)current_tick * (1000000 / HZ))
+#endif
+#define DSTAT(x) (x)
+#else
+#define DSTAT(x) ((void)0)
+#endif
+
+/* every endpoint, both directions (ENDPTFLUSH/ENDPTSTATUS bit layout) */
+#define ALL_EP_MASK (((1u << USB_NUM_ENDPOINTS) - 1) * 0x00010001u)
+/* flush retries (manual: repeat while ENDPTSTATUS still shows the
+ * endpoint primed) and the reads one flush may spin for; a flush that
+ * waits for a packet on the bus takes tens of microseconds at most */
+#define FLUSH_TRIES 100
+#define FLUSH_SPIN  2000
+/* how long a prime may take to be accepted, in microseconds */
+#define PRIME_SPIN_US 2000
+/* A PP5022 can occasionally drop an otherwise idle Bulk-IN prime after a
+ * host reset. Retry the exact chain after flushing that pipe; do not reset
+ * its data toggle or replay the BOT command. */
+#define PRIME_ATTEMPTS 3
+
+/* Flush the endpoints in mask. Manual 32.14.5.1.2 (flushing): write
+ * ENDPTFLUSH, wait for the bits to clear, and repeat if ENDPTSTATUS
+ * still shows the endpoint primed, since a packet in flight at the
+ * flush lets the prime go through. Bounded; IRQs held so a transfer
+ * cannot be primed in between. */
+static void ep_flush(unsigned int mask)
+{
+    int oldlevel = disable_irq_save();
+    int tries = 0;
+
+    do {
+        int spin = FLUSH_SPIN;
+        REG_ENDPTFLUSH = mask;
+        while ((REG_ENDPTFLUSH & mask) && --spin > 0)
+            ;
+        if (tries++ > 0)
+            DSTAT(dstats.flush_retry++);
+    } while ((REG_ENDPTSTATUS & mask) && tries < FLUSH_TRIES);
+    if (REG_ENDPTSTATUS & mask)
+        DSTAT(dstats.flush_fail++);
+    restore_irq(oldlevel);
+}
 
 /* SET_ADDRESS status belongs to this driver, not the core EP0 machine. */
 static void complete_transfer(int ep, int dir, int status, int length)
@@ -472,15 +537,25 @@ static void init_endpoint(int ep, int type, int mps) {
     struct queue_head* qh;
     unsigned int ctrl = REG_ENDPTCTRL(ep_num);
     if(ep_dir == DIR_IN) {
-        ctrl &= ~EPCTRL_TX_TYPE;
+        /* A bus reset stops the endpoint engine but does not clear the
+         * queue-head RAM. Do not let a previous configuration's overlay,
+         * halt, or toggle participate in the first BOT response. */
+        ctrl &= ~(EPCTRL_TX_TYPE | EPCTRL_TX_EP_STALL);
         ctrl |= EPCTRL_TX_DATA_TOGGLE_RST | EPCTRL_TX_ENABLE | type << EPCTRL_TX_EP_TYPE_SHIFT;
         qh = &qh_array[ep_num * 2 + 1];
     } else {
-        ctrl &= ~EPCTRL_RX_TYPE;
+        ctrl &= ~(EPCTRL_RX_TYPE | EPCTRL_RX_EP_STALL);
         ctrl |= EPCTRL_RX_DATA_TOGGLE_RST | EPCTRL_RX_ENABLE | type << EPCTRL_RX_EP_TYPE_SHIFT;
         qh = &qh_array[ep_num * 2];
     }
     REG_ENDPTCTRL(ep_num) = ctrl;
+
+    qh->curr_dtd_ptr = 0;
+    memset(&qh->dtd, 0, sizeof(qh->dtd));
+    qh->reserved = 0;
+    qh->status = 0;
+    qh->length = 0;
+    qh->wait = 0;
 
     if(mps == -1) {
         if(type == USB_ENDPOINT_XFER_ISOC) {
@@ -505,7 +580,23 @@ void usb_drv_init(void)
     /* USB core decides */
     usb_drv_reset();
 
+#ifdef HAVE_USB_STATS
+    memset(&dstats, 0, sizeof(dstats));
+    last_rst_us = last_in_us = last_out_us = DRV_NOW_US();
+    last_in_fr = REG_FRINDEX;
+#endif
     REG_USBMODE = USBMODE_CTRL_MODE_DEVICE;
+    DSTAT(dstats.usbmode = REG_USBMODE);
+#if defined(HAVE_USB_STATS) && (CONFIG_CPU == PP5022)
+    /* read only, never written (docs/usb-speed.md, overlap track) */
+    dstats.bus[0] = *(volatile uint32_t *)(USB_BASE + 0x090);
+    dstats.bus[1] = REG_BURSTSIZE;
+    dstats.bus[2] = *(volatile uint32_t *)(USB_BASE + 0x164);
+    dstats.bus[3] = CACHE_PRIORITY;
+    dstats.bus[4] = DEV_TIMING1;
+    dstats.bus[5] = XMB_RAM_CFG;
+#endif
+    drv_address = 0;
 
 #ifdef USB_NO_HIGH_SPEED
     /* Force device to full speed */
@@ -559,19 +650,120 @@ void usb_drv_exit(void)
     usb_drv_int_enable(false);
 }
 
+#ifdef HAVE_USB_STATS
+/* status byte of the bulk IN dTD the controller is on: the one whose
+ * endpoint is primed, else the last one it worked on (0: none) */
+static uint8_t in_td_status(const struct queue_head **qhp, uint16_t *offp)
+{
+    uint8_t last = 0;
+    *qhp = NULL;
+    *offp = 0;
+    for (int ep = 1; ep < USB_NUM_ENDPOINTS; ep++) {
+        const struct queue_head *qh = &qh_array[ep * 2 + 1];
+        const struct transfer_descriptor *td = (const void *)
+            (qh->curr_dtd_ptr & DTD_ADDR_MASK);
+        if (!td)
+            continue;
+        last = td->size_ioc_sts & 0xff;
+        *qhp = qh;
+        *offp = td->buff_ptr0 & 0xfff;
+        if (REG_ENDPTSTATUS & pipe2mask[ep * 2 + 1])
+            return last;
+    }
+    return last;
+}
+
+/* the registers as the reset found them, before bus_reset() clears any */
+static void note_reset(unsigned int raw, uint32_t portsc, uint32_t devaddr,
+                       enum arc_reset_kind kind)
+{
+    uint32_t now = DRV_NOW_US();
+    uint32_t gap = (now - last_rst_us) / 1000;
+
+    last_rst_us = now;
+    if (arc_reset_is_real(kind))
+        dstats.rst_real++;
+    else
+        dstats.rst_fake++;
+    dstats.gaps[arc_gap_bucket(gap)]++;
+    if (dstats.ev_n < USB_DRV_RST_EVENTS) {
+        struct usb_drv_rst_event *e = &dstats.ev[dstats.ev_n];
+        e->sts = raw & 0xffff;
+        e->portsc = arc_portsc_byte(portsc);
+        e->addr = ((devaddr >> ARC_ADDR_SHIFT) & 0x7f) |
+                  (drv_address ? 0x80 : 0);
+        e->kind = kind;
+        e->prime = arc_ep_byte(REG_ENDPTSTATUS);
+        const struct queue_head *iq;
+        e->in_td = in_td_status(&iq, &e->in_off);
+        e->pend = arc_ep_byte(REG_ENDPTPRIME);
+        e->cmpl = arc_ep_byte(REG_ENDPTCOMPLETE);
+        e->ov = iq ? iq->dtd.size_ioc_sts & 0xff : 0;
+        e->ovlen = iq ? MIN(255, ((iq->dtd.size_ioc_sts >> DTD_LENGTH_BIT_POS)
+                                  & 0x7fff) / 512) : 0;
+        e->gap_ms = gap;
+        e->in_ms = (now - last_in_us) / 1000;
+        e->out_ms = (now - last_out_us) / 1000;
+        e->nak = arc_ep_byte(REG_ENDPTNAK);
+        e->fr_d = (REG_FRINDEX - last_in_fr) & 0x3fff;
+    }
+    dstats.ev_n++;
+}
+
+void usb_drv_get_stats(struct usb_drv_stats *out)
+{
+    int oldlevel = disable_irq_save();
+    *out = dstats;
+    restore_irq(oldlevel);
+}
+#endif /* HAVE_USB_STATS */
+
 void usb_drv_int(void)
 {
     unsigned int usbintr = REG_USBINTR; /* Only watch enabled ints */
-    unsigned int status = REG_USBSTS & usbintr;
+    unsigned int raw = REG_USBSTS;
+    unsigned int status = raw & usbintr;
+
+#ifdef HAVE_USB_STATS
+    if (status & USBSTS_RESET)
+        dstats.uri++;
+    if (status & USBSTS_PORT_CHANGE)
+        dstats.pci++;
+    if (status & USBSTS_ERR)
+        dstats.uei++;
+    /* suspend is not an enabled interrupt; count it when another one
+     * comes (a resume brings a port change) and clear it to see the next */
+    if (raw & USBSTS_SUSPEND) {
+        REG_USBSTS = USBSTS_SUSPEND;
+        dstats.sli++;
+    }
+#endif
 
     /* Reset invalidates all old completions, including the audio ring.
      * Do not dispatch a simultaneous SOF or IOC using stale descriptors. */
     if (status & USBSTS_RESET) {
-        REG_USBSTS = status;
-        bus_reset();
-        address_status = false;
-        usb_core_bus_reset();
-        return;
+        uint32_t portsc = REG_PORTSC1, devaddr = REG_DEVICEADDR;
+        enum arc_reset_kind kind =
+            arc_reset_classify(portsc, devaddr, drv_address);
+#ifdef HAVE_USB_STATS
+        note_reset(raw, portsc, devaddr, kind);
+#endif
+#ifdef HAVE_USB_RESET_GATE
+        /* usb-arc-reset.h: not in reset and our address intact, so the
+         * controller kept its state; acknowledge, keep the session */
+        if (!arc_reset_is_real(kind)) {
+            REG_USBSTS = USBSTS_RESET;
+            status &= ~USBSTS_RESET;
+        } else
+#endif
+        {
+            (void)kind;
+            REG_USBSTS = status;
+            bus_reset();
+            address_status = false;
+            usb_core_bus_reset();
+            return;
+        }
     }
 
 #if 0
@@ -699,8 +891,7 @@ void usb_drv_reset_endpoint(int endpoint, bool send)
 {
     int pipe = EP_NUM(endpoint) * 2 + (send ? 1 : 0);
     unsigned int mask = pipe2mask[pipe];
-    REG_ENDPTFLUSH = mask;
-    while (REG_ENDPTFLUSH & mask);
+    ep_flush(mask);
 }
 
 void usb_drv_set_test_mode(int mode)
@@ -832,8 +1023,7 @@ int usb_drv_batch_stop(void) {
     const int pipe = ep_to_pipe_index(batch_ep);
     const unsigned int mask = pipe2mask[pipe];
 
-    REG_ENDPTFLUSH = mask;
-    while (REG_ENDPTFLUSH & mask);
+    ep_flush(mask);
 
     return 0;
 }
@@ -915,8 +1105,12 @@ static int prime_transfer(int ep_num, void* ptr, int len, bool send, bool wait)
     int pipe = ep_num * 2 + (send ? 1 : 0);
     unsigned int mask = pipe2mask[pipe];
     struct queue_head* qh = &qh_array[pipe];
-    static long last_tick;
     struct transfer_descriptor *new_td, *cur_td, *prev_td;
+
+    /* a transfer needing more dTDs than the endpoint owns would run past
+     * its slice of td_array into the next endpoint's chain */
+    if (arc_tds_needed(len, EP_MAX_LENGTH_TRANSFER, NUM_TDS_PER_EP) < 0)
+        return -6;
 
     int oldlevel = disable_irq_save();
 /*
@@ -924,6 +1118,19 @@ static int prime_transfer(int ep_num, void* ptr, int len, bool send, bool wait)
         logf("usb: sent %d bytes", len);
     }
 */
+    if (REG_ENDPTSTATUS & mask) {
+        /* still primed: the controller would run the chain we rebuild
+         * below. Whatever it held is abandoned; drop it first */
+        DSTAT(dstats.prime_stale++);
+        ep_flush(mask);
+    }
+    if (REG_ENDPTCOMPLETE & mask) {
+        /* a deferred completion of the chain abandoned above: clear it, or
+         * the next interrupt would walk the new chain as if it had ended */
+        DSTAT(dstats.lost_stale++);
+        REG_ENDPTCOMPLETE = mask;
+    }
+
     qh->status = 0;
     qh->wait = wait;
 
@@ -934,7 +1141,7 @@ static int prime_transfer(int ep_num, void* ptr, int len, bool send, bool wait)
 
     do
     {
-        tdlen=MIN(len,16384);
+        tdlen=MIN(len,EP_MAX_LENGTH_TRANSFER);
         prepare_td(cur_td, prev_td, ptr, tdlen,pipe);
         ptr+=tdlen;
         prev_td=cur_td;
@@ -944,40 +1151,58 @@ static int prime_transfer(int ep_num, void* ptr, int len, bool send, bool wait)
     while(len>0);
     //logf("starting ep %d %s",ep_num,send?"send":"receive");
 
-    qh->dtd.next_td_ptr = (unsigned int)new_td;
-    qh->dtd.size_ioc_sts &= ~(QH_STATUS_HALT | QH_STATUS_ACTIVE);
+    for (int attempt = 0; attempt < PRIME_ATTEMPTS; attempt++) {
+        qh->dtd.next_td_ptr = (unsigned int)new_td;
+        qh->dtd.size_ioc_sts &= ~(QH_STATUS_HALT | QH_STATUS_ACTIVE);
 
-    REG_ENDPTPRIME |= mask;
+        REG_ENDPTPRIME |= mask;
 
-    if(ep_num == EP_CONTROL && (REG_ENDPTSETUPSTAT & EPSETUP_STATUS_EP0)) {
-        /* 32.14.3.2.2 */
-        logf("new setup arrived");
-        rc = -4;
-        goto pt_error;
-    }
-
-    last_tick = current_tick;
-    while ((REG_ENDPTPRIME & mask)) {
-        if (REG_USBSTS & USBSTS_RESET) {
-            rc = -1;
+        if(ep_num == EP_CONTROL && (REG_ENDPTSETUPSTAT & EPSETUP_STATUS_EP0)) {
+            /* 32.14.3.2.2 */
+            logf("new setup arrived");
+            rc = -4;
             goto pt_error;
         }
 
-        if (TIME_AFTER(current_tick, last_tick + HZ/4)) {
-            logf("prime timeout");
-            rc = -2;
-            goto pt_error;
-        }
-    }
+        /* IRQs are off here, so current_tick cannot advance: bound the wait
+         * by the microsecond timer (an iteration count where there is none) */
+#ifdef USEC_TIMER
+        uint32_t t0 = USEC_TIMER;
+#else
+        int spins = 20000;
+#endif
+        while ((REG_ENDPTPRIME & mask)) {
+            if (REG_USBSTS & USBSTS_RESET) {
+                rc = -1;
+                goto pt_error;
+            }
 
-    if (!(REG_ENDPTSTATUS & mask)) {
-        if(REG_ENDPTCOMPLETE & mask)
-        {
-            logf("endpoint completed fast! %d %d %x", ep_num, pipe, qh->dtd.size_ioc_sts & 0xff);
+#ifdef USEC_TIMER
+            if ((uint32_t)(USEC_TIMER - t0) > PRIME_SPIN_US) {
+#else
+            if (--spins <= 0) {
+#endif
+                logf("prime timeout");
+                DSTAT(dstats.prime_to++);
+                ep_flush(mask);
+                rc = -2;
+                goto pt_error;
+            }
         }
-        else
-        {
-            logf("no prime! %d %d %x", ep_num, pipe, qh->dtd.size_ioc_sts & 0xff);
+
+        if ((REG_ENDPTSTATUS & mask) || (REG_ENDPTCOMPLETE & mask)) {
+            if (attempt)
+                DSTAT(dstats.prime_retry++);
+            break;
+        }
+
+        /* A dropped prime used to return -3 here. Its callers are
+         * non-blocking and intentionally do not act on that return value,
+         * which strands the BOT state waiting for an IN completion. */
+        logf("prime dropped %d %d try %d", ep_num, pipe, attempt + 1);
+        DSTAT(dstats.prime_miss++);
+        ep_flush(mask);
+        if (attempt + 1 == PRIME_ATTEMPTS) {
             rc = -3;
             goto pt_error;
         }
@@ -1021,8 +1246,7 @@ pt_error:
 void usb_drv_cancel_all_transfers(void)
 {
     int i;
-    REG_ENDPTFLUSH = ~0;
-    while (REG_ENDPTFLUSH);
+    ep_flush(ALL_EP_MASK);
 
     memset(td_array, 0, sizeof td_array);
     for(i=0;i<USB_NUM_ENDPOINTS*2;i++) {
@@ -1116,38 +1340,92 @@ static void setup_received(void)
 static void transfer_completed(void)
 {
     int ep;
-    unsigned int mask = REG_ENDPTCOMPLETE;
-    REG_ENDPTCOMPLETE = mask;
+    unsigned int seen = REG_ENDPTCOMPLETE;
+    unsigned int unfinished = 0;
+    int pipe;
+    int lens[USB_NUM_ENDPOINTS*2];
+    unsigned int errs[USB_NUM_ENDPOINTS*2];
 
+    /* Pass 1: which of the flagged pipes really finished. Their bits are
+     * cleared before any completion runs (a class driver primes the next
+     * transfer from its completion, which may finish before we return);
+     * a pipe whose dTD is still active keeps its bit, so its completion
+     * is delivered when the last dTD retires instead of being cleared
+     * here and lost. */
+    for (pipe=0; pipe<USB_NUM_ENDPOINTS*2; pipe++) {
+        int length=0, n=0;
+        unsigned int td_sts = 0;
+        struct transfer_descriptor* td=&td_array[pipe*NUM_TDS_PER_EP];
+
+        errs[pipe] = 0;
+        lens[pipe] = 0;
+        if (!(seen & pipe2mask[pipe]))
+            continue;
+        while(td!=(struct transfer_descriptor*)DTD_NEXT_TERMINATE && td!=0 &&
+              n++ < NUM_TDS_PER_EP)
+        {
+            /* It seems that the controller sets the pipe bit to one even if the TD
+             * dosn't have the IOC bit set. So we have the rely the active status bit
+             * to check that all the TDs of the transfer are really finished and let
+             * the transfer continue if it's no the case */
+            if(td->size_ioc_sts & DTD_STATUS_ACTIVE)
+            {
+                logf("skip half finished transfer");
+                unfinished |= pipe2mask[pipe];
+                DSTAT(dstats.lost_skip++);
+                break;
+            }
+            length += ((td->reserved & DTD_RESERVED_LENGTH_MASK) -
+                ((td->size_ioc_sts & DTD_PACKET_SIZE) >> DTD_LENGTH_BIT_POS));
+            td_sts |= td->size_ioc_sts;
+            if (arc_td_error(td->size_ioc_sts))
+                break;      /* the dTDs behind a failed one never run */
+            td=(struct transfer_descriptor*) td->next_td_ptr;
+        }
+        lens[pipe] = length;
+        errs[pipe] = arc_td_error(td_sts);
+    }
+    REG_ENDPTCOMPLETE = arc_complete_clear(seen, unfinished);
+
+    /* Pass 2: the completions */
     for (ep=0; ep<USB_NUM_ENDPOINTS; ep++) {
         int dir;
         for (dir=0; dir<2; dir++) {
-            int pipe = ep * 2 + dir;
-            if (mask & pipe2mask[pipe]) {
+            pipe = ep * 2 + dir;
+            if ((seen & pipe2mask[pipe]) && !(unfinished & pipe2mask[pipe])) {
                 struct queue_head* qh = &qh_array[pipe];
+                int length = lens[pipe];
 
-                int length=0;
-                struct transfer_descriptor* td=&td_array[pipe*NUM_TDS_PER_EP];
-                while(td!=(struct transfer_descriptor*)DTD_NEXT_TERMINATE && td!=0)
-                {
-                    /* It seems that the controller sets the pipe bit to one even if the TD
-                     * dosn't have the IOC bit set. So we have the rely the active status bit
-                     * to check that all the TDs of the transfer are really finished and let
-                     * the transfer continue if it's no the case */
-                    if(td->size_ioc_sts & DTD_STATUS_ACTIVE)
-                    {
-                        logf("skip half finished transfer");
-                        goto Lskip;
+#ifdef HAVE_USB_STATS
+                if (ep != EP_CONTROL) {
+                    if (errs[pipe] & DTD_STATUS_HALTED)
+                        dstats.td_halt++;
+                    if (errs[pipe] & DTD_STATUS_DATA_BUFF_ERR)
+                        dstats.td_buf++;
+                    if (errs[pipe] & DTD_STATUS_TRANSACTION_ERR)
+                        dstats.td_txn++;
+                    if (dir && !errs[pipe]) {
+                        last_in_us = DRV_NOW_US();
+                        last_in_fr = REG_FRINDEX;
                     }
-                    length += ((td->reserved & DTD_RESERVED_LENGTH_MASK) -
-                        ((td->size_ioc_sts & DTD_PACKET_SIZE) >> DTD_LENGTH_BIT_POS));
-                    td=(struct transfer_descriptor*) td->next_td_ptr;
+                    else if (!dir && !errs[pipe])
+                        last_out_us = DRV_NOW_US();
+                }
+#endif
+                if (errs[pipe]) {
+                    /* report it, and clear the endpoint so the next
+                     * prime starts from a known state */
+                    qh->status = errs[pipe];
+                    DSTAT(dstats.td_err_reset++);
+                    ep_flush(pipe2mask[pipe]);
                 }
                 if (ep == EP_CONTROL && dir == DIR_IN &&
                     pending_device_address >= 0 &&
                     qh->status == 0 && length == 0) {
                     REG_DEVICEADDR =
                         pending_device_address << USBDEVICEADDRESS_BIT_POS;
+                    drv_address = pending_device_address;
+                    DSTAT(dstats.addr_set++);
                     usb_core_notify_set_address(pending_device_address);
                     pending_device_address = -1;
                 }
@@ -1159,8 +1437,6 @@ static void transfer_completed(void)
 
                 complete_transfer(ep, dir?USB_DIR_IN:USB_DIR_OUT,
                         qh->status, length);
-                Lskip:
-                continue;
             }
         }
     }
@@ -1169,32 +1445,40 @@ static void transfer_completed(void)
 /* manual: 32.14.2.1 Bus Reset */
 static void bus_reset(void)
 {
-    int i;
     logf("usb bus_reset");
 
     REG_USBINTR &= ~USBINTR_SOF_EN;
     batch_stopped = true;
 
     REG_DEVICEADDR = 0;
+    drv_address = 0;
     pending_device_address = -1;
     REG_ENDPTSETUPSTAT = REG_ENDPTSETUPSTAT;
     REG_ENDPTCOMPLETE  = REG_ENDPTCOMPLETE;
 
-    for (i=0; i<100; i++) {
-        if (!REG_ENDPTPRIME)
-            break;
-
-        if (REG_USBSTS & USBSTS_RESET) {
-            logf("usb: double reset");
-            return;
-        }
-
-        udelay(100);
-    }
+    /* The controller drops primed endpoints itself within microseconds
+     * of the reset; wait for ENDPTPRIME to clear, polling (no per-poll
+     * delay, we are in the interrupt), at most 1 ms. */
+#ifdef USEC_TIMER
+    uint32_t t0 = USEC_TIMER;
+    while (REG_ENDPTPRIME && (uint32_t)(USEC_TIMER - t0) < 1000)
+        ;
+#else
+    for (int i = 0; i < 5000 && REG_ENDPTPRIME; i++)
+        ;
+#endif
     if (REG_ENDPTPRIME) {
         logf("usb: short reset timeout");
     }
+    /* A second reset while we wait is not a reason to skip the rest: its
+     * USBSTS bit stays set and the interrupt comes again, but the flush of
+     * every endpoint below is what leaves them clean either way. */
+    if (REG_USBSTS & USBSTS_RESET) {
+        logf("usb: double reset");
+        DSTAT(dstats.rst_dbl++);
+    }
 
+    /* flush all endpoints (retried), drop the dTDs and wake waiters */
     usb_drv_cancel_all_transfers();
 
     if (!(REG_PORTSC1 & PORTSCX_PORT_RESET)) {

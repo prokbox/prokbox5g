@@ -1,0 +1,51 @@
+# #109 (design 4.2.4 M3, 7 "-dbq-resume-renumber"): a queue persisted at
+# a restart, then a renumbering rebuild before PLAY: the block isn't
+# resident, so the rebase reads its payload from disk, goes SEEK and is
+# materialized (PATH) before the next prepare; PLAY then resumes it in
+# PATH mode with every name resolved.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-dbq-resume-renumber.script
+# needs: library
+# timeout: 400
+# golden: skip resumed
+# log: dbq build n=302
+# log: result=seek n=302
+# log: dbq materialize n=302
+# log: dbq resume n=302 mode=2
+# nolog: dbq miss
+# nolog: dbq resume fail
+# nolog: splash-pass
+
+wait 4000
+wait_db 30000
+rm_file /Audiobooks/0-dbq-rn.mp3    # leftover of a cut run (if any)
+key SELECT          # Music
+wait 1000
+wheel -10 100
+wait 300
+wheel +3 300        # Songs
+wait 600
+key SELECT
+wait 1500
+wheel +4 300
+wait 300
+key SELECT          # the whole list from row 4
+wait 2000
+expect_playing 300
+key PLAY            # pause: the resume point is written
+wait 800
+reboot
+
+wait 4000
+wait_db 30000
+copy fixtures/refresh.mp3 /Audiobooks/0-dbq-rn.mp3
+rebuild_db 180000   # renumbers before any PLAY
+wait 3000
+key PLAY            # resume
+wait 1500
+expect_playing 1000
+shot resumed
+audio_stop
+wait 500
+rm_file /Audiobooks/0-dbq-rn.mp3
+update_db_wait_change 60000
+quit

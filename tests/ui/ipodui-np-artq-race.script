@@ -1,0 +1,54 @@
+# Main-menu Now Playing art quality (np-art-quality review): a panel
+# rewrite during the row's window read. IPODUI_NP_NO_PANEL=shown: the
+# shown set misses, so the row reads the album's panel window by key;
+# IPODUI_NP_WIN_RACE: the first such read sees panel_seq move after its
+# rows (as a rewrite starting meanwhile). That read must fail (res=-1),
+# the row shows the thumbnail, nothing is remembered as "not built", and
+# the next showing reads the window again and shows it.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-np-artq-race.script
+# env: IPODUI_NP_NO_PANEL=shown
+# env: IPODUI_NP_WIN_RACE=1
+# reset: mainmenu
+# needs: library
+# needs: np
+# trace: panelset
+# log: art panel window race seq=
+# logbetween: start r1 art panel window key=\S+ from=default res=-1
+# logbetween: start r1 panel nowplaying art key=
+# logbetween: r1 end art panel window key=\S+ from=default res=0
+# logbetween: r1 end panel nowplaying window key=
+# nolog: from=memo
+# timeout: 240
+
+wait 1000
+wait_db 30000
+sim_clock 15:04
+clock_format 24
+battery 100
+repeat off
+mkdir /NPArtQ
+copy ../../build/np-fixtures/art_big.mp3 /NPArtQ/art_big.mp3
+update_db_wait_change 60000
+art_wait 120000
+play_files /NPArtQ/art_big.mp3
+wait 1000
+np_pin 3000 50
+key SELECT          # Music (the menu re-reads "Now Playing" after a push/pop)
+wait 700
+key MENU
+wait 700
+wheel +10 100       # Now Playing, the last row: the read races
+disk_active 3000
+wait 2000
+shot raced_row
+ab_mark r1
+wheel -1 100        # away and back: read again (no memo of the race)
+wait 1000
+wheel +1 100
+disk_active 3000
+wait 2000
+shot reread_row
+
+audio_stop
+rm_file /NPArtQ/art_big.mp3     # leave the shared disk as primed
+quit

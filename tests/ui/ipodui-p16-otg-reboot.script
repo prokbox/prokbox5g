@@ -1,0 +1,90 @@
+# #91 (docs/phase16-brief.md 4.3): On-The-Go's index and list are replaced
+# with the safe replace (otg.c idx_write_all(), otg_remove()). Two songs
+# added, one removed, a reboot: the list holds the one song left. Saved,
+# another reboot: the playlist is listed, On-The-Go is empty and no
+# temp or set-aside copy is left.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-otg-reboot.script
+# needs: library
+# timeout: 150
+# golden: skip
+# logafter: reboot1 otg_dump lines=1$
+# logafter: reboot2 otg_dump lines=0$
+# log: sim_script: rm_file /Playlists/New Playlist 1.m3u8
+# log: rm_file /.rockbox/otg/otg.tmp: not removed
+# log: rm_file /.rockbox/otg/otg.old: not removed
+# log: rm_file /.rockbox/otg/otg.itmp: not removed
+# log: rm_file /.rockbox/otg/otg.iold: not removed
+
+wait 4000
+wait_db 30000
+rm_file /Playlists/New%20Playlist%201.m3u8  # an aborted run's copy
+key SELECT          # Music
+wait 800
+wheel +3 300        # "Songs"
+wait 400
+key SELECT
+wait 800
+wheel +2 300        # "Amber Garden"
+wait 400
+hold SELECT 1500
+wait 600
+key SELECT          # Add to On-The-Go
+wait 800
+wheel +1 300        # "Amber Harbour"
+wait 400
+hold SELECT 1500
+wait 600
+key SELECT          # Add to On-The-Go
+wait 800
+key MENU            # Music
+wait 800
+wheel -4 300        # "Playlists"
+wait 400
+key SELECT
+wait 800
+key SELECT          # "On-The-Go": two songs
+wait 1000
+hold SELECT 1500    # on the first song
+wait 600
+key SELECT          # Remove from On-The-Go
+wait 1000
+shot one_left
+otg_dump
+reboot
+
+wait 4000
+wait_db 30000
+ab_mark reboot1
+otg_dump
+key SELECT          # Music
+wait 800
+wheel -6 300        # "Playlists"
+wait 400
+key SELECT
+wait 800
+key SELECT          # "On-The-Go": the one song
+wait 1000
+shot after_reboot
+wheel +1 300        # "Save Playlist"
+wait 400
+key SELECT
+wait 1200
+reboot
+
+wait 4000
+wait_db 30000
+ab_mark reboot2
+otg_dump
+key SELECT          # Music
+wait 800
+wheel -6 300        # "Playlists"
+wait 400
+key SELECT
+wait 1200
+shot saved_listed   # New Playlist 1 listed
+rm_file /.rockbox/otg/otg.tmp
+rm_file /.rockbox/otg/otg.old
+rm_file /.rockbox/otg/otg.itmp
+rm_file /.rockbox/otg/otg.iold
+rm_file /Playlists/New%20Playlist%201.m3u8
+quit

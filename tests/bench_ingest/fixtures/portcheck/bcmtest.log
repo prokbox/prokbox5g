@@ -1,0 +1,9 @@
+  1037 pre: stage 5 pass flag: PASS
+  1074 auto: pre pass answer=- ms=20 pre: stage 5 pass flag: PASS
+  1111 auto: s05 skip answer=- ms=0 not needed: the stage 5 flag is there
+  1148 cr1 region 0x105700 wrong=0/64 (control, host frame)
+  1185 cr1 region 0x046000 wrong=64/64 (drift) first got 00000000 want 3c6ef372
+  1222 cr1 variant addr16 at 0x046000 wrong=0/64
+  1259 cr1: variants landing where ours doesn't: addr16
+  1296 cr1: FAIL: region not writable after start (control 0 wrong, pools 7 of 7 wrong; slots 0 pass, 8 write, 0 sum, 0 other)
+  1333 auto: cr1 fail answer=- ms=21000 cr1: FAIL: region not writable after start (control 0 wrong, pools 7 of 7 wrong; slots 0 pass, 8 write, 0 sum, 0 other)

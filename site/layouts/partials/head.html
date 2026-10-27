@@ -1,0 +1,10 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ if .IsHome }}{{ site.Title }}: {{ site.Params.description }}{{ else }}{{ .Title }} · {{ site.Title }}{{ end }}</title>
+<meta name="description" content="{{ with .Description }}{{ . }}{{ else }}{{ site.Params.description }}{{ end }}">
+<meta name="color-scheme" content="light dark">
+<meta property="og:title" content="{{ .Title }}">
+<meta property="og:description" content="{{ with .Description }}{{ . }}{{ else }}{{ site.Params.description }}{{ end }}">
+{{ $css := resources.Get "css/site.css" | minify | fingerprint }}
+<link rel="stylesheet" href="{{ $css.RelPermalink }}" integrity="{{ $css.Data.Integrity }}">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='14' y='4' width='36' height='56' rx='7' fill='%23e9ecf1' stroke='%2363708a' stroke-width='3'/%3E%3Crect x='19' y='10' width='26' height='19' rx='2' fill='%232f6fd6'/%3E%3Ccircle cx='32' cy='44' r='10' fill='none' stroke='%2363708a' stroke-width='3'/%3E%3Ccircle cx='32' cy='44' r='3.5' fill='%2363708a'/%3E%3C/svg%3E">

@@ -1,0 +1,26 @@
+# User guide shot (docs/user/guide/audiobooks.md): a book's page with
+# Resume first, then its chapters. Synthetic library only.
+#   SIM_BUILD=build/sim-rel scripts/shots.sh tests/ui/docs-audiobooks-chapters.script
+# needs: library
+# fresh-db
+# golden: skip
+wait 4000
+wait_db 45000
+key SELECT          # Music
+wait 800
+wheel +6 300        # Audiobooks
+wait 400
+key SELECT
+wait 800
+wheel +1            # The Lighthouse Keeper
+wait 400
+key SELECT          # starts the book
+wait 3000
+key PLAY            # pause: the resume position is saved
+wait 500
+key MENU            # back to Audiobooks
+wait 1000
+key SELECT          # the book's page: Resume first
+wait 1000
+shot chapters
+quit

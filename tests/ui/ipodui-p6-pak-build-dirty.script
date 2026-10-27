@@ -1,0 +1,44 @@
+# Phase 6 (Rev 1 item 4): books.pak / books.idx hold a blob for EVERY book
+# (coverless, multi-file, single-file with and without chapters), built in
+# the stopped pass only. A stale book (newer mtime) is rebuilt; a lost or
+# torn index owes every book again. While a book plays the pak and its index
+# do not change (the generation word stays put).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p6-pak-build-dirty.script
+# needs: library
+# needs: ab
+# timeout: 240
+# log: art build books book=
+# log: art build books commit
+# (no page is opened here, so no "ab pak hit/miss": the builder's own lines)
+# golden: skip done
+# DB state: dirty. Needs B (artcache.c books pass). The fixtures have no covers.
+# Books: the library's 4 + 3 single-file fixtures + the 4-file AB Multi.
+
+wait 4000
+wait_db 45000
+dirty_db            # a power cut mid-commit
+reboot
+
+wait 4000
+wait_db 60000
+mkdir /Audiobooks/AB
+mkdir /Audiobooks/ABMulti
+copy ../../build/ab-fixtures/pref.m4b /Audiobooks/AB/pref.m4b
+copy ../../build/ab-fixtures/nochap.m4b /Audiobooks/AB/nochap.m4b
+copy ../../build/ab-fixtures/short.m4b /Audiobooks/AB/short.m4b
+copy ../../build/ab-fixtures/multi/01.mp3 /Audiobooks/ABMulti/01.mp3
+copy ../../build/ab-fixtures/multi/02.mp3 /Audiobooks/ABMulti/02.mp3
+copy ../../build/ab-fixtures/multi/03.mp3 /Audiobooks/ABMulti/03.mp3
+copy ../../build/ab-fixtures/multi/04.mp3 /Audiobooks/ABMulti/04.mp3
+update_db_wait_change 60000
+art_wait 60000
+expect_ab_pak 8 60000          # every book has a blob, stopped
+shot done           # shots.sh needs one shot (not a golden)
+remove /Audiobooks/AB/pref.m4b
+remove /Audiobooks/AB/nochap.m4b
+remove /Audiobooks/AB/short.m4b
+remove /Audiobooks/ABMulti/01.mp3
+remove /Audiobooks/ABMulti/02.mp3
+remove /Audiobooks/ABMulti/03.mp3
+remove /Audiobooks/ABMulti/04.mp3
+quit

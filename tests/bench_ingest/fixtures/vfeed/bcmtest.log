@@ -1,0 +1,6 @@
+    10 boot path: active: bcmvideo (default), first frame 30100 us; marker cleared
+  2000 === video pace (vfeed) ===
+  2001 vfeed: 1 of 2 clips missing
+  2002 vfeed demanding (clip2.mp4): PASS; FEED p95 24400 us, max 39000 us, mean 17000 us; frame 41666 us (p95 58%); 0 skipped, 0 GOPs dropped; A/V max 30000 us; 150-150 MHz
+  2003 vfeed converted (stage7.m4v): Not available (no clip)
+  2004 === end: video pace ===

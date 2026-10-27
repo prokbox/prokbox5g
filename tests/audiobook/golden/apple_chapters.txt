@@ -1,0 +1,9 @@
+Audiobook: yes
+Chapter count: 4
+Chapters read: 4
+Chapter 1: 0 ms "Prologue"
+Chapter 2: 2000 ms "Chapter One: Über Café"
+Chapter 3: 4000 ms "Chapter Two"
+Chapter 4: 5500 ms "Chapter Three, which has a deliberately long title to test trun"
+Lyrics: none
+Chapter art: 0

@@ -1,0 +1,24 @@
+BEGIN:VCARD
+VERSION:4.0
+FN:Grace Hopper
+N:Hopper;Grace;;;
+ORG:Naval Reserve
+TEL;VALUE=uri;TYPE="voice,home":tel:+1-555-0142
+TEL;VALUE=uri;TYPE="cell":tel:+1-555-0143
+item1.EMAIL;TYPE=work:grace@example.mil
+item1.X-ABLabel:_$!<Other>!$_
+BDAY:--1209
+END:VCARD
+BEGIN:VCARD
+VERSION:4.0
+ORG:Acme Plumbing
+TEL;TYPE=work:555-1212
+END:VCARD
+BEGIN:VCARD
+VERSION:4.0
+TEL:555-9999
+END:VCARD
+BEGIN:VCARD
+VERSION:4.0
+TITLE:A card with nothing to list
+END:VCARD

@@ -1,0 +1,90 @@
+# np-sharp: npcover.pak keeps the two most recent renders. Three albums
+# played in turn (why=played, here after 2 s) render into slots 0, 1,
+# then 0 again (the oldest, art_big, gives its slot up); afterwards the
+# row reads the other two from npcover.pak, and art_big, played again,
+# is not there: it renders once more, into art_23's slot (the oldest).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-np-sharp-mru.script
+# env: IPODUI_NP_NO_PANEL=built
+# env: IPODUI_NPR_PLAYED_MS=2000
+# reset: mainmenu
+# needs: library
+# needs: np
+# trace: panelset
+# golden: skip
+# logbetween: start m1 art npcover build key=d041e5ce04cedfc7 slot=0 state=1
+# logbetween: m1 m2 art npcover build key=53bfce87f54fa498 slot=1 state=1
+# logbetween: m2 m3 art npcover build key=fd55f74c8cf3103e slot=0 state=1
+# logbetween: m2 m3 art npcover evict key=d041e5ce04cedfc7 slot=0
+# logbetween: m3 m4 art panel window key=fd55f74c8cf3103e from=npcover res=0
+# logbetween: m4 m5 art panel window key=53bfce87f54fa498 from=npcover res=0
+# logbetween: m5 m6 art npcover queue key=d041e5ce04cedfc7 why=(row|played)
+# logbetween: m3 m6 no art npcover (build|have)
+# logbetween: m6 m7 art npcover build key=d041e5ce04cedfc7 slot=1 state=1
+# logbetween: m6 m7 art npcover evict key=53bfce87f54fa498 slot=1
+# timeout: 300
+
+wait 1000
+wait_db 30000
+sim_clock 15:04
+clock_format 24
+battery 100
+charger off
+repeat off
+mkdir /NPSharp
+copy ../../build/np-fixtures/art_big.mp3 /NPSharp/art_big.mp3
+copy ../../build/np-fixtures/art_23.mp3 /NPSharp/art_23.mp3
+copy ../../build/np-fixtures/art_small.mp3 /NPSharp/art_small.mp3
+update_db_wait_change 60000
+art_wait 120000
+charger on
+wait 1500           # (a charger change lights the screen)
+backlight_expire    # dark on the charger: renders may run
+play_files /NPSharp/art_big.mp3
+wait 2500
+disk_active 4000
+wait 3000
+ab_mark m1
+play_files /NPSharp/art_23.mp3
+wait 2500
+disk_active 4000
+wait 3000
+ab_mark m2
+play_files /NPSharp/art_small.mp3
+wait 2500
+disk_active 4000
+wait 3000
+ab_mark m3
+charger off         # on battery, lit: nothing renders
+wait 1500
+key MENU            # wakes the screen (swallowed)
+wait 700
+key MENU            # Now Playing (auto-return) -> the main menu
+wait 700
+wheel +10 100       # the row: art_small (newest)
+disk_active 3000
+wait 2500
+shot kept_row_newest
+ab_mark m4
+play_files /NPSharp/art_23.mp3
+disk_active 3000
+wait 2500
+shot kept_row_older
+ab_mark m5
+play_files /NPSharp/art_big.mp3     # evicted: queued again (row or played)
+wait 4500
+ab_mark m6
+charger on
+wait 1500
+backlight_expire
+disk_active 4000
+wait 3000
+ab_mark m7          # art_big again, into art_23's slot (now the oldest)
+key MENU            # the unlit face away
+wait 1000
+charger off
+audio_stop
+rm_file /NPSharp/art_big.mp3    # leave the shared disk as primed
+rm_file /NPSharp/art_23.mp3
+rm_file /NPSharp/art_small.mp3
+rm_file /.rockbox/artcache/npcover.pak
+quit

@@ -1,0 +1,42 @@
+# cfgsafe (2026-10-26, device build 207956fb84): a changed setting is
+# written within ~2 s of the change (settings_save_service(), the
+# debounced save), not only when the disk next goes idle, so a hard
+# reset a few seconds later keeps it. The owner lost Clicker this way.
+# Settings > Clicker turned On (from Off, the default, as
+# ipodui-fb-clicker), 4 s, then a power cut (no shutdown path runs) and a
+# fresh boot on the same disk: walking back to Clicker now clicks, so the
+# setting survived; Select turns it Off again for the scripts after this
+# one. Before the fix nothing wrote config.cfg until the next idle flush
+# or a clean power-off: the second boot was silent (no click line at all;
+# checked with the debounced save disabled).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-cfgsafe-clicker.script
+# golden: skip
+# modclass: none (resident sim-ui)
+# log: click n=1 btn=
+# log: click n=16 btn=
+# nolog: click n=17 btn=
+# nolog: cfg save failed
+# reset: mainmenu
+wait 4000
+
+wheel +3 300            # Settings (silent: Clicker is Off)
+wait 400
+key SELECT 50
+wait 1200
+wheel +11 40            # Clicker (row 11)
+wait 800
+key SELECT 50           # On (pressed while Off: no click)
+wait 4000               # the debounced save (~2 s)
+power_cut
+reboot
+wait 4000               # the main menu
+wheel +3 300            # Settings: 3 clicks, Clicker came back On
+wait 400
+key SELECT 50           # n=4
+wait 1200
+wheel +11 40            # Clicker: n=5..15
+wait 800
+key SELECT 50           # the press clicks (n=16); release: Off
+wait 4000               # saved Off for the next script
+shot clicker_off       # Settings, Clicker Off again (shots.sh needs one)
+quit

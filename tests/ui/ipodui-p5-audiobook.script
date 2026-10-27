@@ -1,0 +1,48 @@
+# Phase 5 (#4, audiobooks): the album line is the chapter title, the counter
+# reads chapter N of M, the Scrubber bar spans the book with chapter ticks,
+# the cycle is Normal, Scrubber, Rating, Normal (no Shuffle), PREV/NEXT jump
+# by chapter, and a fast wheel snaps to chapter starts.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p5-audiobook.script
+# needs: music
+# trace: np
+# golden: skip slide
+# Needs a pristine primed disk (the gate and golden_capture.sh clone one per
+# run): the book's saved resume offset (tagcache autoresume) survives on a
+# reused disk, so a rerun on the same disk starts where the last one
+# stopped it, and the fourth runs off the 48 s book's end mid-script (no
+# header play icon from "ticks" on).
+
+wait 3000
+sim_clock 15:08
+clock_format 24      # P11: the default is 12-hour; this golden shows 24
+repeat off
+wait_db 30000
+art_wait 60000
+play_files /Music/Fixture%20Author/Mini%20Audiobook/Mini%20Audiobook.m4b
+wait 1000
+np_pin 4000 50
+key SELECT          # Music (the menu re-reads "Now Playing" after a push/pop)
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 1200
+shot ch1             # chapter 1 of 4
+wait 4000
+shot ch1_later       # still chapter 1 (8 s long), counter "1 of 4"
+np_pin 10000 50
+wait 1500
+shot ch2             # pinned inside chapter 2: the album line is its title, "2 of 4"
+key SELECT
+wait 600
+shot ticks           # Scrubber: ticks on the bar
+key SELECT
+wait 600
+shot rating          # Rating (a book has it)
+key SELECT
+wait 700
+shot normal_again    # Normal: no Shuffle step
+audio_stop
+quit

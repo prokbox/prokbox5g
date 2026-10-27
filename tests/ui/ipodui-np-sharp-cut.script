@@ -1,0 +1,109 @@
+# np-sharp review M1/M2/M3: a render into an occupied slot that does not
+# land. The album that held the slot leaves the header first (evict), so
+# it reads as absent afterwards (a sure miss), never as a named slot
+# without its pixels. Two ways a render is called off (DEFERRED, still
+# queued): paused, the user comes back (M3); playing on a charger, the
+# user comes back (a park) and the disk sleeps before they leave (M2).
+# Slowed with "art_decode_spin".
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-np-sharp-cut.script
+# env: IPODUI_NP_NO_PANEL=built
+# env: IPODUI_NPR_PLAYED_MS=2000
+# reset: mainmenu
+# needs: library
+# needs: np
+# trace: panelset
+# golden: skip
+# logbetween: start m1 art npcover build key=d041e5ce04cedfc7 slot=0 state=1
+# logbetween: m1 m2 art npcover build key=53bfce87f54fa498 slot=1 state=1
+# logbetween: m2 m3 art npcover evict key=d041e5ce04cedfc7 slot=0
+# logbetween: m2 m3 art npcover start key=fd55f74c8cf3103e slot=0
+# logbetween: m3 m4 art npcover abort disk=1 np=0 input=1
+# logbetween: m3 m4 art npcover build key=fd55f74c8cf3103e slot=0 state=-2
+# logbetween: m3 m4 art npcover build key=fd55f74c8cf3103e slot=0 state=1
+# logbetween: m4 m5 art panel window key=d041e5ce04cedfc7 from=none res=2 sure=1
+# logbetween: m4 m5 no art panel window key=d041e5ce04cedfc7 from=npcover
+# logbetween: m5 m6 art npcover evict key=53bfce87f54fa498 slot=1
+# logbetween: m5 m6 art npcover start key=d041e5ce04cedfc7 slot=1
+# logbetween: m6 m7 art park ms=
+# logbetween: m6 m7 art npcover abort disk=0
+# logbetween: m6 m7 art npcover build key=d041e5ce04cedfc7 slot=1 state=-2
+# timeout: 400
+
+wait 1000
+wait_db 30000
+sim_clock 15:04
+clock_format 24
+battery 100
+charger off
+repeat one
+mkdir /NPSharp
+copy ../../build/np-fixtures/art_big.mp3 /NPSharp/art_big.mp3
+copy ../../build/np-fixtures/art_23.mp3 /NPSharp/art_23.mp3
+copy ../../build/np-fixtures/art_small.mp3 /NPSharp/art_small.mp3
+update_db_wait_change 60000
+art_wait 120000
+charger on
+wait 1500           # (a charger change lights the screen)
+backlight_expire    # dark on the charger: renders may run
+play_files /NPSharp/art_big.mp3
+wait 2500
+disk_active 4000
+wait 3000
+ab_mark m1
+play_files /NPSharp/art_23.mp3
+wait 2500
+disk_active 4000
+wait 3000
+ab_mark m2
+# M3: paused, the user back mid-render (art_small into art_big's slot)
+charger off         # on battery, lit: nothing renders while playing
+wait 1500
+key MENU            # wakes the screen
+wait 700
+wheel +10 100       # the Now Playing row
+play_files /NPSharp/art_small.mp3
+wait 3000           # played: queued (or the row's)
+art_decode_spin 10000
+key PLAY            # pause
+disk_active 30000
+wait 3500           # quiet: the render starts, slowed
+ab_mark m3
+wheel +1 100        # the user back (the last row: it stays)
+wait 300
+art_decode_spin 0
+wait 4000           # quiet again: it renders, and lands
+ab_mark m4
+key MENU            # wakes the screen (its timeout ran out meanwhile)
+wait 700
+play_files /NPSharp/art_big.mp3     # evicted: absent, a sure miss
+wait 1000
+key SELECT          # Now Playing and back: the row arrives again
+wait 1000
+key MENU
+disk_active 3000
+wait 2000
+shot evicted_absent
+ab_mark m5
+# M2: charger playback, the user back (a park), the disk sleeps meanwhile
+art_decode_spin 10000
+charger on
+wait 1500
+disk_active 3000
+backlight_expire    # the render starts (art_big, into art_23's slot)
+wait 1000
+ab_mark m6
+key MENU            # the user back: parked
+wait 5000           # the disk sleeps
+backlight_expire    # idle again: the park ends, the disk asleep
+wait 2000
+ab_mark m7
+art_decode_spin 0
+key MENU
+wait 1000
+charger off
+audio_stop
+rm_file /NPSharp/art_big.mp3    # leave the shared disk as primed
+rm_file /NPSharp/art_23.mp3
+rm_file /NPSharp/art_small.mp3
+rm_file /.rockbox/artcache/npcover.pak
+quit

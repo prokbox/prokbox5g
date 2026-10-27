@@ -1,0 +1,71 @@
+# #58 idle build (owner, 2026-10-09), case 2: while audio plays, the
+# builder runs once the user is idle: the backlight times out
+# ("backlight_expire": the idle timeout's path) and the unlit clock face
+# comes up; the UI posts the wake (artcache_note_idle()), the builder
+# builds every album and panel continuously, waking storage as it needs,
+# without a fill window, still playing. The albums the user saw PENDING
+# while browsing (the hint ring: the Albums list's rows) go first. Any
+# key dismisses the face, and nothing more is read while the user is on.
+# Setup: a rebuild from scratch, stopped, commits the panel set's albums
+# and is held in its first panel (art_panel_hold: the UI's reader then
+# has an index without the other albums, so their rows are PENDING);
+# playback starts meanwhile, so after the hold the panel is deferred
+# ("art build panel deferred") and the builder waits for an idle user.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-idle-face.script
+# needs: library
+# log: art build panel deferred
+# logbetween: playing lit no \bart io\b
+# logbetween: lit built art build wait -
+# logbetween: lit built art io read key=\S+ playing=1 active=\d idle=1
+# logbetween: lit built art build album key=\S+ .*first=hint
+# logbetween: lit built art build panels set=
+# logbetween: built end no \bart io\b
+# golden: skip albums face
+# timeout: 120
+
+wait 1000
+wait_db 30000
+art_wait 120000
+charger off
+rm_file /.rockbox/artcache/index.dat
+rm_file /.rockbox/artcache/index.prev
+rm_file /.rockbox/artcache/index.tmp
+rm_file /.rockbox/artcache/thumbs.pak
+rm_file /.rockbox/artcache/panels.pak
+art_panel_hold 16000
+art_request         # stopped: the panel set's albums, then the hold
+wait 6000
+wheel +4            # "Shuffle Songs"
+wait 500
+key SELECT          # plays (Now Playing)
+wait 1500
+expect_playing 300
+ab_mark playing
+key MENU            # main menu
+wait 1000
+wheel -4            # "Music"
+wait 500
+key SELECT          # the Music menu
+wait 1000
+wheel +2            # "Albums"
+wait 500
+key SELECT          # the Albums list: rows not in the set PENDING
+wait 12000          # the hold ends: the panel waits for an idle user
+                    # (the list's idle auto-return shows Now Playing)
+key MENU            # back to the Albums list (the face is dismissed
+wait 1000           # over it below)
+shot albums
+expect_playing 300
+ab_mark lit         # nothing read while the user was on
+backlight_expire    # idle: the face comes up, the builder goes on
+art_wait 60000      # every album, while playing
+expect_art art_manifest.txt
+expect_playing 300
+shot face
+ab_mark built
+key MENU            # wakes: the face goes (the key is swallowed)
+wait 2000
+expect_playing 300
+audio_stop
+
+quit

@@ -68,6 +68,15 @@
 
 /* amount of data to read in one read() call */
 #define BUFFERING_DEFAULT_FILECHUNK      (1024*32)
+#ifdef HAVE_IPOD_UI
+/* ProkBox (Fit-1 C12a): a background fill (nobody waiting) reads 256 KB
+ * per call, one storage command when the clusters are contiguous; a read
+ * a codec or a seek waits for keeps the 32 KB chunk, so start and seek
+ * latency don't grow */
+#define BUFFERING_FILL_FILECHUNK         (1024*256)
+#else
+#define BUFFERING_FILL_FILECHUNK         BUFFERING_DEFAULT_FILECHUNK
+#endif
 
 enum handle_flags
 {
@@ -163,14 +172,42 @@ enum
                             fill at its earliest convenience */
     Q_HANDLE_ADDED,      /* Inform the buffering thread that a handle was added,
                             (which means the disk is spinning) */
+#ifdef HAVE_IPOD_UI
+    Q_WATCH,             /* P18 18-A: the watched level moved without a
+                            message (a forward seek inside the buffer, the
+                            base handle, the watermark): re-check now */
+    Q_SLEEP_HOLD,        /* ProkBox P18: ends a fill under way at its next
+                            chunk (buffering_sleep_hold()) */
+#endif
 };
+
 
 /* Buffering thread */
 static void buffering_thread(void);
 static long buffering_stack[(DEFAULT_STACK_SIZE + 0x2000)/sizeof(long)];
 static const char buffering_thread_name[] = "buffering";
 static unsigned int buffering_thread_id = 0;
+#ifdef HAVE_IPOD_UI
+static void watch_poke(void);
+#endif
 static struct event_queue buffering_queue SHAREDBSS_ATTR;
+
+#ifdef HAVE_IPOD_UI
+/* ProkBox P18 (#86, brief §4.3 step 4): sleep entry quiets storage: while
+ * held, no background fill or watermark refill starts and a fill under way
+ * stops at its next chunk (a queued event ends fill_buffer()'s loop). A
+ * request someone waits for (Q_BUFFER_HANDLE) still runs. Released at the
+ * wake with nothing posted: the next fill starts when the levels ask for
+ * one, so the wake itself reads nothing. */
+static volatile bool fill_hold;
+
+void buffering_sleep_hold(bool hold)
+{
+    fill_hold = hold;
+    if (hold)
+        queue_post(&buffering_queue, Q_SLEEP_HOLD, 0);
+}
+#endif
 static struct queue_sender_list buffering_queue_sender_list SHAREDBSS_ATTR;
 
 static void close_fd(int *fd_p)
@@ -648,7 +685,11 @@ static bool buffer_handle(int handle_id, size_t to_buffer)
             lseek(h->fd, h->start, SEEK_SET);
     }
 
+    /* ProkBox (Fit-1 C4a): no boost to fill on flash. UDMA2 keeps up at
+     * 30 MHz and the DMA wait yields; a hard disk keeps the boost. */
+#if !defined(HAVE_IPOD_UI) || defined(HAVE_DISK_STORAGE)
     trigger_cpu_boost();
+#endif
 
     if (h->type == TYPE_ID3) {
         get_metadata_ex(ringbuf_ptr(h->data),
@@ -666,7 +707,8 @@ static bool buffer_handle(int handle_id, size_t to_buffer)
         /* max amount to copy */
         size_t widx = h->widx;
         ssize_t copy_n = h->filesize - h->end;
-        copy_n = MIN(copy_n, BUFFERING_DEFAULT_FILECHUNK);
+        copy_n = MIN(copy_n, to_buffer ? BUFFERING_DEFAULT_FILECHUNK
+                                       : BUFFERING_FILL_FILECHUNK);
         copy_n = MIN(copy_n, (off_t)(buffer_len - widx));
 
         mutex_lock(&llist_mutex);
@@ -826,6 +868,16 @@ static bool fill_buffer(void)
             m = NULL;
             break;
         }
+#ifdef HAVE_IPOD_UI
+        /* ProkBox #114: a handle cut short by a queued message is not
+         * done: fill on after the message. Upstream moved past it, and
+         * when it was the last handle (a track larger than the room
+         * left, which is the usual last one) the fill ended there after
+         * one chunk, at every low-buffer event: the drive stayed on,
+         * reading a chunk every few seconds, for a whole long track */
+        if (m->end < m->filesize && !queue_empty(&buffering_queue))
+            break;
+#endif
         m = HLIST_NEXT(m);
     }
 
@@ -834,6 +886,9 @@ static bool fill_buffer(void)
     } else {
         /* only spin the disk down if the filling wasn't interrupted by an
            event arriving in the queue. */
+#ifdef HAVE_IPOD_UI
+        send_event(BUFFER_EVENT_FILL_DONE, NULL);
+#endif
         storage_sleep();
         return false;
     }
@@ -1247,8 +1302,16 @@ static int seek_handle(struct memory_handle *h, off_t newpos)
                     (intptr_t)&(struct buf_message_data){ h->id, newpos });
     }
     else {
+#ifdef HAVE_IPOD_UI
+        /* P18 18-A: a forward seek lowers the level with no message */
+        bool fwd = newpos - h->pos >= BUFFERING_DEFAULT_FILECHUNK;
+#endif
         h->ridx = ringbuf_add(h->data, newpos - h->start);
         h->pos  = newpos;
+#ifdef HAVE_IPOD_UI
+        if (fwd)
+            watch_poke();
+#endif
         return 0;
     }
 }
@@ -1449,6 +1512,44 @@ ssize_t bufgetdata(int handle_id, size_t size, void **data)
     return size;
 }
 
+#ifdef HAVE_BCMFW_VIDEO
+/* Copies [file_pos, file_pos + size) of a handle's file if it is already
+   buffered, without moving the read position: the video player reads its
+   samples from the audio's buffered copy of the same file, so the file is
+   read once (docs/research/bcm2722/player.md, "Feeding the BCM").
+   Never waits.  Returns size, ERR_HANDLE_NOT_DONE if the range is not
+   buffered yet, ERR_INVALID_VALUE if it starts before the buffered window
+   (already reclaimed; the caller reads the file itself) or
+   ERR_HANDLE_NOT_FOUND. */
+ssize_t bufpeek_at(int handle_id, off_t file_pos, size_t size, void *dest)
+{
+    ssize_t rc;
+
+    mutex_lock(&llist_mutex);
+    const struct memory_handle *h = find_handle(handle_id);
+    if (!h)
+        rc = ERR_HANDLE_NOT_FOUND;
+    else if (file_pos < h->start)
+        rc = ERR_INVALID_VALUE;
+    else if (file_pos + (off_t)size > h->end)
+        rc = ERR_HANDLE_NOT_DONE;
+    else {
+        /* data holds the byte at file offset start */
+        uintptr_t idx = ringbuf_add(h->data, file_pos - h->start);
+        if (idx + size > buffer_len) {
+            size_t read = buffer_len - idx;
+            memcpy(dest, ringbuf_ptr(idx), read);
+            memcpy(dest + read, ringbuf_ptr(0), size - read);
+        } else {
+            memcpy(dest, ringbuf_ptr(idx), size);
+        }
+        rc = size;
+    }
+    mutex_unlock(&llist_mutex);
+    return rc;
+}
+#endif /* HAVE_BCMFW_VIDEO */
+
 /*
 SECONDARY EXPORTED FUNCTIONS
 ============================
@@ -1542,6 +1643,9 @@ void buf_set_base_handle(int handle_id)
     mutex_lock(&llist_mutex);
     base_handle_id = handle_id;
     mutex_unlock(&llist_mutex);
+#ifdef HAVE_IPOD_UI
+    watch_poke();       /* P18 18-A: the level is counted from here */
+#endif
 }
 
 /* Return the amount of buffer space used */
@@ -1556,6 +1660,9 @@ size_t buf_used(void)
 void buf_set_watermark(size_t bytes)
 {
     conf_watermark = bytes;
+#ifdef HAVE_IPOD_UI
+    watch_poke();       /* P18 18-A: a new level to watch (or none) */
+#endif
 }
 
 size_t buf_get_watermark(void)
@@ -1577,6 +1684,57 @@ static void shrink_buffer(void)
     mutex_unlock(&llist_mutex);
 }
 
+#ifdef HAVE_IPOD_UI
+/* P18 18-A (hardware-fit-audit K1): while idle the thread only watches
+ * for the buffered level to fall under the watermark.  The level falls
+ * only by reads (the codec, at most real time: far under BUF_MAX_DRAIN),
+ * by a forward seek or by a base handle or watermark change; the last
+ * three post Q_WATCH.  So it sleeps until the level could first reach the
+ * watermark at BUF_MAX_DRAIN bytes/s, never later than the HZ/2 poll
+ * noticed a crossing, and never less than HZ/2 apart (the old cadence).
+ * Returns -1 to wait without a timeout (no watermark set: nothing to
+ * watch). */
+#define BUF_MAX_DRAIN   (2*1024*1024)   /* bytes/s: 24/192 stereo is 1.2 MB/s */
+#define BUF_WATCH_MAX   (30*HZ)         /* a safety net, not a need */
+
+static long watch_ticks(void)
+{
+    size_t wm = BUF_WATERMARK;
+
+    if (wm == 0)
+        return -1;
+
+    update_data_counters(NULL);
+    if (data_counters.useful < wm)
+        return HZ/2;            /* low: notify and retry as before */
+
+    uint64_t t = (uint64_t)(data_counters.useful - wm) * HZ / BUF_MAX_DRAIN;
+    return t < HZ/2 ? HZ/2 : t > BUF_WATCH_MAX ? BUF_WATCH_MAX : (long)t;
+}
+
+/* One Q_WATCH in the queue at a time (it cannot overflow it) */
+static volatile bool watch_posted;
+
+static void watch_poke(void)
+{
+    if (buffering_thread_id == 0 || watch_posted)
+        return;
+    watch_posted = true;
+    queue_post(&buffering_queue, Q_WATCH, 0);
+}
+#endif /* HAVE_IPOD_UI */
+
+#ifdef HAVE_IPOD_UI
+/* npfix: the thread's 'filling', for the shell's shuffle refill (it waits
+ * for a fill's end instead of queueing small reads behind it) */
+static volatile bool fill_running;
+
+bool buffering_is_filling(void)
+{
+    return fill_running;
+}
+#endif
+
 static void NORETURN_ATTR buffering_thread(void)
 {
     bool filling = false;
@@ -1584,11 +1742,23 @@ static void NORETURN_ATTR buffering_thread(void)
 
     while (true)
     {
+#ifdef HAVE_IPOD_UI
+        fill_running = filling;
+#endif
         if (num_handles > 0) {
             if (!filling) {
                 cancel_cpu_boost();
             }
+#ifdef HAVE_IPOD_UI
+            /* P18 18-A: a deadline wait instead of a HZ/2 poll */
+            long tmo = filling ? 1 : watch_ticks();
+            if (tmo < 0)
+                queue_wait(&buffering_queue, &ev);
+            else
+                queue_wait_w_tmo(&buffering_queue, &ev, tmo);
+#else
             queue_wait_w_tmo(&buffering_queue, &ev, filling ? 1 : HZ/2);
+#endif
         } else {
             filling = false;
             cancel_cpu_boost();
@@ -1639,6 +1809,13 @@ static void NORETURN_ATTR buffering_thread(void)
                 filling = true;
                 break;
 
+#ifdef HAVE_IPOD_UI
+            case Q_WATCH:
+                watch_posted = false;
+                ev.id = SYS_TIMEOUT;    /* the same check as a timeout */
+                break;
+#endif
+
             case SYS_TIMEOUT:
                 LOGFQUEUE_SYS_TIMEOUT("buffering < SYS_TIMEOUT");
                 break;
@@ -1646,6 +1823,14 @@ static void NORETURN_ATTR buffering_thread(void)
 
         if (num_handles == 0 || !queue_empty(&buffering_queue))
             continue;
+
+#ifdef HAVE_IPOD_UI
+        if (fill_hold) {
+            filling = false;    /* the levels restart it after the wake */
+            cancel_cpu_boost();
+            continue;
+        }
+#endif
 
         update_data_counters(NULL);
 

@@ -1,0 +1,50 @@
+# Phase 16-1 review 3 (L): Now Playing on a chaptered m4b, woken while
+# the window's restart is held (5 s). The shrink keeps the playing
+# book's chapter table (moved with the scratch area), so every Now
+# Playing snapshot during the restart still has the book's chapters
+# (ch=4), never the whole-file view (ch=0), until the restart's sync.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-restart-chapters.script
+# needs: library
+# needs: ab
+# trace: np
+# golden: skip
+# timeout: 300
+# fulls-extra: 4
+# log: audio give held ms=5000
+# logbetween: held done np snap .* ch=4 book=1
+# logbetween: held done no np snap .* ch=0 
+# logbetween: held done audio give done
+# logbetween: held end no audio give FAILED
+
+wait 4000
+wait_db 45000
+mkdir /Audiobooks/K16
+copy ../../build/ab-fixtures/pref.m4b /Audiobooks/K16/pref.m4b
+update_db_wait_change 60000
+play_files /Audiobooks/K16/pref.m4b
+wait 1500
+key MENU                    # to the main menu
+wait 700
+wheel +10                   # its last row: Now Playing
+wait 500
+key SELECT
+wait 1500
+shot np
+wait_pos 17000 90000
+snapshot_pause
+expect_paused 500
+backlight_expire            # dark
+pause_age 200               # the window is open
+give_hold 5000              # the next window restart holds 5 s
+copy ../../tests/fixtures/plain.mp3 /Audiobooks/K16/new.mp3
+update_db                   # its commit takes the window's memory
+wait 2500                   # ... and the restart is held now
+ab_mark held
+key MENU                    # wake: Now Playing lights mid-restart
+wait 400
+shot woke
+wait 6000
+ab_mark done
+expect_paused 500
+expect_pos 16000 21000
+quit

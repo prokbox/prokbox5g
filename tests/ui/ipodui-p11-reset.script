@@ -1,0 +1,47 @@
+# Phase 11 (docs/phase11-brief.md 3.6, 7 criterion 8; D3, COMP-7):
+# Settings > Reset Settings. The light prompt with Reset | Cancel, Cancel
+# preselected; Cancel changes nothing; Reset puts the stock-visible
+# settings back (Time in Title Off again), then the Language list, then
+# the main menu. No font or skin reload.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p11-reset.script
+# needs: library
+# log: reset: settings n=
+# log: reset: language done
+# nolog: font_load
+#
+# Needs U2a's row wiring (Settings row 17 -> ui_reset_screen).
+
+wait 4000
+wheel +3             # Settings
+wait 400
+key SELECT
+wait 1500
+wheel +1             # Shuffle
+wait 400
+key SELECT           # Shuffle -> Songs (something to reset)
+wait 600
+wheel +15            # Reset Settings
+wait 400
+key SELECT
+wait 1500
+shot prompt          # Cancel preselected
+key SELECT           # Cancel: back, nothing reset
+wait 1200
+shot cancelled       # Shuffle still reads Songs
+key SELECT           # the prompt again
+wait 1500
+wheel -1             # Reset
+wait 500
+shot reset_selected
+key SELECT
+wait 1500
+shot language        # "English", the Welcome panel
+key SELECT
+wait 1500
+shot main_menu       # back at the root
+# Settings is still selected on the main menu: Shuffle reads Off again
+wait 400
+key SELECT
+wait 1500
+shot settings_after
+quit

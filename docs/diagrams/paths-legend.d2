@@ -1,0 +1,23 @@
+# Status legend for the data-path set. Import as a top-level container:
+#   legend: @paths-legend
+#   legend.near: bottom-right
+# Styles are spelled out so the file stands alone; they match paths-style.d2.
+label: "Key: colour = status"
+style: {fill: "#FFFFFF"; stroke: "#A0AEC0"; border-radius: 10; font-size: 24; bold: true}
+grid-rows: 6
+grid-columns: 2
+grid-gap: 6
+horizontal-gap: 16
+
+l1: "━━━━━" {shape: text; style: {font-size: 30; bold: true; font-color: "#276749"}}
+t1: "works on our unit [silicon]" {shape: text; style: {font-size: 22}}
+l2: "• • • • • •" {shape: text; style: {font-size: 30; bold: true; font-color: "#2F855A"}}
+t2: "clock line" {shape: text; style: {font-size: 22}}
+l3: "━ ━ ━ ━" {shape: text; style: {font-size: 30; bold: true; font-color: "#C53030"}}
+t3: "dead end: tried, failed" {shape: text; style: {font-size: 22}}
+l4: "━ ━ ━ ━" {shape: text; style: {font-size: 30; bold: true; font-color: "#805AD5"}}
+t4: "Apple only: seen in Apple's firmware" {shape: text; style: {font-size: 22; italic: true}}
+l5: "· · · · · · ·" {shape: text; style: {font-size: 30; bold: true; font-color: "#718096"}}
+t5: "unknown: experiment named in data-paths.md" {shape: text; style: {font-size: 22; italic: true}}
+l6: "─ ─ ─ ─" {shape: text; style: {font-size: 30; bold: true; font-color: "#A0AEC0"}}
+t6: "not fitted to this unit" {shape: text; style: {font-size: 22; italic: true}}

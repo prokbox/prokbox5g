@@ -34,12 +34,18 @@
 #include "rtc.h"
 #include "usb.h"
 #include "power.h"
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER) && defined(HAVE_PLL_IDLE)
+#include "powermgmt.h"   /* P18 18-A: power_thread_kick() */
+#endif
 #include "system.h"
 #include "button.h"
 #include "timer.h"
 #include "backlight.h"
 #include "lcd.h"
 #include "screendump.h"
+#ifdef HAVE_POWER_SLEEP
+#include "power_sleep.h"
+#endif
 
 #ifdef HAVE_REMOTE_LCD
 #include "lcd-remote.h"
@@ -71,6 +77,18 @@
                                 |BACKLIGHT_FADING_PWM) )
 
 #define BACKLIGHT_THREAD_TIMEOUT HZ
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+#define BL_STEP bl_step
+/* a timer counts down only if it was running, with this value, when the
+ * wait began: one set during the wait (by another thread or the fade's
+ * timer callback) starts counting at the next wait */
+#define BL_RUN(t, i) ((t) > 0 && (t) == bl_snap[i])
+static bool bl_through_hold;    /* one lit period through Hold (the Sleep
+                                   lab, backlight_on_through_hold()) */
+#else
+#define BL_STEP BACKLIGHT_THREAD_TIMEOUT
+#define BL_RUN(t, i) ((t) > 0)
+#endif
 
 enum {
     BACKLIGHT_ON,
@@ -100,6 +118,11 @@ enum {
 #endif /* HAVE_BUTTON_LIGHT */
 #ifdef BACKLIGHT_DRIVER_CLOSE
     BACKLIGHT_QUIT,
+#endif
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+    BACKLIGHT_TIMER_SET, /* P18 18-A: a timer was started where no event
+                            would tell the (blocked) thread; handled by
+                            falling out of the switch */
 #endif
 };
 
@@ -160,6 +183,9 @@ void buttonlight_on_ignore(bool value, int timeout)
 {
     ignore_buttonlight_on = value;
     buttonlight_ignored_timer = timeout;
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+    queue_post(&backlight_queue, BACKLIGHT_TIMER_SET, 0);
+#endif
 }
 
 void buttonlight_off(void)
@@ -200,9 +226,16 @@ static int lcd_sleep_timeout = 10*HZ;
 #endif
 
 static int lcd_sleep_timer SHAREDBSS_ATTR;
+#ifdef HAVE_POWER_SLEEP
+static bool lcd_sleep_held = false;
+#endif
 
 static void backlight_lcd_sleep_countdown(bool start)
 {
+#ifdef HAVE_POWER_SLEEP
+    if (lcd_sleep_held)
+        start = false;      /* the soft sleep's UI thread owns lcd_sleep() */
+#endif
     if (!start)
     {
         /* Cancel the LCD sleep countdown */
@@ -227,8 +260,24 @@ static void backlight_lcd_sleep_countdown(bool start)
     else
     {
         lcd_sleep_timer = lcd_sleep_timeout;
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+        /* may be the PWM fade's timer callback: the thread is blocked */
+        queue_post(&backlight_queue, BACKLIGHT_TIMER_SET, 0);
+#endif
     }
 }
+
+#ifdef HAVE_POWER_SLEEP
+/* ProkBox Phase 18-1: from the dark step of a soft sleep's entry until
+ * the wake lights the screen, no countdown may end in lcd_sleep() on
+ * this thread, racing the UI thread's own lcd_sleep() in the entry */
+void backlight_sleep_hold(bool hold)
+{
+    lcd_sleep_held = hold;
+    if (hold)
+        lcd_sleep_timer = 0;
+}
+#endif
 #endif /* HAVE_LCD_SLEEP */
 
 #if (CONFIG_BACKLIGHT_FADING == BACKLIGHT_FADING_SW_SETTING) \
@@ -483,6 +532,13 @@ static void backlight_setup_fade_down(void)
 static inline void do_backlight_off(void)
 {
     backlight_timer = 0;
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+    bl_through_hold = false;    /* its lit period ended */
+    /* the shell's unlit face; only with a timeout configured, so "Off"
+     * (re-entered on every BACKLIGHT_ON) and "Always On" never post */
+    if (backlight_get_current_timeout() > 0)
+        button_queue_post(SYS_IPODUI_BACKLIGHT_OFF, 0);
+#endif
 #if BACKLIGHT_FADE_IN_THREAD
     backlight_setup_fade_down();
 #else
@@ -518,7 +574,14 @@ static void backlight_update_state(void)
     }
     else
     {
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER) && defined(HAVE_PLL_IDLE)
+        bool was_dark = backlight_timer <= 0;
+#endif
         backlight_timer = timeout;
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER) && defined(HAVE_PLL_IDLE)
+        if (was_dark)           /* P18 18-A: the PLL hold for a lit panel */
+            power_thread_kick();
+#endif
 
 #ifdef HAVE_LCD_SLEEP
         backlight_lcd_sleep_countdown(false); /* wake up lcd */
@@ -551,6 +614,43 @@ static void remote_backlight_update_state(void)
 }
 #endif /* HAVE_REMOTE_LCD */
 
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+/* P18 18-A (K1): the countdown timers (the timeout, the LCD sleep, the
+ * ignore window) were counted down by a one-second wake.  Now the thread
+ * waits for the nearest one (none: for an event), and every wake, event or
+ * timeout, counts the timers down by the ticks it really waited, so a
+ * timer ends at the same moment as before, and no later for an event in
+ * between.  Every timer is started by an event, or posts one
+ * (BACKLIGHT_TIMER_SET). */
+static int bl_step = BACKLIGHT_THREAD_TIMEOUT;
+static int bl_snap[6];          /* the timers as the wait began */
+static bool bl_locked;          /* power-off locked the backlight */
+
+#define BL_TIMER(t, best) \
+    do { if ((t) > 0 && (t) < (best)) (best) = (t); } while (0)
+
+/* ticks to the nearest timer end, or -1 */
+static int backlight_next_deadline(void)
+{
+    int best = INT_MAX;
+
+    BL_TIMER(backlight_timer, best);
+    BL_TIMER(backlight_ignored_timer, best);
+#ifdef HAVE_LCD_SLEEP
+    BL_TIMER(lcd_sleep_timer, best);
+#endif
+#ifdef HAVE_BUTTON_LIGHT
+    BL_TIMER(buttonlight_timer, best);
+    BL_TIMER(buttonlight_ignored_timer, best);
+#endif
+#ifdef HAVE_REMOTE_LCD
+    BL_TIMER(remote_backlight_timer, best);
+#endif
+    return best == INT_MAX ? -1 : best;
+}
+static void backlight_timeout_handler(void);
+#endif
+
 static void backlight_queue_wait(struct queue_event *ev)
 {
 #if  (CONFIG_BACKLIGHT_FADING == BACKLIGHT_FADING_SW_SETTING) \
@@ -559,7 +659,38 @@ static void backlight_queue_wait(struct queue_event *ev)
         queue_wait_w_tmo(&backlight_queue, ev, FADE_DELAY);
     else
 #endif
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+    {
+        long start = current_tick;
+        int next;
+
+        bl_snap[0] = backlight_timer;
+        bl_snap[1] = backlight_ignored_timer;
+#ifdef HAVE_LCD_SLEEP
+        bl_snap[2] = lcd_sleep_timer;
+#endif
+#ifdef HAVE_BUTTON_LIGHT
+        bl_snap[3] = buttonlight_timer;
+        bl_snap[4] = buttonlight_ignored_timer;
+#endif
+#ifdef HAVE_REMOTE_LCD
+        bl_snap[5] = remote_backlight_timer;
+#endif
+        next = bl_locked ? -1 : backlight_next_deadline();
+
+        if (next < 0)
+            queue_wait(&backlight_queue, ev);
+        else
+            queue_wait_w_tmo(&backlight_queue, ev, next);
+        bl_step = current_tick - start;
+        /* an event in between: the timers still run down (a timeout does
+         * it in backlight_handle_timeout()) */
+        if (ev->id != SYS_TIMEOUT && bl_step > 0 && !bl_locked)
+            backlight_timeout_handler();
+    }
+#else
         queue_wait_w_tmo(&backlight_queue, ev, BACKLIGHT_THREAD_TIMEOUT);
+#endif
 }
 
 void backlight_thread(void)
@@ -676,6 +807,9 @@ void backlight_thread(void)
             case SYS_REBOOT:
             case SYS_POWEROFF:  /* Lock backlight on poweroff so it doesn't */
                 locked = true;      /* go off before power is actually cut. */
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+                bl_locked = true;   /* P18 18-A: no countdown from here on */
+#endif
 #if !defined(BOOTLOADER)
 #if defined(HAVE_LCD_SLEEP) /* bugfix ipod Video, 6G crashes if screen off at shutdown */
                 lcd_awake();
@@ -702,18 +836,18 @@ void backlight_thread(void)
 
 static void backlight_timeout_handler(void)
 {
-    if(backlight_timer > 0)
+    if(BL_RUN(backlight_timer, 0))
     {
-        backlight_timer -= BACKLIGHT_THREAD_TIMEOUT;
+        backlight_timer -= BL_STEP;
         if(backlight_timer <= 0)
         {
             do_backlight_off();
         }
     }
 #ifdef HAVE_LCD_SLEEP
-    else if(lcd_sleep_timer > 0)
+    else if(BL_RUN(lcd_sleep_timer, 2))
     {
-        lcd_sleep_timer -= BACKLIGHT_THREAD_TIMEOUT;
+        lcd_sleep_timer -= BL_STEP;
         if(lcd_sleep_timer <= 0)
         {
             lcd_sleep();
@@ -721,9 +855,9 @@ static void backlight_timeout_handler(void)
     }
 #endif /* HAVE_LCD_SLEEP */
 #ifdef HAVE_REMOTE_LCD
-    if(remote_backlight_timer > 0)
+    if(BL_RUN(remote_backlight_timer, 5))
     {
-        remote_backlight_timer -= BACKLIGHT_THREAD_TIMEOUT;
+        remote_backlight_timer -= BL_STEP;
         if(remote_backlight_timer <= 0)
         {
             remote_backlight_hw_off();
@@ -731,24 +865,24 @@ static void backlight_timeout_handler(void)
     }
 #endif /* HAVE_REMOVE_LCD */
 #ifdef HAVE_BUTTON_LIGHT
-    if (buttonlight_timer > 0)
+    if (BL_RUN(buttonlight_timer, 3))
     {
-        buttonlight_timer -= BACKLIGHT_THREAD_TIMEOUT;
+        buttonlight_timer -= BL_STEP;
         if (buttonlight_timer <= 0)
         {
             buttonlight_hw_off();
         }
     }
-    if (buttonlight_ignored_timer > 0)
+    if (BL_RUN(buttonlight_ignored_timer, 4))
     {
-        buttonlight_ignored_timer -= BACKLIGHT_THREAD_TIMEOUT;
+        buttonlight_ignored_timer -= BL_STEP;
         if (buttonlight_ignored_timer <= 0)
             ignore_buttonlight_on = false;
     }
 #endif /* HAVE_BUTTON_LIGHT */
-    if (backlight_ignored_timer > 0)
+    if (BL_RUN(backlight_ignored_timer, 1))
     {
-        backlight_ignored_timer -= BACKLIGHT_THREAD_TIMEOUT;
+        backlight_ignored_timer -= BL_STEP;
         if (backlight_ignored_timer <= 0)
             ignore_backlight_on = false;
     }
@@ -825,10 +959,22 @@ void backlight_on(void)
     }
 }
 
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+void backlight_on_through_hold(void)
+{
+    bl_through_hold = true;
+    queue_remove_from_head(&backlight_queue, BACKLIGHT_ON);
+    queue_post(&backlight_queue, BACKLIGHT_ON, 0);
+}
+#endif
+
 void backlight_on_ignore(bool value, int timeout)
 {
     ignore_backlight_on = value;
     backlight_ignored_timer = timeout;
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+    queue_post(&backlight_queue, BACKLIGHT_TIMER_SET, 0);
+#endif
 }
 
 void backlight_off(void)
@@ -841,6 +987,13 @@ void backlight_off(void)
 bool is_backlight_on(bool ignore_always_off)
 {
     int timeout = backlight_get_current_timeout();
+#if defined(HAVE_POWER_SLEEP) && defined(HAVE_LCD_SLEEP)
+    /* ProkBox P18: a soft sleep's entry turned it off; "Always On" (a
+     * timer of 0 whether lit or not) must not keep pll_idle's lit hold
+     * (CPU_PLL_HOLD_LIT) and so power_sleep()'s refusal standing */
+    if (lcd_sleep_held && backlight_timer <= 0)
+        return false;
+#endif
     return (backlight_timer > 0)   /* countdown */
         || (timeout == 0) /* always on */
         || ((timeout < 0) && !ignore_always_off);
@@ -850,6 +1003,9 @@ bool is_backlight_on(bool ignore_always_off)
 int backlight_get_current_timeout(void)
 {
     if ((backlight_on_button_hold != 0)
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+        && !bl_through_hold
+#endif
 #if (defined(HAVE_REMOTE_LCD_AS_MAIN) && defined(HAS_REMOTE_BUTTON_HOLD))
         && remote_button_hold()
 #elif defined(HAS_BUTTON_HOLD)
@@ -890,7 +1046,13 @@ void backlight_hold_changed(bool hold_button)
 #ifndef BOOTLOADER
     skin_request_update_locked(hold_button);
 #endif
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+    bl_through_hold = false;    /* Hold's own rule again */
+    button_queue_post(SYS_IPODUI_HOLD_CHANGED, hold_button ? 1 : 0);
+    if (true)   /* unlit face: Hold on lights it too (docs/design/unlit.md) */
+#else
     if (!hold_button || (backlight_on_button_hold > 0))
+#endif
     {
         /* if unlocked or override in effect */
 
@@ -927,6 +1089,9 @@ void lcd_set_sleep_after_backlight_off(int timeout_seconds)
         lcd_sleep_timer = 1; /* Always - sleep next tick */
     else
         lcd_sleep_timer = lcd_sleep_timeout; /* other */
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+    queue_post(&backlight_queue, BACKLIGHT_TIMER_SET, 0);
+#endif
 }
 #endif /* HAVE_LCD_SLEEP_SETTING */
 

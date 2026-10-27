@@ -1,0 +1,39 @@
+# Phase 18 (§4.3, §6.8; Rev 1 M2): USB during the sleep-entry window
+# abandons the sleep (SQ_USB): the job is cut, the USB screen opens, no
+# sleep and never a power-off.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p18-sleep-usb-entry.script
+# needs: library
+# golden: skip
+# timeout: 300
+# log: sleep job=commit cut
+# logbetween: u0 end usb enter
+# logbetween: u0 end no sim_sleep: sleep enter
+# logbetween: u0 u1 no boot stamp write
+# logbetween: u0 end no sleep job=commit ran
+# nolog: sleep deep
+# fulls-extra: 1          (the abandoned sleep pushes the left screen in full)
+
+sleep_mode soft
+wait 4000
+wait_db 45000
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait_pos 3000 60000
+key PLAY
+wait 800
+expect_paused 500
+commit_hold 1
+copy fixtures/refresh.mp3 /Music/refresh-fixture.mp3
+update_db
+wait 5000
+hold PLAY 1500
+commit_hold_wait 30000  # the window's commit, held
+ab_mark u0
+usb_connect             # SQ_USB
+wait 3000
+shot usb
+commit_release
+usb_disconnect
+wait 5000
+ab_mark u1
+rm_file /Music/refresh-fixture.mp3
+quit

@@ -1,0 +1,22 @@
+# P15 (docs/phase15-brief.md 6 item 8): a power-off with the codec in
+# standby. The shell idles past the 5 s standby timer (the dac line shows
+# standby=1), then the power button path runs (power_off_now: sys_poweroff()
+# on this thread, the same SYS_POWEROFF broadcast), which on the device
+# calls audiohw_close() from standby. The sim has no codec to hang, so
+# this checks the shell's side: the power-off line is logged after the
+# standby line, the run ends cleanly (shots.sh would time out otherwise)
+# and no wake is counted by the power-off itself.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p15-standby-poweroff.script
+# trace: p15dac
+# dac: sleeps>=1
+# logbetween: start idle dac standby=1 sleeps=1 wakes=0
+# logafter: idle power off
+# nolog: dac standby=0
+# golden: skip idle
+
+wait 7500
+ab_mark idle
+shot idle
+power_off_now
+wait 1000
+quit

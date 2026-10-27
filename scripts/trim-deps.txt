@@ -1,0 +1,45 @@
+# Phase 9 trim dependency graph (docs/phase9-brief.md section 4.1, Rev 1 H3).
+# Mirror of the #error checks in firmware/export/config/ipodvideo-variant.h;
+# keep the two in step (owner: tooling, T).
+#
+# Format: one trim per line, "NAME: NEED NEED ..." (names without the
+# IPODUI_TRIM_ prefix). "A: B" means bringing A back (deleting its line from
+# the header) also needs B back, because A's code calls into B. A trim's
+# revert closure is A plus everything reachable from it over these edges;
+# scripts/trim-revert.sh deletes the whole closure and builds each distinct
+# closure once. An empty need list is a leaf (as far as known: a leaf whose
+# revert fails to build is a missing edge, added here and to the header).
+#
+# Conditional lines (the header only sets them in some variants):
+#   IAP      only without --dock30 (reverting it == the dock30 build)
+#   PLUGINS and its closure (incl. TAGTREE) only without --ipodui-plugins
+# Edges measured by agent A (Part 1, single-trim revert builds of fw-ui
+# with every other trim on); mirrored by the header's #error checks.
+# RECORDING: with INPUT_SRC_CAPS still naming SRC_CAP_FMRADIO and
+# CONFIG_TUNER off, recording.c doesn't compile (SRCF_FMRADIO_*); B's
+# ipodvideo.h wrapping must drop the FM source with RADIO. Not an edge
+# between trims; trim-revert reports it if the build fails.
+RECORDING:
+RADIO: IAP KEYBOARD BROWSER SKIN STOCK_MENUS
+IAP:
+USB_CLASSES:
+DIRCACHE:
+UTF8PROC:
+MISC:
+VOICE:
+KEYBOARD:
+QUICKSCREEN: BROWSER SKIN
+STOCK_MENUS: BROWSER SKIN PLUGINS TAGTREE
+SKIN: BROWSER QUICKSCREEN
+BROWSER: STOCK_MENUS SKIN TAGTREE
+TAGTREE: KEYBOARD BROWSER
+PLUGINS: BROWSER STOCK_MENUS KEYBOARD SKIN QUICKSCREEN VOICE
+#
+# Partial reverts (not edges; a revert still builds, it just brings less
+# back than the trim name suggests):
+#   MISC alone does not bring back morse input: HAVE_MORSE_INPUT is set
+#     only when neither MISC nor KEYBOARD is trimmed (ipodvideo.h), so it
+#     needs KEYBOARD reverted too.
+#   MISC brings back AB_REPEAT_ENABLE and abrepeat.c, but its controls
+#     (ACTION_WPSAB_SINGLE) live in the stock WPS, so using A-B repeat
+#     also needs SKIN (and SKIN's closure) back.

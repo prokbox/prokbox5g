@@ -16,6 +16,7 @@ dsp/dsp_sample_input.c
 dsp/dsp_sample_output.c
 dsp/eq.c
 dsp/resample.c
+dsp/resample_hb.c
 dsp/pga.c
 # ifdef HAVE_PITCHCONTROL
 dsp/tdspeed.c
@@ -27,6 +28,7 @@ dsp/tone_controls.c
 dsp/dsp_cf.S
 # elif defined(CPU_ARM)
 dsp/dsp_arm.S
+dsp/resample_hb_arm.S
 #  if ARM_ARCH >= 6
 dsp/dsp_arm_v6.S
 #  endif
@@ -51,6 +53,10 @@ metadata/kss.c
 metadata/mod.c
 metadata/monkeys.c
 metadata/mp4.c
+metadata/chapters.c
+metadata/abpack.c
+metadata/id3extras.c
+metadata/lyrics.c
 metadata/mpc.c
 metadata/nsf.c
 metadata/ogg.c

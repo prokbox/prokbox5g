@@ -1,0 +1,58 @@
+# P19 drift fallback (bench b3, build A: the menu's cover showed but never
+# moved).  Two minutes lit with the drift on the host model's jobs:
+#  1. another client's failed job between drift frames (the self-test's
+#     FILL, failed on purpose) is not the drift's: the drift stays on the
+#     jobs, its J_ERRORS baseline taken per frame and per epoch;
+#  2. the drift's own BLIT then fails (as on silicon: "bcmjob fault
+#     op=0x24", "drift job fault at=blit errors=1"): the drift goes on
+#     moving, drawn by the CPU (the same frames as with the jobs off),
+#     logged "drift cpu why=failed", never the still cover.
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p19-drift-fallback.script
+# needs: library
+# golden: skip
+# needs: video
+# timeout: 240
+# nolog: drift still why=
+# nolog: drift parity bad
+# nolog: glass owned STALE
+# nolog: shot POISONED
+# log: bcmjob selftest failed
+# log: drift job fault at=blit errors=1
+# log: drift cpu why=failed
+# logbetween: jobs1 jobs2 panel cost kind=pan step=\d+ jobs=1
+# logbetween: other jobs2 panel cost kind=pan step=\d+ jobs=1
+# logbetween: start fail no drift (cpu|still) why=
+# logbetween: cpu1 cpu2 panel drift step=\d+ boost=\d lit=1
+# logbetween: cpu1 end no panel cost kind=pan step=\d+ jobs=1
+
+bcm_drift on
+wait 4000
+wait_db 30000
+sim_clock 15:04
+clock_format 24
+battery 100
+drift_phase 0
+wait 3000            # the fade, then pan steps as jobs
+shot jobs_live
+ab_mark jobs1
+wait 50000
+shot jobs_50s
+# -- another client's failure: not the drift's ------------------------
+bcm_fault fail 0x25
+bcm_selftest
+bcm_fault none
+ab_mark other
+wait 10000
+ab_mark jobs2
+shot jobs_after_other
+# -- the drift's own job fails: the CPU's drift, still moving ----------
+ab_mark fail
+bcm_fault fail 0x24
+wait 3000
+bcm_fault none
+ab_mark cpu1
+shot cpu_a
+wait 57000           # two minutes lit in all
+shot cpu_b
+ab_mark cpu2
+quit

@@ -51,6 +51,9 @@ enum playlist_command {
     PLAYLIST_COMMAND_UNSHUFFLE,
     PLAYLIST_COMMAND_RESET,
     PLAYLIST_COMMAND_FLAGS,
+#ifdef HAVE_IPOD_UI
+    PLAYLIST_COMMAND_DBQ,       /* #109: T, before COMMENT (fields split) */
+#endif
     PLAYLIST_COMMAND_COMMENT,
     PLAYLIST_COMMAND_ERROR = PLAYLIST_COMMAND_COMMENT + 1 /* Internal */
 };
@@ -169,6 +172,18 @@ int playlist_move(struct playlist_info* playlist, int index, int new_index);
 int playlist_randomise(struct playlist_info* playlist, unsigned int seed,
                        bool start_current);
 int playlist_sort(struct playlist_info* playlist, bool start_current);
+#ifdef HAVE_IPOD_UI
+int playlist_reorder_ipodui(struct playlist_info* playlist,
+                            void (*reorder)(unsigned long *indices,
+                                            int amount, void *ctx),
+                            void *ctx, unsigned int seed);
+int playlist_delete_range_ipodui(struct playlist_info* playlist,
+                                 int first, int count);
+/* #109 queue by database index (docs/design/queue-by-index.md) */
+int playlist_reserve_ipodui(int n, bool keep);
+int playlist_insert_dbq_ipodui(struct playlist_info *pl, uint32_t first_k,
+                               int count, uint32_t tag);
+#endif
 bool playlist_modified(const struct playlist_info* playlist);
 void playlist_set_modified(struct playlist_info* playlist, bool modified);
 bool playlist_allow_dirplay(const struct playlist_info* playlist);

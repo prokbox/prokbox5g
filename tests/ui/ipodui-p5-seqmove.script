@@ -1,0 +1,35 @@
+# Phase 5 (fix A/B, track identity): the chapter table is rewritten under
+# the screen (np_seq_bump: the seqlock moves) while the
+# track stays the same: Now Playing re-points its chapter table and pushes
+# NO np:body (no full-body redraw, no art re-read). check_trace: two "np
+# snap" lines with one track id and a moved seq, and no "update np:body"
+# after the second (`# samtrack-nobody`).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p5-seqmove.script
+# needs: music
+# golden: skip before after
+# trace: np
+# samtrack-nobody
+# timeout: 60
+
+wait 3000
+sim_clock 15:08
+clock_format 24      # P11: the default is 12-hour; this golden shows 24
+repeat off
+wait_db 30000
+art_wait 60000
+play_files /Music/Fixture%20Author/Mini%20Audiobook/Mini%20Audiobook.m4b
+wait 1000
+key SELECT          # Music (the menu re-reads "Now Playing" after a push/pop)
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 2500
+shot before
+np_seq_bump         # the seqlock moves (a table rewrite), the track does not
+wait 3000
+shot after
+audio_stop
+quit

@@ -188,10 +188,18 @@ ifeq (echor1,$(MODELNAME))
 endif
 
 # One or more subdir makefiles requested --gc-sections?
+# Phase 9 scripts/risk/gc_check.sh: "make CORE_GC_PRINT=1" lists what the
+# linker drops; "make CORE_GC_OFF=1" links without --gc-sections (the
+# reference image for the cross-check). Neither is set by any build.
 ifdef CORE_GCSECTIONS
   # Do not use '--gc-sections' when compiling sdl-sim
   ifneq ($(findstring sdl-sim, $(APP_TYPE)), sdl-sim)
-    CORE_LDOPTS += -Wl,--gc-sections
+    ifndef CORE_GC_OFF
+      CORE_LDOPTS += -Wl,--gc-sections
+      ifdef CORE_GC_PRINT
+        CORE_LDOPTS += -Wl,--print-gc-sections
+      endif
+    endif
   endif
 endif # CORE_GCSECTIONS
 
@@ -220,6 +228,28 @@ codecs: $(DEPFILE) $(TOOLS) $(CODECS)
 tools: $(TOOLS)
 
 -include $(DEPFILE)
+
+# process audit 2 #3 (the apps/ipodui stale-dependency gotcha): $(DEPFILE)
+# above is a one-time snapshot, built by the "dep" rule the first time a
+# build dir is used (it has no prerequisites, so make never reruns it).
+# A .c file added to SOURCES *after* that first build -- normal for an
+# agent adding new apps/ipodui/*.c files to an already-configured
+# worktree -- has no entry in it at all, so it falls back to the bare
+# "%.o: %.c" pattern rule below, which only depends on the .c file
+# itself: editing a header it includes then does not trigger a rebuild.
+# -MMD -MP (added to the two generic compile rules below) fixes this at
+# the source: every compile re-emits its own build/.../foo.d listing the
+# headers *that* compile actually saw, so dependency tracking can never
+# go stale, even for a file $(DEPFILE) never heard of. -MP adds a phony
+# target per header so a deleted/renamed header doesn't break the next
+# build. These run alongside $(DEPFILE), which still covers OTHER_SRC,
+# ASMDEFS_SRC and the generated lang/bitmap headers it alone knows how
+# to special-case (see mkdepfile/bmpdepfile in tools/functions.make).
+# Every .d under the build dir, not just $(OBJ)'s: the firmware, the
+# libraries, the codecs and the plugins keep their objects in their own
+# lists (FIRMLIB_OBJ, RBCODECLIB_OBJ, ...), so a header edit used to
+# rebuild none of them (#80).  One find per make run.
+-include $(shell find $(BUILDDIR) -name '*.d' -type f 2>/dev/null)
 
 veryclean: clean
 	$(SILENT)rm -rf $(TOOLS)
@@ -261,7 +291,10 @@ LINKRAM := $(BUILDDIR)/ram.link
 ROMLDS := $(FIRMDIR)/rom.lds
 LINKROM := $(BUILDDIR)/rom.link
 
-$(LINKRAM): $(RAMLDS) $(CONFIGFILE)
+# ProkBox: the target app.lds #includes a shared one (ipod/app.lds ->
+# pp/app-pp.lds); depend on every linker script it can include so an edit
+# there regenerates ram.link instead of linking with a stale copy
+$(LINKRAM): $(RAMLDS) $(CONFIGFILE) $(wildcard $(FIRMDIR)/target/$(CPU)/*.lds $(FIRMDIR)/target/$(CPU)/*/*.lds)
 	$(call PRINTS,PP $(@F))
 	$(call preprocess2file,$<,$@,)
 
@@ -289,6 +322,7 @@ $(BUILDDIR)/rombox.elf : $$(OBJ) $(FIRMLIB) $(VOICESPEEXLIB) $(CORE_LIBS) $$(LIN
 
 $(BUILDDIR)/rockbox.bin : $(BUILDDIR)/rockbox.elf
 	$(call PRINTS,OC $(@F))$(call objcopy,$<,$@)
+	$(MOD_PATCH_BIN)
 
 $(BUILDDIR)/rombox.bin : $(BUILDDIR)/rombox.elf
 	$(call PRINTS,OC $(@F))$(call objcopy,$<,$@)
@@ -487,10 +521,42 @@ help:
 
 ### general compile rules:
 
+# Phase 9 (docs/phase9-brief.md section 3.3.1): per-function/data sections
+# for core objects only (tools/configure --core-sections, --ipodui firmware).
+# Codec and plugin objects keep today's flags: they have their own rules,
+# and the filter also covers any of theirs that reach the generic rules
+# (e.g. the generated plugin bitmaps). Empty for every other build.
+core_secflags = $(if $(CORE_SECTIONS_CFLAGS),$(if $(filter \
+	$(BUILDDIR)/apps/plugins/% $(BUILDDIR)/lib/rbcodec/codecs/%,$@),,$(CORE_SECTIONS_CFLAGS)))
+
+# Phase 8b-T (docs/phase8b-brief.md 4.T, #45): -mthumb for exactly the
+# sources named in tools/thumb-cold.txt (configure --thumb-cold, on by
+# default for the shell firmware; THUMB_COLD_LIST is empty otherwise).
+# One explicit path per line, no globs, so a file joins only by name.
+ifneq ($(THUMB_COLD_LIST),)
+THUMB_COLD_OBJS := $(patsubst %.c,$(BUILDDIR)/%.o,$(shell sed -e 's/\#.*//' $(THUMB_COLD_LIST)))
+endif
+thumb_coldflags = $(if $(THUMB_COLD_OBJS),$(if $(filter $(THUMB_COLD_OBJS),$@),-mthumb))
+# Every C object built by the rule below also depends on the list (a
+# prerequisite only when it is set), so editing it recompiles what changed
+# mode; ccache serves the rest.
+
+# The .d file's target, as make knows the object.  CCACHE_BASEDIR (set by
+# configure so worktrees share hits) makes the compiler write it relative
+# to the build dir ("firmware/x.o"), while OBJ names it by its absolute
+# path, so make never matched the two and a header edit rebuilt nothing
+# (#80: a stale devstats.o linked against a larger struct).  -MT $@ would
+# put the absolute path into every cache key; rewriting the first line
+# after the compile keeps the hits shared.
+fix_dep_target = sed -e '1s|^[^:]*:|$@:|' $(@:.o=.d) > $(@:.o=.d)_ && \
+	mv $(@:.o=.d)_ $(@:.o=.d)
+
 # when source and object are in different locations (normal):
-$(BUILDDIR)/%.o: $(ROOTDIR)/%.c
+# -MMD -MP: see the $(OBJ:.o=.d) comment above $(DEPFILE)'s include.
+$(BUILDDIR)/%.o: $(ROOTDIR)/%.c $(THUMB_COLD_LIST)
 	$(SILENT)mkdir -p $(dir $@)
-	$(call PRINTS,CC $(subst $(ROOTDIR)/,,$<))$(CC) $(CFLAGS) -c $< -o $@
+	$(call PRINTS,CC $(subst $(ROOTDIR)/,,$<))$(CC) $(CFLAGS) $(core_secflags) $(thumb_coldflags) -MMD -MP -c $< -o $@
+	$(SILENT)$(fix_dep_target)
 
 $(BUILDDIR)/%.o: $(ROOTDIR)/%.S
 	$(SILENT)mkdir -p $(dir $@)
@@ -505,7 +571,8 @@ $(BUILDDIR)/%_asmdefs.h: $(ROOTDIR)/%_asmdefs.c
 # when source and object are both in BUILDDIR (generated code):
 %.o: %.c
 	$(SILENT)mkdir -p $(dir $@)
-	$(call PRINTS,CC $(subst $(ROOTDIR)/,,$<))$(CC) $(CFLAGS) -c $< -o $@
+	$(call PRINTS,CC $(subst $(ROOTDIR)/,,$<))$(CC) $(CFLAGS) $(core_secflags) $(thumb_coldflags) -MMD -MP -c $< -o $@
+	$(SILENT)$(fix_dep_target)
 
 %.o: %.S
 	$(SILENT)mkdir -p $(dir $@)

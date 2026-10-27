@@ -62,6 +62,7 @@
 /* Maximum multi-word DMA mode supported by the controller */
 #define ATA_MAX_MWDMA 2
 
+#ifndef ATA_MAX_UDMA
 #ifndef BOOTLOADER
 /* The PP5020 supports UDMA 4, but it needs cpu boosting and only
  * improves performance by ~10% with a stock disk.
@@ -81,6 +82,7 @@
 /* The bootloader runs at 24 Mhz and needs a slower mode */
 #define ATA_MAX_UDMA 1
 #endif
+#endif /* ATA_MAX_UDMA */
 
 #endif /* HAVE_ATA_DMA */
 

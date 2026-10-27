@@ -1,0 +1,23 @@
+# Phase 4b-1 (docs/phase4b-brief.md, checklist item 10, DB state "fresh"):
+# the shell builds the database itself; the precompute on the tagcache
+# thread writes database_lib.dat and requests a build (lib_committed()),
+# and the builder reads that file's album table and builds every album.
+# expect_art checks each album of tests/ui/art_manifest.txt (OK / NOART /
+# FAILED) and that no album is left pending. Trace rules
+# (scripts/check_trace.py): every "art build" line has boost=0, and no
+# "art io" happens while playing with storage asleep.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p4b1-art-fresh.script
+# needs: library
+# fresh-db
+
+rm_file /.rockbox/artcache/index.dat    # no art cache either: a first
+rm_file /.rockbox/artcache/index.prev
+rm_file /.rockbox/artcache/index.tmp
+rm_file /.rockbox/artcache/thumbs.pak   # build of every album
+wait 1000
+wait_db 45000       # built and committed in this boot
+art_wait 120000     # the builder's first full pass
+expect_art art_manifest.txt
+shot built          # main menu (rows with art come in 4b-2)
+
+quit

@@ -1,0 +1,81 @@
+# Phase 5: Lyrics (entry through the cycle, wheel scroll, exit) for the
+# three tag flavours: ID3v2.3 USLT, ID3v2.4 USLT, MP4 (c)lyr; and the cycle
+# on a track without lyrics (no Lyrics step).  Lyrics is no longer the last
+# step: the full-screen Visualizer follows it (changes-from-7g 2.48), so the
+# exit steps through it to Normal.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p5-lyrics.script
+# needs: music
+# trace: np
+# needs: np
+# golden: skip enter
+
+wait 3000
+sim_clock 15:08
+clock_format 24      # P11: the default is 12-hour; this golden shows 24
+repeat off
+wait_db 30000
+art_wait 60000
+mkdir /NPTest
+copy ../../build/np-fixtures/lyr23.mp3 /NPTest/lyr23.mp3
+copy ../../build/np-fixtures/lyr24.mp3 /NPTest/lyr24.mp3
+copy ../../build/np-fixtures/lyr.m4a /NPTest/lyr.m4a
+play_files /NPTest/lyr23.mp3 /NPTest/lyr24.mp3 /NPTest/lyr.m4a
+wait 1000
+np_pin 6000 50
+key SELECT          # Music (the menu re-reads "Now Playing" after a push/pop)
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 1200
+key SELECT          # Scrubber
+wait 500
+key SELECT          # Rating
+wait 500
+key SELECT          # Shuffle
+wait 500
+key SELECT          # Lyrics
+wait 100
+shot enter
+wait 900
+shot v23_top
+wheel +6 200
+wait 400
+shot v23_scrolled
+wheel -3 200
+wait 400
+shot v23_back
+key SELECT          # Visualizer (full screen: after Lyrics, 2.48)
+wait 700
+key SELECT          # Normal
+wait 900
+shot v23_exit
+key NEXT
+wait 1500
+key SELECT
+wait 400
+key SELECT
+wait 400
+key SELECT
+wait 400
+key SELECT
+wait 900
+shot v24_top
+key NEXT
+wait 1500
+key SELECT
+wait 400
+key SELECT
+wait 400
+key SELECT
+wait 400
+key SELECT
+wait 900
+shot m4a_top
+audio_stop
+rm_file /NPTest/lyr23.mp3
+rm_file /NPTest/lyr24.mp3
+rm_file /NPTest/lyr.m4a
+quit

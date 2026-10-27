@@ -1,0 +1,18 @@
+# A buffered pathname must update the same track after its row changes.
+# Keep and restore the deleted fixture even on a standalone simulator run.
+# needs: library
+# golden: skip restored
+wait 4000
+wait_db 30000
+art_wait 30000
+snapshot_stale_begin
+rebuild_db_start
+expect_snapshot_stale_finish 60000
+reboot
+wait 4000
+wait_db 30000
+expect_rating /Library/Basalt/Columns/02%20Tender%20Window.mp3 8
+snapshot_stale_restore
+update_db_wait_change 60000
+shot restored
+quit

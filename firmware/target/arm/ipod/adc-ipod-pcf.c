@@ -26,6 +26,9 @@
 #include "adc.h"
 #include "pcf50605.h"
 #include "i2c-pp.h"
+#ifdef HAVE_POWER_SLEEP
+#include "power_sleep.h"
+#endif
 
 struct adc_struct {
     long timeout;
@@ -73,6 +76,19 @@ unsigned short adc_scan(int channel) {
     adc->timeout = 0;
     return _adc_read(adc);
 }
+
+#ifdef HAVE_POWER_SLEEP
+/* ProkBox Phase 18-1: after a soft sleep the cache's timeouts are on a
+ * tick that stood still for hours; the next read of every channel goes
+ * to the PMU */
+void adc_invalidate(void)
+{
+    int i;
+
+    for (i = 0; i < NUM_ADC_CHANNELS; i++)
+        adcdata[i].timeout = current_tick - 1;
+}
+#endif
 
 /* Retrieve the ADC value, only does a scan periodically */
 unsigned short adc_read(int channel) {

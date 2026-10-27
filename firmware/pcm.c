@@ -19,8 +19,14 @@
  ****************************************************************************/
 #include <stdlib.h>
 #include "system.h"
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER) && defined(HAVE_PLL_IDLE)
+#include "powermgmt.h"   /* P18 18-A: power_thread_kick() */
+#endif
 #include "kernel.h"
 #include "panic.h"
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER) && defined(HAVE_DAC_STANDBY)
+#include "dac_ext.h"     /* P19 19-1a: dac_busy_now() */
+#endif
 
 /* Define LOGF_ENABLE to enable logf output in this file */
 //#define LOGF_ENABLE
@@ -149,6 +155,12 @@ bool pcm_play_dma_complete_callback(enum pcm_dma_status status,
     }
 
     /* Error, callback missing or no more DMA to do */
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER) && defined(HAVE_DAC_STANDBY)
+    /* P19 19-1a (review L2): the data ran out (an underrun, the end of
+     * playback); the audio thread no longer polls while playing, so the
+     * codec's idle time starts here */
+    dac_busy_now();
+#endif
     pcm_play_stop_int();
     return false;
 }
@@ -384,6 +396,9 @@ void pcm_play_data(pcm_play_callback_type get_more,
         logf(" pcm_play_dma_start_int");
         pcm_play_dma_start_int(start, size);
         pcm_playing = true;
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER) && defined(HAVE_PLL_IDLE)
+        power_thread_kick();    /* P18 18-A: the PLL hold for PCM load */
+#endif
     }
     else
     {

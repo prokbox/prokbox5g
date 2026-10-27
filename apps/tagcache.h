@@ -123,7 +123,15 @@ struct tagcache_seeklist_entry {
     int32_t idx_id;
 };
 
+#if defined(HAVE_IPOD_UI) && defined(HAVE_TC_RAMCACHE) && !defined(__PCTOOL__)
+struct tagcache_context;
+#endif
 struct tagcache_search {
+#if defined(HAVE_IPOD_UI) && defined(HAVE_TC_RAMCACHE) && !defined(__PCTOOL__)
+    /* Retained until search_finish; indices and filenames belong to this
+     * snapshot even if a newer library is published while a read yields. */
+    struct tagcache_context *context;
+#endif
     /* For internal use only. */
     int fd, masterfd;
     int idxfd[TAG_COUNT];
@@ -169,6 +177,10 @@ bool tagcache_find_index(struct tagcache_search *tcs, const char *filename);
 bool tagcache_check_clauses(struct tagcache_search *tcs,
                             struct tagcache_search_clause **clause, int count);
 bool tagcache_search(struct tagcache_search *tcs, int tag);
+#if defined(HAVE_IPOD_UI) && defined(HAVE_TC_RAMCACHE) && !defined(__PCTOOL__)
+bool tagcache_search_ctx(struct tagcache_context *ctx,
+                         struct tagcache_search *tcs, int tag);
+#endif
 void tagcache_search_set_uniqbuf(struct tagcache_search *tcs,
                                  void *buffer, long length);
 bool tagcache_search_add_filter(struct tagcache_search *tcs,
@@ -184,6 +196,23 @@ long tagcache_increase_serial(void);
 bool tagcache_import_changelog(void);
 bool tagcache_create_changelog(struct tagcache_search *tcs);
 void tagcache_update_numeric(int idx_id, int tag, long data);
+#if defined(HAVE_IPOD_UI) && defined(HAVE_TC_RAMCACHE)
+/* Runtime statistics (or a rating) of the file at 'path', found as
+ * 'idx_id' in the snapshot 'token' names (tagcache_ui_bind_token(), 0 =
+ * unknown). Never does disk I/O and never waits for a publication: the
+ * audio thread calls it at every track change. A row it cannot bind from
+ * RAM (another snapshot, no memo) goes to the tagcache thread, which binds
+ * the full path; false only if that hand-off is full (dropped, counted). */
+bool tagcache_ui_update_stats(const char *path, long idx_id, int32_t token,
+                              int count, const unsigned char *tags,
+                              const long *values);
+/* OR'ed into a tag for tagcache_ui_update_stats(): the value is added to
+ * the row's current value (play count, play time), never an absolute
+ * read before the boot replay (#85 H3) */
+#define TAGCACHE_UI_DELTA 0x80
+/* The snapshot a successful tagcache_find_index() search belongs to */
+int32_t tagcache_ui_bind_token(const struct tagcache_search *tcs);
+#endif
 bool tagcache_modify_numeric_entry(struct tagcache_search *tcs, 
                                    int tag, long data);
 
@@ -210,8 +239,145 @@ bool tagcache_is_fully_initialized(void);
 bool tagcache_is_usable(void);
 void tagcache_start_scan(void);
 void tagcache_stop_scan(void);
+/* Called immediately before USB ownership is acknowledged. This is a
+ * lock-free cancellation request: a long scan/commit checks it at its
+ * existing checkpoints, then handles SYS_USB_CONNECTED and waits. */
+void tagcache_usb_prepare(void);
+/* Clears the GUI-side cancellation request once its USB screen has ended.
+ * The tagcache thread also clears this after its own disconnect wait. */
+void tagcache_usb_finish(void);
 bool tagcache_update(void);
 bool tagcache_rebuild(void);
+#ifdef HAVE_IPOD_UI
+/* User-requested rebuild: boosts the otherwise background UI scan. */
+bool tagcache_rebuild_maintenance(void);
+/* True from the UI request until its replacement database is complete. */
+bool tagcache_maintenance_pending(void);
+/* Directory scan in progress, even while the old RAM library is usable. */
+bool tagcache_scan_active(void);
+/* 3.20: the library is being updated (a scan past its read-only probe, a
+ * commit, a reload, the lists' precompute, the changelog import). Any
+ * thread; volatile reads only, no I/O. */
+bool tagcache_ui_updating(void);
+/* #84: "._" sidecars the last complete scan walked past; -1: none yet */
+int tagcache_ui_sidecars(void);
+void tagcache_ui_sidecars_reset(void);
+/* A scan is owed (posted, or deferred while audio holds the memory). */
+bool tagcache_ui_scan_owed(void);
+#ifdef HAVE_TC_RAMCACHE
+/* #87/#89 (apps/ipodui/bootstamp.h): the boot window starts the library's
+ * boot check at once; its state: 0 pending, 1 walking (permille: the
+ * walk's progress, -1 unknown), 2 done (skipped, walked or nothing to do) */
+void tagcache_boot_window(void);
+int tagcache_boot_check(int *permille);
+#endif
+#endif
 int tagcache_get_max_commit_step(void);
+#ifdef HAVE_IPOD_UI
+/* True for podcasts and audiobooks: they keep a resume position. */
+bool tagcache_ui_resumes(const struct mp3entry *id3);
+#endif
+
+#if defined(HAVE_IPOD_UI) && defined(HAVE_TC_RAMCACHE) && !defined(__PCTOOL__)
+/* iPod UI shell (apps/ipodui/library.c): classification flags stored in
+ * the index flag word at scan time, and read-only access to the RAM
+ * cache. These read-only RAM getters do not yield;
+ * returned pointers point into the movable RAM cache and are valid only
+ * until the caller yields. */
+#define TAGCACHE_UI_AUDIOBOOK   0x0020 /* mp3entry.is_audiobook or genre Audiobook */
+#define TAGCACHE_UI_PODCAST     0x0040 /* genre Podcast or a /Podcasts/ folder */
+#define TAGCACHE_UI_COMPILATION 0x0080 /* album artist "Various Artists" */
+/* Phase 14a (docs/phase14a-brief.md 3.2, 4.2), set by ui_classify() from
+ * vclass_classify(). The flag word keeps its low 16 bits from disk. */
+#define TAGCACHE_UI_VIDEO       0x0100 /* plays on the video screen; never music */
+#define TAGCACHE_UI_TV          0x0200 /* with VIDEO: a TV episode */
+#define TAGCACHE_UI_VIDEO_CHECKED 0x0400 /* container video detection completed */
+/* A video the player cannot play (not avc1/avc3; Videos builds only): in
+ * neither Music nor Videos. Music excludes TAGCACHE_UI_ANY_VIDEO. */
+#define TAGCACHE_UI_VIDEO_OTHER 0x1000
+#define TAGCACHE_UI_ANY_VIDEO   (TAGCACHE_UI_VIDEO | TAGCACHE_UI_VIDEO_OTHER)
+/* Bytes per entry the shell's library view pool (library.c, struct rec)
+ * takes once a reload makes the database bigger: a commit or reload while
+ * audio runs must leave room for it too. */
+#define TAGCACHE_UI_VIEW_BYTES  12
+/* playback.c (audio thread), right after a track's metadata was read:
+ * looks up its index while the disk is awake, so that its statistics
+ * event at the track change finds it without a read (S36, C1) */
+void tagcache_ui_prefetch_index(const char *filename);
+
+/* Changes whenever the RAM cache is loaded or dropped (entry numbers and
+ * seeks from an older generation are meaningless). */
+int  tagcache_ui_generation(void);
+/* True while the first build or a RAM cache (re)load is pending. */
+bool tagcache_ui_busy(void);
+/* P18 (#86): a commit or reload owed (the sleep-entry window's job), and
+ * the sleep-entry subset's library part (UI thread; boots: Q11 wakes) */
+bool tagcache_ui_sleep_owed(void);
+struct mp3entry;
+void tagcache_ui_sleep_prepare(const struct mp3entry *id3);
+bool tagcache_ui_sleep_walk(unsigned boots);
+bool tagcache_ui_sleep_walking(void);
+bool tagcache_ui_sleep_rebuild(void);
+void tagcache_ui_sleep_cut(bool cut);
+bool tagcache_ui_sleep_busy(void);
+bool tagcache_ui_sleep_drained(void);
+void tagcache_ui_sleep_woke(void);
+/* The library's last empty window (8b): ticks of the post-USB scan's
+ * start, of the RAM cache drop and of its reload (0 = none yet); 'ready'
+ * is 0 while the window is open. */
+void tagcache_ui_window(long *scan, long *empty, long *ready);
+/* Number of master index entries, or -1 if the RAM cache is not usable. */
+int  tagcache_ui_count(void);
+/* Tag seeks (numeric tags hold their value) of entry 'idx_id', or NULL
+ * if it is deleted or out of range. '*flag' gets the flag word. */
+const int32_t *tagcache_ui_seeks(int idx_id, int32_t *flag);
+/* Numeric tag, including updates still queued for the disk. Enqueue updates
+ * its owning RAM snapshot immediately; this getter does not block or yield. */
+long tagcache_ui_numeric(int idx_id, int tag);
+/* String of a string tag (not tag_filename) at 'seek', or NULL if it is
+ * untagged or unavailable. */
+const char *tagcache_ui_str(int tag, int32_t seek);
+/* Walks a string tag file in stored order -- with HAVE_IPOD_UI that is
+ * the ui_sortkey() order, applied at commit. Start with *pos = 0; each
+ * call gives the next entry's master index in *idx_id (-1 for the
+ * uniqued tags) and advances *pos (the entry's seek is the old *pos).
+ * False at the end. */
+bool tagcache_ui_walk(int tag, int32_t *pos, int32_t *idx_id);
+/* The shell's precomputed lists (apps/ipodui/libfile.h). The commit id of
+ * the database in RAM, as it was loaded: with tagcache_ui_count() and
+ * SORTKEY_VERSION, the stamp of the file made from it. */
+int32_t tagcache_ui_commitid(void);
+/* Explicit snapshot access for the worker's candidate precompute. Passing
+ * another context never changes which context ordinary UI calls observe. */
+struct tagcache_context *tagcache_context_active(void);
+struct tagcache_context *tagcache_context_acquire(void);
+void tagcache_context_release(struct tagcache_context *ctx);
+struct tagcache_context *tagcache_context_acquire_passive(void);
+void tagcache_context_release_passive(struct tagcache_context *ctx);
+bool tagcache_context_published(struct tagcache_context *ctx);
+int tagcache_ui_generation_ctx(struct tagcache_context *ctx);
+int tagcache_ui_count_ctx(struct tagcache_context *ctx);
+int32_t tagcache_ui_commitid_ctx(struct tagcache_context *ctx);
+const char *tagcache_ui_db_path_ctx(struct tagcache_context *ctx);
+const int32_t *tagcache_ui_seeks_ctx(struct tagcache_context *ctx,
+                                   int idx_id, int32_t *flag);
+long tagcache_ui_numeric_ctx(struct tagcache_context *ctx, int idx_id, int tag);
+bool tagcache_ui_walk_ctx(struct tagcache_context *ctx, int tag,
+                         int32_t *pos, int32_t *idx_id);
+const char *tagcache_ui_str_ctx(struct tagcache_context *ctx,
+                               int tag, int32_t seek);
+/* The database directory (where the precompute file lives). */
+const char *tagcache_ui_db_path(void);
+/* The file was found damaged: the tagcache thread rewrites it (within a
+ * second, once audio is stopped). Any thread. */
+void tagcache_ui_precompute_request(void);
+/* P19 19-1a: work is owed to the tagcache thread (any context): ends its
+ * quiet wait at once; nothing if the thread is running or polling */
+void tagcache_quiet_kick(void);
+/* Entries of the database on disk (master index header, plus a scan
+ * waiting for its commit), read synchronously; -1 if there is none. Any
+ * thread; for sizing the shell's reservations at start (library.c). */
+long tagcache_ui_disk_entries(void);
+#endif /* HAVE_IPOD_UI */
 #endif
 #endif

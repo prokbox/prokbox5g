@@ -1,0 +1,43 @@
+# P12 W3-C (Q12): with no /Calendars, the indexer creates it ("xidx made
+# /Calendars") and writes an empty index; Calendars lists All Calendars and
+# To Do's; the month grid has no dots; a day shows our sentence about
+# copying calendar files (the hidden folder never named).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p12-calendars-empty.script
+# timeout: 150
+# log: xidx made /Calendars
+# log: xidx build kind=3 n=0
+# log: xcal open n=0
+# nolog: modclass viol
+# golden: skip
+# reset: mainmenu
+
+wait 4000
+rtc_at 2026-10-06 15:06:00
+sim_clock 15:06
+rm_file /Calendars/Work.ics
+rm_file /Calendars/Home.ics
+rm_file /Calendars
+rm_file /.rockbox/calendars.idx
+rm_file /.rockbox/xindex.owe
+usb_connect
+wait 2500
+usb_disconnect
+wait 3500
+storage_idle
+wait 1500
+wheel +2            # Extras
+wait 800
+key SELECT
+wait 1200
+wheel +1            # Calendars
+wait 800
+key SELECT
+wait 1500
+shot root
+key SELECT
+wait 1500
+shot month
+key SELECT
+wait 1200
+shot day
+quit

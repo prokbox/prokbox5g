@@ -1,0 +1,28 @@
+# Phase 2 acceptance: shell main menu and one submenu (docs/phase2-brief.md §6/§7).
+# Runs against build/sim-ui (ipodui-* scripts). Run with:
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p2-menu.script
+# resume: playing
+
+wait 4000           # boot to the main menu, "Music" selected
+shot boot
+
+wheel +2            # selection on "Extras"; only two rows redrawn
+wait 800            # past the panel's rest (0.4 s) and cross-fade (0.2 s)
+shot menu_down
+
+wheel -2            # back to "Music"
+wait 500
+
+key SELECT          # open Music: header "Music", stub items full width
+wait 1000
+shot music
+
+wheel +3            # move down the Music list
+wait 500
+shot music_down
+
+key MENU            # back to the main menu, "Music" still selected
+wait 700
+shot back
+
+quit

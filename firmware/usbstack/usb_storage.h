@@ -23,5 +23,12 @@
 #include "usb_class_driver.h"
 
 extern struct usb_class_driver usb_cdrv_storage;
+#ifdef HAVE_IPOD_UI
+bool usb_storage_all_ejected(void);     /* apps/ipodui/sysscreen.h */
+#endif
+#ifdef HAVE_USB_PREFETCH
+/* usb_core_exit(): join the prefetch worker and free its ring */
+void usb_storage_reap(void);
+#endif
 #endif
 

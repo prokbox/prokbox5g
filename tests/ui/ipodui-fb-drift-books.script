@@ -1,0 +1,40 @@
+# #58 (owner, device feedback): highlighting Audiobooks in the Music menu
+# shows the drifting panel of BOOK covers (ui_preview_drift_books, the
+# panel set's book entries, panels.pak set 1), the way the Music rows show
+# album covers; moving back to a music row brings album covers back, never
+# a book cover. The drift then runs live over a few cycles of each set:
+# check_trace.py's "driftrepeat" rule (never the same cover twice in a
+# row, owner) is declared by the script name.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-fb-drift-books.script
+# needs: library
+# golden: skip live_music live_books
+# timeout: 120
+
+wait 4000           # boot to the main menu, "Music" selected
+wait_db 30000
+art_wait 120000     # every album and panel built
+sim_clock 15:04
+clock_format 24
+battery 100
+
+key SELECT          # Music menu, "Playlists" selected (album covers)
+wait 1500
+shot music_menu
+wheel +6            # "Audiobooks" (Compilations is hidden by default)
+wait 1500           # the highlight cross-fade to the book drift
+shot audiobooks
+wheel -4            # "Albums": album covers again
+wait 1500
+shot albums
+
+# -- live: a few cycles of each set (7 s per cover) ----------------------
+drift_phase 0       # live from here
+wait 15500
+shot live_music
+wheel +4            # "Audiobooks"
+wait 15500
+shot live_books
+key MENU            # back to the main menu (album covers)
+wait 1500
+
+quit

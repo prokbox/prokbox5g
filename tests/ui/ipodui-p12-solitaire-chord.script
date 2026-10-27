@@ -1,0 +1,33 @@
+# P12 W4-0 (docs/design/sdk.md 3.1): the exit chord. SELECT + PREV
+# overlapping 1.9 s (SELECT first) and 0.3 s (PREV first) do nothing:
+# the game sees no SELECT (the stock under the cursor is not drawn) and
+# the music sees no PREV; held 2.3 s they leave the game through its
+# graceful exit (the deal saved), back to the Games list.
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-solitaire-chord.script
+# needs: modules
+# reset: mainmenu
+
+wait 4000
+sdk_clear            # a fresh deal (the simulator deals from a fixed seed)
+wheel +2             # Extras
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Games
+wait 600
+key SELECT
+wait 1200
+wheel +5             # Solitaire
+wait 600
+key SELECT
+wait 1500
+press_hold SELECT PREV 1900
+wait 800
+shot after_1900      # nothing happened: the stock untouched
+press_hold PREV SELECT 300
+wait 800
+shot after_300
+press_hold SELECT PREV 2300
+wait 1500
+shot exited          # the Games list
+quit

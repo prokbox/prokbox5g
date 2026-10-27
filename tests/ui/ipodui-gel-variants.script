@@ -1,0 +1,59 @@
+# gel-variants (fidelity audit row 12): the selection bar, the header
+# play glyph and the battery fill on the four screens the owner's photos
+# show them on, for comparing the UI_MAT_SEL_VARIANT candidates
+# (art/materials.py SEL_C; A is the default build). scripts/gel_variants.sh
+# runs this once per variant and composes the comparison sheet.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-gel-variants.script
+# needs: library
+# timeout: 150
+
+wait 4000           # boot to the main menu, "Music" selected
+wait_db 30000
+art_wait 120000
+sim_clock 15:09
+clock_format 24
+battery 100
+wait 600
+wheel +4 300        # "Shuffle Songs": play, so the header shows the
+wait 400            # play glyph as in the owner's photos
+key SELECT
+wait 2500
+key MENU            # back to the main menu
+wait 1200
+wheel -4 300        # "Music"
+wait 600
+
+key SELECT          # Music
+wait 800
+wheel +2 300        # "Albums" (photo 1212: Music menu, Albums selected)
+wait 1200
+shot music_menu
+
+key SELECT          # Albums: two-line rows (photo 1211)
+wait 1500
+wheel +1 300
+wait 1500
+shot albums
+
+key MENU            # back to Music
+wait 800
+wheel -1 300        # "Artists"
+wait 400
+key SELECT          # full-width single-line list (photo 1213)
+wait 1200
+wheel +2 300
+wait 800
+shot artists
+
+key MENU
+wait 800
+key MENU            # main menu
+wait 800
+wheel +3 300        # Settings
+wait 400
+key SELECT
+wait 1200
+wheel +6 300        # "Backlight" (photo 1186's screen is one level below)
+wait 1200
+shot settings
+quit

@@ -24,6 +24,9 @@
 #include "system.h"
 #include "pcf50605.h"
 #include "timefuncs.h"
+#ifdef HAVE_IPOD_UI
+#include "rtc_alarm_keep.h"
+#endif
 
 /* Values which each disable one alarm time register */
 static const char alarm_disable[] = {
@@ -33,6 +36,12 @@ static const char alarm_disable[] = {
 void rtc_init(void)
 {
     rtc_check_alarm_started(false);
+#ifdef HAVE_IPOD_UI
+    /* ProkBox P12 (H6): pcf50605_wakeup_flags starts at 0, so a power-off
+     * before the shell's alarm_init() (a low battery, a crash reboot)
+     * would drop the wake; keep it for an alarm the PMU still holds */
+    rtc_keep_alarm_wake();
+#endif
 }
 
 int rtc_read_datetime(struct tm *tm)
@@ -164,3 +173,53 @@ void rtc_get_alarm(int *h, int *m)
     *m = BCD2DEC(buf[0]);
     *h = BCD2DEC(buf[1]);
 }
+
+#ifdef HAVE_IPOD_UI
+/* ProkBox P12 (docs/phase12-brief.md 3.3, W1-A1). The register image comes
+ * from alarm_pmu_regs() (apps/ipodui/alarm_core.c); the wake bit goes to
+ * OOCC1 at the next standby (pcf50605_standby_mode()). */
+int rtc_set_alarm_full(const unsigned char regs[7], bool wake)
+{
+    int rc = pcf50605_write_multiple(0x11, regs, 7);
+
+    if (wake)
+    {
+        /* unmask the alarm interrupt, as rtc_enable_alarm() does */
+        pcf50605_write(0x5, pcf50605_read(0x5) & ~0x80);
+        pcf50605_wakeup_flags |= 0x10;          /* RTCWAK */
+    }
+    else
+        pcf50605_wakeup_flags &= ~0x10;
+    return rc;
+}
+
+int rtc_get_alarm_full(unsigned char regs[7], bool *wake)
+{
+    int rc = pcf50605_read_multiple(0x11, regs, 7);
+
+    if (wake)
+        *wake = (pcf50605_wakeup_flags & 0x10) != 0;
+    return rc;
+}
+
+void rtc_keep_alarm_wake(void)
+{
+    static const unsigned char daily[4] = RTC_ALARM_DAILY_TAIL;
+    unsigned char now[7], alm[7];
+
+    if (pcf50605_read_multiple(0x0a, now, 7) < 0
+        || pcf50605_read_multiple(0x11, alm, 7) < 0)
+        return;                                 /* unknown: as before */
+    switch (rtc_alarm_keep(now, alm))
+    {
+    case RTC_KEEP_DAILY:
+        pcf50605_write_multiple(0x14, daily, 4);
+        /* fall through */
+    case RTC_KEEP_WAKE:
+        pcf50605_wakeup_flags |= 0x10;          /* RTCWAK */
+        break;
+    default:
+        break;
+    }
+}
+#endif

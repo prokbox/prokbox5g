@@ -1,0 +1,32 @@
+# P19 19-2 screen truth (phase19-brief.md 3.6), row: the USB screen (usbscreen.c, a takeover).
+# The drift runs as jobs the device's way (bcm_drift on): the BCM owns
+# the panel and the framebuffer's copy is poisoned (drift_jobs.c), so a
+# reader or writer that skips ui_fb_settle() shows: "shot POISONED" (the
+# framebuffer's panel reached a shot) or "glass owned STALE" (a write
+# into the owned rect that never reached the glass).  The settled shots
+# must equal the same script's run with bcm_drift off (the CPU path):
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p19-truth-usb.script
+# needs: library
+# needs: video
+# golden: skip
+# nolog: shot POISONED
+# nolog: glass owned STALE
+
+bcm_drift on
+wait 4000
+wait_db 30000
+sim_clock 15:04
+clock_format 24
+battery 100
+drift_phase 0
+wait 3000            # live: the fade, then pan steps as jobs (owned)
+shot drift_owned
+usb_connect
+wait 3000
+shot usb
+usb_disconnect
+wait 4000
+drift_phase 350 frozen   # a fixed framing for the comparison
+wait 1200
+shot drift_again
+quit

@@ -1,0 +1,7 @@
+# gate-speed mutant expect: expect_playing with nothing playing
+# golden: skip boot down
+# resume: playing
+wait 4000
+shot boot
+expect_playing 500
+quit

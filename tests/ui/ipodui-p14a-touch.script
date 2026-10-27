@@ -1,0 +1,65 @@
+# The video strip (owner, 2026-10-15): it slides up from the bottom when the
+# video starts, stops, resumes or moves (a chapter tap, a held NEXT/PREV),
+# and when a finger touches the wheel; SELECT with it up takes the wheel
+# for the scrubber; a turn without SELECT is the volume (speakers either
+# side). Playing, it slides away 4 s after the last key.
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p14a-touch.script
+# needs: video
+# fresh-db
+# Disk: tests/fixtures/videos/mkvideos.sh (see ipodui-p14a-play.script)
+
+# golden: skip start start_lcd faded faded_lcd touched touched_lcd scrub scrub_lcd volume volume_lcd held held_lcd paused paused_lcd
+# trace: video
+wait 4000
+wait_db 45000
+art_wait 60000
+repeat off
+wheel +1 300        # Videos (main menu: Music, Videos, ...)
+wait 600
+key SELECT
+wait 900
+key SELECT          # Movies
+wait 1200
+wheel +3 300        # Short Film (13 s, 3 chapters)
+wait 400
+key SELECT
+wait_pos 500 30000 Film.m4v
+wait 700
+video_shot start    # the first picture brought the strip up
+shot start_lcd
+expect_video 5 playing
+wait 4600           # playing: it slides away 4 s after the start
+video_shot faded
+shot faded_lcd
+wheel_touch         # a finger on the wheel: up again within a tick
+wait 500
+video_shot touched
+shot touched_lcd
+key SELECT          # up: SELECT goes to the scrubber
+wait 300
+wheel +2 300
+wait 300
+video_shot scrub
+shot scrub_lcd
+key SELECT          # back to the overlay, the seek lands
+wait 300
+wheel_touch
+wheel -2 300        # a turn: the volume bar
+wait 300
+video_shot volume
+shot volume_lcd
+key SELECT          # the overlay again
+wait 300
+hold LEFT 1200      # held PREV: back on the shell's curve, lands on release
+wait 500
+video_shot held
+shot held_lcd
+key PLAY            # pause: the strip stays
+wait 600
+expect_paused 400
+video_shot paused
+shot paused_lcd
+key PLAY
+wait 300
+key MENU
+wait 1200

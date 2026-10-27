@@ -1,0 +1,55 @@
+# Battery colour by charge (owner 2026-10-22): green above 35 %, amber at 35 % or less,
+# red at 20 % or less, a 2 px red sliver even when empty. Light header on the
+# main menu, then the dark header (USB screen) at each level.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-batt-colour.script
+# golden: skip
+
+wait 4000
+battery 80
+wait 1500
+shot light_80
+battery 35
+wait 1500
+shot light_35
+battery 20
+wait 1500
+shot light_20
+battery 10
+wait 1500
+shot light_10
+battery 0
+wait 1500
+shot light_0
+
+# on power (owner 2026-10-22): plug when full, bolt while charging, none off
+charger on
+battery 100
+wait 3000
+shot power_full
+battery 50
+wait 3000
+shot power_charging
+charger off
+battery 100
+wait 3000
+shot power_off
+usb_connect
+wait 1500
+battery 80
+wait 1500
+shot dark_80
+battery 35
+wait 1500
+shot dark_35
+battery 20
+wait 1500
+shot dark_20
+battery 10
+wait 1500
+shot dark_10
+battery 0
+wait 1500
+shot dark_0
+usb_disconnect
+wait 500
+quit

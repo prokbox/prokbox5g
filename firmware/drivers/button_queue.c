@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2002 by Daniel Stenberg
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -21,6 +22,7 @@
 #include "system.h"
 #include "kernel.h"
 #include "button.h"
+#include "hang_watch.h"
 #ifdef HAVE_SDL
 #include "SDL.h"
 #if SDL_MAJOR_VERSION > 1
@@ -203,7 +205,10 @@ void button_clear_pressed(void)
 long button_get_w_tmo(int ticks)
 {
     struct queue_event ev;
+    /* ProkBox: a watched thread waiting for input is idle, never hung */
+    int hw = hang_idle_begin();
     button_queue_wait(&ev, ticks);
+    hang_idle_end(hw);
 
     if (ev.id == SYS_TIMEOUT)
         ev.id = BUTTON_NONE;

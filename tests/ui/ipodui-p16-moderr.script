@@ -1,0 +1,24 @@
+# #106: a module screen whose module can't load becomes the styled error
+# page (LANG_IPODUI_MOD_ERR_*), never a silent failed push; MENU leaves.
+# Only meaningful in a modules build (build/sim-ui-mod); in the resident
+# build mod_delay is ignored and "error" shows Legal.
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p16-moderr.script
+# needs: library
+# golden: skip error
+# golden: skip back
+
+wait 4000
+mod_delay -1
+wheel +3             # Settings
+wait 400
+key SELECT
+wait 1000
+wheel +15            # Legal
+wait 400
+key SELECT
+wait 1500
+shot error
+key MENU
+wait 1200
+shot back
+quit

@@ -1,0 +1,66 @@
+# Main-menu Now Playing row, np-sharp (owner 2026-10-24: "Keep the
+# stretched if it's worse, but make sure the sharp is queued"): an album
+# with no built 300 px panel shows its 55 px thumbnail stand-in and queues
+# its render (why=row); once the user is idle with the disk already awake
+# (here: on a charger, screen dark) the render lands in npcover.pak and
+# the row reads it (from=npcover): sharp.
+# IPODUI_NP_NO_PANEL=built: only npcover.pak answers (window and builder);
+# the sim starts it empty.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-np-sharp-render.script
+# env: IPODUI_NP_NO_PANEL=built
+# reset: mainmenu
+# needs: library
+# needs: np
+# trace: panelset
+# golden: skip
+# logbetween: start m1 art panel window key=\S+ from=none res=2 sure=1
+# logbetween: start m1 art npcover queue key=\S+ why=row
+# logbetween: start m1 panel nowplaying art key=
+# logbetween: start m1 no art npcover build
+# logbetween: m1 m2 art panel stream key=\S+ rows=\d+ writes=\d+ ok=1
+# logbetween: m1 m2 art npcover build key=\S+ slot=0 state=1 ms=\d+
+# logbetween: m2 end art panel window key=\S+ from=npcover res=0
+# logbetween: m2 end panel nowplaying window key=
+# timeout: 300
+
+wait 1000
+wait_db 30000
+sim_clock 15:04
+clock_format 24
+battery 100
+charger off
+repeat off
+mkdir /NPSharp
+copy ../../build/np-fixtures/art_big.mp3 /NPSharp/art_big.mp3
+update_db_wait_change 60000
+art_wait 120000
+play_files /NPSharp/art_big.mp3
+wait 1000
+np_pin 3000 50
+key SELECT          # Music (the menu re-reads "Now Playing" after a push/pop)
+wait 700
+key MENU
+wait 700
+wheel +10 100       # Now Playing: none built, the thumbnail, queued
+disk_active 3000
+wait 2000
+shot standin_row
+wait 3000           # lit, on battery: nothing renders
+ab_mark m1
+charger on
+wait 1500           # (a charger change lights the screen)
+disk_active 6000    # the disk already awake (a refill's)
+backlight_expire    # idle on the charger, Now Playing not up
+wait 4000
+ab_mark m2
+disk_active 3000
+key MENU            # wakes the screen
+wait 2000
+disk_active 3000
+wait 1500
+shot sharp_row
+charger off
+audio_stop
+rm_file /NPSharp/art_big.mp3    # leave the shared disk as primed
+rm_file /.rockbox/artcache/npcover.pak
+quit

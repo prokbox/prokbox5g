@@ -1,0 +1,51 @@
+# #109 H4 (docs/design/queue-by-index.md 1.2, 5.3, 7): the whole Songs
+# list as a database queue survives a restart: dbq.hdr names its block,
+# playlist_resume() pre-reserves dbq_total() and replays the one T line,
+# PLAY resumes the same song. A damaged dbq.hdr then makes the resume a
+# clean non-resume (-19 -> S1, M1): nothing plays, nothing is shown.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-dbq-resume.script
+# needs: library
+# timeout: 200
+# golden: skip resumed not_resumed
+# log: dbq build n=
+# log: dbq resume n=
+# log: dbq resume fail why=hdr
+# nolog: lib play fail
+# nolog: splash-pass
+
+wait 4000
+wait_db 30000
+key SELECT          # Music
+wait 1000
+wheel -10 100
+wait 300
+wheel +3 300        # Songs
+wait 600
+key SELECT
+wait 1500
+wheel +2 300
+wait 300
+key SELECT          # the whole list from row 2
+wait 2500
+expect_playing 300
+reboot
+
+wait 4000
+wait_db 30000
+key PLAY            # resume: the T line's block
+wait 1500
+expect_playing 1000
+shot resumed
+audio_stop
+wait 500
+reboot
+
+wait 3000
+copy fixtures/refresh.mp3 /.rockbox/ipodui/dbq.hdr   # damaged
+wait 1000
+wait_db 30000
+key PLAY            # no resume: the block isn't confirmed
+wait 1500
+shot not_resumed
+rm_file /.rockbox/ipodui/dbq.hdr
+quit

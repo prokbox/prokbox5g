@@ -1,0 +1,30 @@
+# Phase 16-4 (#92 review M2): the regroup also runs in the stopped
+# window: stopped, the user idle (backlight off), after the boot's first
+# 3 minutes. maint_poll() wakes the builder when that window opens with
+# the regroup owed (once per opening); never before the 3 minutes.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-panels-stopped.script
+# needs: library
+# golden: skip
+# log: art_panels_ungroup ok
+# log: expect_panels_grouped ok v=1
+# logbetween: start p0 no art panel regroup
+# logbetween: p0 p1 art panel regroup v=\d->1
+# nolog: expect_panels_grouped failed
+# nolog: art fail
+# timeout: 400
+
+wait 1000
+wait_db 30000
+art_wait 120000
+art_panels_ungroup  # sets interleaved, as an 8b unit may have them
+backlight_expire    # idle, stopped, but within the boot's 3 minutes
+wait 20000
+ab_mark p0
+wait 175000         # past 3 minutes of uptime: the window opens
+art_wait 60000
+ab_mark p1
+expect_panels_grouped
+key MENU            # wake from the clock face (p8a-unlit)
+wait 1500
+shot end            # one shot so shots.sh counts the run (golden: skip)
+quit

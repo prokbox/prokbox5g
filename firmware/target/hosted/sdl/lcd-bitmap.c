@@ -18,12 +18,17 @@
  *
  ****************************************************************************/
 
+#include <stdio.h>
+#include <stdlib.h>
 #include "debug.h"
 #include "sim-ui-defines.h"
 #include "system.h"
 #include "button-sdl.h"
 #include "lcd-sdl.h"
 #include "screendump.h"
+#ifdef HAVE_BCM_JOBS_MODEL
+#include "bcmjob_pp.h"           /* P19 screen truth: the owned rect */
+#endif
 
 SDL_Surface* lcd_surface;
 
@@ -124,14 +129,70 @@ void lcd_set_flip(bool yesno)
 }
 #endif
 
+#ifdef HAVE_BCMFW_VIDEO
+/* The video player's model BCM owns the panel (uisimulator/common/
+   sim_video.c): the UI's pushes stop, as the LCD driver's do on the
+   device while the player holds the BCM, and the pictures go up through
+   sim_lcd_show_panel() */
+bool sim_lcd_panel_owned;
+static const fb_data *panel_src;
+
+static unsigned long get_panel_pixel(int x, int y)
+{
+    return panel_src[y * LCD_WIDTH + x];
+}
+
+void sim_lcd_show_panel(const fb_data *panel)
+{
+    panel_src = panel;
+    sdl_update_rect(lcd_surface, 0, 0, LCD_WIDTH, LCD_HEIGHT,
+                    LCD_WIDTH, LCD_HEIGHT, get_panel_pixel);
+    sdl_gui_update(lcd_surface, 0, 0, LCD_WIDTH,
+                   LCD_HEIGHT + LCD_SPLIT_LINES, SIM_LCD_WIDTH, SIM_LCD_HEIGHT,
+                   background ? UI_LCD_POSX : 0, background? UI_LCD_POSY : 0);
+}
+#endif
+
 void lcd_update(void)
 {
+#ifdef HAVE_BCM_JOBS_MODEL
+    bcmjob_owned_settle();      /* P19 screen truth: a full-screen push */
+#endif
     /* update a full screen rect */
     lcd_update_rect(0, 0, LCD_WIDTH, LCD_HEIGHT);
 }
 
 void lcd_update_rect(int x_start, int y_start, int width, int height)
 {
+#ifdef HAVE_BCMFW_VIDEO
+    if (sim_lcd_panel_owned)
+        return;
+#endif
+#ifdef HAVE_BCM_JOBS_MODEL
+    {
+        /* P19 screen truth, as the device's lcd-video.c: a full-width
+         * band keeps only its part left of the BCM-owned panel */
+        int ox, oy, ow, oh;
+
+        if (bcmjob_owned_get(&ox, &oy, &ow, &oh) && oy == 0
+            && oh >= LCD_HEIGHT && ox + ow >= LCD_WIDTH
+            && x_start + width > ox)
+            width = x_start < ox ? ox - x_start : 0;
+        if (width <= 0)
+            return;
+    }
+#endif
+    /* test knob: log every push to the panel, so a script can tell pixels
+     * that reached the screen from pixels only drawn into the framebuffer
+     * (screenshots read the framebuffer) */
+#ifdef HAVE_IPOD_UI
+    static int trace_push = -1;
+    if (trace_push < 0)
+        trace_push = getenv("SIM_TRACE_LCD_PUSH") != NULL;
+    if (trace_push)
+        fprintf(stderr, "sim lcd push x=%d y=%d w=%d h=%d\n", x_start, y_start,
+               width, height);
+#endif
 #ifdef HAVE_LCD_FLIP
     if (sim_lcd_flipped)
     {

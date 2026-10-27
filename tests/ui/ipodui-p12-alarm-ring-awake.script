@@ -1,0 +1,19 @@
+# P12 W1-A1 (brief 3.3, Q5, Q6): an alarm rings awake: the resident ring
+# screen over the menu, the beep pattern (4 x 100 ms, 1.6 s cycle), the
+# "alarm ring" line once; PLAY at its release snoozes (a snooze is left):
+# the PMU re-armed 9 min on and read back, alarms.dat written once.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p12-alarm-ring-awake.script
+# golden: skip ringing snoozed     (proposed after capture C3)
+# env: IPODUI_SIM_ALARM_IN=12
+# Trace: alarm sim seed, alarm arm rtc=<t> ok=1, alarm ring i=0,
+#        piezo play hz=2027 (piezo_hz(2000)),
+#        alarm snooze how=0, alarm arm rtc=<t+540> ok=1, alarm file write
+# alarm-rings: 1
+# log: ipodui: alarm snooze how=0
+# reset: mainmenu
+wait 16000
+shot ringing
+key PLAY
+wait 1500
+shot snoozed
+quit

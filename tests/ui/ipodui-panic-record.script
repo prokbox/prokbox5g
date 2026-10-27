@@ -1,0 +1,24 @@
+# The panic record (firmware/export/panic_record.h): what panicf() would
+# record, made by "panic_fake" without the halt, is logged by the next
+# boot as "panic ..." lines (kind, count, thread; pc, lr, sp; the message
+# in 48-character pieces) and marked logged, so the boot after that logs
+# nothing. The sim keeps the record in /.rockbox/.sim_panic_record.bin
+# on its disk, standing in for the device's RAM that a reset does not
+# clear (shots.sh removes it before the first boot).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-panic-record.script
+# timeout: 60
+# log: sim_script: panic_fake Stkov at 0x0badf00d (a long message, so the record holds more than one line of it)
+# log: ipodui: panic kind=0 count=1 thread=
+# log: ipodui: panic pc=00012340 lr=00000000 sp=00000000
+# log: ipodui: panic msg Stkov at 0x0badf00d (a long message, so the reco
+# log: ipodui: panic msg rd holds more than one line of it)
+# golden: skip
+
+wait 4000           # boot (logs a record a previous run left, if any)
+panic_fake Stkov%20at%200x0badf00d%20(a%20long%20message,%20so%20the%20record%20holds%20more%20than%20one%20line%20of%20it)
+wait 300
+reboot
+wait 4000           # this boot logs it and marks it logged
+reboot
+wait 3000           # and this one logs nothing
+shot after_boots    # the Main Menu after three boots (shots.sh fails a run with no shot)

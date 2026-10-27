@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2002 by Alan Korr
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -23,6 +24,14 @@
 #include <stdbool.h>
 #include "config.h" /* for HAVE_MULTIVOLUME or not */
 #include "mv.h" /* for IF_MV() and friends */
+
+/* P19 19-1a (ProkBox): the storage thread waits for the driver's next
+ * deadline (ata_tick_wait()) instead of polling at HZ/2 */
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER) \
+    && (CONFIG_STORAGE == STORAGE_ATA) && !defined(SIMULATOR)
+#define STORAGE_QUIET_WAIT
+void storage_quiet_kick(void);  /* storage.c: ends a wait with no deadline */
+#endif
 
 #ifdef HAVE_ATA_SMART
 /* S.M.A.R.T. headers from smartmontools-5.42 */
@@ -132,6 +141,7 @@ struct storage_info;
 void ata_enable(bool on);
 void ata_spindown(int seconds);
 void ata_sleepnow(void);
+/* ProkBox P18/#114: the drive power API is in stor_pwr.h */
 /* NOTE: DO NOT use this to poll for disk activity.
          If you are waiting for the disk to become active before
          doing something use ata_idle_notify.h
@@ -163,7 +173,15 @@ int ata_num_drives(int first_drive);
 
 
 long ata_last_disk_activity(void);
+#ifdef STORAGE_QUIET_WAIT
+/* P19 19-1a: ticks until the storage tick is next due (TIMEOUT_BLOCK:
+ * none; an access kicks the thread). 'ticked': the last wake ran it */
+long ata_tick_wait(bool ticked);
+#endif
 int ata_spinup_time(void); /* ticks */
+#ifdef HAVE_HANG_RECORD
+bool ata_spinning_up(void); /* ProkBox: the hang watcher's grace */
+#endif
 
 /* Returns 1 if drive is solid-state */
 static inline int ata_disk_isssd(void)
@@ -222,11 +240,41 @@ static inline int ata_disk_can_sleep(void)
 }
 
 int ata_flush(void);
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+/* #91 H2: ata_flush() calls since boot (fat.c's write-order barriers,
+ * USB SYNCHRONIZE CACHE), their worst and total time; for the device log.
+ * #91 M2: of them, failed (ata_flush() < 0) and no FLUSH CACHE offered by
+ * the drive (ata_flush() == 1: the write cache was not flushed) */
+struct ata_flush_stats { unsigned long n, max_us, total_us, fail, nosup; };
+/* a copy (a function: the shell's remote calls wrap functions only) */
+void ata_flush_stats_get(struct ata_flush_stats *out);
+#endif
 
 #ifdef HAVE_ATA_DMA
 /* Returns current DMA mode */
 int ata_get_dma_mode(void);
 #endif /* HAVE_ATA_DMA */
+
+#ifdef HAVE_ATA_UDMA_FORCE
+/* ProkBox (Fit-1 C7): force a UDMA mode the adapter lists in IDENTIFY
+ * word 88 but the cable check refuses (0: negotiate as usual). Applied by
+ * a soft reset now if the disk is up, else at its next wake. While a mode
+ * is forced, writes use PIO; the first command that needs a retry drops
+ * the force (ata_udma_fell_back() then stays true until cleared). */
+void ata_set_udma_force(int mode);
+int ata_udma_force(void);
+bool ata_udma_forced_now(void);     /* forced and in effect */
+bool ata_udma_fell_back(void);
+void ata_udma_clear_fell_back(void);
+#endif
+
+#ifdef HAVE_ATA_XFER_STATS
+/* ProkBox (#63): ATA commands issued since boot, by method */
+struct ata_xfer_stats {
+    unsigned long dma_rd, dma_wr, pio_rd, pio_wr, resets;
+};
+void ata_get_xfer_stats(struct ata_xfer_stats *out);
+#endif
 
 #ifdef HAVE_ATA_SMART
 /* Returns current S.M.A.R.T. data */

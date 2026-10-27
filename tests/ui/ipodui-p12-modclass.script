@@ -1,0 +1,27 @@
+# P12 W1-F (docs/phase12-brief.md 2.3 item 3, 9 "-modclass"): the runtime
+# accountant. While a Class A module's screen is on top (here the cold
+# Settings module's Legal page, the one Class A tenant built on p12 before
+# the Extras land) it logs "modclass <name> class=A reads= writes= allocs=
+# boost_pct= fps=" once a period and at the visit's end, and never
+# "modclass viol" for a well-behaved screen; reads=0 in steady state.
+# Needs the static modules build (the accountant follows mod_pass()).
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-modclass.script
+# needs: modules
+# reset: mainmenu
+
+wait 4000
+wheel +3             # Settings
+wait 400
+key SELECT
+wait 1000
+wheel +15            # Legal (MOD_SETTINGS)
+wait 400
+key SELECT
+wait 3000            # a whole period on top: one "modclass settings" line
+shot legal
+wheel +2             # scroll the page: pushes, no storage
+wait 2500
+key MENU             # the visit ends: "modclass settings ... end"
+wait 1000
+shot back
+quit

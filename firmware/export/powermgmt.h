@@ -100,6 +100,12 @@ void init_battery_tables(void) INIT_ATTR;
 #define BATT_CURRENT_AVE_SAMPLES 128
 #endif
 
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+/* P18 18-A: wake the power thread now (any context, an ISR included): a
+ * charger or USB edge, the backlight lighting, PCM starting */
+void power_thread_kick(void);
+#endif
+
 #ifndef POWER_THREAD_STEP_TICKS
 /* 2HZ sample rate unless otherwise specified */
 #define POWER_THREAD_STEP_TICKS (HZ/2)
@@ -148,6 +154,12 @@ unsigned int input_millivolts(void); /* voltage that device is running from */
 void reset_battery_filter(int millivolts);
 #endif /* HAVE_BATTERY_SWITCH || HAVE_RESET_BATTERY_FILTER */
 
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+/* Phase 18 Q4: true once the shell handles SYS_SLEEP_REQUEST; until then
+ * the idle timer powers off as upstream's does */
+void powermgmt_set_sleep_handler(bool registered);
+#endif
+
 
 /* read unfiltered battery info */
 void battery_read_info(int *voltage, int *level);
@@ -166,6 +178,16 @@ bool get_sleep_timer_active(void);
 int get_sleep_timer(void);
 void set_keypress_restarts_sleep_timer(bool enable);
 void handle_auto_poweroff(void);
+#ifdef HAVE_IPOD_UI
+/* ProkBox boot guard: one fresh raw reading (mV), no filter, no cache */
+int battery_voltage_scan(void);
+/* ProkBox boot guard: its resting reading seeds the voltage filter */
+void powermgmt_seed_voltage(int mv);
+extern unsigned short battery_level_disksafe;
+/* ProkBox: true (and counted) while USB keeps the device on */
+bool powermgmt_poweroff_inhibited(void);
+unsigned int powermgmt_poweroff_blocked(void);
+#endif
 void set_car_adapter_mode(bool setting);
 void reset_poweroff_timer(void);
 void cancel_shutdown(void);

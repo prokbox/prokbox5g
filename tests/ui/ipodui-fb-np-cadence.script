@@ -1,0 +1,39 @@
+# fb-stall (owner device report, 2026-10-09): Now Playing's elapsed and
+# remaining times seemed to race, slow down and speed up again. Now
+# Playing wakes at each whole second of the playing position (np_tick():
+# 1000 - elapsed % 1000 + 10 ms); this checks the cadence in steady
+# playback of a FLAC: every step of the elapsed label by one second comes
+# 1 s of playing time after the last (dpos 1000 +-150 ms) and is drawn
+# within 150 ms of the whole second (lag). Playing time, not wall time:
+# the sim's dummy audio runs at ~0.66x of the wall clock (dt ~1500 ms in
+# the sim; on the device dt ~ dpos, and a step off by 300 ms is logged to
+# ipodui.log as "np cadence").
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-fb-np-cadence.script
+# needs: music
+# needs: np
+# nolog: audio shrink
+# logrange: 850 1150 np sec \d+ dpos=(\d+)
+# logrange: 0 150 np sec \d+ dpos=\d+ lag=(\d+)
+# golden: skip nowplaying
+# timeout: 90
+
+wait 3000
+repeat off
+wait_db 30000
+art_wait 60000
+mkdir /Cadence
+copy ../../build/np-fixtures/nolen.flac /Cadence/steady.flac
+play_files /Cadence/steady.flac
+wait 1000
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait_pos 3000       # past the start
+wait_pos 15000      # twelve steady seconds on screen
+shot nowplaying
+key MENU
+wait 500
+audio_stop
+wait 500
+rm_file /Cadence/steady.flac
+quit

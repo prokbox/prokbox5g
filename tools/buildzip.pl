@@ -398,6 +398,104 @@ sub buildzip {
         }
     }
 
+    # HAVE_IPOD_UI: the shell's own fonts always go in (install and zip),
+    # independent of the -f font option
+    if (($ENV{EXTRA_DEFINES} // '') =~ /-DHAVE_IPOD_UI\b/) {
+        glob_mkdir("$temp_dir/fonts");
+        glob_copy("$ROOT/apps/ipodui/fonts/*.fnt", "$temp_dir/fonts/");
+        copy("$ROOT/apps/ipodui/fonts/GUST-FONT-LICENSE.txt",
+             "$temp_dir/fonts/GUST-FONT-LICENSE.txt");
+    }
+
+    # HAVE_BCMFW_VIDEO or HAVE_BCMFW_MERGED_VIDEO: the resident (and the
+    # player's) VideoCore image (bcmfw/mkvideo.py): the merged image with
+    # HAVE_BCMFW_MERGED_VIDEO, else the plain one; with HAVE_BCMFW_DEVTEST
+    # also the probe rows' image (always the plain one: bcmprobe.bin) and
+    # stage 6's two test clips (synthetic, and an openly licensed real
+    # excerpt: bcmfw/video/mkclip-real.sh)
+    if (($ENV{EXTRA_DEFINES} // '') =~ /-DHAVE_BCMFW_(MERGED_)?VIDEO\b/) {
+        my $vimg = (($ENV{EXTRA_DEFINES} // '') =~ /-DHAVE_BCMFW_MERGED_VIDEO\b/)
+            ? "bcmvideo-jobs.bin" : "bcmvideo.bin";
+        copy("$ROOT/bcmfw/video/$vimg", "$temp_dir/bcmvideo.bin")
+            || die "can't copy $vimg";
+        # the merged image's DECODE overlay (album-render.md 5.3,
+        # dec-ovl.bin), beside the image it was linked against; refused
+        # (no zip) unless bcmfw/ovlpair.py --dec pairs them
+        if (($ENV{EXTRA_DEFINES} // '') =~ /-DHAVE_BCMFW_MERGED_VIDEO\b/) {
+            system("python3", "$ROOT/bcmfw/ovlpair.py", "--dec",
+                   "$ROOT/apps/video/bcmvideo_image.h",
+                   "$ROOT/bcmfw/video/bcmvideo-jobs.bin",
+                   "$ROOT/bcmfw/video/dec-ovl.bin") == 0
+                || die "dec-ovl.bin does not pair with the merged video image";
+            copy("$ROOT/bcmfw/video/dec-ovl.bin", "$temp_dir/dec-ovl.bin")
+                || die "can't copy dec-ovl.bin";
+            # ... and its visualizer overlay (visualizer.md 8.5,
+            # viz-ovl-m.bin: the same region, one resident at a time),
+            # release or devtest, paired the same way
+            system("python3", "$ROOT/bcmfw/ovlpair.py", "--viz-m",
+                   "$ROOT/apps/video/bcmvideo_image.h",
+                   "$ROOT/bcmfw/video/bcmvideo-jobs.bin",
+                   "$ROOT/bcmfw/video/viz-ovl-m.bin") == 0
+                || die "viz-ovl-m.bin does not pair with the merged video image";
+            copy("$ROOT/bcmfw/video/viz-ovl-m.bin", "$temp_dir/viz-ovl-m.bin")
+                || die "can't copy viz-ovl-m.bin";
+        }
+        # the player's first-use check (apps/video/vcheck.h): its test
+        # stream, in every build with the player, release ones too (not a
+        # bench input: the player refuses a file whose size or FNV-1a
+        # differs from apps/video/vcheck_stream.h, so the two go together)
+        if (($ENV{EXTRA_DEFINES} // '') =~ /-DHAVE_BCMFW_VIDEO\b/) {
+            copy("$ROOT/bcmfw/video/vcheck.bin", "$temp_dir/vcheck.bin")
+                || die "can't copy the video check's stream (vcheck.bin)";
+        }
+        if (($ENV{EXTRA_DEFINES} // '') =~ /-DHAVE_BCMFW_DEVTEST\b/) {
+            copy("$ROOT/bcmfw/video/bcmvideo.bin", "$temp_dir/bcmprobe.bin")
+                || die "can't copy bcmprobe.bin";
+            glob_mkdir("$temp_dir/bcmtest");
+            copy("$ROOT/bcmfw/video/stage6-clip.mp4", "$temp_dir/bcmtest/clip.mp4")
+                || die "can't copy the stage 6 clip";
+            copy("$ROOT/bcmfw/video/stage6-real.mp4", "$temp_dir/bcmtest/clip2.mp4")
+                || die "can't copy the stage 6 real clip";
+            copy("$ROOT/bcmfw/video/stage7-conv.m4v", "$temp_dir/bcmtest/stage7.m4v")
+                || die "can't copy the converted clip (stage 7, vfeed)";
+            # Every input the device test and the bench read from
+            # bcmtest/ by a fixed name must be in the zip: sitting 3's
+            # vfeed found no stage7.m4v and played one clip of two.
+            # Names with a format (%d, %s) are dumps the tests write;
+            # stage 9's AAC files are copied by hand (device-session-1.md).
+            my %by_hand = map { $_ => 1 } qw(aac9.au aac9.ref);
+            my %named;
+            for my $src (glob("$ROOT/apps/ipodui/*.c"), glob("$ROOT/apps/video/*.c")) {
+                open(my $fh, '<', $src) || die "can't read $src";
+                while (my $l = <$fh>) {
+                    $named{$1} = $src while $l =~ m{"/bcmtest/([^"%]+)"}g;
+                }
+                close($fh);
+            }
+            for my $n (sort keys %named) {
+                next if $by_hand{$n} || -s "$temp_dir/bcmtest/$n";
+                die "bcmtest/$n is read by $named{$n} but not in the zip";
+            }
+        }
+    }
+
+    # HAVE_BCMFW_DEVTEST with the shell: the visualizer's overlay (#126,
+    # viz-ovl.bin), beside the display-only image it was linked against
+    # (jobs_display, embedded in the firmware: bcm-devtest-images.c).
+    # bcmfw/ovlpair.py refuses a pair whose ABI word or record differs
+    # (visualizer.md 8.4): the zip is not made.  A release embeds no
+    # display-only image, so it ships only the merged image's
+    # (viz-ovl-m.bin, above).
+    if (($ENV{EXTRA_DEFINES} // '') =~ /-DHAVE_BCMFW_DEVTEST\b/ &&
+        ($ENV{EXTRA_DEFINES} // '') =~ /-DHAVE_IPOD_UI\b/) {
+        system("python3", "$ROOT/bcmfw/ovlpair.py",
+               "$ROOT/firmware/target/arm/ipod/video/bcm-devtest-images.c",
+               "$ROOT/bcmfw/video/viz-ovl.bin") == 0
+            || die "viz-ovl.bin does not pair with the embedded display-only image";
+        copy("$ROOT/bcmfw/video/viz-ovl.bin", "$temp_dir/viz-ovl.bin")
+            || die "can't copy viz-ovl.bin";
+    }
+
     # create the file so the database indexer skips this folder
     open(IGNORE, ">$temp_dir/database.ignore")  || die "can't open database.ignore";
     close(IGNORE);
@@ -443,9 +541,17 @@ sub buildzip {
     glob_mkdir("$temp_dir/eqs");
     glob_copy("$ROOT/lib/rbcodec/dsp/eqs/*.cfg", "$temp_dir/eqs/"); # equalizer presets
 
-    glob_mkdir("$temp_dir/wps");
-    glob_mkdir("$temp_dir/icons");
-    glob_mkdir("$temp_dir/themes");
+    # HAVE_IPOD_UI without HAVE_IPOD_UI_PLUGINS: the skin engine, themes,
+    # backdrops and stock icons are compiled out (Phase 9 trims), so none of
+    # their files ship; the core map stays next to the zip in the build dir.
+    my $ipodui_lean = (($ENV{EXTRA_DEFINES} // '') =~ /-DHAVE_IPOD_UI\b/)
+        && (($ENV{EXTRA_DEFINES} // '') !~ /-DHAVE_IPOD_UI_PLUGINS\b/);
+
+    unless ($ipodui_lean) {
+        glob_mkdir("$temp_dir/wps");
+        glob_mkdir("$temp_dir/icons");
+        glob_mkdir("$temp_dir/themes");
+    }
     glob_mkdir("$temp_dir/codepages");
 
     if($bitmap) {
@@ -457,7 +563,7 @@ sub buildzip {
 
     glob_move('*.cp', "$temp_dir/codepages/");
 
-    if($bitmap && $depth > 1) {
+    if($bitmap && $depth > 1 && !$ipodui_lean) {
         glob_mkdir("$temp_dir/backdrops");
     }
 
@@ -644,7 +750,10 @@ sub buildzip {
     }
 
     # Now do the WPS dance
-    if(-d "$ROOT/wps") {
+    if ($ipodui_lean) {
+        # no skins in the shell build (see above)
+    }
+    elsif(-d "$ROOT/wps") {
         my $wps_build_cmd="perl $ROOT/wps/wpsbuild.pl ";
         $wps_build_cmd=$wps_build_cmd."-v " if $verbose;
         $wps_build_cmd=$wps_build_cmd." --tempdir=$temp_dir --rbdir=$rbdir -r $ROOT -m $modelname $ROOT/wps/WPSLIST $target";
@@ -657,6 +766,7 @@ sub buildzip {
     }
 
     # until buildwps.pl is fixed, manually copy the classic_statusbar theme across
+    unless ($ipodui_lean) {
     mkdir "$temp_dir/wps/classic_statusbar", 0777;
     glob_copy("$ROOT/wps/classic_statusbar/*.bmp", "$temp_dir/wps/classic_statusbar");
     if ($depth >= 16 && $height > 480) {
@@ -673,9 +783,19 @@ sub buildzip {
     } elsif ($remote_depth != 0) {
         copy("$ROOT/wps/classic_statusbar.mono.sbs", "$temp_dir/wps/classic_statusbar.rsbs");
     }
+    } # !$ipodui_lean
 
     # and the info file
     copy("rockbox-info.txt", "$temp_dir/rockbox-info.txt");
+    # ProkBox (#106): the shell modules, built with this core
+    # (p19-relmods: a target build with the loader, every release among
+    # them, refuses a zip without its pack: the shell would show the
+    # module error page for every Extra)
+    if ($image && (($ENV{EXTRA_DEFINES} // '') =~ /-DIPODUI_WITH_MODULES\b/)
+        && ! -f "modules/modules.pak") {
+        die "modules/modules.pak missing: a module-loader build needs its pack";
+    }
+    copy("modules/modules.pak", "$temp_dir/modules.pak") if (-f "modules/modules.pak");
 
     # copy the already built lng files
     glob_copy('apps/lang/*.lng', "$temp_dir/langs/");
@@ -692,9 +812,25 @@ sub buildzip {
     glob_mkdir("$temp_dir/rocks/viewers/lua/");
     glob_copy('apps/plugins/lua/*.lua', "$temp_dir/rocks/viewers/lua/");
 
-    # finally, bundle map files for debug
-    glob_mkdir("$temp_dir/debug");
-    glob_copy("*.map", "$temp_dir/debug");
+    # ProkBox --ipodui-release (HAVE_IPOD_UI without HAVE_IPOD_UI_DEVMODE):
+    # the release has no plugin API (IPODUI_TRIM_PLUGINS), so nothing opens
+    # anything under rocks/ (Lua scripts, picross and sokoban data, viewer
+    # and tidy configs); the Language screen is English only (COMP-6), so
+    # only english.lng stays in langs/.  Stock and dev zips are unchanged.
+    if (($ENV{EXTRA_DEFINES} // '') =~ /-DHAVE_IPOD_UI\b/
+        && ($ENV{EXTRA_DEFINES} // '') !~ /-DHAVE_IPOD_UI_DEVMODE\b/) {
+        rmtree("$temp_dir/rocks");
+        for my $f (glob("$temp_dir/langs/*")) {
+            unlink($f) unless $f =~ m{/english\.lng$};
+        }
+    }
+
+    # finally, bundle map files for debug (the lean shell build keeps
+    # rockbox.map in the build dir, next to the zip)
+    unless ($ipodui_lean) {
+        glob_mkdir("$temp_dir/debug");
+        glob_copy("*.map", "$temp_dir/debug");
+    }
 # codecs and plugin maps add up
 #    find(find_copyfile(qr/\.(map)/, abs_path("$temp_dir/debug")), 'lib');
 #    find(find_copyfile(qr/\.(map)/, abs_path("$temp_dir/debug")), 'apps/plugins');

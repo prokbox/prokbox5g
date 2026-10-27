@@ -78,6 +78,12 @@ BITARRAY_TYPE_DECLARE(cache_map_entry_t, cache_map, DC_NUM_ENTRIES)
 static inline unsigned int map_sector(sector_t sector)
 {
     /* keep sector hash simple for now */
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+    /* 8b-T: 32 buckets (fs_defines.h). Folding in higher bits spreads the
+     * first sectors of 8..128-sector clusters over all 32 buckets (a plain
+     * modulo puts every cluster start of >= 32 sectors in one) */
+    sector ^= (sector >> 5) ^ (sector >> 10);
+#endif
     return sector % DC_MAP_NUM_ENTRIES;
 }
 
@@ -168,6 +174,32 @@ static inline void cache_discard_entry(struct disk_cache_entry *dce,
     dce->flags = 0;
 }
 
+#ifdef DC_ORDERED_WRITEBACK
+/* write back every dirty "first" sector (the FAT) of a volume */
+static void commit_first(IF_MV_NONVOID(int volume))
+{
+    FOR_EACH_BITARRAY_SET_BIT(&CACHE_VOL_MAP(volume), index)
+    {
+        struct disk_cache_entry *dce = &cache_entry[index];
+
+        if ((dce->flags & DCE_DIRTY) &&
+            dc_writeback_first(IF_MV(volume,) dce->sector))
+        {
+            dc_writeback_callback(IF_MV(volume,) dce->sector,
+                                  cache_buffer[index]);
+            dce->flags &= ~DCE_DIRTY;
+        }
+    }
+}
+
+/* before a dirty sector that may reference allocations goes out alone */
+static void evict_ordered(struct disk_cache_entry *dce)
+{
+    if (!dc_writeback_first(IF_MV(dce->volume,) dce->sector))
+        commit_first(IF_MV(dce->volume));
+}
+#endif /* DC_ORDERED_WRITEBACK */
+
 /* search the cache for the specified sector, returning a buffer, either
    to the specified sector, if it exists, or a new/evicted entry that must
    be filled */
@@ -203,7 +235,12 @@ void * dc_cache_probe(IF_MV(int volume,) sector_t sector,
         unsigned int old_mapnum = map_sector(sector);
 
         if (old_flags & DCE_DIRTY)
+        {
+#ifdef DC_ORDERED_WRITEBACK
+            evict_ordered(dce);
+#endif
             dc_writeback_callback(IF_MV(old_volume,) sector, buf);
+        }
 
         if (mapnum == old_mapnum IF_MV( && volume == old_volume ))
             goto finish_setup;
@@ -223,6 +260,25 @@ finish_setup:
     *flagsp = 0;
     return buf;
 }
+
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+/* ProkBox (R1, #107): the buffer caching a sector, if any, without
+ * evicting or claiming an entry. fat.c's directory burst reader serves
+ * this copy first: it is the newest one (dirty or equal to the disk) */
+void * dc_peek(IF_MV(int volume,) sector_t sector)
+{
+    FOR_EACH_BITARRAY_SET_BIT(&CACHE_MAP_ENTRY(volume, map_sector(sector)),
+                              index)
+    {
+        struct disk_cache_entry *dce = &cache_entry[index];
+
+        if (dce->sector == sector && (dce->flags & DCE_INUSE))
+            return cache_buffer[index];
+    }
+
+    return NULL;
+}
+#endif /* HAVE_IPOD_UI && !BOOTLOADER */
 
 /* mark in-use cache entry as dirty by buffer */
 void dc_dirty_buf(void *buf)
@@ -256,6 +312,9 @@ void dc_commit_all(IF_MV_NONVOID(int volume))
 {
     DEBUGF("dc_commit_all()\n");
 
+#ifdef DC_ORDERED_WRITEBACK
+    commit_first(IF_MV(volume));
+#endif
     FOR_EACH_BITARRAY_SET_BIT(&CACHE_VOL_MAP(volume), index)
     {
         struct disk_cache_entry *dce = &cache_entry[index];
@@ -298,7 +357,12 @@ void * dc_get_buffer(void)
         {
             /* must first commit this sector if dirty */
             if (flags & DCE_DIRTY)
+            {
+#ifdef DC_ORDERED_WRITEBACK
+                evict_ordered(dce);
+#endif
                 dc_writeback_callback(IF_MV(dce->volume,) dce->sector, buf);
+            }
 
             cache_discard_entry(dce, index);
         }

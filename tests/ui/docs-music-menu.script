@@ -1,0 +1,11 @@
+# User guide shot (docs/user/guide/music.md): the Music menu.
+# Synthetic library only.
+#   SIM_BUILD=build/sim-rel scripts/shots.sh tests/ui/docs-music-menu.script
+# needs: library
+# golden: skip
+wait 4000
+wait_db 45000
+key SELECT          # Music
+wait 1500
+shot music_menu
+quit

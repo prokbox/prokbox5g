@@ -1,0 +1,52 @@
+# #126: on a charger while music plays, While Charging: Visualizer (a row
+# of the visualizer's hold list, owner 2026-10-25; no Settings row) turns
+# the face at the backlight's timeout into Now Playing's Visualizer, full
+# screen, which keeps the screen lit (the default, Clock:
+# ipodui-p19-viz-face-clock).
+# log: viz charge face=1
+# np: viz-full
+# log: np viz face
+# log: np viz full=1
+# log: unlit skip viz
+# log: viz light hold=1
+# nolog: unlit enter
+# nolog: settings charge face
+# reset: viz
+wait 3000
+charger on
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait 1500
+key SELECT          # Music
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 1500
+key SELECT          # Scrubber
+wait 400
+key SELECT          # Rating
+wait 600
+key SELECT          # Shuffle
+wait 600
+key SELECT          # Visualizer
+wait 1500
+hold SELECT 1200    # the hold list
+wait 1200
+wheel +5            # While Charging (after the five styles)
+wait 600
+shot hold_row
+key SELECT
+wait 1200
+shot choice
+wheel +1            # Visualizer
+wait 400
+key SELECT          # back to the view
+wait 1500
+shot view_after
+key SELECT          # Normal
+wait 1200
+backlight_expire    # the Visualizer face
+wait 2000
+shot viz_face

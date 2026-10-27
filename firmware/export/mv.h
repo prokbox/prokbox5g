@@ -125,6 +125,9 @@ struct volumeinfo
 
 /* Volume-centric functions (in disk.c) */
 void volume_recalc_free(IF_MV_NONVOID(int volume));
+#ifdef HAVE_IPOD_UI
+void volume_recalc_free_commit(IF_MV_NONVOID(int volume));
+#endif
 unsigned int volume_get_cluster_size(IF_MV_NONVOID(int volume));
 void volume_size(IF_MV(int volume,) sector_t *size, sector_t *free);
 #ifdef HAVE_DIRCACHE

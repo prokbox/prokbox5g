@@ -29,6 +29,7 @@
 #include "usb.h"
 #include "mv.h"
 #include "ata_idle_notify.h"
+#include "sim_tasks.h"
 
 #ifdef WIN32
 #include <windows.h>
@@ -51,8 +52,23 @@ enum {
 #endif
 };
 
+#ifdef HAVE_STORAGE_POWEROFF
+#include "stor_pwr.h"
+#endif
+
 #ifdef HAVE_HOTSWAP
 extern void sim_ext_extracted(int drive);
+#endif
+#ifdef HAVE_IPOD_UI
+extern void sim_usb_host_window(bool open);    /* filesystem-sim.c, #118 */
+#include "core_alloc.h"
+#include "usb_buf_alloc.h"
+/* The device's USB storage buffer (usb_storage.c ALLOCATE_BUFFER_SIZE +
+ * its CBW + alignment, about 130 KB), taken as the device takes it: by a
+ * thread that is not the audio thread, at SET_CONFIGURATION, before the
+ * SYS_USB_CONNECTED broadcast; freed at the unplug (its disconnect) */
+#define SIM_USB_STORAGE_BUF (2 * 64 * 1024 + 2048 + 512 + 31)
+static int sim_usb_buf;
 #endif
 
 void sim_thread(void)
@@ -60,6 +76,9 @@ void sim_thread(void)
     struct queue_event ev;
     long last_broadcast_tick = current_tick;
     int num_acks_to_expect = 0;
+#ifdef HAVE_IPOD_UI
+    long usb_insert_tick = 0;   /* #118: connect -> last ack latency */
+#endif
 
     while (1)
     {
@@ -67,6 +86,19 @@ void sim_thread(void)
         switch(ev.id)
         {
             case SYS_TIMEOUT:
+#ifdef HAVE_IPOD_UI
+                /* #118: as the device's storage thread (storage.c:
+                 * usb_mode), no idle callbacks while the host has the disk */
+                if (usb_detect() == USB_INSERTED)
+                    break;
+#endif
+#ifdef HAVE_STORAGE_POWEROFF
+                /* #114: as the device's storage tick, the notice comes
+                 * before the drive goes idle, while it still has power;
+                 * never a power-up of its own */
+                if (!storage_powered())
+                    break;
+#endif
                 call_storage_idle_notifys(false);
                 break;
 
@@ -92,8 +124,31 @@ void sim_thread(void)
                     last_broadcast_tick = current_tick;
                 }
 
+#ifdef HAVE_STORAGE_POWEROFF
+                /* ProkBox #114: the adapter is powered up before anyone
+                 * (the host) is told, as the storage thread does */
+                sim_stor_usb(true);
+#endif
                 /* NOTE: Unlike the USB code, we do not subtract one here
                  * because the sim_queue is not registered for broadcasts! */
+#ifdef HAVE_IPOD_UI
+                usb_insert_tick = current_tick;
+                /* the host's SET_CONFIGURATION: usb_storage.c's buffer */
+                if (sim_usb_buf <= 0)
+                {
+                    sim_usb_buf = usb_buf_alloc(SIM_USB_STORAGE_BUF,
+                                                &buflib_ops_locked,
+                                                "storage");
+                    if (sim_usb_buf <= 0)
+                    {
+                        /* the device's driver then fails its
+                         * configuration: no exclusive storage, no
+                         * broadcast, the cable only charges */
+                        sim_usb_buf = 0;
+                        break;
+                    }
+                }
+#endif
                 num_acks_to_expect += queue_broadcast(SYS_USB_CONNECTED, 0);
                 DEBUGF("USB inserted. Waiting for %d acks...\n",
                        num_acks_to_expect);
@@ -102,6 +157,15 @@ void sim_thread(void)
                 if(num_acks_to_expect > 0 && --num_acks_to_expect == 0)
                 {
                     DEBUGF("All threads have acknowledged the connect.\n");
+#ifdef HAVE_IPOD_UI
+                    /* the device's usb.c enters slave mode here (only
+                     * with the host still there): the host owns the disk
+                     * until the unplug */
+                    DEBUGF("ipodui: usb ack ms=%ld\n",
+                           (current_tick - usb_insert_tick) * 1000 / HZ);
+                    if (usb_detect() == USB_INSERTED)
+                        sim_usb_host_window(true);
+#endif
                 }
                 else
                 {
@@ -112,7 +176,15 @@ void sim_thread(void)
             case SIM_USB_EXTRACTED:
                 /* in usb.c, this is only done for exclusive storage
                  * do it here anyway but don't depend on the acks */
+#ifdef HAVE_IPOD_UI
+                sim_usb_host_window(false); /* usb.c: slave mode off first */
+                if (sim_usb_buf > 0)        /* usb_storage_disconnect() */
+                    sim_usb_buf = core_free(sim_usb_buf);
+#endif
                 queue_broadcast(SYS_USB_DISCONNECTED, 0);
+#ifdef HAVE_STORAGE_POWEROFF
+                sim_stor_usb(false);
+#endif
                 break;
 #ifdef HAVE_HOTSWAP
             case SIM_EXT_INSERTED:
@@ -137,6 +209,8 @@ void sim_tasks_init(void)
 
     create_thread(sim_thread, sim_thread_stack, sizeof(sim_thread_stack), 0,
                   sim_thread_name IF_PRIO(,PRIORITY_BACKGROUND) IF_COP(,CPU));
+
+    sim_script_init();
 }
 
 void sim_trigger_screendump(void)
@@ -198,6 +272,14 @@ bool usb_inserted(void)
 {
     return is_usb_inserted;
 }
+
+#ifdef HAVE_IPOD_UI
+/* the sim's "USB" is always a host */
+bool usb_storage_host_present(void)
+{
+    return is_usb_inserted;
+}
+#endif
 
 void usb_init(void)
 {

@@ -836,8 +836,13 @@ refresh_info:
 
                 if (view_text)
                     view_text(title_and_text[0], title_and_text[1]);
+#ifdef IPODUI_TRIM_PLUGINS /* P9: no text viewer plugin; nothing to open */
+                else
+                    DEBUGF("p9 browse_id3: no text viewer\n");
+#else
                 else
                     plugin_load(VIEWERS_DIR"/view_text.rock", title_and_text);
+#endif
                 gui_synclist_set_title(&id3_lists, str(LANG_TRACK_INFO), NOICON);
                 gui_synclist_draw(&id3_lists);
                 continue;

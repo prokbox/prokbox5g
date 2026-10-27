@@ -1,0 +1,40 @@
+# Phase 5 (D4): a rating written with the database being rebuilt lands on the
+# right file or is dropped (never on another): after a reload the stars shown
+# still belong to the same track. (The sim leaves a rebuild's commit for the
+# next boot, so the database value cannot be read back here: the shot is the
+# check; rating-ready and rating-dirty assert the value.)
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p5-rating-rebuild.script
+# needs: library
+# timeout: 150
+
+wait 1000
+wait_db 30000
+sim_clock 15:08
+clock_format 24      # P11: the default is 12-hour; this golden shows 24
+repeat off
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3 /Music/Tone%20Collective/Sine%20Studies/02%20Low%20E.mp3
+wait 1000
+np_pin 2000 50
+rebuild_db_start
+wait 300
+key SELECT          # Music (the menu re-reads "Now Playing" after a push/pop)
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 1200
+key SELECT
+wait 500
+key SELECT
+wait 500
+wheel -6 100        # to 0 stars first (the rating persists between runs)
+wait 300
+wheel +3 300        # 3 stars
+wait 300
+key SELECT
+wait 1500
+shot after
+audio_stop
+quit

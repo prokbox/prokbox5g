@@ -1,0 +1,39 @@
+# #109 (design 4.2.2, 7 "-dbq-commit-incremental"): a library update that
+# only adds a file under a database queue keeps every master index: the
+# rebase compares fingerprints over every slot and re-stamps the block
+# (result=stamp), with no SEEK pass and no materialization.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-dbq-commit-incremental.script
+# needs: library
+# timeout: 200
+# golden: skip restamped
+# log: dbq build n=302
+# log: result=stamp n=302
+# nolog: result=seek
+# nolog: dbq materialize
+# nolog: dbq miss
+# nolog: splash-pass
+
+wait 4000
+wait_db 30000
+rm_file /zz-dbq-incr.mp3            # leftover of a cut run (if any)
+key SELECT          # Music
+wait 1000
+wheel -10 100
+wait 300
+wheel +3 300        # Songs
+wait 600
+key SELECT
+wait 1500
+key SELECT          # the whole list
+wait 2000
+expect_playing 300
+audio_stop
+wait 500
+copy fixtures/refresh.mp3 /zz-dbq-incr.mp3
+update_db_wait_change 60000
+wait 2000
+shot restamped
+rm_file /zz-dbq-incr.mp3
+update_db_wait_change 60000
+wait 1000
+quit

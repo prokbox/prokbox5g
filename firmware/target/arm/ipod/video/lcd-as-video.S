@@ -65,6 +65,49 @@ lcd_write_data:                       /* r1 = pixel count, must be even */
 
     ldmpc   regs=r4
 
+/* the boot path's upload loop, and the device test's upload lab (which
+ * builds without the boot path too) */
+#if defined(HAVE_BCMFW) || defined(HAVE_BCMFW_DEVTEST)
+/****************************************************************************
+ * void lcd_write_data_burst8(const fb_data *addr, int pixelcount);
+ *
+ * As lcd_write_data, with 8-register bursts: 16 pixels per ldm/stm pair,
+ * one loop branch per 16 pixels.  The bus still takes one 16-bit cycle a
+ * pixel; this only cuts the PP's own instructions between them.  Measured
+ * against lcd_write_data by the device test's upload lab (stage 5, dev8).
+ * Same rules: addr word aligned, pixelcount even.  In .text, not IRAM.
+ */
+    .text
+    .align  2
+    .global lcd_write_data_burst8
+    .type   lcd_write_data_burst8, %function
+lcd_write_data_burst8:
+    stmfd   sp!, {r4-r9, lr}
+    mov     lr, #0x30000000           /* LCD data port */
+
+    subs    r1, r1, #16
+.b8loop:
+    ldmiage r0!, {r2-r9}
+    stmiage lr,  {r2-r9}
+    subsge  r1, r1, #16
+    bge     .b8loop
+
+    tst     r1, #8
+    ldmiane r0!, {r2-r5}
+    stmiane lr,  {r2-r5}
+    tst     r1, #4
+    ldmiane r0!, {r2-r3}
+    stmiane lr,  {r2-r3}
+    tst     r1, #2
+    ldrne   r3, [r0], #4
+    strne   r3, [lr]
+
+    ldmpc   regs=r4-r9
+    .size   lcd_write_data_burst8, .-lcd_write_data_burst8
+
+    .section .icode, "ax", %progbits
+#endif /* HAVE_BCMFW || HAVE_BCMFW_DEVTEST */
+
 /****************************************************************************
  * extern void lcd_write_yuv420_lines(unsigned char const * const src[3],
  *                                    unsigned bcmaddr

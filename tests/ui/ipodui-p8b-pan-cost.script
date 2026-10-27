@@ -1,0 +1,31 @@
+# Phase 8b-0 tooling (b): the cost of each main-menu right-panel drift step
+# (owner: panning isn't perfectly smooth). apps/ipodui/ptrace.h hooks in
+# preview.c log, per step:
+#   panel cost kind=pan|fade step= blit_us= push_us= gap_us= px= [half=]
+# kind=pan is one pan half step (8b: 75 ms apart, 1 px per 150 ms): step
+# counts half steps, half=0 a whole-pixel blit of the 160x240 window,
+# half=1 the half-pixel blend toward the next pixel (half_window()), each
+# followed by the panel push;
+# kind=fade one cross-fade step of a new cover (xfade_rect + push), blit_us
+# the compose, push_us the LCD push, gap_us the wall time since the previous
+# step of the same kind (the frame pacing). Simulator microseconds are host
+# CPU time (relative only); the device figure needs a UI_PTRACE firmware.
+# Re-runnable: the phase is unfrozen at a fixed tick (drift_phase), so the
+# same steps occur on every run. check_trace.py rule p8b-pan.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p8b-pan-cost.script
+# needs: library
+# trace: p8bpan
+# golden: skip live_pan
+# timeout: 120
+
+wait 4000           # boot to the main menu, "Music" selected
+wait_db 30000
+art_wait 120000     # every album and panel built
+sim_clock 15:04
+clock_format 24
+battery 100
+
+drift_phase 0 live  # the drift runs unfrozen from cycle 0, tick 0
+wait 9000           # the cover fades in, then pans (~13 steps/s)
+shot live_pan
+wait 6000

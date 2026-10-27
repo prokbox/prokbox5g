@@ -1,0 +1,93 @@
+# Phase 3: pixel-smooth, velocity-sensitive list scrolling and the scrollbar
+# (docs/phase3-brief.md, agent A "Pixel-smooth list" / "Scrollbar" / "Wheel").
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p3-scroll.script
+#
+# #38 (docs/phase-nav-brief.md, "C: verification") retargets the long-list
+# half of this script from Settings (now a split screen with panels, no
+# longer a plain scrollable list) to Music > Songs: a full-width list
+# (the split stops above the leaf, docs/design/spec/main-menu.md) that
+# stays a long flat list regardless of A's and B's #38 work, so scroll
+# coverage survives the split. Songs has ~300 rows, two-line (title over
+# artist, 5 per view, docs/design/7g-spec.md "List geometry"), rather than
+# Settings' single-line 9/view, so the slow-turn boundary and the fast-spin
+# click counts below are recalibrated for it (see the comments at each).
+#
+# Deterministic shots land where the position cannot depend on timing or
+# wheel acceleration: after slow single clicks (1 row per click), or after
+# a fast spin long enough to clamp at the list end. Shots taken while the
+# view is still gliding or the scrollbar is still showing are
+# timing-sensitive and kept out of the goldens:
+# golden: skip music_mid fast_mid fast_bar slow_bar
+#
+# Trace (scripts/check_trace.py): every frame is "update anim" inside the
+# list body, boost balanced at the end.
+# resume: playing
+# needs: library
+
+wait 4000           # boot to the main menu, "Music" selected
+wait_db 30000
+
+# -- Music (10 items, split screen): one screen and a bit -----------------
+key SELECT          # into Music
+wait 800
+wheel +8            # fast spin to the last item ("Search"); list glides
+shot music_mid      # mid-glide (timing-sensitive)
+wait 1800           # glide done, scrollbar faded (~1 s after motion)
+shot music_end
+
+key MENU            # back to the main menu
+wait 800
+
+# -- Songs: long list (full-width, two-line, 5 rows/view) -----------------
+key SELECT          # into Music again (fresh: "Playlists" selected)
+wait 800
+wheel +3            # "Songs"  [Compilations off: P11]
+wait 400
+key SELECT
+wait 800
+shot songs_top      # Amber Comet first (tests/ui/setup_library.py)
+
+# slow turn: one row per click, view follows the selection smoothly.
+# Rows 0-4 are visible at rest; the 5th click selects row 5, so the view
+# has to glide one row to keep it on screen.
+wheel +1
+wait 300
+wheel +1
+wait 300
+wheel +1
+wait 300
+wheel +1
+wait 300
+wheel +1            # 5th row selected: the view has to move one row
+wait 300
+wheel +1
+wait 150
+shot slow_bar       # just after the motion: scrollbar visible (timing-sensitive)
+wait 1800
+shot slow_rest      # 6th row selected, scrollbar gone
+
+# fast spin: accelerates, clamps at the last song whatever the curve.
+# ~297 rows (tests/ui/setup_library.py tracks() + the untagged pair): at
+# 10 ms between clicks (~100 clicks/s) ui_wheel_steps caps at 5 steps per
+# click (apps/ipodui/scroll.c WHEEL_STEPS_MAX), so 400 clicks cover up to
+# 2000 rows, comfortably past the end even with no acceleration at all.
+wheel +400 10
+shot fast_mid       # mid-glide (timing-sensitive)
+wait 300
+shot fast_bar       # scrollbar visible (timing-sensitive)
+wait 2000
+shot fast_end       # last song selected, at rest: the '#' group
+                    # ('99 Red Kites' last, docs/phase-nav-brief.md
+                    # cross-check with ipodui-p4-sort.script)
+
+wheel -400 10       # fast spin back to the top
+wait 2000
+shot fast_top       # Amber Comet again
+
+key MENU            # back to Music
+wait 800
+key MENU            # back to the main menu
+wait 800
+shot back
+
+quit

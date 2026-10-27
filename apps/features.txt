@@ -328,3 +328,15 @@ utf8proc
 #if defined(HAVE_COMPOSITE_VIDEO_OUT)
 videoout
 #endif
+
+#if defined(HAVE_IPOD_UI)
+ipodui
+#endif
+
+#if defined(HAVE_IPOD_UI_DEVMODE)
+ipodui_devmode
+#endif
+
+#if defined(IPODUI_MODULES)
+ipodui_modules
+#endif

@@ -1,0 +1,77 @@
+# P12 icons (owner, 2026-10-24): every Extras row shows its own art in the
+# split screen's panel, as on the 7G (owner photos 1191, photo 1196,
+# photo 1197, photo 1202): Clocks the map and clock, Calendars the page,
+# Contacts a contacts book, Alarms an alarm clock, Games a pair of dice,
+# Notes a note pad, Screen Lock a padlock, Stopwatch the dial. Then
+# Extras > Alarms, split like the 7G's (photo 1198), the alarm clock in the
+# panel on every row (Create Alarm, Sleep Timer). Then Extras > Games,
+# split too (owner, 2026-10-24): each game's cover (box art) in the panel,
+# the test game the plain dice. A module build, so the Games row is
+# offered and the panels show while the modules load.
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-extras-icons.script
+# needs: modules
+# golden: skip
+# log: sdk games list rows=
+# reset: mainmenu
+
+wait 4000
+rtc_at 2026-10-06 15:06:00
+sim_clock 15:06
+wheel +2             # Extras
+wait 800
+key SELECT
+wait 1200
+shot clocks
+wheel +1
+wait 800
+shot calendars
+wheel +1
+wait 800
+shot contacts
+wheel +1
+wait 800
+shot alarms
+wheel +1
+wait 800
+shot games
+wheel +1
+wait 800
+shot notes
+wheel +1
+wait 800
+shot screenlock
+wheel +1
+wait 800
+shot stopwatch
+wheel -4             # Alarms
+wait 800
+key SELECT
+wait 1500
+shot alarms_list     # Create Alarm / New Alarm, Sleep Timer / Inactive
+wheel +1
+wait 800
+shot alarms_sleep    # Sleep Timer highlighted: the same alarm clock
+key MENU
+wait 1000
+shot back_list       # Extras, Alarms still highlighted
+wheel +1             # Games
+wait 800
+key SELECT
+wait 1500
+shot games_bricks      # the Games list, split: Bricks' cover
+wheel +1
+wait 800
+shot games_chess
+wheel +1
+wait 800
+shot games_chute
+wheel +1
+wait 800
+shot games_tests     # the test game (simulator, developer): the dice
+wheel +1
+wait 800
+shot games_quadrus
+wheel +1
+wait 800
+shot games_solitaire
+quit

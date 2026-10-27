@@ -1,0 +1,59 @@
+# Phase 8a (docs/phase8a-brief.md 3.4, 7.5, 8): the developer-mode chord.
+# SELECT+LEFT held 3.2 s on the About screen opens the Developer list; Debug
+# opens the debug menu; Back returns to About, pixel-identical to before.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p8a-devmode.script
+# needs: library
+# trace: devmode
+# same: about_before about_after
+# log: devmode arm
+# log: devmode enter
+# log: devmode exit
+# golden: skip debug
+# golden-region: developer 0 8 320 240
+#   (the stock status bar's clock, rows 0-6, reads the host RTC, which
+#   sim_clock does not pin: rows 0-7 are skipped, the "Developer" title
+#   from its top row 8 on is compared)
+#
+# The chord is held 3200 ms (devmode.md 6; check_trace.py p8a-devmode needs a
+# chord >= 3000 ms per armed enter). splash-pass lines are allowed here: the
+# Developer list and the debug screens are stock UI.
+#
+# Route to About: Settings > About by keys (hook H3: the About row pushes
+# ui_about_screen).
+# env: SIM_TRACE_LCD_PUSH=1
+# logbetween: dev_in dev_shown \bsim lcd push x=0 y=0 w=320 h=240\b
+
+wait 5000            # boot (4 s flaked once under 16 parallel sims)
+wheel +3            # Settings (4th main-menu row)
+wait 400
+key SELECT          # Settings; About is its first row
+wait 1500
+key SELECT          # About
+wait 1500
+shot about_before
+ab_mark dev_in       # #57: the stock list must reach the panel
+chord SELECT+LEFT 3200
+wait 1000
+shot developer      # the stock list: Status ... Advanced, Back
+ab_mark dev_shown
+wheel -2            # Advanced (above Back; the list wraps)
+wait 400
+key SELECT
+wait 800
+wheel -1            # System debug (its last row)
+wait 400
+key SELECT          # System debug
+wait 1000
+shot debug
+key LEFT            # back to Advanced (the stock lists' cancel
+wait 800            # is LEFT in CONTEXT_STD, keymap-ipod.c; MENU does nothing)
+key LEFT            # Advanced
+wait 600
+key LEFT            # Developer, on Advanced
+wait 600
+wheel +1            # the Back row
+wait 400
+key SELECT          # Back: leave developer mode
+wait 1500
+shot about_after    # == about_before
+quit

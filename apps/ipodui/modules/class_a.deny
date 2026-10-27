@@ -1,0 +1,42 @@
+# Class A shell modules may not reference these core symbols
+# (docs/phase12-brief.md 2.3 item 1). One glob per line, matched against
+# the module's undefined symbols (modpak.py keep's list); a hit refuses
+# the build (modpak.py check, W1-F). Bursts go through ui_boost_burst().
+# MOD_XINDEX (context = sync) is the one module allowed opendir/readdir
+# and the file calls; its exception lives in modpak.py check.
+core_alloc*
+buflib_*
+create_thread
+tick_add_task
+timeout_register
+cop_job*
+audio_stop
+audio_buffer_*
+playlist_create
+playlist_resume*
+playlist_shuffle
+playlist_start
+playlist_next*
+playlist_set_*
+playlist_close
+playlist_sync
+playlist_insert*
+playlist_skip_entry
+playlist_delete*
+playlist_move
+playlist_randomise
+playlist_sort
+playlist_reorder_ipodui
+playlist_reserve_ipodui
+playlist_save
+playlist_remove_all_tracks
+playlist_update_resume_info
+tagcache_search*
+lib_open
+font_load*
+opendir
+readdir
+storage_*
+bcm_*
+cpu_boost
+cpu_boost_

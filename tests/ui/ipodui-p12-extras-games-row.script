@@ -1,0 +1,26 @@
+# P12 integration L3 follow-up: a build where no game can run (resident:
+# no module arena, every game hidden why=arena) has no Games row in
+# Extras, as the 7G lists only what the unit has. The row under Alarms is
+# Notes. The Main Menu's stored Games bit is untouched, so a module build
+# shows the row again (-extras-games-row-mod).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p12-extras-games-row.script
+# golden: skip
+# log: mod hide solitaire why=arena
+# log: notes open
+# nolog: sdk games list
+# reset: mainmenu
+wait 4000
+wheel +2             # "Extras"
+wait 800
+key SELECT
+wait 1200
+wheel +4             # past Clocks, Calendars, Contacts, Alarms
+wait 800
+shot row_after_alarms   # Notes
+key SELECT
+wait 1500
+shot opened          # the Notes list
+key MENU
+wait 1000
+shot back_list
+quit

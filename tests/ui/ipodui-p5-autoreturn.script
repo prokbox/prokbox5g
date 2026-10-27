@@ -1,0 +1,31 @@
+# Phase 5 fix B: auto-return to Now Playing on idle (owner, 2026-10-08).
+# While music plays, an idle menu pushes Now Playing after
+# max(5 s, backlight timeout - 3 s) (8 s with the backlight always on);
+# MENU then returns to that menu. Trace: "np auto-return after=<ms>".
+# logrange: 7800 8300 np auto-return after=(\d+)
+# trace: np
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p5-autoreturn.script
+# needs: music
+# timeout: 90
+
+wait 3000
+sim_clock 15:08
+clock_format 24      # P11: the default is 12-hour; this golden shows 24
+repeat off
+wait_db 30000
+art_wait 60000
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3 /Music/Tone%20Collective/Sine%20Studies/02%20Low%20E.mp3
+wait 1000
+np_pin 12000 50
+key SELECT          # Music
+wait 1000
+shot music_menu
+wait 3000
+shot still_menu     # 4 s idle: not yet
+wait 20000
+shot returned       # Now Playing pushed on top
+key MENU
+wait 1000
+shot back_to_music  # MENU returns to the menu it covered
+audio_stop
+quit

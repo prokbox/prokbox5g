@@ -1,0 +1,55 @@
+# P19 19-6, the default: the model offers DECODE (bcm_decode on) but the
+# panel switch is off (art_bcm_panel_set(), the coordinator 2026-10-25: a
+# 300 x 300 read-back is ~45 k port words, likely more PP time than the
+# CPU's own decode).  np-sharp's panel decodes on the CPU ("panel cpu
+# ms=", the same CRC as the BCM's in ipodui-p19-dec-bcm), and nothing of
+# the panel goes to the BCM.
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p19-dec-default.script
+# env: IPODUI_NP_NO_PANEL=built
+# reset: mainmenu
+# needs: library
+# needs: np
+# needs: video
+# golden: skip
+# fulls-extra: 1 the main menu's Now Playing row appears (play_files)
+# logbetween: m1 m2 art panel crc key=6a1b2f700f283f50 crc=5ac79827 bcm=0
+# logbetween: m1 m2 panel cpu ms=\d+ ok=1
+# logbetween: m1 m2 art npcover build key=6a1b2f700f283f50 slot=0 state=1
+# logbetween: m1 m2 no art bcm decode key=\S+ dw=534
+# logbetween: m1 m2 no panel bcm dec_ms
+# nolog: bcmjob fault op=0x30
+# nolog: FAULT bcm decode overlay
+# timeout: 300
+
+wait 1000
+bcm_decode on       # the box may go to the BCM; the panel switch: off
+wait_db 30000
+sim_clock 15:04
+clock_format 24
+battery 100
+charger off
+repeat one
+mkdir /NPDec
+copy ../../build/np-fixtures/art_169.mp3 /NPDec/art_169.mp3
+update_db_wait_change 60000
+art_wait 120000
+play_files /NPDec/art_169.mp3
+wait 1000
+np_pin 3000 50
+key SELECT          # Music (the menu re-reads "Now Playing" after a push/pop)
+wait 700
+key MENU
+wait 700
+wheel +10 100       # Now Playing: none built, the thumbnail, queued
+disk_active 3000
+wait 2000
+ab_mark m1
+audio_pause on      # paused, lit, idle: np-sharp (on the CPU)
+disk_active 8000
+wait 6000
+ab_mark m2
+shot sharp_row
+audio_stop
+rm_file /NPDec/art_169.mp3
+rm_file /.rockbox/artcache/npcover.pak
+quit

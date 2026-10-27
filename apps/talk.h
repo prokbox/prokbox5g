@@ -27,6 +27,7 @@
 
 #include <stdbool.h>
 #include <inttypes.h>
+#include "config.h"
 #include "time.h"
 
 #define VOICE_VERSION 400 /* 4.00 - if you change this, change it in voicefont too */
@@ -103,6 +104,87 @@ enum talk_buffer_policies {
     TALK_BUFFER_HOLD,
 };
 
+#ifdef IPODUI_TRIM_VOICE
+/* Phase 9 (docs/phase9-brief.md 3.3.2): voice is compiled out of the shell.
+ * Each stub returns what talk.c returns with no voice file loaded (0,
+ * "pretend success"), so no caller changes behaviour. The strings and the
+ * language system are untouched (rule 8). */
+#define TALK_STUB_UNUSED(x) ((void)(x))
+static inline void talk_buffer_set_policy(int policy)
+{ TALK_STUB_UNUSED(policy); }
+static inline void talk_init(void) {}
+static inline int talk_get_bufsize(void) { return 0; }
+static inline bool is_voice_queued(void) { return false; }
+static inline int talk_id(int32_t id, bool enqueue)
+{ TALK_STUB_UNUSED(id); TALK_STUB_UNUSED(enqueue); return 0; }
+static inline int talk_file(const char *root, const char *dir,
+                            const char *file, const char *ext,
+                            const long *prefix_ids, bool enqueue)
+{
+    TALK_STUB_UNUSED(root); TALK_STUB_UNUSED(dir); TALK_STUB_UNUSED(file);
+    TALK_STUB_UNUSED(ext); TALK_STUB_UNUSED(prefix_ids);
+    TALK_STUB_UNUSED(enqueue);
+    return 0;
+}
+static inline int talk_file_or_spell(const char *dirname,
+                                     const char *filename,
+                                     const long *prefix_ids, bool enqueue)
+{
+    TALK_STUB_UNUSED(dirname); TALK_STUB_UNUSED(filename);
+    TALK_STUB_UNUSED(prefix_ids); TALK_STUB_UNUSED(enqueue);
+    return 0;
+}
+static inline int talk_dir_or_spell(const char *filename,
+                                    const long *prefix_ids, bool enqueue)
+{
+    TALK_STUB_UNUSED(filename); TALK_STUB_UNUSED(prefix_ids);
+    TALK_STUB_UNUSED(enqueue);
+    return 0;
+}
+static inline int talk_fullpath(const char *path, bool enqueue)
+{ TALK_STUB_UNUSED(path); TALK_STUB_UNUSED(enqueue); return 0; }
+static inline int talk_number(long n, bool enqueue)
+{ TALK_STUB_UNUSED(n); TALK_STUB_UNUSED(enqueue); return 0; }
+static inline int talk_value(long n, int unit, bool enqueue)
+{
+    TALK_STUB_UNUSED(n); TALK_STUB_UNUSED(unit); TALK_STUB_UNUSED(enqueue);
+    return 0;
+}
+static inline int talk_value_decimal(long n, int unit, int decimals,
+                                     bool enqueue)
+{
+    TALK_STUB_UNUSED(n); TALK_STUB_UNUSED(unit);
+    TALK_STUB_UNUSED(decimals); TALK_STUB_UNUSED(enqueue);
+    return 0;
+}
+static inline int talk_spell(const char *spell, bool enqueue)
+{ TALK_STUB_UNUSED(spell); TALK_STUB_UNUSED(enqueue); return 0; }
+static inline void talk_setting(const void *global_settings_variable)
+{ TALK_STUB_UNUSED(global_settings_variable); }
+static inline void talk_disable(bool disable)
+{ TALK_STUB_UNUSED(disable); }
+static inline void talk_force_shutup(void) {}
+static inline void talk_shutup(void) {}
+static inline void talk_fractional(char *tbuf, int value, int unit)
+{ TALK_STUB_UNUSED(tbuf); TALK_STUB_UNUSED(value); TALK_STUB_UNUSED(unit); }
+static inline void talk_time(const struct tm *tm, bool enqueue)
+{ TALK_STUB_UNUSED(tm); TALK_STUB_UNUSED(enqueue); }
+static inline void talk_date(const struct tm *tm, bool enqueue)
+{ TALK_STUB_UNUSED(tm); TALK_STUB_UNUSED(enqueue); }
+#ifdef HAVE_MULTIVOLUME
+static inline int talk_volume_id(int volume)
+{ TALK_STUB_UNUSED(volume); return 0; }
+#endif
+static inline int talk_time_intervals(long time, int unit_idx, bool enqueue)
+{
+    TALK_STUB_UNUSED(time); TALK_STUB_UNUSED(unit_idx);
+    TALK_STUB_UNUSED(enqueue);
+    return 0;
+}
+static inline void talk_force_enqueue_next(void) {}
+static inline int talk_idarray(const long *idarray, bool enqueue)
+{ TALK_STUB_UNUSED(idarray); TALK_STUB_UNUSED(enqueue); return 0; }
+#else /* !IPODUI_TRIM_VOICE */
 /* This sets the actual policy. Call this before core_alloc_maximum() to
  * get the desired outcome */
 void talk_buffer_set_policy(int policy);
@@ -151,15 +233,20 @@ int talk_volume_id(int volume);
 /* speaks hr, min, sec, ms; unit_idx is lowest or base unit of the time value */
 int talk_time_intervals(long time, int unit_idx, bool enqueue);
 
+#endif /* IPODUI_TRIM_VOICE */
+
 /* This (otherwise invalid) ID signals the end of the array. */
 #define TALK_FINAL_ID LANG_LAST_INDEX_IN_ARRAY
 #define TALK_FINAL_ID_VOICEONLY LANG_LAST_VOICEONLY_INDEX_IN_ARRAY
+#ifndef IPODUI_TRIM_VOICE
 /* Enqueue next utterance even if enqueue parameter is false: don't
    interrupt the current utterance. */
 void talk_force_enqueue_next(void);
 
 /* speaks one or more IDs (from an array)). */
 int talk_idarray(const long *idarray, bool enqueue);
+#endif
+
 /* This makes an initializer for the array of IDs and takes care to
    put the final sentinel element at the end. */
 #define TALK_IDARRAY(ids...) ((long[]){ids,TALK_FINAL_ID})
@@ -196,8 +283,15 @@ struct talk_debug_data {
     enum talk_status status;
 };
 
+#ifdef IPODUI_TRIM_VOICE
+static inline void talk_announce_voice_invalid(void) {}
+static inline bool talk_get_debug_data(struct talk_debug_data *data)
+{ TALK_STUB_UNUSED(data); return false; }
+#else
 void talk_announce_voice_invalid(void);
 
 bool talk_get_debug_data(struct talk_debug_data *data);
+
+#endif
 
 #endif /* __TALK_H__ */

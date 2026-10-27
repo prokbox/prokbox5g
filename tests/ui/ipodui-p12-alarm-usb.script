@@ -1,0 +1,24 @@
+# P12 W1-A1 (Q7, M9): an alarm during a USB data session rings as the
+# piezo only (no screen change); a button stops it; the PMU is re-armed at
+# once and the alarms.dat write waits for the disconnect (one write then).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p12-alarm-usb.script
+# golden: skip
+# env: IPODUI_SIM_ALARM_IN=15
+# Trace: alarm ring i=0 ... usb=1, alarm beep, alarm dismiss how=3,
+#        alarm arm rtc= ok=1, alarm file owed, (usb_disconnect) alarm
+#        file write
+# alarm-rings: 1
+# log: ipodui: alarm file owed
+# log: ipodui: alarm dismiss how=3
+# trace: piezo
+# reset: mainmenu
+wait 5000
+usb_connect
+wait 14000
+shot usb-ringing
+key SELECT
+wait 2000
+usb_disconnect
+wait 3000
+shot after
+quit

@@ -114,6 +114,66 @@
 #include "logf.h"
 #include "panic.h"
 
+#ifdef HAVE_IPOD_UI
+#include "ipodui/library.h"     /* lib_queue_is_book() */
+#include "ipodui/safefile.h"    /* #91: no rename onto an existing name */
+#include "ipodui/dbqueue.h"     /* #109: queue by database index */
+#ifdef HAVE_DIRCACHE
+/* dcfrefs[] is sized to the setting, indices[] may grow (#109 L3); the
+ * shell trims dircache (IPODUI_TRIM_DIRCACHE) */
+#error "HAVE_IPOD_UI's growing queue needs dircache off"
+#endif
+#define PLAYLIST_CONTROL_PREV PLAYLIST_CONTROL_FILE "_prev"
+#define PLAYLIST_CONTROL_WORK PLAYLIST_CONTROL_FILE ".tmp"
+/* #91: a save's destination while its remove-then-rename is in flight */
+#define PLAYLIST_SAVE_INTENT  SAFEFILE_PL_INTENT
+
+/* #91 L2: a failed safe replace of a control file. Upstream's meaning is
+ * "no control file", so nothing stale resumes. prev goes first: with dest
+ * removed and prev left, the boot recovery would put the older prev back.
+ * When prev can't be removed (the EIO the replace just failed on), dest
+ * stays (complete) and the next boot's recovery drops prev. dest may be a
+ * second name on tmp's chain (a failed rename that landed): alias-aware */
+static void control_replace_failed(const char *dest, const char *tmp,
+                                   const char *prev)
+{
+    if (safefile_remove(prev, dest))
+        safefile_remove(dest, tmp);
+    else
+        logf("control replace: %s kept, %s stale", dest, prev);
+}
+#endif
+#ifdef HAVE_IPOD_UI
+/* The iPod UI shell never shows a stock splash: playlist progress, "Wait"
+ * and error messages go to the log instead. */
+static void ipodui_splash_log(const char *fmt, ...)
+{
+    (void)fmt;
+    logf("playlist: %s", fmt);
+}
+#undef splash
+#define splashf(ticks, fmt, ...)    ((void)(ticks), ipodui_splash_log( \
+                    P2STR((const unsigned char *)(fmt)), ##__VA_ARGS__))
+#define splash(ticks, s)            splashf(ticks, s)
+#define splash_progress(cur, tot, fmt, ...) \
+                    ((void)(cur), (void)(tot), ipodui_splash_log(fmt, ##__VA_ARGS__))
+#define splash_progress_set_delay(d) ((void)(d))
+/* playlist_save()'s "Remove queued tracks?": the 7G has no queued tracks
+ * and saving overwrites; answer yes, so the playlist matches the file. */
+#define yesno_pop(s)                (ipodui_splash_log( \
+                    P2STR((const unsigned char *)(s))), true)
+#endif
+
+#ifdef HAVE_IPOD_UI
+/* The 7G has no "auto change directory": next-folder stays off in the
+ * shell whatever the setting holds (its menu item is hidden), so the
+ * audio thread never builds a folder playlist (create_and_play_dir():
+ * 150% of the audio thread's stack in the static worst case, #42). */
+#define next_folder_on()            false
+#else
+#define next_folder_on()            (global_settings.next_folder)
+#endif
+
 #if 0//def ROCKBOX_HAS_LOGDISKF
 #undef DEBUGF
 #undef ERRORF
@@ -177,6 +237,10 @@
 
 static struct playlist_info current_playlist;
 static struct playlist_info on_disk_playlist;
+#ifdef HAVE_IPOD_UI
+/* #109: indices[]'s allocation, so playlist_reserve_ipodui() can grow it */
+static int indices_handle;
+#endif
 
 /* playlist elapsed percent function from skin_tokens.c */
 extern void wps_playlist_percent_prepare(void);
@@ -367,7 +431,25 @@ static int convert_m3u_name(char* buf, int buf_len, int buf_max, char* temp)
 static void create_control_unlocked(struct playlist_info* playlist)
 {
     if (playlist == &current_playlist && file_exists(PLAYLIST_CONTROL_FILE))
+    {
+#ifdef HAVE_IPOD_UI
+        /* never a rename onto an existing name (two entries for one name
+         * on the device, crash-fat 1019); nothing reads the .old copy. A
+         * cut inside the rename below can leave .old on the control
+         * file's own chain: then only that name goes (#91 H1) */
+        safefile_remove(PLAYLIST_CONTROL_FILE".old", PLAYLIST_CONTROL_FILE);
+#endif
         rename(PLAYLIST_CONTROL_FILE, PLAYLIST_CONTROL_FILE".old");
+    }
+#ifdef HAVE_IPOD_UI
+    else if (playlist != &current_playlist)
+    {
+        /* O_TRUNC below must not free the control file's data: a cut
+         * playlist_set_current() can leave the working file on its
+         * chain (#91 H1) */
+        safefile_remove(playlist->control_filename, PLAYLIST_CONTROL_FILE);
+    }
+#endif
 
     playlist->control_fd = open(playlist->control_filename,
                                 O_CREAT|O_RDWR|O_TRUNC, 0666);
@@ -376,8 +458,13 @@ static void create_control_unlocked(struct playlist_info* playlist)
 
     if (!playlist->control_created)
     {
+#ifdef IPODUI_TRIM_BROWSER /* P9: tree.c's check, minus its (shell-silent) splash */
+        if (!dir_exists(ROCKBOX_DIR))
+            return; /* No RB directory exists! */
+#else
         if (!check_rockboxdir())
             return; /* No RB directory exists! */
+#endif
 
         cond_talk_ids_fq(LANG_PLAYLIST_CONTROL_ACCESS_ERROR);
         int fd = playlist->control_fd;
@@ -424,6 +511,12 @@ static int update_control_unlocked(struct playlist_info* playlist,
         if (result > 0)
         {
             *seekpos = lseek(fd, 0, SEEK_CUR);
+#ifdef HAVE_IPOD_UI
+            /* #109 P4: a seek at or past DBQ_FLAG (128 MB) would read as
+             * a database slot */
+            if (*seekpos >= (int)DBQ_FLAG)
+                return -1;
+#endif
             result = fdprintf(fd, "%s\n", s1);
         }
         break;
@@ -782,6 +875,7 @@ exit:
     return result;
 }
 
+#ifndef IPODUI_TRIM_BROWSER /* P9: folder walks use the browser's tree context */
 /*
  * Checks if there are any music files in the dir or any of its
  * subdirectories.  May be called recursively.
@@ -1048,6 +1142,7 @@ static int get_next_dir(char *dir, int direction)
 
     return result;
 }
+#endif /* !IPODUI_TRIM_BROWSER */
 
 /*
  * gets pathname for track at seek index
@@ -1070,6 +1165,20 @@ static int get_track_filename(struct playlist_info* playlist, int index,
 
     bool control_file = playlist->indices[index] & PLAYLIST_INSERT_TYPE_MASK;
     unsigned long seek = playlist->indices[index] & PLAYLIST_SEEK_MASK;
+
+#ifdef HAVE_IPOD_UI
+    /* #109 P1: a database slot. Never fails: a miss is the sentinel
+     * "/<dbq>/<k>", which playback skips (H1); dir_buf is its scratch */
+    if (control_file && (seek & DBQ_FLAG))
+    {
+        dbq_filename(seek & DBQ_SLOT, tmp_buf, sizeof(tmp_buf), dir_buf);
+        playlist_write_unlock(playlist);
+        if (format_track_path(buf, tmp_buf, buf_length,
+                              playlist->filename, playlist->dirlen) < 0)
+            return -1;
+        return 0;
+    }
+#endif
 
 #ifdef HAVE_DIRCACHE
     if (playlist->dcfrefs_handle)
@@ -1144,6 +1253,7 @@ static int get_track_filename(struct playlist_info* playlist, int index,
     return 0;
 }
 
+#ifndef IPODUI_TRIM_BROWSER /* P9: next-folder is off in the shell */
 /*
  * Utility function to create a new playlist, fill it with the next or
  * previous directory, shuffle it if needed, and start playback.
@@ -1180,6 +1290,7 @@ static int create_and_play_dir(int direction, bool play_last)
 
     return index;
 }
+#endif /* !IPODUI_TRIM_BROWSER */
 
 /*
  * remove all tracks, leaving the current track queued
@@ -1441,6 +1552,7 @@ static int add_track_to_playlist_unlocked(struct playlist_info* playlist,
     return insert_position;
 }
 
+#ifndef IPODUI_TRIM_BROWSER /* P9: directory insert is browser UI */
 /*
  * Callback for playlist_directory_tracksearch to insert track into
  * playlist.
@@ -1449,6 +1561,7 @@ static int directory_search_callback(char* filename, void* context)
 {
     return playlist_insert_context_add(context, filename);
 }
+#endif /* !IPODUI_TRIM_BROWSER */
 
 /*
  * remove track at specified position
@@ -1709,6 +1822,11 @@ static int get_next_index(const struct playlist_info* playlist, int steps,
 
     if (repeat_mode == -1)
         repeat_mode = global_settings.repeat_mode;
+#ifdef HAVE_IPOD_UI
+    /* a book queued alone ends by stopping (Phase 5, Revision 2) */
+    if (repeat_mode == REPEAT_ALL && lib_queue_is_book(playlist))
+        repeat_mode = REPEAT_OFF;
+#endif
 
     if (repeat_mode == REPEAT_SHUFFLE && playlist->amount <= 1)
     {
@@ -1942,6 +2060,90 @@ static struct buflib_callbacks ops = {
     .shrink_callback = NULL,
 };
 
+#ifdef HAVE_IPOD_UI
+/* #109 (H3, H4): indices[] holds at least n words (the setting's size at
+ * least). keep: the words in use move over; else there must be none.
+ * 0 when nothing changed, the new size, or -1 (no memory: indices[] is
+ * as it was). Playlist mutex held; no yield between the allocation and
+ * the switch, so the old block can't move under the copy. */
+static int reserve_unlocked(struct playlist_info *pl, int n, bool keep)
+{
+    int cap, old, h;
+    unsigned long *nw;
+
+    if (pl != &current_playlist || indices_handle <= 0
+        || (!keep && pl->amount > 0))
+        return -1;
+    old = pl->max_playlist_size;
+    cap = dbq_reserve_target(old, global_settings.max_files_in_playlist, n,
+                             pl->amount, keep);
+    if (cap <= 0)
+        return cap;
+    if (!keep)
+    {
+        /* review H-A: nothing to carry, so the old block goes first. A
+         * shrink (playlist_create() after a long queue, from any caller,
+         * audio playing) then fits in the room it left and never makes
+         * playback shrink (whose stop would wait on this mutex). A grow
+         * that finds no room takes the old size back in that same room */
+        core_free(indices_handle);
+        h = core_alloc_ex(cap * sizeof(*pl->indices), &ops);
+        if (h <= 0)
+        {
+            h = core_alloc_ex(old * sizeof(*pl->indices), &ops);
+            if (h <= 0)
+                panicf("playlist: indices lost");
+            cap = -1;
+        }
+        indices_handle = h;
+        pl->indices = core_get_data(h);
+        if (cap < 0)
+            return -1;
+        pl->max_playlist_size = cap;
+        return cap;
+    }
+    /* keep: the words move over (the T replay at resume, audio stopped;
+     * never grown under this mutex while audio plays) */
+    if (audio_status())
+        return -1;
+    h = core_alloc_ex(cap * sizeof(*pl->indices), &ops);
+    if (h <= 0)
+        return -1;
+    nw = core_get_data(h);
+    dbq_reserve_copy(nw, pl->indices, pl->amount, cap, keep);
+    core_free(indices_handle);
+    indices_handle = h;
+    pl->indices = nw;
+    pl->max_playlist_size = cap;
+    return cap;
+}
+
+/* #109 P2/P3: count database words k = first_k.. appended in list order
+ * (PLAYLIST_INSERT_LAST of add_track_to_playlist_unlocked(), without its
+ * per-entry control line). INSERT type: they sort after any A: entry and
+ * among themselves by k (L1). */
+static int insert_dbq_unlocked(struct playlist_info *pl, uint32_t first_k,
+                               int count)
+{
+    int i;
+
+    if (count <= 0 || first_k + (uint32_t)count > DBQ_SLOT
+        || pl->first_index > 0)
+        return -1;
+    if (reserve_unlocked(pl, pl->amount + count, true) < 0
+        || pl->amount + count > pl->max_playlist_size)
+        return -1;
+    for (i = 0; i < count; i++)
+        pl->indices[pl->amount + i] =
+            PLAYLIST_INSERT_TYPE_INSERT | DBQ_FLAG | (first_k + i);
+    pl->amount += count;
+    pl->last_insert_pos = pl->amount - 1;
+    if (pl == &current_playlist)
+        iap_on_tracks_count(pl->amount);
+    return 0;
+}
+#endif
+
 /******************************************************************************/
 /******************************************************************************/
 /* ************************************************************************** */
@@ -1964,6 +2166,20 @@ void playlist_init(void)
 
     strmemccpy(on_disk_playlist.control_filename, PLAYLIST_CONTROL_FILE ".tmp",
                sizeof(on_disk_playlist.control_filename));
+#ifdef HAVE_IPOD_UI
+    /* #91, every boot, before any control file is opened (one lookup each
+     * when there is nothing to do): the working control file of a cut
+     * playlist_set_current() is a stale copy or a second name on the
+     * control file's chain (H1), and so are its own save swap's _temp and
+     * _prev (L3); a save cut inside its remove-then-rename is finished
+     * from its marker */
+    safefile_remove(PLAYLIST_CONTROL_WORK "_temp", PLAYLIST_CONTROL_WORK);
+    safefile_remove(PLAYLIST_CONTROL_WORK "_prev", PLAYLIST_CONTROL_WORK);
+    safefile_remove(PLAYLIST_CONTROL_WORK, PLAYLIST_CONTROL_FILE);
+    safefile_intent_recover(PLAYLIST_SAVE_INTENT, "_temp");
+    /* #109: dbq.hdr's recovery and load, before any resume (5.3) */
+    dbq_init();
+#endif
 
     current_playlist.fd = -1;
     on_disk_playlist.fd = -1;
@@ -1973,6 +2189,9 @@ void playlist_init(void)
 
     handle = core_alloc_ex(playlist->max_playlist_size * sizeof(*playlist->indices), &ops);
     playlist->indices = core_get_data(handle);
+#ifdef HAVE_IPOD_UI
+    indices_handle = handle;
+#endif
 
     empty_playlist_unlocked(playlist, true);
 
@@ -2096,6 +2315,12 @@ int playlist_create(const char *dir, const char *file)
     playlist_write_lock(playlist);
 
     new_playlist_unlocked(playlist, dir, file);
+#ifdef HAVE_IPOD_UI
+    /* #109 P5: a new queue: no slots; indices[] back to the setting's
+     * size (play_view() grows it again for a long list) */
+    dbq_reset();
+    reserve_unlocked(playlist, 0, false);
+#endif
 
     if (file)
     {
@@ -2131,7 +2356,7 @@ bool playlist_check(int steps)
     struct playlist_info* playlist = &current_playlist;
 
     /* always allow folder navigation */
-    if (global_settings.next_folder && playlist_allow_dirplay(playlist))
+    if (next_folder_on() && playlist_allow_dirplay(playlist))
         return true;
 
     int index = get_next_index(playlist, steps, -1);
@@ -2197,6 +2422,7 @@ out:
     return result;
 }
 
+#ifndef IPODUI_TRIM_BROWSER /* P9: uses the browser's tree context */
 /*
  * Search specified directory for tracks and notify via callback.  May be
  * called recursively.
@@ -2299,6 +2525,7 @@ int playlist_directory_tracksearch(const char* dirname, bool recurse,
 
     return result;
 }
+#endif /* !IPODUI_TRIM_BROWSER */
 
 
 struct playlist_info *playlist_get_current(void)
@@ -2340,6 +2567,20 @@ unsigned int playlist_get_filename_crc32(struct playlist_info *playlist,
     NOTEF("%s: %s", __func__, basename);
     return crc_32(basename, strlen(basename), -1);
 }
+
+#ifdef HAVE_IPOD_UI
+/* ProkBox #114: the same checksum of a name already in hand */
+static unsigned int path_crc32(const char *filename)
+{
+    const char *basename;
+#ifdef HAVE_MULTIVOLUME
+    path_strip_volume(filename, &basename, false);
+    if (basename == NULL)
+#endif
+        basename = filename;
+    return crc_32(basename, strlen(basename), -1);
+}
+#endif
 
 /* returns index of first track in playlist */
 int playlist_get_first_index(const struct playlist_info* playlist)
@@ -2407,6 +2648,11 @@ int playlist_get_track_info(struct playlist_info* playlist, int index,
 
     if (playlist->indices[index] & PLAYLIST_SKIPPED)
         info->attr |= PLAYLIST_ATTR_SKIPPED;
+#ifdef HAVE_IPOD_UI
+    /* #109: an unresolvable database slot (iAP, the viewer) */
+    if (dbq_is_sentinel(info->filename))
+        info->attr |= PLAYLIST_ATTR_SKIPPED;
+#endif
 
     info->index = index;
     info->display_index = rotate_index(playlist, index) + 1;
@@ -2518,6 +2764,7 @@ void playlist_insert_context_release(struct playlist_insert_context *context)
         audio_flush_and_reload_tracks();
 }
 
+#ifndef IPODUI_TRIM_BROWSER /* P9: onplay (browser) is its only caller */
 /*
  * Insert all tracks from specified directory into playlist.
  */
@@ -2548,6 +2795,7 @@ int playlist_insert_directory(struct playlist_info* playlist,
         playlist_insert_context_release(&c);
     return result;
 }
+#endif /* !IPODUI_TRIM_BROWSER */
 
 /*
  * If action_cb is *not* NULL, it will be called for every track contained
@@ -2971,7 +3219,8 @@ int playlist_next(int steps)
             playlist->index = 0;
             index = 0;
         }
-        else if (global_settings.next_folder && playlist_allow_dirplay(playlist))
+#ifndef IPODUI_TRIM_BROWSER
+        else if (next_folder_on() && playlist_allow_dirplay(playlist))
         {
             /* we switch playlists here */
             index = create_and_play_dir(steps, true);
@@ -2980,6 +3229,7 @@ int playlist_next(int steps)
                 playlist->index = index;
             }
         }
+#endif
         goto out;
     }
 
@@ -3021,11 +3271,20 @@ out:
 /* try playing next or previous folder */
 bool playlist_next_dir(int direction)
 {
+#ifdef HAVE_IPOD_UI
+    if (!next_folder_on())
+        return false;
+#endif
+#ifdef IPODUI_TRIM_BROWSER
+    (void)direction;
+    return false;
+#else
     /* not to mess up real playlists */
     if (!playlist_allow_dirplay(&current_playlist))
         return false;
 
     return create_and_play_dir(direction, false) >= 0;
+#endif
 }
 
 /* get trackname of track that is "steps" away from current playing track.
@@ -3046,6 +3305,12 @@ const char* playlist_peek(int steps, char* buf, size_t buf_size)
     if (get_track_filename(playlist, index, buf, buf_size) != 0)
         return NULL;
 
+#ifdef HAVE_IPOD_UI
+    /* #109: a database slot that can't be resolved is skipped whole: no
+     * bogus-directory probing of its sentinel (it could find "/5") */
+    if (dbq_is_sentinel(buf))
+        return buf;
+#endif
     temp_ptr = buf;
 
     /* remove bogus dirs from beginning of path
@@ -3153,6 +3418,10 @@ static enum playlist_command pl_cmds_run(char cmd)
             return PLAYLIST_COMMAND_RESET;
         case 'F':
             return PLAYLIST_COMMAND_FLAGS;
+#ifdef HAVE_IPOD_UI
+        case 'T':
+            return PLAYLIST_COMMAND_DBQ;    /* #109 P3 */
+#endif
         case '#':
             return PLAYLIST_COMMAND_COMMENT;
         default: /* ERROR */
@@ -3184,6 +3453,13 @@ int playlist_resume(void)
     struct playlist_info* playlist = &current_playlist;
     dc_thread_stop(playlist);
 
+#ifdef HAVE_IPOD_UI
+    /* safe-replace recovery (#91) before the control file is read: a cut
+     * swap puts the previous control file back, a stale temp goes */
+    safefile_recover(PLAYLIST_CONTROL_FILE, PLAYLIST_CONTROL_FILE "_temp",
+                     PLAYLIST_CONTROL_PREV);
+#endif
+
     if (core_allocatable() < (1 << 10))
         talk_buffer_set_policy(TALK_BUFFER_LOOSE); /* back off voice buffer */
 
@@ -3206,6 +3482,13 @@ int playlist_resume(void)
     buflen = ALIGN_DOWN(buflen, 512); /* to avoid partial sector I/O */
 
     empty_playlist_unlocked(playlist, true);
+#ifdef HAVE_IPOD_UI
+    /* #109 H4: room for the persisted database slots before the replay
+     * (audio is stopped at resume: any shrink takes the stopped path) */
+    reserve_unlocked(playlist,
+                     global_settings.max_files_in_playlist + dbq_total(),
+                     false);
+#endif
 
     if (!file_exists(playlist->control_filename))
         goto out;
@@ -3450,6 +3733,33 @@ int playlist_resume(void)
                         playlist->last_insert_pos = -1;
                         break;
                     }
+#ifdef HAVE_IPOD_UI
+                    case PLAYLIST_COMMAND_DBQ:
+                    {
+                        /* #109 P3: strp[0]=first_k strp[1]=count
+                         * strp[2]=tag; the block must be confirmed by
+                         * dbq.hdr and its payload, never partly played */
+                        if (!strp[0] || !strp[1] || !strp[2])
+                        {
+                            result = -19;
+                            exit_loop = true;
+                            break;
+                        }
+                        uint32_t first_k = atoi(strp[0]);
+                        int dcount = atoi(strp[1]);
+
+                        if (dcount <= 0
+                            || dbq_resume_block(atoi(strp[2]), first_k,
+                                                dcount) < 0
+                            || insert_dbq_unlocked(playlist, first_k,
+                                                   dcount) < 0)
+                        {
+                            result = -19;
+                            goto out;
+                        }
+                        break;
+                    }
+#endif
                     case PLAYLIST_COMMAND_FLAGS:
                     {
                         if (!strp[0] || !strp[1])
@@ -3577,6 +3887,29 @@ void playlist_resume_track(int start_index, unsigned int crc,
     unsigned int tmp_crc;
     struct playlist_info* playlist = &current_playlist;
 
+#ifdef HAVE_IPOD_UI
+    /* #109 P6: each name of a database queue is a resolve (a read): look
+     * within 64 positions of start_index, not through 50,000 */
+    if (dbq_queue_live() && playlist->amount > 129)
+    {
+        if (start_index < 0 || start_index >= playlist->amount)
+            start_index = 0;
+        for (i = 0; i <= 128; i++)
+        {
+            int d = (i + 1) / 2;
+            int index = start_index + ((i & 1) ? d : -d);
+
+            index = (index + playlist->amount) % playlist->amount;
+            if (playlist_get_filename_crc32(playlist, index) == crc)
+            {
+                playlist_start(index, elapsed, offset);
+                return;
+            }
+        }
+        playlist_start(start_index, 0, 0);
+        return;
+    }
+#endif
     for (i = 0 ; i < playlist->amount; i++)
     {
         int index = (i + start_index) % playlist->amount;
@@ -3626,11 +3959,26 @@ int playlist_set_current(struct playlist_info* playlist)
     pl_close_control(playlist);
     pl_close_control(&current_playlist);
 
+#ifdef HAVE_IPOD_UI
+    /* the working control file takes the current one's place, never by a
+     * rename onto its name (#91); on failure, as upstream, none is left */
+    current_playlist.control_created = false;
+    if (safefile_replace(playlist->control_filename,
+                         current_playlist.control_filename,
+                         PLAYLIST_CONTROL_PREV) < 0)
+    {
+        control_replace_failed(current_playlist.control_filename,
+                               playlist->control_filename,
+                               PLAYLIST_CONTROL_PREV);
+        goto out;
+    }
+#else
     remove(current_playlist.control_filename);
     current_playlist.control_created = false;
 
     if (rename(playlist->control_filename, current_playlist.control_filename) < 0)
         goto out;
+#endif
 
     current_playlist.control_fd = open(current_playlist.control_filename,
         O_RDWR);
@@ -3721,6 +4069,85 @@ void playlist_skip_entry(struct playlist_info *playlist, int steps)
     playlist_write_unlock(playlist);
 }
 
+#ifdef HAVE_IPOD_UI
+/* iPod UI shell, Albums on an ordinary queue (Phase 5, Revision 1 item
+ * 10): back to insert order, then 'reorder' permutes the indices in RAM
+ * (no I/O, no yield), the current track stays current, and the control
+ * file gets one shuffle command (a resume replays it as a plain shuffle
+ * of the same tracks: docs/design/shuffle.md). */
+int playlist_reorder_ipodui(struct playlist_info* playlist,
+                            void (*reorder)(unsigned long *indices,
+                                            int amount, void *ctx),
+                            void *ctx, unsigned int seed)
+{
+    unsigned long current;
+
+    if (!playlist)
+        playlist = &current_playlist;
+    if (seed == 0)
+        seed = 1;
+
+    dc_thread_stop(playlist);
+    playlist_write_lock(playlist);
+
+    check_control(playlist);
+    current = playlist->indices[playlist->index];
+    sort_playlist_unlocked(playlist, false, false);
+    reorder(playlist->indices, playlist->amount, ctx);
+#ifdef HAVE_DIRCACHE
+    dc_init_filerefs(playlist, 0, playlist->max_playlist_size);
+#endif
+    find_and_set_playlist_index_unlocked(playlist, current);
+    playlist->last_insert_pos = -1;
+    playlist->seed = seed;
+    update_control_unlocked(playlist, PLAYLIST_COMMAND_SHUFFLE, seed,
+                            playlist->first_index, NULL, NULL, NULL);
+    if ((audio_status() & AUDIO_STATUS_PLAY) && playlist->started)
+        audio_flush_and_reload_tracks();
+
+    playlist_write_unlock(playlist);
+    dc_thread_start(playlist, true);
+    return 0;
+}
+
+/* iPod UI shell, the library shuffle source (Phase 5 fix A): deletes up
+ * to 'count' entries from playlist index 'first' on (first < 0: the entry
+ * after the current one, read under the lock), never the current entry. Unlike playlist_delete() it posts no
+ * Q_AUDIO_FLUSH: a loop of playlist_delete() posts one per entry while
+ * playing, which overflows the audio queue (and makes the audio thread
+ * reload the next track each time). The caller posts one
+ * audio_flush_and_reload_tracks() if entries after the current one went.
+ * Returns the number deleted. */
+int playlist_delete_range_ipodui(struct playlist_info* playlist,
+                                 int first, int count)
+{
+    int n = 0;
+
+    if (!playlist)
+        playlist = &current_playlist;
+
+    dc_thread_stop(playlist);
+    playlist_write_lock(playlist);
+
+    if (first < 0)
+        first = playlist->index + 1;
+    if (check_control(playlist) >= 0)
+    {
+        while (n < count && first >= 0 && first < playlist->amount
+               && first != playlist->index)
+        {
+            if (remove_track_unlocked(playlist, first, true) < 0)
+                break;
+            n++;
+        }
+    }
+
+    playlist_write_unlock(playlist);
+    dc_thread_start(playlist, false);
+    return n;
+}
+#endif
+
 /* sort currently playing playlist */
 int playlist_sort(struct playlist_info* playlist, bool start_current)
 {
@@ -3758,7 +4185,9 @@ void playlist_start(int start_index, unsigned long elapsed,
 
     playlist_write_unlock(playlist);
 
+#ifndef IPODUI_TRIM_SKIN /* P9: a skin token's cache; no skins */
     wps_playlist_percent_prepare();
+#endif
 
     audio_play(elapsed, offset);
     audio_resume();
@@ -3793,8 +4222,19 @@ int playlist_update_resume_info(const struct mp3entry* id3)
             global_status.resume_offset != id3->offset ||
             global_status.resume_modified != pl_modified)
         {
+#ifdef HAVE_IPOD_UI
+            /* ProkBox #114: the playing track's own name (its path, as
+             * loaded from this index), not a second resolve of the index:
+             * for a database queue that is a read of the name table, and
+             * at every track change between refills it powered the drive
+             * up (twice: the finish and the change) */
+            unsigned int crc = id3->path[0] == '/'
+                ? path_crc32(id3->path)
+                : playlist_get_filename_crc32(playlist, playlist->index);
+#else
             unsigned int crc = playlist_get_filename_crc32(playlist,
                                                            playlist->index);
+#endif
             global_status.resume_index  = playlist->index;
             global_status.resume_crc32 = crc;
             global_status.resume_elapsed = id3->elapsed;
@@ -3846,6 +4286,12 @@ static int pl_save_playlist(struct playlist_info* playlist,
 
     if (pl_get_tempname(filename, tmpbuf, tmpsize))
         return -1;
+#ifdef HAVE_IPOD_UI
+    /* a residue temp may share the playlist's chain (a cut inside an
+     * earlier save's rename, #91 H1): truncating it would free that data */
+    if (!safefile_remove(tmpbuf, filename))
+        return -1;
+#endif
 
     /*
      * We always save playlists as UTF-8. Add a BOM only when
@@ -3911,8 +4357,26 @@ static int pl_save_playlist(struct playlist_info* playlist,
     pl_close_playlist(playlist);
 
     pl_get_tempname(filename, tmpbuf, tmpsize);
+#ifdef HAVE_IPOD_UI
+    /* the user's own folder: the old file goes first, never a rename onto
+     * its name (#91, M1). The destination is recorded first, so a cut
+     * anywhere is finished at the next boot (playlist_init()) without a
+     * scan of the user's folders: the temp is rolled into place only when
+     * it has the size recorded here (L1), or only its name dropped when
+     * the rename left it on the new file's chain */
+    /* -4 leaves the marker on purpose: playlist_init() finishes or drops
+     * the save at the next boot, and the next save overwrites it. Saves
+     * are serialised: playlist_save() holds the playlist's write lock and
+     * its only caller is the UI thread (playlist_menu.c) */
+    if (!safefile_intent_set(PLAYLIST_SAVE_INTENT, filename, (long)offset)
+        || (remove(filename) < 0 && file_exists(filename))
+        || rename(tmpbuf, filename))
+        return -4;
+    remove(PLAYLIST_SAVE_INTENT);
+#else
     if (rename(tmpbuf, filename))
         return -4;
+#endif
 
     strcpy(tmpbuf, filename);
     char *dir = tmpbuf;
@@ -4074,11 +4538,23 @@ static int pl_save_update_control(struct playlist_info* playlist,
 
     pl_close_control(playlist);
     close(old_fd);
+#ifdef HAVE_IPOD_UI
+    /* #91: the new control file replaces the old one without a rename onto
+     * its name; a failure leaves none, as upstream's remove-then-rename */
+    {
+        char prev[sizeof(playlist->control_filename) + 8];
+        pl_get_tempname(playlist->control_filename, tmpbuf, tmpsize);
+        snprintf(prev, sizeof(prev), "%s_prev", playlist->control_filename);
+        if (safefile_replace(tmpbuf, playlist->control_filename, prev) < 0)
+            control_replace_failed(playlist->control_filename, tmpbuf, prev);
+    }
+#else
     remove(playlist->control_filename);
 
     /* TODO: Check for errors? The old control file is gone by this point... */
     pl_get_tempname(playlist->control_filename, tmpbuf, tmpsize);
     rename(tmpbuf, playlist->control_filename);
+#endif
 
     playlist->control_fd = open(playlist->control_filename, O_RDWR);
     playlist->control_created = (playlist->control_fd >= 0);
@@ -4167,3 +4643,53 @@ error:
         audio_flush_and_reload_tracks();
     return rc;
 }
+
+#ifdef HAVE_IPOD_UI
+/* #109: indices[] of at least n words (H3; keep: the words in use move
+ * over, H4). The capacity, or -1 with indices[] unchanged. */
+int playlist_reserve_ipodui(int n, bool keep)
+{
+    struct playlist_info *pl = &current_playlist;
+    int rc, cap;
+
+    playlist_write_lock(pl);
+    rc = reserve_unlocked(pl, n, keep);
+    cap = pl->max_playlist_size;
+    playlist_write_unlock(pl);
+    return rc < 0 ? -1 : cap;
+}
+
+/* #109 P2: count database slots from first_k appended to the queue, one
+ * T:<first_k>:<count>:<tag> line and one fsync (design 5.2 step 4). */
+int playlist_insert_dbq_ipodui(struct playlist_info *pl, uint32_t first_k,
+                               int count, uint32_t tag)
+{
+    int rc = -1;
+
+    if (!pl)
+        pl = &current_playlist;
+    dc_thread_stop(pl);
+    playlist_write_lock(pl);
+    if (check_control(pl) < 0)
+        notify_control_access_error();
+    else if (insert_dbq_unlocked(pl, first_k, count) == 0)
+    {
+        lseek(pl->control_fd, 0, SEEK_END);
+        if (fdprintf(pl->control_fd, "T:%lu:%d:%lu\n",
+                     (unsigned long)first_k, count,
+                     (unsigned long)tag) > 0)
+        {
+            sync_control_unlocked(pl);
+            rc = 0;
+        }
+        else
+            pl->amount -= count;        /* nothing to resume: none kept */
+    }
+    playlist_write_unlock(pl);
+    dc_thread_start(pl, true);
+    if (rc == 0 && (audio_status() & AUDIO_STATUS_PLAY) && pl->started)
+        audio_flush_and_reload_tracks();
+    return rc;
+}
+
+#endif /* HAVE_IPOD_UI */

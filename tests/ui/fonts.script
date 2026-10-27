@@ -1,0 +1,18 @@
+# Font comparison: run via the loop in docs/design/fonts.md, which points
+# build/sim/simdisk/.rockbox/config.cfg at each candidate .fnt first.
+# Standalone: scripts/shots.sh tests/ui/fonts.script
+
+wait 4000           # boot to the main menu
+shot main
+
+wheel +3            # Settings
+key SELECT
+wait 1000
+shot settings
+
+wheel +2            # General Settings: a long list
+key SELECT
+wait 1000
+shot general
+
+quit

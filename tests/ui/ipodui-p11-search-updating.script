@@ -1,0 +1,25 @@
+# Phase 11 Search, DB state "fresh / rebuilding" (docs/phase11-brief.md
+# section 6 item 10): with no RAM cache yet no rows show and the
+# "Updating Library..." footer explains (8b; the top row has no second
+# line, never "No Search Results"); typing waits; once the library is ready
+# the search runs on its own (no key needed) and the results show.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p11-search-updating.script
+# needs: library
+# fresh-db
+# golden: skip
+
+wait 1500           # the main menu, the shell building the database
+key SELECT          # Music
+wait 600
+wheel +8 300        # "Search"
+wait 300
+key SELECT
+wait 600
+shot updating       # Search, the strip, the footer
+type h
+wait 300
+shot typed_waiting  # "h" typed, still the footer, no rows
+wait_db 45000
+wait 2500           # the screen's 1 s poll notices, the search runs
+shot results        # Results for: h, rows
+quit

@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2002 by Daniel Stenberg
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -24,6 +25,12 @@
 #include <errno.h>
 #include "string-extra.h"
 #include "config.h"
+#if defined(HAVE_IPOD_UI) && defined(SIMULATOR) && !defined(BOOTFILE)
+/* the simulator has no boot file; name the real one so that the shell's
+ * post-USB "New Software" prompt (#68) runs here as on the device */
+#define BOOTDIR  "/.rockbox"
+#define BOOTFILE "rockbox.ipod"
+#endif
 #include "misc.h"
 #include "system.h"
 #include "lcd.h"
@@ -107,6 +114,139 @@
 #ifdef HAVE_HARDWARE_CLICK
 #include "piezo.h"
 #endif
+
+#ifdef HAVE_IPOD_UI
+#include "ipodui/sysscreen.h"   /* ui_sys_low_battery() */
+#include "ipodui/ipodui.h"       /* ui_bootfile_changed() */
+#include "ipodui/sc_hw.h"       /* ui_sc_update() */
+#include "ipodui/click.h"       /* ipodui_click_play(), ipodui_sound_route() */
+#include "xcore.h"              /* XCORE_BSS (P19) */
+#include "ipodui/bootbatt.h"    /* the drained latch */
+#include "ipodui/uilog.h"       /* ui_log(): #118 USB flush time */
+#endif
+#include "hang_watch.h"         /* ProkBox: hang_suspend(), a shutdown */
+#include "bcmjob_pp.h"          /* P19: bcmjob_owner_event() */
+
+#ifdef IPODUI_TRIM_SKIN
+/* Phase 9: the WPS (wps.c) is compiled out of the shell. pause_action()
+ * and unpause_action() (headphone unplug, multimedia keys) keep the
+ * playback half of wps_do_action(); its skin refresh had no screen to
+ * refresh (the shell is never in ACTIVITY_WPS/FM/RECORDING). */
+#undef pause_action
+#undef unpause_action
+static void p9_pause_action(bool pause)
+{
+    if (!pause)
+    {
+        audio_resume();
+        return;
+    }
+    audio_pause();
+    if (global_settings.pause_rewind)
+    {
+        unsigned long elapsed = audio_current_track()->elapsed;
+        long newpos = elapsed - (global_settings.pause_rewind * 1000);
+
+        audio_pre_ff_rewind();
+        audio_ff_rewind(newpos > 0 ? newpos : 0);
+    }
+}
+#define pause_action(update)   ((void)(update), p9_pause_action(true))
+#define unpause_action(update) ((void)(update), p9_pause_action(false))
+#endif /* IPODUI_TRIM_SKIN */
+
+#ifdef IPODUI_TRIM_BROWSER
+/* Phase 9: bookmark.c is compiled out of the shell (nothing in it reads a
+ * .bmark). bookmark_autobookmark() paused playback first whenever the
+ * queue was bookmarkable, and the shell's book checkpoint rides that
+ * pause (np_playback.c stop_or_pause), so the pause stays; only the
+ * .bmark write and its prompt go. Same predicate as
+ * bookmark_is_bookmarkable_state(). */
+static bool p9_autobookmark_pause(void)
+{
+    int resume_index = 0;
+
+    if (!(audio_status() && audio_current_track())
+        || playlist_get_resume_info(&resume_index) == -1
+        || playlist_modified(NULL)
+        || playlist_dynamic_only())
+        return false;
+    audio_pause();
+    return false;   /* no bookmark was written */
+}
+#define bookmark_autobookmark(prompt_ok) \
+    ((void)(prompt_ok), p9_autobookmark_pause())
+
+/* H2 (docs/phase9-brief.md 3.3.2): the tagcache and dircache halves of
+ * tree_flush()/tree_restore() (tree.c is compiled out with the browser).
+ * Called by the USB and shutdown handlers below, as tree.c's were. */
+static void system_flush_db(void)
+{
+#ifdef HAVE_TAGCACHE
+    tagcache_shutdown();
+#endif
+
+#ifdef HAVE_TC_RAMCACHE
+    tagcache_unload_ramcache();
+#endif
+
+#ifdef HAVE_DIRCACHE
+    int old_val = global_status.dircache_size;
+#ifdef HAVE_EEPROM_SETTINGS
+    bool savecache = false;
+#endif
+
+    if (global_settings.dircache)
+    {
+        dircache_suspend();
+
+        struct dircache_info info;
+        dircache_get_info(&info);
+
+        global_status.dircache_size = info.last_size;
+#ifdef HAVE_EEPROM_SETTINGS
+        savecache = firmware_settings.initialized;
+#endif
+    }
+    else
+    {
+        global_status.dircache_size = 0;
+    }
+
+    if (old_val != global_status.dircache_size)
+        status_save(true);
+
+#ifdef HAVE_EEPROM_SETTINGS
+    if (savecache)
+        dircache_save();
+#endif
+#endif /* HAVE_DIRCACHE */
+}
+
+static void system_restore_db(void)
+{
+#ifdef HAVE_EEPROM_SETTINGS
+    firmware_settings.disk_clean = false;
+#endif
+
+#ifdef HAVE_TC_RAMCACHE
+    tagcache_remove_statefile();
+#endif
+
+#ifdef HAVE_DIRCACHE
+    if (global_settings.dircache && dircache_resume() > 0)
+    {
+        DEBUGF("p9 restore: scanning disk\n");   /* no splash (rule 1) */
+        dircache_wait();
+    }
+#endif
+
+#ifdef HAVE_TAGCACHE
+    DEBUGF("p9 restore: tagcache scan\n");
+    tagcache_start_scan();
+#endif
+}
+#endif /* IPODUI_TRIM_BROWSER */
 
 /* units used with output_dyn_value */
 const unsigned char * const byte_units[] =
@@ -345,14 +485,24 @@ bool settings_parseline(char* line, char** name, char** value)
 static void system_flush(void)
 {
     playlist_shutdown();
+#ifdef IPODUI_TRIM_BROWSER
+    system_flush_db();
+#else
     tree_flush();
+#endif
+#ifndef IPODUI_TRIM_PLUGINS
     open_plugin_cache_flush();
+#endif
     call_storage_idle_notifys(true); /*doesnt work on usb and shutdown from ata thread */
 }
 
 static void system_restore(void)
 {
+#ifdef IPODUI_TRIM_BROWSER
+    system_restore_db();
+#else
     tree_restore();
+#endif
 }
 
 static bool clean_shutdown(enum shutdown_type sd_type,
@@ -360,6 +510,9 @@ static bool clean_shutdown(enum shutdown_type sd_type,
 {
     long msg_id = -1;
 
+    /* ProkBox: the settings save, the database's stop and the drive's
+     * power-off below are no hang (hang_watch.h) */
+    hang_suspend(HANG_SUSP_OFF, true);
     if (!global_settings.show_shutdown_message && get_sleep_timer_active())
     {
         talk_force_shutup();
@@ -375,6 +528,13 @@ static bool clean_shutdown(enum shutdown_type sd_type,
         bool batt_safe = battery_level_safe();
 #if defined(HAVE_RECORDING)
         int audio_stat = audio_status();
+#endif
+#ifdef HAVE_IPOD_UI
+        /* the low-battery shutdown: the boot guard's drained latch, a
+         * backup of the write at 0 % (bootbatt.h); skipped under
+         * disk-safe or when already set */
+        if (query_force_shutdown())
+            bootbatt_latch_drained();
 #endif
 
         FOR_NB_SCREENS(i)
@@ -393,9 +553,14 @@ static bool clean_shutdown(enum shutdown_type sd_type,
             if (!tagcache_prepare_shutdown())
             {
                 cancel_shutdown();
+#ifdef HAVE_IPOD_UI
+                DEBUGF("shutdown: tagcache busy\n");   /* no splash */
+#else
                 splash(HZ, ID2P(LANG_TAGCACHE_BUSY));
+#endif
                 FOR_NB_SCREENS(i)
                     viewportmanager_theme_undo(i, false);
+                hang_suspend(HANG_SUSP_OFF, false);
                 return false;
             }
 #endif
@@ -408,15 +573,25 @@ static bool clean_shutdown(enum shutdown_type sd_type,
             else
             {
                 msg_id = LANG_WARNING_BATTERY_LOW;
+#ifdef HAVE_IPOD_UI
+                DEBUGF("shutdown: battery low\n");    /* no splash */
+                ui_sys_low_battery(false);  /* "Connect to Power", drawn now */
+#else
                 splashf(0, "%s %s", str(LANG_WARNING_BATTERY_LOW),
                                     str(LANG_SHUTTINGDOWN));
+#endif
             }
         }
         else
         {
             msg_id = LANG_WARNING_BATTERY_EMPTY;
+#ifdef HAVE_IPOD_UI
+            DEBUGF("shutdown: battery empty\n");      /* no splash */
+            ui_sys_low_battery(true);       /* "Connect to Power", drawn now */
+#else
             splashf(0, "%s %s", str(LANG_WARNING_BATTERY_EMPTY),
                                 str(LANG_SHUTTINGDOWN));
+#endif
         }
 
 #ifdef HAVE_DISK_STORAGE
@@ -458,6 +633,9 @@ static bool clean_shutdown(enum shutdown_type sd_type,
         else
             dircache_disable();
 #endif
+#ifdef HAVE_IPOD_UI
+        ui_sys_low_battery_hold();      /* settings are saved; keep the frame */
+#endif
 
         if(global_settings.talk_menu)
         {
@@ -473,6 +651,7 @@ static bool clean_shutdown(enum shutdown_type sd_type,
 
         shutdown_hw(sd_type);
     }
+    hang_suspend(HANG_SUSP_OFF, false);     /* ProkBox: no shutdown */
     return false;
 }
 
@@ -515,6 +694,14 @@ bool list_stop_handler(void)
 }
 
 #if CONFIG_CHARGING
+#ifdef IPODUI_TRIM_MISC
+/* Phase 9: no car-adapter mode in the shell (setting hidden, default off);
+ * its 100 Hz tick task is not registered (main.c). */
+static inline void car_adapter_mode_processing(bool inserted)
+{
+    (void)inserted;
+}
+#else
 static bool waiting_to_resume_play = false;
 static bool paused_on_unplugged = false;
 static long play_resume_tick;
@@ -575,6 +762,7 @@ void car_adapter_mode_init(void)
 {
     tick_add_task(car_adapter_tick);
 }
+#endif /* IPODUI_TRIM_MISC */
 #endif
 
 #ifdef HAVE_HEADPHONE_DETECTION
@@ -653,6 +841,15 @@ long default_event_handler_ex(long event, void (*callback)(void *), void *parame
     static bool resume = false;
 #endif
 
+#ifdef HAVE_BCM_JOBS
+    /* ProkBox P19: the job owner's kick in any loop that hands events
+     * here (port work only) */
+    if (bcmjob_owner_event(event))
+        return event;
+    if (event == SYS_USB_CONNECTED || event == SYS_POWEROFF)
+        bcmjob_decode_stop();   /* USB never waits on a decode */
+#endif
+
     switch(event)
     {
         case SYS_BATTERY_UPDATE:
@@ -670,7 +867,17 @@ long default_event_handler_ex(long event, void (*callback)(void *), void *parame
             intptr_t seqnum = button_get_data();
             if (callback != NULL)
                 callback(parameter);
+#ifdef HAVE_IPOD_UI
+            /* #118: every write the session needs lands here, before the
+             * UI thread's ack hands the disk to the host; this line is
+             * logged to RAM and written on the exit path */
+            long usb_flush_tick = current_tick;
+#endif
             system_flush();
+#ifdef HAVE_IPOD_UI
+            usb_flush_tick = (current_tick - usb_flush_tick) * 1000 / HZ;
+            ui_log("usb", "flush ms=%ld", usb_flush_tick);
+#endif
 #ifdef BOOTFILE
 #if !defined(USB_NONE) && !defined(USB_HANDLED_BY_OF)
             check_bootfile(false); /* gets initial size */
@@ -701,6 +908,9 @@ long default_event_handler_ex(long event, void (*callback)(void *), void *parame
             break;
 #if CONFIG_CHARGING
         case SYS_CHARGER_CONNECTED:
+#ifdef HAVE_IPOD_UI
+            bootbatt_power_seen();      /* clears the drained latch */
+#endif
             car_adapter_mode_processing(true);
             return SYS_CHARGER_CONNECTED;
 
@@ -864,6 +1074,9 @@ void check_bootfile(bool do_rolo)
             {
                 if(info.mtime != mtime)
                 {
+#ifdef HAVE_IPOD_UI
+                    ui_bootfile_changed(); /* native prompt (#68) */
+#else
                     static const char *lines[] = { ID2P(LANG_BOOT_CHANGED),
                                                    ID2P(LANG_REBOOT_NOW) };
                     static const struct text_message message={ lines, 2 };
@@ -873,6 +1086,7 @@ void check_bootfile(bool do_rolo)
                         audio_hard_stop();
                         rolo_load(BOOTDIR "/" BOOTFILE);
                     }
+#endif
                 }
             }
             mtime = info.mtime;
@@ -1068,6 +1282,22 @@ void system_sound_play(enum system_sound sound)
 
     const struct beep_params *params = &beep_params[sound];
 
+#ifdef HAVE_IPOD_UI
+    /* a sound that is off posts nothing (ucop-fix2) */
+    if (!*params->setting)
+        return;
+    /* ProkBox P19: the mixer and the PCM driver are CPU-only; a sound the
+     * ui thread asks for on the COP plays on the CPU (ipodui/click.h) */
+    if (ipodui_sound_route((int)sound))
+        return;
+    /* The Clicker's soft click (owner device 2026-10-20: upstream's 4 kHz
+     * square was too sharp and too loud); same beep channel */
+    if (sound == SOUND_KEYCLICK)
+    {
+        ipodui_click_play();
+        return;
+    }
+#endif
     if (*params->setting)
     {
         beep_play(params->frequency, params->duration,
@@ -1075,8 +1305,16 @@ void system_sound_play(enum system_sound sound)
     }
 }
 
-static keyclick_callback keyclick_current_callback = NULL;
-static void* keyclick_data = NULL;
+#ifdef HAVE_UI_THREAD_SPLIT
+/* ProkBox P19: the ui thread (possibly on the COP) is the writer; uncached
+ * so its lines never mix with this file's CPU-written statics (xcore.h);
+ * builds without the split keep the shell on the CPU */
+#define KEYCLICK_XCORE XCORE_BSS
+#else
+#define KEYCLICK_XCORE
+#endif
+static keyclick_callback keyclick_current_callback KEYCLICK_XCORE = NULL;
+static void* keyclick_data KEYCLICK_XCORE = NULL;
 void keyclick_set_callback(keyclick_callback cb, void* data)
 {
     keyclick_current_callback = cb;
@@ -1087,7 +1325,7 @@ void keyclick_set_callback(keyclick_callback cb, void* data)
 void keyclick_click(bool rawbutton, int action)
 {
     int button = action;
-    static long last_button = BUTTON_NONE;
+    static long last_button KEYCLICK_XCORE = BUTTON_NONE;
     bool do_beep = false;
 
     if (!rawbutton)
@@ -1186,6 +1424,13 @@ void replaygain_update(void)
 {
     struct replaygain_settings settings = global_settings.replaygain_settings;
     settings.type = replaygain_setting_mode(settings.type);
+#ifdef HAVE_IPOD_UI
+    /* hardware Sound Check: the codec applies the gain as each track
+     * starts playing (ipodui/sc_hw.h); the DSP's PGA stays at unity */
+    ui_sc_update(settings.type, settings.preamp);
+    settings.type = REPLAYGAIN_OFF;
+    settings.noclip = false;
+#endif
     dsp_replaygain_set_settings(&settings);
 }
 
@@ -1819,6 +2064,9 @@ static int current_activity_top = 0;
 static void push_current_activity_refresh(enum current_activity screen, bool refresh)
 {
     current_activity[current_activity_top++] = screen;
+#ifdef IPODUI_TRIM_SKIN
+    (void)refresh;  /* no skinned bar or skinned lists in the shell */
+#else
     FOR_NB_SCREENS(i)
     {
         skinlist_set_cfg(i, NULL);
@@ -1827,11 +2075,15 @@ static void push_current_activity_refresh(enum current_activity screen, bool ref
     }
     if (refresh)
         sb_skin_force_next_update();
+#endif
 }
 
 static void pop_current_activity_refresh(bool refresh)
 {
     current_activity_top--;
+#ifdef IPODUI_TRIM_SKIN
+    (void)refresh;  /* no skinned bar or skinned lists in the shell */
+#else
     FOR_NB_SCREENS(i)
     {
         skinlist_set_cfg(i, NULL);
@@ -1840,6 +2092,7 @@ static void pop_current_activity_refresh(bool refresh)
     }
     if (refresh)
         sb_skin_force_next_update();
+#endif
 }
 
 void push_current_activity(enum current_activity screen)

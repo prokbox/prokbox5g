@@ -1,0 +1,146 @@
+# Phase 4 screens, developer check (agent B): Music menu with the
+# "Updating Library..." strip, Artists -> artist -> album -> songs,
+# hold SELECT -> On-The-Go confirmation, a fast spin through Songs with
+# the quick-scroll letter, Genres -> "All Albums", Audiobooks with
+# progress hints, Podcasts, Playlists. Written against the TEMP fake
+# library (apps/ipodui/library.c): it reports "updating" for the first
+# 7 s after boot.
+# Run with: SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p4-screens-dev.script
+# timeout: 120
+# (42 s of scripted waits plus boot: the 60 s default has no headroom
+# when the machine is busy, #38 fix round)
+# golden: skip music_updating spin_mid spin_end spin_hash otg_confirm otg_wps playlist_wps song_wps
+
+wait 3000           # boot to the main menu
+key SELECT          # Music
+wait 800
+shot music_updating # strip under the rows while the library builds
+wait 4500
+shot music_ready    # strip gone
+
+wheel +1            # Artists
+wait 300
+key SELECT
+wait 800
+shot artists
+wheel +4            # The Beckons (sorts under B)
+wait 400
+shot artists_beckons
+key SELECT
+wait 800
+shot artist_albums  # "All Songs" first
+wheel +1            # Ashen Road
+wait 300
+key SELECT
+wait 800
+shot album_songs    # track order
+wheel +1
+wait 300
+hold SELECT 900     # hold: the hold menu (P11, holdmenu.c)
+wait 100
+shot otg_confirm    # Add to On-The-Go / Browse Album / ... / Cancel
+key MENU            # MENU pops it like Cancel
+wait 800
+shot otg_after
+key MENU
+wait 700
+key MENU
+wait 700
+key MENU
+wait 700
+
+wheel +3            # Songs
+wait 300
+key SELECT
+wait 800
+shot songs
+wheel +45           # a fast spin: the letter shows
+shot spin_mid       # (timing)
+wheel +30
+shot spin_end       # (timing)
+wait 1500
+shot spin_rest      # letter hidden again
+wheel -90
+shot spin_hash      # (timing) back at the top: '#'
+wait 1500
+key MENU
+wait 700
+
+wheel +1            # Genres
+wait 300
+key SELECT
+wait 800
+shot genres
+wheel +3            # Rock
+wait 300
+key SELECT
+wait 800
+shot genre_artists  # "All Albums" first
+key SELECT          # All Albums
+wait 800
+shot genre_albums   # "All Songs" first
+key MENU
+wait 700
+key MENU
+wait 700
+key MENU
+wait 700
+
+wheel +2            # Audiobooks
+wait 300
+key SELECT
+wait 800
+shot audiobooks
+wheel +2
+wait 400
+shot audiobooks_sel # the hint on the selection bar
+key MENU
+wait 700
+
+wheel -8            # Playlists
+wait 300
+wheel +1
+wait 300
+key SELECT
+wait 800
+shot playlists
+key SELECT          # On-The-Go: the song held above plays
+wait 1500
+shot otg_wps
+key MENU
+wait 1000
+shot playlists_back
+wheel +2            # Road Trip
+wait 300
+key SELECT
+wait 1500
+shot playlist_wps
+key MENU
+wait 1000
+key MENU
+wait 700
+wheel +3            # Songs  [Compilations off: P11]
+wait 300
+key SELECT
+wait 800
+wheel +3
+wait 300
+key SELECT          # a song plays from that row
+wait 1500
+shot song_wps
+key MENU
+wait 1000
+shot song_back
+key MENU
+wait 700
+key MENU            # main menu
+wait 700
+wheel +1            # Podcasts
+wait 300
+key SELECT
+wait 800
+shot podcasts
+key MENU
+wait 700
+
+quit

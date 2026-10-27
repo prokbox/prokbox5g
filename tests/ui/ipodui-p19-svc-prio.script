@@ -1,0 +1,51 @@
+# P19 ucop-fix2 (review S3): be_svc's priority with the UI split off. It
+# waits at the codec's priority and serves calls (BE_Q_CALL) and clicks
+# (BE_SOUND) there; the other posts (the latched input notes, pause and
+# resume) run at its own priority, behind the codec. The simulator has
+# one core: the split runs at "cpu", music plays, the wheel posts input
+# notes (prio=own) between the per-pass calls (prio=codec), and each
+# Clicker toggle is a settings save served by be_svc (a file write during
+# playback, the heaviest call the simulator's split routes). The music
+# must keep playing with no PCM underrun line in the log.
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p19-svc-prio.script
+# needs: music
+# golden: skip
+# log: fe be_svc up mode=cpu
+# log: fe svc prio=codec
+# log: fe svc prio=own
+# log: expect_playing ok
+# nolog: expect_playing failed
+# nolog: pcm underrun
+# timeout: 120
+wait 2000
+copy fixtures/p19/ui_split_cpu /.rockbox/ui_split
+reboot
+wait 4000
+wheel +20 40            # the last row: Shuffle Songs (the rows above
+wait 400                # it depend on the disk: Videos, Podcasts)
+wheel -1 200            # Settings (before the music: no Now Playing row)
+wait 400
+key SELECT 50
+wait 1200
+wheel +11 40            # Clicker (row 11)
+wait 800
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait 1500
+expect_playing 400
+key SELECT 50           # On: a settings save on be_svc
+wait 600
+key SELECT 50           # Off
+wait 600
+key SELECT 50           # On
+wait 600
+key SELECT 50           # Off
+wait 600
+wheel -8 20             # the wheel's notes, fast
+wheel +8 20
+wheel -8 20
+wheel +8 20
+wait 800
+expect_playing 400
+shot svc_prio
+rm_file /.rockbox/ui_split
+quit

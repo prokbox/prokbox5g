@@ -1,0 +1,29 @@
+# P11 U2a: the owner's customised main menu (main-menu-custom-hold.jpg):
+# Audiobooks added through Settings > Main Menu takes its fixed slot under
+# Music (before Podcasts), Extras selected. Our screen has no Videos,
+# Photos or Alarms rows (hidden / not built), so it reads Music,
+# Audiobooks, Podcasts, Extras, Settings, Shuffle Songs.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p11-settings-checklist-owner.script
+# golden: skip main_menu_owner
+wait 4000
+wheel +3 300            # Settings
+wait 400
+key SELECT 50
+wait 1200
+wheel +3 300            # Main Menu
+wait 400
+key SELECT 50
+wait 1200
+wheel +8 300            # Audiobooks (row 8)
+wait 600
+key SELECT 50
+wait 400
+key MENU 50
+wait 900
+key MENU 50
+wait 900
+wheel -1 300            # Extras
+wait 2500
+shot main_menu_owner
+
+quit

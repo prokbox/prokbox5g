@@ -1,0 +1,46 @@
+# P12 W3-K (docs/phase12-brief.md 3.5, 9 "-contacts-*"): no .vcf files (or no /Contacts: the indexer makes the folder, Q12): Contacts
+# shows its empty state, our own sentence, no rows.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p12-contacts-empty.script
+# needs: library
+# timeout: 180
+# log: xidx build kind=2 n=0
+# log: contacts open n=0
+# nolog: modclass viol
+# expect-exists: /Contacts
+# golden: skip
+# reset: mainmenu
+
+sim_clock 15:06
+wait 4000
+wait_db 30000
+rm_file /Contacts/family.vcf
+rm_file /Contacts/work.vcf
+rm_file /Contacts/modern.vcf
+rm_file /Contacts/big.vcf
+rm_file /Contacts/big2000.vcf
+rm_file /Contacts/._family.vcf
+rm_file /Contacts/readme.txt
+rm_file /.rockbox/contacts.idx
+rm_file /.rockbox/xindex.owe
+rm_file /Contacts
+usb_connect
+wait 2500
+usb_disconnect
+wait 150
+wait_db 45000
+wait 3500
+storage_idle
+wait 1500
+wheel +2            # Main Menu: "Extras"
+wait 800
+key SELECT
+wait 1200
+wheel +2            # Extras: "Contacts" (Clocks, Calendars, Contacts)
+wait 800
+key SELECT
+wait 1200
+shot empty
+key MENU
+wait 1000
+shot back_extras
+quit

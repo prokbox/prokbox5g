@@ -1,0 +1,25 @@
+# #47: Music > Artists, then the first artist; with PROKBOX_ARTALB_CHECK
+# set, that open compares every artist's range with the scan (run through
+# tests/perf/artalb_check.sh).
+# trace: lib
+
+wait 3000
+wait_db 300000
+wait 5000
+
+key SELECT          # Music
+wait 1000
+wheel +1 300        # Artists
+wait 600
+key SELECT
+wait 1500
+shot artists
+key SELECT          # the first artist: the check runs here
+wait 5000
+shot artist
+key MENU
+wait 1000
+wheel +9 300        # the last fixture artist
+wait 1000
+shot artists_end
+quit

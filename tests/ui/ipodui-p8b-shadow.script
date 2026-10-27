@@ -1,0 +1,96 @@
+# Phase 8b close (docs/phase8b-brief.md 7 / 4.3): the split shadow at the
+# panel seam (panel columns 160..169: ui_shadow_a = 92 75 59 45 33 23 15 8
+# 4 1 of 256, 10 px, 36 % at the seam) is applied exactly ONCE on every
+# way the panel is written: the drift's whole step (pan_to) and half step
+# (half_window), a cover cross-fade (ui_panel_fade, raw), a highlight
+# fade (ui_panel_fade, composed) and the composed glyph panel. Checked by
+# pixel probes on the framebuffer (sim_cmd_shadow.c "expect_shadow"): the
+# seam columns against the plain columns beside them. It FAILS when the
+# shadow is applied twice (0.58 of the plain brightness at columns 0..4,
+# not 0.76) or not at all (1.00). Mid-frames are probed several times;
+# they have no golden (timing).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p8b-shadow.script
+# needs: library
+# golden: skip step_whole step_half hl_done_podcasts
+# timeout: 120
+
+wait 4000            # boot to the main menu, Music selected (cover drift)
+wait_db 30000
+art_wait 120000
+sim_clock 10:08
+clock_format 24
+battery 100
+
+# -- the drift: a whole-pixel step, then a half step ---------------------
+# phase 190 = 40 fade + 10 steps * 15, +0 (whole), phase 200 = +10 (half)
+drift_phase 190 frozen
+wait 700
+expect_shadow step_whole
+shot step_whole
+drift_phase 200 frozen
+wait 700
+expect_shadow step_half
+shot step_half
+
+# -- a highlight fade between two glyph panels (composed -> composed, dark
+#    flat panels: min_sum 60) and back to the cover (composed -> raw drift)
+# (the new panel is drawn after the rest delay, 400 ms, then fades in
+#  over ~200 ms: probed 440..560 ms after the move)
+wheel +1             # Podcasts
+wait 10
+wait 20
+expect_shadow ~hl1 80 110
+wait 20
+expect_shadow ~hl2 80 110
+wait 20
+expect_shadow ~hl3 80 110
+wait 20
+expect_shadow ~hl4 80 110
+wait 20
+expect_shadow ~hl5 80 110
+wait 20
+expect_shadow ~hl6 80 110
+wait 20
+expect_shadow ~hl7 80 110
+wait 20
+expect_shadow ~hl8 80 110
+wait 20
+expect_shadow ~hl9 80 110
+wait 20
+expect_shadow ~hl10 80 110
+wait 20
+expect_shadow ~hl11 80 110
+wait 20
+expect_shadow ~hl12 80 110
+wait 800
+expect_shadow hl_done_podcasts 80 110
+shot hl_done_podcasts
+wheel -1             # back to Music: the drift cover fades in
+wait 10
+wait 20
+expect_shadow ~cv1 80 110
+wait 20
+expect_shadow ~cv2 80 110
+wait 20
+expect_shadow ~cv3 80 110
+wait 20
+expect_shadow ~cv4 80 110
+wait 20
+expect_shadow ~cv5 80 110
+wait 20
+expect_shadow ~cv6 80 110
+wait 20
+expect_shadow ~cv7 80 110
+wait 20
+expect_shadow ~cv8 80 110
+wait 20
+expect_shadow ~cv9 80 110
+wait 20
+expect_shadow ~cv10 80 110
+wait 20
+expect_shadow ~cv11 80 110
+wait 20
+expect_shadow ~cv12 80 110
+wait 1500
+expect_shadow cover_done
+quit

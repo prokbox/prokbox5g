@@ -23,6 +23,16 @@
 
 #include "platform.h"
 
+struct audiobook_chapters;
+
+/* Metadata extras for the iPod UI shell (ID3 CHAP chapters, UTF-16 chapter
+ * titles, embedded lyrics locator, per-chapter artwork; see chapters.h and
+ * lyrics.h). Compiled into the shell build and the host tests (warble) only,
+ * so the stock build is byte-identical. */
+#if defined(HAVE_IPOD_UI) || defined(WARBLE)
+#define HAVE_METADATA_EXTRAS
+#endif
+
 #define METADATA_EXCLUDE_ID3_PATH  (0x01) /* don't copy filename path to the id3 path buffer */
 #define METADATA_CLOSE_FD_ON_EXIT  (0x02) /* close the filedescriptor when finished */
 #define METADATA_EXCLUDE_NORMALIZE (0x04) /* don't normalize id3 text entries */
@@ -232,6 +242,17 @@ struct embedded_cuesheet {
     enum character_encoding encoding;
 };
 
+#ifdef HAVE_METADATA_EXTRAS
+/* Where a track's embedded lyrics are (ID3 USLT, MP4 (c)lyr). Only the
+ * location is kept: the text is read on demand with metadata_read_lyrics()
+ * (lyrics.h) into a caller-supplied buffer. size == 0: no lyrics. */
+struct embedded_lyrics {
+    uint32_t pos;           /* file offset of the frame body / text */
+    uint32_t size : 24;     /* bytes at pos, see enum lyrics_format */
+    uint32_t format : 8;    /* enum lyrics_format (lyrics.h) */
+};
+#endif
+
 struct mp3entry {
     char path[MAX_PATH];
     char* title;
@@ -296,6 +317,11 @@ struct mp3entry {
 
     /* runtime database fields */
     long tagcache_idx;     /* 0=invalid, otherwise idx+1 */
+#ifdef HAVE_IPOD_UI
+    /* ProkBox: the library snapshot tagcache_idx was found in (opaque,
+     * 0 = none); a statistic for another snapshot binds by path instead */
+    int32_t tagcache_bind;
+#endif
     int rating;
     int score;
     long playcount;
@@ -326,6 +352,40 @@ struct mp3entry {
 
     /* For ASF files with MP3 audio stream */
     bool is_asf_stream;
+
+    /* Audiobook chapter support (see chapters.h). The parser only sets
+     * is_audiobook and chapter_count; the chapter table is read on demand
+     * with metadata_read_chapters(). 'audiobook' is owned by playback (like
+     * 'cuesheet') and points at its copy of the current track's chapters. */
+    bool is_audiobook;
+    int chapter_count;
+    struct audiobook_chapters *audiobook;
+
+#if defined(HAVE_IPOD_UI) || defined(HAVE_BCMFW_VIDEO)
+    /* Classification must work even when the Videos UI/player is omitted:
+     * a real video track never belongs to the Music library. Chapter-image
+     * sample tracks (jpeg/png) are excluded by the MP4 parser. */
+    bool     is_video;
+#endif
+#ifdef HAVE_BCMFW_VIDEO
+    /* iPod UI Videos (docs/phase14a-brief.md 3.2, 4.1): filled by the MP4
+     * parser at scan time (mp4.c); classified by apps/ipodui/vclass_core.c.
+     * A video is never an audiobook: the parser clears is_audiobook and
+     * lead_trim for it but keeps chapter_count (playback loads chapters
+     * on it). tv_show points into id3v2buf like the other strings and is
+     * relocated by adjust_mp3entry(). */
+    bool     video_avc;     /* the video is avc1/avc3: the player plays it
+                               (is_video alone: any moving picture) */
+    bool     is_podcast;    /* 'pcst' = 1 (iTunes files; ffmpeg can't write it) */
+    uint8_t  stik;          /* iTunes media kind, 0 = none */
+    uint8_t  tv_season;     /* 'tvsn', 0 = none */
+    uint16_t tv_episode;    /* 'tves', 0 = none */
+    char    *tv_show;       /* 'tvsh' (id3v2buf), NULL = none */
+#endif
+
+#ifdef HAVE_METADATA_EXTRAS
+    struct embedded_lyrics lyrics;
+#endif
 };
 
 unsigned int probe_file_format(const char *filename); /* returns audio_fmt */

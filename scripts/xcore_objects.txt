@@ -1,0 +1,132 @@
+# Cross-core objects (P19 S0, K-2): read by scripts/xcore_map_check.py.
+#
+#   need  FILE:SYMBOL      present and linked uncached (.ncbss/.ncdata/IRAM)
+#   need  FILE:SYMBOL if FILE:ANCHOR
+#                          the same in every ELF that has ANCHOR (the build
+#                          flavour that compiles it: video, modules, dev)
+#   need  FILE:SYMBOL?     uncached where present; present in at least one
+#                          ELF of the run
+#   allow FILE:SYMBOL      a cached kernel-like name, proven single-core
+#                          (the reason after #)
+#
+# FILE is the source file's basename as the symbol table names it (a file
+# #included into another, bcmjob-dev.c into lcd-video.c, takes the
+# includer's); "*" for a global.  docs/design/p19-ui-on-cop.md section 3.2.
+
+# ---- the LCD port and engine 2 (BCM MF-1)
+need lcd-video.c:lcd_port_mtx
+need lcd-video.c:lcd_port_ready
+need lcd-video.c:lcd_e2_on
+need lcd-video.c:lcd_state
+need e2-port.c:owner
+need e2-port.c:owner_cl
+need lcd-video.c:bcm_devtest_owned if *:bcm_devtest_set_mark
+need lcd-video.c:bcmfw_active if *:bcm_boot_switch
+need lcd-video.c:bcmfw_hung if *:bcm_boot_switch
+need lcd-video.c:bcmfw_kick_tick if *:bcm_boot_switch
+need lcd-video.c:bcmfw_poweron if *:bcm_boot_switch
+need lcd-video.c:bcm_port_dead if *:bcm_boot_switch
+need lcd-video.c:bcmjob_gen if *:bcmjob_init
+need lcd-video.c:bcmjob_on if *:bcmjob_init
+# bcmjob-dev.c (in lcd-video.c): the port lock's depth, the request record
+need lcd-video.c:bcm_port_depth if *:bcmjob_init
+# P19 MF-4, the pixel hand-off (developer builds): the frame's producer
+# core and the fence-timeout counter; vplayer's overlay request
+need lcd-fb-xcore.c:lfx_core if *:lcd_fb_claim
+need lcd-fb-xcore.c:lcd_fb_fence_fails if *:lcd_fb_claim
+need vplayer.c:ovl_done if *:lcd_fb_publish
+need vplayer.c:ovl_rect if *:lcd_fb_publish
+need vplayer.c:ovl_rc if *:lcd_fb_publish
+need vplayer.c:ovl_slide if *:lcd_fb_publish
+need lcd-video.c:bcm_port_mtx if *:bcmjob_init
+need lcd-video.c:jd_req if *:bcmjob_init
+need lcd-video.c:jd_ack if *:bcmjob_init
+need lcd-video.c:jd_owner if *:bcmjob_init
+need lcd-video.c:jd_owner_core if *:bcmjob_init
+need lcd-video.c:jd_art if *:bcmjob_init
+
+# ---- the shell and its drivers
+need piezo.c:piezo_queue
+need dbqueue.c:dbq_mtx
+need dbqueue.c:persist_mtx
+need maint.c:take_mtx
+need maint.c:mtx_ready
+need modload.c:job if *:storage_post_job
+need uilog.c:cop_ring
+need uilog.c:cop_head
+need uilog.c:cop_tail
+need uilog.c:cop_lost
+need scroll_engine.c:scroll_kick_sem
+need powermgmt.c:power_kick_sem
+# the art thread (CPU) waits, the UI thread's pass (the COP's in a split
+# build) releases: art_bcm.c pass_wait()/art_bcm_service()
+need art_bcm.c:pass_sem if *:art_bcm_service
+need art_bcm.c:pass_sem_ready if *:art_bcm_service
+need wm8758.c:dac_mtx
+need core_alloc.c:xcore_offcore if *:ipodui_devmode_ab_start
+
+# ---- already uncached upstream or earlier (kept so a regression fails)
+need artcache.c:art_queue
+need vplayer.c:vq if *:vplayer_start
+need button_queue.c:button_queue
+need backlight.c:backlight_queue
+need storage.c:storage_queue
+need usb.c:usb_queue
+need tagcache.c:tagcache_queue
+need playback.c:id3_mutex
+need ata.c:ata_mutex
+need i2c-pp.c:i2c_mtx
+need system-pp502x.c:cpufreq_cl
+
+# ---- cached, single-core (proven)
+allow *:pcf50605_wakeup_flags        # not a kernel object: a flags word
+allow ata-pp5020.c:dma_sem           # ATA DMA completion: storage thread and its IRQ, CPU only
+allow tagcache.c:command_queue       # not a kernel object: the tagcache command array (tagcache thread)
+allow tagcache.c:wakeup_tick.6       # not a kernel object: a tick stamp
+allow modload.c:done.1               # not a kernel object: rt_init_once()'s flag (UI thread)
+allow modload.c:work                 # not a kernel object: the module arena's working-block table (UI thread; module builds)
+allow iap-core.c:iap_queue           # the dock's iAP queue (stock, --dock30), CPU only: posted by its timeout (CPU tick), the serial IRQ, iap_reset_state (usb thread) and queue_broadcast (CPU threads; the shell's power/storage calls cross by remote call); read by the iap thread (IF_COP(, CPU)). Its stack and RX/TX buffers are the iap thread's and the serial IRQ's, CPU only too
+
+# ---- the visualizer's PCM tap (p19-pcm-tap): the hook the FIQ loads, set
+# by an opener on either core.  viz_tap.c:vt_ring (XCORE_BSS) joins as
+# "need viz_tap.c:vt_ring" once a screen references the tap; until then
+# --gc-sections drops it from every ELF.  ucop-fix2: open and close run on
+# the CPU (remote calls from the COP); the reader's words are uncached
+need pcm_mixer.c:mixer_tap if *:mixer_set_tap
+need viz_tap.c:vt_ring if *:viz_tap_open
+need viz_tap.c:vt_n if *:viz_tap_open
+need viz_tap.c:vt_last_head if *:viz_tap_open
+need viz_tap.c:vt_track if *:viz_tap_open
+need viz_tap.c:vt_book if *:viz_tap_open
+
+# ---- the PP band governor (docs/design/pp-governor.md 16.13, review B1):
+# a boost on either core reads the decisions and the rail's state; only the
+# CPU writes them (the COP books cop_boost)
+need pgov.c:core if *:pgov_enable
+need pgov.c:cop_boost if *:pgov_enable
+need pgov.c:core2 if *:pgov2_enable
+need pgov.c:hw if *:pgov2_enable
+need pgov.c:mode2 if *:pgov2_enable
+need pgov.c:rec_rw if *:pgov2_enable
+need pgov.c:port_busy if *:pgov2_enable
+need pgov.c:stor_busy if *:pgov2_enable
+need pgov.c:fault_pending if *:pgov2_enable
+# ucop-fix (2026-10-26, bench sitting 3): the audio output path the UI
+# reaches from the COP. The DAC driver's shadows and standby state (both
+# cores under dac_mtx), the piezo click's length, the keyclick filter's
+# words, the playback words audio_status() reads directly (febe_rpc.list
+# "direct:"), and the boundary's storage note
+need wm8758.c:dac_state if *:dac_wake
+need wm8758.c:pwr_reg if *:dac_wake
+need wm8758.c:dacctrl_reg if *:dac_wake
+need wm8758.c:dac_busy_tick if *:dac_wake
+need wm8758.c:dac_vol_l if *:dac_wake
+need wm8758.c:eq_reg if *:dac_wake
+need piezo.c:duration if *:ipodui_sound_route
+need misc.c:keyclick_current_callback if *:ipodui_sound_route
+need playback.c:play_status if *:ipodui_sound_route
+need playback.c:quiet_restart if *:ipodui_sound_route
+need fe_be.c:call_stor if *:ipodui_sound_route
+need fe_be.c:note_posted if *:ipodui_sound_route
+need fe_be.c:note_taken if *:ipodui_sound_route
+need fe_be.c:note_comp if *:ipodui_sound_route

@@ -1,0 +1,25 @@
+# P12 integration L3 follow-up: in a module build the games run, so the
+# Games row is in Extras, under Alarms, and opens the Games list.
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-extras-games-row-mod.script
+# needs: modules
+# golden: skip
+# modclass: none (the Games list is resident; no game is opened)
+# log: sdk games list rows=
+# nolog: mod hide solitaire
+# nolog: notes open
+# reset: mainmenu
+wait 4000
+wheel +2             # "Extras"
+wait 800
+key SELECT
+wait 1200
+wheel +4             # past Clocks, Calendars, Contacts, Alarms
+wait 800
+shot row_after_alarms   # Games
+key SELECT
+wait 1500
+shot opened          # the Games list
+key MENU
+wait 1000
+shot back_list
+quit

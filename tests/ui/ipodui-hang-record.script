@@ -1,0 +1,26 @@
+# The hang watcher (firmware/export/hang_watch.h): "hang_ui 8000" holds the
+# shell's thread at work for 8 s at its next pass (the wheel line wakes
+# it), never yielding, as a frozen device's would. Past its 6 s bound the
+# tick task writes a hang record (kind 0x48) naming the thread; once the
+# thread goes on, the shell logs "hang recovered", the record as "panic
+# hang record ..." lines (marked logged), and watches again, so the next
+# boot logs no record.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-hang-record.script
+# timeout: 90
+# log: sim_script: hang_ui 8000
+# log: ipodui: hang recovered ui after
+# log: ipodui: panic hang record thread=
+# log: ipodui: panic msg hang: ui no progress 6 s (
+# golden: skip
+
+wait 4000           # boot (logs a record a previous run left, if any)
+hang_ui 8000
+wheel +1 300        # wakes the shell's loop: its next pass holds 8 s
+wait 9000
+wheel -1 300        # a pass or two: the recovered record is logged
+wait 1500
+wheel +1 300
+wait 1500
+reboot
+wait 4000           # this boot logs nothing: the record was logged
+shot after_boots    # the Main Menu after the hang and a boot

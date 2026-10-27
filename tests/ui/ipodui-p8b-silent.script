@@ -1,0 +1,61 @@
+# Phase 8b-1 (docs/phase8b-brief.md 3.3 and 4.1): the silent library
+# after a USB session, DB state "ready". Music is open (stopped) while a
+# track is copied over USB; after the release the post-USB scan runs with
+# the old library still listed (no footer); with library generations
+# (#85) the update builds a candidate behind it, so the lists never go
+# empty and the new album is listed afterwards. The producer stamps
+# (tagcache.c, UI_COMMIT) are logged once as "lib window scan= empty=
+# ready= empty_ms= total_ms=", with the scan this window started from
+# (total_ms >= 0) and no empty window (empty=0, empty_ms=-1: 8b-T T6;
+# a first build's window is ipodui-p8b-footer's), and the USB screen
+# logs its release tick. The main menu never shows a strip.
+# The fresh/rebuild state with the footer on screen is
+# ipodui-p8b-footer.script.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p8b-silent.script
+# needs: library
+# timeout: 150
+# log: p9 restore: tagcache scan
+# logrange: 0 600000 lib window scan=[1-9]\d* .*total_ms=(\d+) playing=0
+# expect-file: /.rockbox/ipodui.log usb release tick=
+# expect-file: /.rockbox/ipodui.log lib window scan=
+# expect-file: /.rockbox/ipodui.log lib window empty_ms=-1
+# log: empty=0 ready=
+# golden: skip albums_before albums_after main_after
+#
+# The album is tests/ui/fixtures/refresh.mp3 (artist/album "Refresh
+# Fixture"), copied as /Music/P8bSilent/; removed again at the end.
+
+wait 4000
+wait_db 30000
+remove /Music/P8bSilent/silent.mp3
+update_db_wait 30000
+
+key SELECT          # Music
+wait 800
+wheel +2 300        # "Albums"
+wait 400
+key SELECT
+wait 1500
+shot albums_before  # the library before the session
+
+usb_connect
+wait 2500
+mkdir /Music/P8bSilent
+copy fixtures/refresh.mp3 /Music/P8bSilent/silent.mp3
+usb_disconnect
+expect_in_db /Music/P8bSilent/silent.mp3 45000
+wait_db 45000
+wait 2500           # Albums' 1 s poll reopens the view; the footer gone
+shot albums_after   # the reopened view (state: expect_in_db), no footer
+storage_idle        # flush the 12-line log ring before the m0 and panel lines
+                    # that follow overwrite the usb release and lib window lines
+
+key MENU
+wait 800
+key MENU
+wait 1200
+shot main_after     # main menu: no strip
+
+remove /Music/P8bSilent/silent.mp3
+update_db_wait 30000
+quit

@@ -1,0 +1,77 @@
+# P12 W1-N (docs/phase12-brief.md 9; brief section: UTF-8 notes in the
+# shell type): a UTF-8 note (with a BOM) draws Latin-1 and Latin
+# Extended-A letters and the curly quotes, dashes and ellipsis; Greek,
+# Cyrillic, Japanese and an emoji show one hollow box per character, never
+# a blank or a guess (the count is logged: missing=). A Windows-1252 note
+# (no valid UTF-8) reads its accents and quotes; its euro sign, which the
+# type lacks, is a box too.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p12-notes-unicode.script
+# needs: library
+# timeout: 180
+# log: notes view r=4 bytes=214 lines=6 missing=20 enc=0
+# log: notes view r=6 bytes=47 lines=2 missing=1 enc=3
+# nolog: modclass viol
+# golden: skip
+# reset: mainmenu
+
+sim_clock 15:06
+wait 4000
+wait_db 30000
+rm_file /Notes/Shopping.txt
+rm_file /Notes/Welcome.txt
+rm_file /Notes/Long%20note.txt
+rm_file /Notes/Unicode%20note.txt
+rm_file /Notes/Windows%20note.txt
+rm_file /Notes/._Shopping.txt
+rm_file /Notes/readme.md
+rm_file /Notes/Trips/Paris.txt
+rm_file /Notes/Trips/Lisbon.TXT
+rm_file /Notes/Trips
+rm_file /.rockbox/notes.idx
+rm_file /.rockbox/xindex.owe
+
+usb_connect
+wait 2500
+mkdir /Notes
+mkdir /Notes/Trips
+copy fixtures/notes/Shopping.txt /Notes/Shopping.txt
+copy fixtures/notes/Welcome.txt /Notes/Welcome.txt
+copy fixtures/notes/long-note.txt /Notes/Long%20note.txt
+copy fixtures/notes/unicode-note.txt /Notes/Unicode%20note.txt
+copy fixtures/notes/windows-note.txt /Notes/Windows%20note.txt
+copy fixtures/notes/._Shopping.txt /Notes/._Shopping.txt   # a sidecar: left out
+copy fixtures/notes/readme.md /Notes/readme.md             # not a note
+copy fixtures/notes/Trips/Paris.txt /Notes/Trips/Paris.txt
+copy fixtures/notes/Trips/Lisbon.TXT /Notes/Trips/Lisbon.TXT
+usb_disconnect
+wait 150
+wait_db 45000
+wait 3500           # the grace and gap windows end the busy moment: the
+storage_idle        # indexer runs there (xidx build)
+wait 1500
+wheel +2            # Main Menu: "Extras"
+wait 800
+key SELECT
+wait 1200
+wheel +7            # Extras: to the last row (Stopwatch; the list does not wrap)
+wait 600
+wheel -2            # "Notes", counted from the end: the same with or without a Games row
+wait 800
+key SELECT
+wait 1200
+wheel +3            # "Unicode note"
+wait 600
+shot list_unicode
+key SELECT
+wait 1200
+shot unicode
+key MENU
+wait 1000
+wheel +2            # "Windows note"
+wait 600
+key SELECT
+wait 1200
+shot windows1252
+key MENU
+wait 1000
+quit

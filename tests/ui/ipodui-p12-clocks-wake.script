@@ -1,0 +1,43 @@
+# P12 W2-W (item 4, fresh frames at wake): the first lit frame after a
+# soft-sleep wake shows the time now, never the time at the sleep. The
+# Extras list's Clocks panel (its clock and date) and the Clocks page
+# (the band's face and "4:05 PM") after an hour asleep: 15:05 -> 16:05.
+# The tick stood still while asleep, so a minute timer alone would leave
+# the panel an hour behind until its next minute; the device's
+# get_time() copy is marked stale at the wake (get_time_stale()).
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-clocks-wake.script
+# needs: modules
+# golden: skip
+# timeout: 120
+# log: sleep wake why=1
+# nolog: sleep tier=off
+# reset: mainmenu
+
+sleep_mode soft         # soft sleep is off by default (developer switch)
+wait 4000
+sim_clock 15:05         # the panels' time; a sleep_warp moves it on
+wheel +2                # Extras
+wait 1500
+key SELECT
+wait 2500               # the Extras list, Clocks selected, its panel
+shot list_before        # the panel's clock at 3:05
+hold PLAY 1500          # the hold: dark, then asleep
+expect_sleep asleep 8000
+sleep_warp 3600
+key MENU                # the wake press (swallowed)
+expect_sleep button 3000
+wait 300
+shot list_woken         # the panel's clock at 4:05 on the first frame
+key SELECT 50           # the Clocks page
+wait 1200
+shot clocks_before      # 4:05 PM
+hold PLAY 1500
+expect_sleep asleep 8000
+sleep_warp 3600
+key MENU
+expect_sleep button 3000
+wait 300
+shot clocks_woken       # 5:05 PM on the first frame
+key MENU
+wait 800
+quit

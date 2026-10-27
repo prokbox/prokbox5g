@@ -1,0 +1,11 @@
+# Stock bootloader identity (Phase 8a fix round, finding 9): the sha256 of
+# build/boot/bootloader.bin built from main with the version string pinned,
+# so the bytes do not depend on the commit or the date. validate.sh builds
+# build/boot with the same VERSION and fails when the hash differs.
+# Recorded from main ab6df75672 with arm-none-eabi-gcc 16.2.0. Re-record
+# only when main itself changes the stock bootloader (an upstream sync):
+#   git archive main | tar -x -C <tmp> && cd <tmp> && mkdir -p build/boot &&
+#   cd build/boot && ../../tools/configure --target=22 --type=b \
+#       --compiler-prefix=arm-none-eabi- </dev/null &&
+#   make VERSION=ipodui-boot-identity && shasum -a 256 bootloader.bin
+04f555b9e88f1b80b507a8914cce19656788ecb3e7fd27839b8acdce9f8b4ff9  bootloader.bin

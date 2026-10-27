@@ -1,0 +1,82 @@
+# Phase 6 (Rev 1 item 2): no pool growth while audio plays. A book plays;
+# opening ANOTHER book's page (the 1,100-chapter "AB Many Chapters") must not
+# grow the library view pool: core_available() does not shrink
+# (expect_ab_mem_same), and the chapter view builds with a smaller entry cap
+# that fits the free pool ("ab view cap=N", N < 1,024 while playing). Stopped,
+# the same page gets the full 1,024. No core_alloc is traced while playing
+# (check_trace.py's aballoc rule).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p6-pool-cap.script
+# needs: library
+# needs: ab
+# timeout: 150
+# trace: ab
+# ab-open-miss-max: 80
+# (fix round 2: the pak-miss page of the 1,100-chapter m4b reads 53 times
+# on the UI thread, was ~3,170: the chapter walk, tables and titles go
+# through a 4 KB window in large contiguous reads, and an MP4 skips
+# get_metadata()'s header walk; 27 for the no-chapter book)
+# (no "ab view cap" required: with this library the pool's free room holds
+# a full 1,024-entry table, so the view is not capped; the hard check is
+# expect_ab_mem_same, no growth while playing. The capped path itself is
+# not reached in the sim.)
+# golden: skip page_many_playing page_many_stopped
+# DB state: ready. Needs B (pool_reserve refuses to grow while playing) and
+# U. Rows: 0 A Field Guide, 1 AB Many Chapters, 2 AB No Chapters.
+
+wait 4000
+wait_db 45000
+mkdir /Audiobooks/AB
+copy ../../build/ab-fixtures/nochap.m4b /Audiobooks/AB/nochap.m4b
+copy ../../build/ab-fixtures/many.m4b /Audiobooks/AB/many.m4b
+update_db_wait_change 60000
+art_wait 60000
+ab_power_cut now idx_drop   # pak misses: the pages read the file into the
+                            # chapter view (the capped path under test)
+key SELECT
+wait 800
+wheel +6 300   # Audiobooks (Compilations off: P11)
+wait 400
+key SELECT
+wait 900
+wheel +2 300
+wait 400
+key SELECT          # the book page
+wait 1000
+key SELECT          # play AB No Chapters from 0
+wait 2500
+ab_mem_mark
+ab_mark many_playing_begin
+hold MENU 1000
+wait 1200
+key SELECT
+wait 800
+wheel +6 300   # Audiobooks (Compilations off: P11)
+wait 400
+key SELECT
+wait 900
+wheel +1 300
+wait 400
+key SELECT          # AB Many Chapters, while playing
+wait 1000
+shot page_many_playing     # a shorter list than 1,100 rows is fine
+expect_ab_mem_same
+ab_mark many_playing_end
+expect_playing 1500
+audio_stop
+wait 800
+hold MENU 1000
+wait 1200
+key SELECT
+wait 800
+wheel +6 300   # Audiobooks (Compilations off: P11)
+wait 400
+key SELECT
+wait 900
+wheel +1 300
+wait 400
+key SELECT          # the book page
+wait 1000
+shot page_many_stopped
+remove /Audiobooks/AB/nochap.m4b
+remove /Audiobooks/AB/many.m4b
+quit

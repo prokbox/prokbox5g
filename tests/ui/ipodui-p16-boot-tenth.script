@@ -1,0 +1,66 @@
+# #89 (Q3): every 10th boot walks (a walk, then nine skips), bounding the
+# one change the digest cannot see (an in-place tag edit that keeps the
+# size and the mtime). Part 1 walks after an unclean end; parts 2-10 skip
+# (skipped 0..8 in the stamp they trust); part 11 walks ("tenth"); part 12
+# skips again.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-boot-tenth.script
+# needs: music
+# timeout: 420
+# golden: skip
+# log: boot stamp walk=0 why=trust skipped=8
+# log: boot stamp walk=1 why=tenth skipped=9
+# nolog: expect_boot_walk failed
+
+wait 3000
+wait_db 30000
+boot_nostamp
+reboot
+
+expect_boot_walk 1 15000 nostamp
+wait_db 30000
+wait 3000
+reboot
+
+expect_boot_walk 0 15000 trust
+wait 1500
+reboot
+
+expect_boot_walk 0 15000 trust
+wait 1500
+reboot
+
+expect_boot_walk 0 15000 trust
+wait 1500
+reboot
+
+expect_boot_walk 0 15000 trust
+wait 1500
+reboot
+
+expect_boot_walk 0 15000 trust
+wait 1500
+reboot
+
+expect_boot_walk 0 15000 trust
+wait 1500
+reboot
+
+expect_boot_walk 0 15000 trust
+wait 1500
+reboot
+
+expect_boot_walk 0 15000 trust
+wait 1500
+reboot
+
+expect_boot_walk 0 15000 trust
+wait 1500
+reboot
+
+expect_boot_walk 1 15000 tenth
+wait_db 30000
+wait 3000
+reboot
+
+expect_boot_walk 0 15000 trust
+shot after_tenth

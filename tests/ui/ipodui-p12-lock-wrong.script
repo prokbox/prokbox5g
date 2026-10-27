@@ -1,0 +1,95 @@
+# P12 W1-L (9 "-lock-wrong"): a wrong code on the locked screen resets
+# the digits to 0000 with a double tick and says so under the roller (no
+# splash); it stays locked; turning the wheel brings the label back.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p12-lock-wrong.script
+# golden: skip
+# modclass: none (resident sim-ui: the accountant follows the module
+# loader; a modules-build run, SIM_BUILD=build/sim-ui-mod, is owed)
+# log: ipodui: lock try ok=0
+# nolog: ipodui: lock try ok=1
+# nolog: 1234
+# nolog: 4321
+# reset: mainmenu
+wait 4000            # boot to the main menu, "Music" selected
+wheel +2 300         # "Extras"
+wait 600
+key SELECT
+wait 1200
+wheel +7 200         # the last row (Stopwatch; the list does not wrap)
+wait 600
+wheel -1 200         # "Screen Lock", from the end: with or without a Games row
+wait 800
+key SELECT
+wait 1200
+# New Combination 1234, then Confirm 1234: Lock / Reset
+wheel +1 250
+wait 300
+key SELECT
+wait 200
+wheel +2 250
+wait 300
+key SELECT
+wait 200
+wheel +3 250
+wait 300
+key SELECT
+wait 200
+wheel +4 250
+wait 300
+key SELECT
+wait 200
+wait 800
+wheel +1 250
+wait 300
+key SELECT
+wait 200
+wheel +2 250
+wait 300
+key SELECT
+wait 200
+wheel +3 250
+wait 300
+key SELECT
+wait 200
+wheel +4 250
+wait 300
+key SELECT
+wait 200
+wait 800
+key SELECT           # Lock
+wait 1200
+wheel +4 250
+wait 300
+key SELECT
+wait 200
+wheel +3 250
+wait 300
+key SELECT
+wait 200
+wheel +2 250
+wait 300
+key SELECT
+wait 200
+wheel +1 250
+wait 300
+key SELECT
+wait 200
+wait 800
+shot wrong
+key MENU
+wait 600
+shot still_locked
+wheel +1 250
+wait 400
+shot label_back
+key SELECT
+wait 200
+key SELECT
+wait 200
+key SELECT
+wait 200
+key SELECT
+wait 200
+wait 800
+shot wrong_again
+quit

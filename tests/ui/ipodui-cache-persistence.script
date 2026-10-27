@@ -1,0 +1,24 @@
+# Warm cache reuse, local repair and interrupted-index recovery.
+# needs: library
+# timeout: 240
+# golden: skip preserved
+wait 1000
+wait_db 30000
+art_wait 120000
+art_persist mark
+rm_file /.rockbox/artcache/VERSION
+art_request
+art_wait 120000
+art_persist check
+art_persist damage_thumb
+art_wait 120000
+art_persist check_repair
+art_persist mark
+art_persist damage_index
+art_persist check_fallback
+art_request
+art_wait 120000
+art_persist check
+expect_art art_manifest.txt
+shot preserved
+quit

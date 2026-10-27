@@ -1,0 +1,47 @@
+# Phase 5: the Shuffle shelf (Off / Songs / Albums) of the music cycle,
+# the selection in a raised box; the wheel moves it, SELECT commits and
+# leaves. The mini library plays as an ordinary queue (Songs: randomise in
+# RAM, Off: back to order).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p5-shuffle.script
+# needs: music
+# golden: skip slide
+
+wait 3000
+sim_clock 15:08
+clock_format 24      # P11: the default is 12-hour; this golden shows 24
+repeat off
+wait_db 30000
+art_wait 60000
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3 /Music/Tone%20Collective/Sine%20Studies/02%20Low%20E.mp3 /Music/Tone%20Collective/Sine%20Studies/03%20Warble.mp3
+wait 1000
+np_pin 6000 50
+key SELECT          # Music (the menu re-reads "Now Playing" after a push/pop)
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 1200
+key SELECT
+wait 500
+key SELECT
+wait 500
+key SELECT          # Shuffle
+wait 80
+shot slide
+wait 500
+shot shelf_off
+wheel +1 300
+wait 300
+shot shelf_songs
+wheel +1 300
+wait 300
+shot shelf_albums
+wheel -2 300
+wait 300
+key SELECT          # commit Off, back to Normal
+wait 900
+shot normal_off
+audio_stop
+quit

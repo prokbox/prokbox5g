@@ -1,0 +1,38 @@
+# Phase 4: "Updating Library…" on the first boot of a fresh library
+# (docs/phase4-brief.md, Agent B loading feedback, Agent A lib_state()).
+# "# fresh-db" makes shots.sh delete simdisk/.rockbox/database_*.tcd
+# before boot, so the shell has to build the database by itself, silently.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p4-update.script
+# needs: library
+# fresh-db
+# golden: skip updating music_updating
+# The drift panel of music_ready is compared without its picture: which
+# cover and pan phase it shows depends on how long the fresh scan took
+# (its first cover's hold ends 1.5 s after the main menu's boot panel),
+# so it raced the shot. The list half (with its header) is compared; the
+# panel runs the full height, under the battery too.
+# golden-region: music_ready 0 0 160 240
+#
+# The scan of ~300 files takes only a few hundred ms in the sim, so the
+# boot wait is short. Note for Agent A: the sim has no dircache, so a first build
+# cannot commit in the same boot unless the shell gives commit() a buffer
+# (stock tagcache "delays the commit until next boot"); wait_db then logs
+# "commit delayed" and this script fails.
+
+wait 1000           # boot; the build starts ~1 s after boot and the
+shot updating       # scan of ~300 files takes well under a second in the
+key SELECT          # sim, so go to Music at once: main menu while
+wait 300            # updating (no splash, no prompt), then Music
+shot music_updating # inline "Updating Library…" row (timing-sensitive)
+
+wait_db 45000       # the build finishes in the same boot
+wait 1500
+shot music_ready    # "Updating Library…" gone, normal Music menu
+
+wheel +1            # "Artists"
+wait 400
+key SELECT
+wait 800
+shot artists        # the freshly built library
+
+quit

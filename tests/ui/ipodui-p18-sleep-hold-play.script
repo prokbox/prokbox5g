@@ -1,0 +1,40 @@
+# Phase 18 (brief §8, 18-2; Q3): hold PLAY while playing pauses and
+# soft-sleeps (dark, the queue and its buffer kept); SELECT wakes to the
+# same screen, swallowed (Rev 3 H1); PLAY then resumes at the position,
+# not from the start (wait_pos 6000 within 2 s).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p18-sleep-hold-play.script
+# needs: library
+# golden: skip
+# fulls-extra: 1          (the wake pushes the left screen in full)
+# log: sim_sleep: sleep enter
+# log: sleep wake why=1 s=0 polls=0 spurious=0 resyncs=0 buttons=0x1
+# nolog: splash-pass
+# same: before woken
+
+sleep_mode soft       # soft sleep is off by default (developer switch)
+wait 4000
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait_pos 6000 60000
+key PLAY                # pause, to shoot the paused screen
+wait 500                # the toggle lands (the expect does not wait)
+expect_paused 500
+wait 1000
+shot before
+key PLAY
+wait_pos 6500 60000
+key PLAY                # paused again at the same screen
+wait 500                # the toggle lands (the expect does not wait)
+expect_paused 500
+wait 500
+hold PLAY 1500          # the hold: dark at once, PLAY's release awaited
+expect_sleep asleep 8000
+expect_paused 500       # the queue stays paused, not stopped
+key SELECT              # wakes; swallowed
+expect_sleep button 3000
+wait 1500
+shot woken              # == before (the same screen, Q3)
+key PLAY
+wait 500                # the toggle lands (the expect does not wait)
+expect_playing 1000
+wait_pos 7000 3000      # resumed at the position (a restart would need 7 s)
+quit

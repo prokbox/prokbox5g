@@ -1,0 +1,45 @@
+# P11 U2a (owner bug): the panel must never show content for a row other
+# than the selected one. Cases: (1) a quick Settings entry before any
+# rest (the stale drift art must not show behind the Settings rows),
+# (2) scrolling the Settings list with a frame every ~40 ms (the panel
+# fades from what is on screen to the new row's tile, starting on the
+# move, retargeting if the wheel keeps going), (3) a pop back to the main
+# menu with Settings selected shows the capacity panel in the first frame,
+# no fade.
+# Trace (sim.log): "panel want key=<k> arg=<p>" per selection report and
+# "panel show key=<k> arg=<p> how=fade|now|direct" per draw; every show
+# equals the last want (check_trace rule "panelsync").
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p11-panelsync.script
+# golden: skip
+wait 4000
+shot m0                  # Music selected, the drift
+wheel +3 40
+key SELECT 50            # Settings, before any rest delay
+wait 60
+shot e0                  # never album art behind a Settings row
+wait 40
+shot e1
+wait 400
+shot e2                  # the capacity panel
+wheel +1 40              # Shuffle
+wait 30
+shot s1
+wait 40
+shot s2
+wait 40
+shot s3
+wheel +5 40              # Audiobooks, quickly, mid-fade: retarget
+wait 40
+shot s4
+wait 40
+shot s5
+wait 40
+shot s6
+wait 400
+shot s7                  # the Audiobooks tile
+key MENU 50              # pop to the main menu, Settings selected
+wait 30
+shot p0                  # first frame: the capacity panel (no art)
+wait 400
+shot p1
+quit

@@ -1,0 +1,85 @@
+# fb-stall (owner device report, 2026-10-09): a FLAC halted for a few
+# seconds, then went on, when the owner moved to the Audiobooks list.
+# Cause: the library's view pool was freed and re-allocated by the first
+# lib_open() after a database reload (library.c pool_sync()), even while
+# audio played; that allocation made playback stop, shrink its buffer and
+# restart (playback.c shrink_callback, now logged "audio shrink").
+# Now the pool is reserved at shell start, re-sized only while stopped
+# (lib_pool_idle(), main loop), and kept as it is while audio plays.
+#  1. a reload while stopped (a new file scanned), then play a FLAC and
+#     walk Music > Audiobooks (book drift with the disk awake: its 180 KB
+#     slot read), the list, a book page, and back: no stop, no shrink.
+#  2. a new generation while playing (an update's deleted-file pass drops
+#     a file: no commit, so it runs during playback, as after a USB
+#     session on the device): the Audiobooks list opens again in the kept
+#     block ("lib pool kept"): no stop, no shrink.
+# With library generations (#85, cache-persist) part 2 has no new
+# generation while playing: the deleted-file pass builds a candidate whose
+# RAM cache waits for the stop (it would shrink the audio buffer), so the
+# Audiobooks list opens again from the unchanged active library and the
+# pool is never touched ("lib pool kept" no longer applies: no generation
+# changes under playback); the new generation lands after the stop. Still
+# no stop and no shrink while audio plays: the new generation's RAM cache,
+# allocated after the stop, may shrink the stopped buffer ("audio shrink
+# ... status=0"), so the nolog rules name the playing (1) and paused (3)
+# states.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-fb-stall.script
+# needs: library
+# needs: np
+# nolog: status=1 thread=
+# nolog: status=3 thread=
+# golden: skip books
+# timeout: 180
+
+wait 4000           # boot to the main menu, "Music" selected
+wait_db 30000
+art_wait 120000
+mkdir /Stall
+copy ../../build/np-fixtures/nolen.flac /Stall/nightfall.flac
+copy_file /Stall/nightfall.flac /Stall/gone.flac
+update_db_wait_change 30000     # 1: a reload while stopped
+wait 500            # main loop passes: the pool is re-sized now
+play_files /Stall/nightfall.flac
+wait 1000
+expect_playing 500
+audio_buf mark
+key SELECT          # Music menu, "Playlists"
+wait 1000
+wheel +5
+wait 500
+disk_active 3000    # storage awake: the book set is read at the switch
+wheel +1            # "Audiobooks": the drift switches to book covers
+wait 1500
+expect_playing 1000
+key SELECT          # the Audiobooks list (lib_open)
+wait 1500
+expect_playing 1000
+shot books
+key SELECT          # the first book's page
+wait 1500
+expect_playing 1000
+key MENU
+wait 1000
+key MENU            # Music menu, "Audiobooks" highlighted
+wait 1000
+expect_playing 1000
+audio_buf expect
+
+db_gen_mark
+rm_file /Stall/gone.flac
+update_db                       # 2: the deleted-file pass, while playing
+wait 2000
+expect_db_gen_same 1000         # the generation waits for the stop
+expect_playing 1000
+key SELECT          # the Audiobooks list again, in the kept pool
+wait 1500
+expect_playing 1500
+key MENU
+wait 1000
+audio_buf expect
+audio_stop
+expect_db_gen_change 60000      # now published
+wait 1000
+rm_file /Stall/nightfall.flac
+update_db_wait_change 20000     # leave the database as it was
+quit

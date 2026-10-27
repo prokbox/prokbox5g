@@ -1,0 +1,52 @@
+# The ProkBox5g site and user guide on GitHub Pages (docs/release-plan.md
+# section 3.4): docs/user/ (Markdown) through Hugo with our own layouts in
+# site/, a Pagefind search index and the PDF guide, all built in the docs
+# image (ci/docs/Dockerfile, a private package pulled by digest) by
+# scripts/docs_build.sh, then deployed to
+# https://prokbox.github.io/prokbox5g/.
+name: pages
+
+on:
+  push:
+    branches: [main]
+    paths: ["docs/user/**", "site/**", "scripts/docs_build.sh", ".github/workflows/pages.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+  pages: write
+  id-token: write
+
+env:
+  DOCS_IMAGE: ghcr.io/prokbox/prokbox5g-docs@sha256:261c0936fc83e235b10a9ddbb0b59cc3d48489474a7b2902396a018a51a2e44a
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: the pinned docs image (private package, by digest; see release.yml)
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker pull -q "$DOCS_IMAGE"
+      - run: |
+          docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD":/w -w /w "$DOCS_IMAGE" \
+            sh scripts/docs_build.sh --pdf --search --out /w/_site
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

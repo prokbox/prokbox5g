@@ -1,0 +1,56 @@
+# P16 gate fix: PLAY right after a stopped commit, before its candidate
+# publishes (tests/perf/resort_play_check.sh, both memory sizes, a 50k
+# disk without the #47 marker: no settle boot). The first boot's one-time
+# re-sort commits while stopped; PLAY comes about 1 s later. The candidate's
+# publication is refused while audio plays, so it gives its RAM cache back
+# ("db cand ram yield") instead of holding it through playback, and
+# publishes at the stop ("db resort done ok=1"). PLAY also comes while
+# that publication runs (commit_hold 100): refused, the candidate yields
+# its RAM and its prepared statistics lookup, and publishes at the next
+# stop. Then the same after a USB session that adds a file: its commit
+# runs stopped, PLAY follows.
+# golden: skip
+wait 300
+floor_watch begin
+wait_commit 300000  # the re-sort's empty commit, then PLAY at once
+snapshot_play
+wait 2500
+expect_playing 500
+floor resort_play_start
+wait 10000          # refused, retried: the candidate yields its RAM
+floor resort_play_yield
+commit_hold 100     # its publication waits at its view pool ...
+audio_stop
+commit_hold_wait 60000  # at the stop: its RAM again, the prepare, held
+snapshot_play       # ... while PLAY comes
+wait 2500
+expect_playing 500
+commit_release      # refused while audio plays: its RAM and its
+wait 5000           # prepared lookup go back ("cand ram yield ... stats=1")
+floor resort_publish_yield
+audio_stop
+wait 20000          # at the stop: its RAM again, then the publication
+snapshot_play
+wait 2500
+expect_playing 500
+floor resort_play_regrow
+audio_stop
+wait 1000
+
+# a USB session that changes files: the post-USB scan commits stopped
+usb_connect
+wait 2500
+copy ../../tests/ui/fixtures/refresh.mp3 /zz-resort-usb.mp3
+usb_disconnect
+wait_commit 300000
+snapshot_play
+wait 2500
+expect_playing 500
+floor usb_play_start
+wait 10000
+floor usb_play_yield
+audio_stop
+wait 15000          # published at the stop
+shot end
+floor_watch end all_cases
+quit

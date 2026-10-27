@@ -14,6 +14,7 @@
  * Original file: linux/arch/armnommu/mach-ipod/hardware.c
  *
  * Copyright (c) 2003-2005 Bernard Leach (leachbj@bouncycastle.org)
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -32,6 +33,7 @@
 #include "system.h"
 #include "i2c.h"
 #include "i2c-pp.h"
+#include "hang_watch.h"           /* ProkBox */
 #ifdef HAVE_AS3514
 #include "ascodec.h"
 #endif
@@ -170,6 +172,13 @@ void i2c_unlock(void)
     mutex_unlock(&i2c_mtx);
 }
 
+#ifdef HAVE_PP_GOV_DVS
+bool i2c_held(void)
+{
+    return i2c_mtx.blocker.thread != NULL;
+}
+#endif
+
 int i2c_readbytes(unsigned int dev_addr, int addr, int len, unsigned char *data)
 {
     int i, n;
@@ -250,6 +259,7 @@ void i2c_init(void)
 {
     /* From ipodlinux */
     mutex_init(&i2c_mtx);
+    hang_watch_mutex(HANG_MX_I2C, &i2c_mtx);    /* ProkBox */
 
 #ifdef IPOD_MINI
     /* GPIO port C disable port 0x10 */

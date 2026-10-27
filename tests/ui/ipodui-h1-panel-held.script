@@ -1,0 +1,67 @@
+# H1 end review (MED 1, MED 2), revised for #58: playback starts while the
+# art builder is in the middle of a panel. Until #58 a panel needed a
+# 786 KB transient decode block, allocated only while audio was stopped;
+# since #58 it is decoded in bands of the builder's reserved decode block
+# and written band by band (artcache.c ps_decode()): nothing is allocated.
+# "art_panel_hold" keeps the builder inside its first panel for 4 s
+# (on the device a decode takes about a second).
+#  - Playback starts without a stop or gap while the builder is held
+#    (expect_playing). The builder then gives up that panel before its
+#    source read ("art build panel deferred": no I/O of its own while
+#    playing outside a fill window, the artio trace rule) and builds the
+#    panels in the next fill windows, or at the stop
+#    ("art build panels set=32 built=...").
+#  - The audio buffer is never shorter for it: "audio_buf expect" against
+#    the size of a start by the same path (PLAY in the menu) before the
+#    held build, both in the held session and after it.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-h1-panel-held.script
+# needs: library
+# golden: skip held stopped
+# fulls-extra: 2    (#58: the reference start and its stop, in the menu,
+#                   each redraw it with or without its Now Playing row)
+
+wait 1000
+wait_db 30000
+art_wait 120000
+wheel +4            # "Shuffle Songs"
+wait 500
+key SELECT          # plays (the WPS)
+wait 1500
+expect_playing 300
+audio_stop       # stop
+wait 1500
+key PLAY            # resume in the menu: the start path used below
+wait 1500
+expect_playing 1000
+audio_buf mark      # sized by this start, before the held build
+audio_stop
+wait 1500
+shot stopped
+rm_file /.rockbox/artcache/panels.pak
+art_panel_hold 4000
+art_request         # a pass: albums current, then every panel anew
+wait 1500           # the builder is held inside the first panel now
+audio_buf
+key PLAY            # resume, in the menu, while the builder is held
+wait 300
+expect_playing 4500 # through the hold and the panel it gives up
+shot held
+audio_buf expect    # this session's buffer: nothing was taken from it
+wheel +10           # "Now Playing" (the last item)
+wait 800
+key SELECT          # WPS
+wait 1500
+audio_stop       # stop: whatever panels are left are built now
+wait 1500
+art_wait 60000
+key PLAY            # resume
+wait 1500
+expect_playing 1000
+audio_buf expect    # the same size again
+wheel +10
+wait 800
+key SELECT
+wait 1500
+audio_stop
+
+quit

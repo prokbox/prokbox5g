@@ -1,0 +1,6 @@
+boot build=4e57b3b9a1 rtc=2026-10-25 13:58:02
+1 viz start style=0 path=bcm n=512 owed
+2 bcmjob overlay load k=0 bytes=19380 at=0012b000
+3 uilat cpu codec=30% main=4% idle=60% s=60 ui=inline cop_idle=0%
+4 bcmjob overlay refused why=abi
+5 viz CPU FALLBACK why=lost n=256 fps=20

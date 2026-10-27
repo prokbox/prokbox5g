@@ -23,6 +23,7 @@
 #include "config.h"
 #include "system.h"
 #include "kernel.h"
+#include "xcore.h"      /* ProkBox P19 S0: XCORE_BSS */
 #include "thread.h"
 #include "debug.h"
 #include "adc.h"
@@ -33,6 +34,11 @@
 #include "usb.h"
 #include "powermgmt.h"
 #include "backlight.h"
+#ifdef HAVE_IPOD_UI
+#include "button.h"                 /* Phase 18: SYS_SLEEP_REQUEST */
+#include "quiet_wait_core.h"       /* P19 19-1a: qw_power_wait() */
+#include "devstats.h"               /* P19 19-1a: DEVSTATS_POLL */
+#endif
 #include "lcd.h"
 #include "rtc.h"
 #if CONFIG_TUNER
@@ -46,6 +52,15 @@
 #endif
 #if (CONFIG_PLATFORM & PLATFORM_HOSTED)
 #include <time.h>
+#endif
+#ifdef HAVE_PLL_IDLE
+#include "pll_idle.h"
+#endif
+#ifdef HAVE_PP_GOV
+#include "pgov.h"           /* ProkBox: the band governor */
+#endif
+#ifdef HAVE_POWER_SLEEP
+#include "power_sleep.h"
 #endif
 
 #if (defined(IAUDIO_X5) || defined(IAUDIO_M5) || defined(COWON_D2)) \
@@ -257,11 +272,26 @@ int battery_current(void)
 #endif
 }
 
+#ifdef HAVE_IPOD_UI
+static int seed_mv;     /* ProkBox: the boot guard's resting reading */
+void powermgmt_seed_voltage(int mv)
+{
+    seed_mv = mv;
+}
+#endif
+
 /* Initialize the battery voltage/current filters. This is called
  * once by the power thread before entering the main polling loop. */
 static void average_init(void)
 {
 #if CONFIG_BATTERY_MEASURE & VOLTAGE_MEASURE
+#ifdef HAVE_IPOD_UI
+    /* ProkBox: seed from the boot guard's resting reading (taken before
+     * any boot load, apps/ipodui/bootbatt.c), else the raw reading.
+     * Upstream starts 15 mV (flash) or 35 mV (disk) above a reading taken
+     * under the boot load; the guard's sample needs no such guess. */
+    voltage_now = seed_mv > 0 ? seed_mv : _battery_voltage();
+#else
     voltage_now = _battery_voltage() + 15;
 
     /* The battery voltage is usually a little lower directly after
@@ -275,6 +305,7 @@ static void average_init(void)
                         percent_to_volt_discharge[5]) / 2;
     }
 #endif /* HAVE_DISK_STORAGE */
+#endif /* HAVE_IPOD_UI */
 
     voltage_avg = voltage_now * BATT_AVE_SAMPLES;
 #endif /* CONFIG_BATTERY_MEASURE & VOLTAGE_MEASURE */
@@ -516,8 +547,16 @@ bool battery_level_safe(void)
 #ifdef HAVE_RTC_ALARM
 static void power_thread_rtc_process(void)
 {
+#ifdef HAVE_IPOD_UI
+    /* ProkBox P12 (H2): reading INT1 clears its alarm flag (read to
+     * clear) and nothing more. Disarming here (year 0x99, RTCWAK off)
+     * raced the shell's alarm_rearm(), which is the only code that arms
+     * or disarms the PMU alarm (apps/ipodui/alarm.c) */
+    (void)rtc_check_alarm_flag();
+#else
     if (rtc_check_alarm_flag())
         rtc_enable_alarm(false);
+#endif
 }
 #endif
 
@@ -563,6 +602,18 @@ void reset_battery_filter(int millivolts)
     battery_status_update();
 }
 #endif /* HAVE_BATTERY_SWITCH */
+
+#ifdef HAVE_POWER_SLEEP
+/* ProkBox Phase 18-1: the filter holds the average from before a soft
+ * sleep; restart it from the sleep's own raw reading (0: read now) so
+ * the level and the glyph in the wake's first frame are current. The
+ * scheduler is cooperative, so the power thread cannot sample between
+ * this and the caller's frame. */
+void battery_wake_reading(int millivolts)
+{
+    reset_battery_filter(millivolts > 0 ? millivolts : _battery_voltage());
+}
+#endif
 
 /** Generic charging algorithms for common charging types **/
 #if CONFIG_CHARGING == 0 || CONFIG_CHARGING == CHARGING_SIMPLE
@@ -714,20 +765,119 @@ static void collect_power_history(void)
     power_history[0] = power_hist_item();
 }
 
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+/* P18 18-A (hardware-fit-audit K1): the power thread waits for a deadline
+ * instead of polling at 2 Hz.  Everything it did on that cadence either
+ * has an event that kicks it (the charger and USB edges, the backlight
+ * lighting, PCM starting: power_thread_kick()) or does not need 2 Hz while
+ * nothing is going on.  Quiet = a settled discharge well above the
+ * warnings: no charger, no USB, no shutdown pending and the level above
+ * POWER_QUIET_MIN_PCT.  Then the step runs every POWER_QUIET_TICKS, and
+ * the voltage filter takes one sample per elapsed 0.5 s (the same reading
+ * repeated, so its time constant, 128 half-seconds, is unchanged).
+ * Anything else keeps the stock HZ/2.  Not quiet at or under 15 %: the
+ * 15 % and 5 % warnings and the low-battery shutdown keep their cadence. */
+#define POWER_QUIET_TICKS   (2*HZ)
+#define POWER_QUIET_MIN_PCT 15
+/* P19 19-1a (review M2): the filter's catch-up cap covers the 10 s dark
+ * step (20 half-second samples) with room for a late wake, so its time
+ * constant holds at the longer step */
+#define POWER_FILTER_STEPS_MAX \
+    (QW_POWER_DARK(HZ) / POWER_THREAD_STEP_TICKS + 4)
+static long shutdown_began;
+
+static struct semaphore power_kick_sem XCORE_BSS;     /* P19 S0: either core */
+static long power_last_step;
+
+void power_thread_kick(void)
+{
+    semaphore_release(&power_kick_sem);
+}
+
+static bool power_is_quiet(void)
+{
+    return !shutdown_timeout && percent_now > POWER_QUIET_MIN_PCT
+#if CONFIG_CHARGING
+        && charger_input_state == NO_CHARGER && !power_input_present()
+#endif
+        && !usb_inserted();
+}
+
+/* P19 19-1a: quiet, playing and dark, the step is 10 s
+ * (QW_POWER_DARK): the voltage moves ~14 mV/h in dark play, so the 64 s
+ * filter loses nothing. The sleep timer's end is a deadline of its own;
+ * the idle power-off needs none (it never runs while playing). Lit,
+ * paused or stopped keep 18-A's step; the backlight lighting and PCM
+ * starting still kick (power_thread_kick()), and so do a shutdown and a
+ * sleep timer set. */
+static bool power_wait_step(void)
+{
+    struct qw_power_in in = {
+        .now = current_tick,
+        .last_step = power_last_step,
+        .quiet = power_is_quiet(),
+        .dark_playing = audio_status() == AUDIO_STATUS_PLAY
+                        && !is_backlight_on(true),
+#ifndef BOOTLOADER
+        .sleeptimer = sleeptimer_active,
+        .sleep_end = sleeptimer_endtick,
+#endif
+    };
+    long left = qw_power_wait(&in, HZ);
+    bool due;
+
+    if (left <= 0)
+        return true;
+    due = semaphore_wait(&power_kick_sem, left) == OBJ_WAIT_TIMEDOUT;
+    DEVSTATS_POLL(DEVSTATS_POLL_POWER, due);
+    return due;
+}
+#endif /* HAVE_IPOD_UI && !BOOTLOADER */
+
 /*
  * Monitor the presence of a charger and perform critical frequent steps
  * such as running the battery voltage filter.
  */
 static inline void power_thread_step(void)
 {
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+    /* the time since the last step, in half-second steps (at least 1) */
+    long elapsed = current_tick - power_last_step;
+    int steps = (elapsed + POWER_THREAD_STEP_TICKS/2) / POWER_THREAD_STEP_TICKS;
+
+    long shut_from = power_last_step;   /* P19 19-1a: see below */
+
+    power_last_step = current_tick;
+    if (steps < 1)
+        steps = 1;
+    else if (steps > POWER_FILTER_STEPS_MAX)
+        steps = POWER_FILTER_STEPS_MAX;
+#else
+    const int steps = 1;
+#endif
     /* If the power off timeout expires, the main thread has failed
        to shut down the system, and we need to force a power off */
     if (shutdown_timeout) {
-        shutdown_timeout -= POWER_THREAD_STEP_TICKS;
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+        /* P19 19-1a: only the time since the shutdown began counts, not
+         * a whole 10 s step that started before it */
+        if (TIME_AFTER(shutdown_began, shut_from))
+            shut_from = shutdown_began;
+        shutdown_timeout -= MAX(current_tick - shut_from, 1);
+#else
+        shutdown_timeout -= POWER_THREAD_STEP_TICKS * steps;
+#endif
 
         if (shutdown_timeout <= 0)
             power_off();
     }
+
+#ifdef HAVE_PLL_IDLE
+    pll_idle_poll();    /* ProkBox Fit-1 C6: backlight and PCM holders */
+#endif
+#ifdef HAVE_PP_GOV
+    pgov_apply();       /* ProkBox: the band governor's decision, if on */
+#endif
 
 #ifdef HAVE_RTC_ALARM
     power_thread_rtc_process();
@@ -743,7 +893,8 @@ static inline void power_thread_step(void)
             || charger_input_state == CHARGER
 #endif
     ) {
-        average_step(false);
+        for (int i = 0; i < steps; i++)
+            average_step(false);
         battery_status_update();
     }
     else if (percent_now < 8) {
@@ -798,6 +949,9 @@ static void power_thread(void)
     collect_power_history();
 
     next_power_hist = current_tick + HZ*60;
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+    power_last_step = current_tick;
+#endif
 
     while (1)
     {
@@ -815,7 +969,19 @@ static void power_thread(void)
 #endif /* CONFIG_CHARGING */
         {
             /* Steady state */
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+            if (!power_wait_step()) {
+#ifdef HAVE_PLL_IDLE
+                pll_idle_poll();    /* a kick: backlight or PCM changed */
+#endif
+#ifdef HAVE_PP_GOV
+                pgov_apply();       /* or the governor's decision */
+#endif
+                continue;
+            }
+#else
             sleep(POWER_THREAD_STEP_TICKS);
+#endif
 
             /* Do common power tasks */
             power_thread_step();
@@ -1017,6 +1183,9 @@ error_loading:
 
 void powermgmt_init(void)
 {
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+    semaphore_init(&power_kick_sem, 1, 0);  /* before anything can kick */
+#endif
     create_thread(power_thread, power_stack, sizeof(power_stack), 0,
                   power_thread_name IF_PRIO(, PRIORITY_SYSTEM)
                   IF_COP(, CPU));
@@ -1107,14 +1276,60 @@ static void sys_shutdown_common(void)
 #else
         shutdown_timeout += HZ*20;
 #endif
+#if defined(HAVE_IPOD_UI)
+        /* P19 19-1a: counted from now, and the thread steps at HZ/2 now
+         * (not quiet), not at the end of a 10 s wait */
+        shutdown_began = current_tick;
+        power_thread_kick();
+#endif
     }
 }
 #endif /* BOOTLOADER */
 
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+/* ProkBox (owner, #63): while a computer is connected the device stays on
+ * and mounted. Every software power-off funnels through here (the sleep
+ * timer, auto power-off, the held PLAY key, the shell), so it is refused
+ * while the host has the disk; the screen may still go dark. A
+ * hardware reset (MENU+SELECT) does not pass through software and keeps
+ * working. The shell logs the count (usbscreen.c). */
+static unsigned int poweroff_blocked;
+
+bool powermgmt_poweroff_inhibited(void)
+{
+    /* a critically low battery always shuts down cleanly (review M1), and
+     * only a computer that owns the disk keeps the device on: charge-only
+     * power or a stuck detect line does not (review M2) */
+    if (query_force_shutdown())
+        return false;
+#ifdef USB_FULL_INIT
+    if (!usb_exclusive_storage())
+        return false;
+#else
+    if (!usb_inserted())
+        return false;
+#endif
+    poweroff_blocked++;
+    return true;
+}
+
+unsigned int powermgmt_poweroff_blocked(void)
+{
+    return poweroff_blocked;
+}
+#endif
+
 void sys_poweroff(void)
 {
 #ifndef BOOTLOADER
+#ifdef HAVE_IPOD_UI
+    if (powermgmt_poweroff_inhibited())
+        return;
+#endif
     logf("sys_poweroff()");
+#ifdef HAVE_PP_GOV_DVS
+    pgov2_shutdown();   /* ProkBox: the planned end; the rail to normal */
+#endif
     sys_shutdown_common();
     queue_broadcast(SYS_POWEROFF, 0);
 #endif
@@ -1125,6 +1340,9 @@ void sys_reboot(void)
 {
 #ifndef BOOTLOADER
     logf("sys_reboot()");
+#ifdef HAVE_PP_GOV_DVS
+    pgov2_shutdown();   /* ProkBox: the planned end; the rail to normal */
+#endif
     sys_shutdown_common();
     queue_broadcast(SYS_REBOOT, 0);
 #endif
@@ -1141,6 +1359,9 @@ void cancel_shutdown(void)
 #endif
 
     shutdown_timeout = 0;
+#ifdef HAVE_PP_GOV_DVS
+    pgov2_shutdown_cancelled();     /* ProkBox: stage 2 may arm again */
+#endif
 }
 
 void set_sleeptimer_duration(int minutes)
@@ -1151,8 +1372,21 @@ void set_sleeptimer_duration(int minutes)
 static void set_sleep_timer(int seconds)
 {
     if (seconds) {
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+        /* P19 19-1a: a deadline of its own; the thread is kicked only
+         * when it moves earlier (review L4: not at every key, whose
+         * restart only moves it later) */
+        long end = current_tick + seconds * HZ;
+        bool earlier = !sleeptimer_active
+                       || TIME_BEFORE(end, sleeptimer_endtick);
+        sleeptimer_active  = true;
+        sleeptimer_endtick = end;
+        if (earlier)
+            power_thread_kick();
+#else
         sleeptimer_active  = true;
         sleeptimer_endtick = current_tick + seconds * HZ;
+#endif
     }
     else {
         sleeptimer_active  = false;
@@ -1179,6 +1413,15 @@ void set_keypress_restarts_sleep_timer(bool enable)
     sleeptimer_key_restarts = enable;
 }
 
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+static bool sleep_handler = false;
+
+void powermgmt_set_sleep_handler(bool registered)
+{
+    sleep_handler = registered;
+}
+#endif
+
 #ifndef BOOTLOADER
 static void handle_sleep_timer(void)
 {
@@ -1195,6 +1438,17 @@ static void handle_sleep_timer(void)
         }
         else {
             DEBUGF("Sleep timer timeout. Shutting off...\n");
+#if defined(HAVE_IPOD_UI)
+            /* P12 W2-T / Q9: the shell's sleep (soft sleep, the power-off
+             * tier, or Q1(2)'s dark wait with an alarm due); the timer
+             * ends here, so it asks once */
+            if (sleep_handler)
+            {
+                set_sleep_timer(0);
+                button_queue_post(SYS_SLEEP_REQUEST, SLEEP_TIMER);
+            }
+            else
+#endif
             sys_poweroff();
         }
     }
@@ -1213,6 +1467,11 @@ static void handle_sleep_timer(void)
  * 3) We are recording, or recording with pause
  * 4) The radio is playing
  */
+
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+static bool auto_off_held;      /* P19 19-1a: the last step saw it held */
+#endif
+
 void handle_auto_poweroff(void)
 {
 #ifndef BOOTLOADER
@@ -1230,6 +1489,16 @@ void handle_auto_poweroff(void)
 #endif
     ) {
         last_event_tick = current_tick;
+#if defined(HAVE_IPOD_UI)
+        auto_off_held = true;
+    }
+    else if (auto_off_held) {
+        /* P19 19-1a: the dark play step is 10 s, so the idle timer
+         * starts at the first step that sees playback stop (at most 10 s
+         * late), never up to 10 s early from the last playing step */
+        auto_off_held = false;
+        last_event_tick = current_tick;
+#endif
     }
 
     if (!shutdown_timeout && query_force_shutdown()) {
@@ -1250,6 +1519,19 @@ void handle_auto_poweroff(void)
             && TIME_AFTER(tick, storage_last_disk_activity() + timeout)
 #endif
         ) {
+#if defined(HAVE_IPOD_UI)
+            /* Phase 18 Q4: once the shell has said it handles them, the
+             * idle timer asks for a soft sleep (the shell picks the tier,
+             * or ignores it); the timer restarts, so an ignored request
+             * comes back one timeout later, not at every pass. Without a
+             * handler, today's power-off */
+            if (sleep_handler)
+            {
+                last_event_tick = current_tick;
+                button_queue_post(SYS_SLEEP_REQUEST, SLEEP_IDLE);
+            }
+            else
+#endif
             sys_poweroff();
         }
     }

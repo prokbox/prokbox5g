@@ -1,0 +1,55 @@
+# Phase 9 end review (should-fix 2): the language allocation path under
+# IPODUI_TRIM_MISC (apps/language.c lang_core_load). The 38,232 B static
+# is gone; a loaded .lng gets one pinned core_alloc of exactly its core
+# lang_size, made at boot by settings_apply() before audio starts.
+#  - lang_file = deutsch, reboot: the boot load allocates one pinned block
+#    of deutsch.lng's core size (lang_alloc_check), and a stock string the
+#    shell draws is translated: the developer list shows "Entwicklerbereich"
+#    and "Zurück" (lang_str, and the shot).
+#  - A larger .lng (francais, 22,140 B core vs deutsch's 20,516 B) loaded
+#    while running is refused until the next boot ("p9 lang ... next
+#    boot", rc 2) and the German strings stay.
+#  - lang_file is cleared again at the end (the disk is shared outside the
+#    gate).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p9-lang-alloc.script
+# needs: music
+# timeout: 90
+# log: p9 lang alloc ok
+# log: next boot
+# log: p9 lang load rc=2
+#
+# Commands: uisimulator/common/sim_cmd_p9.c (lang_set, lang_load,
+# lang_str, lang_alloc_check).
+# env: SIM_TRACE_LCD_PUSH=1
+# logbetween: dev_in dev_shown \bsim lcd push x=0 y=0 w=320 h=240\b
+
+wait 3000
+lang_set deutsch
+reboot
+
+wait 5000           # boot; settings_apply() loads deutsch.lng
+lang_alloc_check /.rockbox/langs/deutsch.lng
+lang_str Debug_(Keep_Out!) Entwicklerbereich
+lang_str Back Zurück
+
+wheel +3            # Settings (4th main-menu row)
+wait 400
+key SELECT          # Settings; About is its first row
+wait 1500
+key SELECT          # About
+wait 1500
+ab_mark dev_in       # #57: the stock list must reach the panel
+chord SELECT+LEFT 3200
+wait 1000
+shot developer      # the stock list, translated
+ab_mark dev_shown
+
+lang_load /.rockbox/langs/francais.lng 2
+lang_alloc_check /.rockbox/langs/deutsch.lng
+lang_str Back Zurück
+wheel -1            # the Back row ("Zurück"), the last
+wait 400
+key SELECT          # leave developer mode
+wait 1500
+lang_set -
+quit

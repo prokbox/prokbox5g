@@ -45,6 +45,9 @@
 #include "metadata_common.h"
 #include "metadata_parsers.h"
 #include "misc.h"
+#ifdef HAVE_METADATA_EXTRAS
+#include "lyrics.h"
+#endif
 
 static unsigned long unsync(unsigned long b0,
                             unsigned long b1,
@@ -880,6 +883,9 @@ retry_with_limit:
         size = initial_size;
         lseek(fd, initial_pos, SEEK_SET);
         memset(buffer, 0, buffersize);
+#ifdef HAVE_METADATA_EXTRAS
+        entry->chapter_count = 0;           /* counted again */
+#endif
     }
 
     /*
@@ -905,6 +911,16 @@ retry_with_limit:
             if (version >= ID3_VER_2_4) {
                 framelen = unsync(header[4], header[5],
                                   header[6], header[7]);
+#ifdef HAVE_METADATA_EXTRAS
+                /* #50: ffmpeg writes the CTOC size unsynchsafed; without
+                 * this every later frame (all the CHAPs) is lost. Only
+                 * where raw file offsets apply: not in a tag flagged
+                 * unsynchronised (as id3extras.c's frame walk) */
+                if (size > 0 && !global_unsynch)
+                    framelen = id3_v24_frame_size(fd, lseek(fd, 0, SEEK_CUR),
+                                                  (const uint8_t *)header + 4,
+                                                  size);
+#endif
             } else {
                 /* version .3 files don't use synchsafe ints for
                  * size */
@@ -1007,6 +1023,14 @@ retry_with_limit:
            For tags that the current code does convert to ints, a post
            processing function will be called via a pointer to function. */
 
+#ifdef HAVE_METADATA_EXTRAS
+        /* CHAP (counted) and USLT (located): never copied into id3v2buf */
+        if (id3_note_extra_frame(entry, header, version,
+                                 lseek(fd, 0, SEEK_CUR), totframelen,
+                                 unsynch, global_unsynch))
+            i = TAGLIST_SIZE;               /* skipped below */
+        else
+#endif
         for (i=0; i<TAGLIST_SIZE; i++) {
             const struct tag_resolver* tr = &taglist[i];
             char** ptag = tr->offset ? (char**) (((char*)entry) + tr->offset)

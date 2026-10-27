@@ -1,0 +1,60 @@
+# #89 (docs/phase16-brief.md 3.2, Revision 1 H1): the directory digest
+# catches a change made while ProkBox was not running, and a change made
+# behind the library's back (after its walk, no USB): each boot after one
+# walks ("digest"), and the walk picks the change up. A: a track added
+# after the clean shutdown (ab_copy_at_exit: the disk the next boot
+# finds); B: it is deleted; C: a track renamed; D: renamed back. Then a
+# boot with no change trusts the stamp again. The sim disk ends as it began.
+# B asserts the deleted entry is gone (a walk alone never sees it: H2).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-boot-changed.script
+# needs: music
+# timeout: 300
+# golden: skip
+# log: boot stamp walk=1 why=digest
+# log: boot stamp walk=0 why=trust
+
+wait 3000
+wait_db 30000
+boot_nostamp
+reboot
+
+expect_boot_walk 1 15000
+wait_db 30000
+wait 3000
+ab_copy_at_exit fixtures/refresh.mp3 /Music/zz_added.mp3
+reboot
+
+# A: added while off
+expect_boot_walk 1 15000 digest
+wait_db 30000
+expect_stat /Music/zz_added.mp3 playcount=0..0 15000
+wait 3000
+rm_file /Music/zz_added.mp3
+reboot
+
+# B: deleted (H2: the walk's deleted-file pass marks the entry gone)
+expect_boot_walk 1 15000 digest
+wait_db 30000
+expect_not_in_db /Music/zz_added.mp3 30000
+wait 3000
+copy_file /Music/Tone%20Collective/Sine%20Studies/03%20Warble.mp3 /Music/Tone%20Collective/Sine%20Studies/03%20Warble2.mp3
+rm_file /Music/Tone%20Collective/Sine%20Studies/03%20Warble.mp3
+reboot
+
+# C: renamed
+expect_boot_walk 1 15000 digest
+wait_db 30000
+expect_stat /Music/Tone%20Collective/Sine%20Studies/03%20Warble2.mp3 playcount=0..max 15000
+wait 3000
+copy_file /Music/Tone%20Collective/Sine%20Studies/03%20Warble2.mp3 /Music/Tone%20Collective/Sine%20Studies/03%20Warble.mp3
+rm_file /Music/Tone%20Collective/Sine%20Studies/03%20Warble2.mp3
+reboot
+
+# D: renamed back
+expect_boot_walk 1 15000 digest
+wait_db 30000
+wait 3000
+reboot
+
+expect_boot_walk 0 15000 trust
+shot unchanged

@@ -1,0 +1,89 @@
+# P12 W1-L (9 "-lock-reboot", 8 item 8): the lock is saved at once, so
+# it survives a power cut right after Lock, a clean power-off and a
+# reboot: each boot shows the locked screen; the right code then opens it
+# onto the main menu.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p12-lock-reboot.script
+# golden: skip
+# modclass: none (resident sim-ui: the accountant follows the module
+# loader; a modules-build run, SIM_BUILD=build/sim-ui-mod, is owed)
+# log: ipodui: lock engage ok=1
+# log: ipodui: lock screen push
+# log: ipodui: lock try ok=1
+# nolog: 1234
+# reset: mainmenu
+wait 4000            # boot to the main menu, "Music" selected
+wheel +2 300         # "Extras"
+wait 600
+key SELECT
+wait 1200
+wheel +7 200         # the last row (Stopwatch; the list does not wrap)
+wait 600
+wheel -1 200         # "Screen Lock", from the end: with or without a Games row
+wait 800
+key SELECT
+wait 1200
+# New Combination 1234, then Confirm 1234: Lock / Reset
+wheel +1 250
+wait 300
+key SELECT
+wait 200
+wheel +2 250
+wait 300
+key SELECT
+wait 200
+wheel +3 250
+wait 300
+key SELECT
+wait 200
+wheel +4 250
+wait 300
+key SELECT
+wait 200
+wait 800
+wheel +1 250
+wait 300
+key SELECT
+wait 200
+wheel +2 250
+wait 300
+key SELECT
+wait 200
+wheel +3 250
+wait 300
+key SELECT
+wait 200
+wheel +4 250
+wait 300
+key SELECT
+wait 200
+wait 800
+key SELECT           # Lock
+wait 1200
+power_cut
+reboot
+wait 5000
+shot after_cut       # locked at boot
+power_off_now
+wait 3000
+reboot
+wait 5000
+shot after_poweroff  # still locked
+wheel +1 250
+wait 300
+key SELECT
+wait 200
+wheel +2 250
+wait 300
+key SELECT
+wait 200
+wheel +3 250
+wait 300
+key SELECT
+wait 200
+wheel +4 250
+wait 300
+key SELECT
+wait 200
+wait 800
+shot opened         # the main menu
+quit

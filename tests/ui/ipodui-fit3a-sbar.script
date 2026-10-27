@@ -1,0 +1,55 @@
+# Fit-3a #74 (owner, 2026-10-15): the scrollbar is a see-through overlay
+# on top that never moves the text. The same list is taken with the bar
+# off, forced on (list_force_bar, sim_cmd_fit3a.c) and off again, on a
+# split list (Settings) and a full-width one (Songs, scrolled so the
+# thumb sits lower). Outside the bar's rectangle (split x 152-158, full
+# x 313-319; y 22-237) on/off differ in zero pixels, and off/off2 are
+# identical (the hide band restores the rows exactly):
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-fit3a-sbar.script
+#   scripts/pngdiff.py --batch tests/ui/ipodui-fit3a-sbar.pairs
+# needs: library
+# golden: skip
+# timeout: 120
+
+wait 4000
+wait_db 30000
+art_wait 120000
+sim_clock 15:04
+clock_format 24
+battery 100
+drift_phase 0 frozen
+
+wheel +3            # "Settings"
+wait 1200
+key SELECT          # the Settings split list
+wait 1500
+wheel +2 300        # "Repeat": the bar shows, then hides
+wait 2000
+shot split_off
+list_force_bar on
+wait 600
+shot split_on
+list_force_bar off
+wait 600
+shot split_off2
+
+key MENU
+wait 1000
+wheel -3            # "Music"
+wait 800
+key SELECT
+wait 1200
+wheel +3            # "Songs"
+wait 600
+key SELECT
+wait 1500
+wheel +8 300        # the list scrolls: the thumb moves down
+wait 2500
+shot full_off
+list_force_bar on
+wait 600
+shot full_on
+list_force_bar off
+wait 600
+shot full_off2
+quit

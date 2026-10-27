@@ -140,11 +140,21 @@ static const struct usb_qualifier_descriptor __attribute__((aligned(2)))
     .bNumConfigurations = NUM_CONFIGS
 };
 
+#ifdef HAVE_IPOD_UI
+/* ProkBox: the name the computer shows (System Information, Device
+ * Manager); VID/PID unchanged */
+static const struct usb_string_descriptor usb_string_iManufacturer =
+USB_STRING_INITIALIZER(u"ProkBox");
+
+static const struct usb_string_descriptor usb_string_iProduct =
+USB_STRING_INITIALIZER(u"ProkBox");
+#else
 static const struct usb_string_descriptor usb_string_iManufacturer =
 USB_STRING_INITIALIZER(u"Rockbox.org");
 
 static const struct usb_string_descriptor usb_string_iProduct =
 USB_STRING_INITIALIZER(u"Rockbox media player");
+#endif
 
 static struct usb_string_descriptor usb_string_iSerial =
 USB_STRING_INITIALIZER(u"00000000000000000000000000000000000000000");
@@ -239,6 +249,28 @@ static bool control_cancelled;
 #else
 #define set_ep0_state(new) {ep0_state = new;}
 #endif
+
+#ifdef HAVE_USB_STATS
+static struct usb_core_stats core_stats;
+#define CORE_STAT(x) (x)
+#else
+#define CORE_STAT(x) ((void)0)
+#endif
+
+/* A new connection starts with no reset pending and EP0 idle. Without
+ * this, a bus reset whose deferred notify was dropped (it raced the cable
+ * pull: usb.c ignores notifies once extracted) left bus_reset_pending set
+ * across usb_core_exit()/usb_core_init(), and every SETUP of the next
+ * connection was dropped until reboot. */
+static void reset_control_state(void)
+{
+    int oldlevel = disable_irq_save();
+    bus_reset_pending = false;
+    have_pending_request = false;
+    control_cancelled = false;
+    set_ep0_state(EP0_READY);
+    restore_irq(oldlevel);
+}
 
 struct usb_transfer_completion_event_data
 {
@@ -463,6 +495,14 @@ void usb_core_init(void)
         }
     }
 
+    reset_control_state();
+#ifdef HAVE_USB_STATS
+    {
+        bool last = core_stats.pending_at_exit; /* the last session's */
+        memset(&core_stats, 0, sizeof(core_stats));
+        core_stats.pending_at_exit = last;
+    }
+#endif
     initialized = true;
     usb_state = DEFAULT;
     usb_config = 0;
@@ -475,11 +515,21 @@ void usb_core_init(void)
 
 void usb_core_exit(void)
 {
+    CORE_STAT(core_stats.pending_at_exit = bus_reset_pending);
     usb_core_do_set_config(0);
+#if defined(USB_ENABLE_STORAGE) && defined(HAVE_USB_PREFETCH)
+    /* the prefetch worker stops at disconnect without a join; join it and
+     * free its ring before the disk goes back to the system */
+    usb_storage_reap();
+#endif
+    /* Leaving USB is a disconnect even if a bus reset was still pending,
+     * which made the SET_CONFIG(0) above keep the storage handover. */
+    usb_release_exclusive_storage();
     if(initialized) {
         usb_drv_exit();
         initialized = false;
     }
+    reset_control_state();
     usb_state = DEFAULT;
 #ifdef HAVE_USB_CHARGING_ENABLE
     usb_no_host = false;
@@ -1168,24 +1218,41 @@ static void usb_core_control_request_handler(struct usb_ctrlrequest* req, uint8_
     }
 }
 
-static void do_bus_reset(void) {
+static bool check_for_new_setup(void);
+
+/* replay: a SETUP that arrived after the reset, while its work was still
+ * deferred to the usb thread, was held (usb_core_setup_received()); run it
+ * now instead of losing the host's first request after a port reset */
+static void do_bus_reset(bool replay) {
+    int oldlevel = disable_irq_save();
     usb_address = 0;
     usb_state = DEFAULT;
     bus_reset_pending = false;
+    control_cancelled = false;
     set_ep0_state(EP0_READY);
-    have_pending_request = false;
+    if(!replay)
+        have_pending_request = false;
+    else if(have_pending_request)
+        check_for_new_setup();
+    restore_irq(oldlevel);
 }
 
 /* called by usb_drv_int() */
 void usb_core_bus_reset(void)
 {
     logf("usb_core: bus reset");
+    CORE_STAT(core_stats.bus_resets++);
     if(bus_reset_pending) {
+        /* a SETUP held since the previous reset belongs to the old bus */
+        have_pending_request = false;
         return;
     }
+    /* only SETUPs that arrive after this reset are held (review #1: a
+     * request held from the old bus must never replay on the new one) */
+    have_pending_request = false;
     bus_reset_pending = true;
     if(usb_config == 0) {
-        do_bus_reset();
+        do_bus_reset(false);
     } else {
         /* need to disconnect class drivers, defer it to usb thread */
         usb_signal_notify(USB_NOTIFY_BUS_RESET, 0);
@@ -1309,7 +1376,7 @@ void usb_core_handle_notify(long id, intptr_t data)
             break;
         case USB_NOTIFY_BUS_RESET:
             usb_core_do_set_config(0);
-            do_bus_reset();
+            do_bus_reset(initialized);
 #ifdef HAVE_USB_CHARGING_ENABLE
             usb_charging_maxcurrent_change(usb_charging_maxcurrent());
 #endif
@@ -1347,7 +1414,14 @@ void usb_core_control_cancelled(void)
 
 void usb_core_setup_received(struct usb_ctrlrequest* req) {
     if(bus_reset_pending) {
-        logf("usb_core: bus resetting tick=%lu", current_tick);
+        /* Hold it for do_bus_reset(): after a port reset the host's first
+         * GET_DESCRIPTOR can arrive before the usb thread has torn the old
+         * configuration down. Dropping it cost a ~5 s host timeout per
+         * try, enough for some hosts to give up on the device. */
+        logf("usb_core: bus resetting, setup held tick=%lu", current_tick);
+        pending_request = *req;
+        have_pending_request = true;
+        CORE_STAT(core_stats.setups_deferred++);
         return;
     }
     /* Drivers cancel abandoned EP0 transfers before delivering replacement
@@ -1425,6 +1499,14 @@ void usb_core_control_response(enum usb_control_response response, const void* d
     }
     restore_irq(oldlevel);
 }
+
+#ifdef HAVE_USB_STATS
+void usb_core_get_stats(struct usb_core_stats *out)
+{
+    *out = core_stats;
+    out->pending_now = bus_reset_pending;
+}
+#endif
 
 void usb_core_notify_set_address(uint8_t addr)
 {

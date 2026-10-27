@@ -1,0 +1,12 @@
+  1037 slp A1 ms=20000 ticks=20001 bells=0 sleeps=1 bad=0
+  1074 slp B1 ms=20000 ticks=20001 bells=41 sleeps=20990 bad=0
+  1111 slp B1 rings=41 bells=41 lost=0 via=fence
+  1148 slp B2 ms=20000 ticks=19999 bells=38 sleeps=20800 bad=0
+  1185 slp B2 rings=40 bells=38 lost=2 via=fence
+  1222 slp B2: FAIL: a doorbell was lost
+  1259 slp: FAIL (B phases woken on the 1 ms tick, no doorbell lost: 1 of 2; gate back off)
+  1296 auto: slp fail answer=Yes ms=82000 slp: FAIL (B phases woken on the 1 ms tick, no doorbell lost: 1 of 2; gate back off)
+  1333 lit24ui A30 drift_miss=2 scroll_miss=1 frames=790/140
+  1370 lit24ui B24 drift_miss=31 scroll_miss=9 frames=780/150
+  1407 lit24ui: FAIL: more frames missed at 24 MHz than at 30
+  1444 auto: lit24ui fail answer=Yes ms=150000 lit24ui: FAIL: more frames missed at 24 MHz than at 30

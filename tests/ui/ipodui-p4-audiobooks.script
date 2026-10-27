@@ -1,0 +1,55 @@
+# Phase 4: Audiobooks (Music menu) and Podcasts (main menu), kept apart
+# from music (docs/phase4-brief.md, Agent B screens/audiobooks.c).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p4-audiobooks.script
+# needs: library
+# fresh-db
+# golden: skip book_wps books_played
+#
+# Audiobooks (sorted): A Field Guide to Tones, The Lighthouse Keeper (under
+# L), Mini Audiobook, Winter Stories ("Winter Stories" has genre "Spoken
+# Word": only the .m4b / M4B brand / chapter rule finds it).
+# Podcasts: Signal Hour, Tone Talk Weekly (2 episodes each, genre Podcast,
+# under /Podcasts/).
+# No resume position can be seeded before boot (it lives in the database),
+# so a book is played for a few seconds to get a progress hint. "fresh-db"
+# starts from a new database, so positions saved by an earlier run (on
+# quit) never show in "books".
+# Selecting a podcast show opens its episodes (newest first).
+
+wait 4000           # boot to the main menu, "Music" selected
+wait_db 45000       # the shell builds the database itself (fresh-db)
+
+key SELECT          # Music
+wait 800
+wheel +6 300        # "Audiobooks"  (slow clicks: one row each) [Compilations off: P11]
+wait 400
+key SELECT
+wait 800
+shot books          # 4 books, no progress hints yet
+
+wheel +1            # "The Lighthouse Keeper"
+wait 400
+key SELECT          # starts the book, stock WPS
+wait 3000
+shot book_wps       # chapter 1 playing (timing-sensitive)
+key PLAY            # pause, so the resume position is saved
+wait 500
+key MENU            # back to Audiobooks
+wait 1000
+shot books_played   # progress hint on The Lighthouse Keeper (selected)
+
+key MENU            # Music
+wait 800
+key MENU            # main menu
+wait 800
+wheel +1            # "Podcasts"
+wait 400
+key SELECT
+wait 800
+shot podcasts       # Signal Hour, Tone Talk Weekly
+
+key SELECT          # "Signal Hour"
+wait 800
+shot episodes       # its 2 episodes, no progress yet
+
+quit

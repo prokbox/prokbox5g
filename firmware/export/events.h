@@ -60,6 +60,11 @@
  * Must be removed with remove_event(). 
  */
 bool add_event(unsigned short id, void (*handler)(unsigned short id, void *event_data));
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+/* ProkBox P19: the most subscriptions held at once, and the table size */
+unsigned int sys_events_peak(void);
+unsigned int sys_events_max(void);
+#endif
 
 /**
  * Subscribe to an event with a detailed callback. The callback will be called
@@ -106,6 +111,14 @@ enum {
     /* USB_EXTRACTED
        data = NULL */
     SYS_EVENT_USB_EXTRACTED,
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+    /* Phase 18 (docs/phase18-brief.md 3.2): SLEEP_EVENT_PREPARE, sent
+     * synchronously on the UI thread before a soft sleep (each subscriber
+     * finishes before it returns), data = NULL; SLEEP_EVENT_WAKE after
+     * the wake's first frame, data = the struct sleep_result */
+    SLEEP_EVENT_PREPARE,
+    SLEEP_EVENT_WAKE,
+#endif
 };
 
 #endif

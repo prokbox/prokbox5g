@@ -1,0 +1,19 @@
+# Phase 11 (docs/phase11-brief.md 3.7, 7 criterion 9; Rev 1 L-7): a
+# shutdown with the battery low draws "Connect to Power" on the UI thread
+# (clean_shutdown -> ui_sys_low_battery) for 2 s, also when it starts with
+# the backlight off (the screen wakes first). Hold PLAY off the charger
+# starts the same shutdown path as the battery monitor's.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p11-sys-lowbatt.script
+# needs: library
+# log: sys lowbatt empty=0 drawn=1
+# nolog: splash-pass
+
+wait 4000
+battery 5
+charger off
+backlight_expire     # dark first: the screen must wake to draw
+wait 3000
+hold PLAY 1500       # sys_poweroff() -> clean_shutdown(): battery low
+wait 600
+shot connect_to_power
+wait 3000

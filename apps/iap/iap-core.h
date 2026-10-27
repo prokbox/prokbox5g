@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2002 by Alan Korr & Nick Robinson
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * All files in this archive are subject to the GNU General Public License.
  * See the file COPYING in the source tree root for full license agreement.
@@ -24,6 +25,7 @@
 #include "metadata.h"
 #include "playlist.h"
 #include "iap.h"
+#include "iap-volume.h"
 
 //#define LOGF_ENABLE
 #include "logf.h"

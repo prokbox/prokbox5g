@@ -1,0 +1,51 @@
+# P19 19-2 (D-1): the drift's fallback.  With the drift on the host
+# model's jobs, a failed BLIT ends the jobs for the boot: the drift goes on
+# moving, drawn by the CPU from pv.slot (no disk; the same frames as with
+# the jobs off), logged "drift cpu why=failed", and the screen is never
+# blank or frozen (the list still moves).  Then the developer's "still",
+# the only still cover left (bench b3, driftfix: a job failure showed a
+# frozen cover).
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p19-drift-still.script
+# needs: library
+# golden: skip
+# needs: video
+# nolog: drift parity bad
+# nolog: glass owned STALE
+# nolog: shot POISONED
+# log: drift job fault at=blit
+# log: drift cpu why=failed
+# log: drift still why=developer
+# logbetween: fail dev panel drift step=\d+ boost=\d lit=1
+# logbetween: fail dev no drift still why=
+
+bcm_drift on
+wait 4000
+wait_db 30000
+sim_clock 15:04
+clock_format 24
+battery 100
+drift_phase 0
+wait 3000            # live: the fade, then pan steps as jobs
+shot jobs_live
+bcm_fault fail 0x24  # the BLIT fails from now on
+ab_mark fail
+wait 1500            # the next pan step: the fault, the settle, the CPU
+shot cpu_after_fail
+wait 1500
+shot cpu_later       # moved on: the CPU's pan
+wheel +1             # the list still moves: not frozen
+wait 600
+shot list_moves
+wheel -1
+wait 1200
+shot back_on_music   # the drift panel again, moving on the CPU
+bcm_fault none
+ab_mark dev
+bcm_drift still      # the developer's still: also logged
+wait 1500
+shot dev_still
+bcm_drift off        # the CPU drift again
+drift_phase 350 frozen
+wait 300
+shot cpu_again
+quit

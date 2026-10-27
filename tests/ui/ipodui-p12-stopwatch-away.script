@@ -1,0 +1,61 @@
+# P12 W1-S: leave the timer while it runs (MENU to the list, then out of
+# Extras altogether), come back through Resume: still running, the time
+# kept counting meanwhile (the resident state, not the screen).
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-stopwatch-away.script
+# golden: skip
+# timeout: 120
+# log: ipodui: stopwatch start acc=0
+# log: ipodui: stopwatch timer r run=1
+# never stopped by leaving it; the power-off at the end (quit) stops and
+# logs a running timing (ui_sw_poweroff(), P12 integration)
+# logbetween: start away_done no \bstopwatch stop\b
+# log: ipodui: stopwatch stop ms=
+# trace: modclass
+# needs: modules
+# reset: mainmenu
+
+wait 4000
+rm_file /.rockbox/stopwatch.dat   # no logs left by an earlier run
+rtc_at 2026-10-06 15:06:00
+sim_clock 15:06
+wheel +2              # Extras
+wait 400
+key SELECT
+wait 1200
+wheel +7              # Stopwatch
+wait 800
+key SELECT
+wait 1200
+key SELECT            # New Timer
+wait 1000
+key PLAY              # start
+wait 1200
+key MENU              # to the list: it keeps running
+wait 1200
+shot list_running     # Resume, New Timer, Clear Logs
+key MENU              # back to Extras
+wait 800
+key MENU              # the main menu
+wait 3000             # three seconds away
+shot main_away
+key SELECT            # Extras is still the selected row
+wait 1000
+wheel -9
+wheel +7
+wait 600
+key SELECT
+wait 1200
+shot list_back        # Resume is the first row, selected
+key SELECT            # Resume
+wait 1200
+shot timer_back       # past 6 s, counting
+wait 700
+shot timer_back2      # a moment later: the digits moved on
+key MENU
+wait 800
+key MENU
+wait 800
+key MENU
+wait 500
+ab_mark away_done
+quit

@@ -1,0 +1,31 @@
+# Instruction kinds verified on the device (vc2forms.DEVICE_VERIFIED).
+# A kind (vc2sim.cover_key, e.g. "alu_reg abs", "ldst_predec ld") goes
+# here only when a device run checked its result, not merely survived it.
+# Format, one per line:
+#   kind | session/date | evidence
+# Device session 1 (2026-10-09) verified no kind: the probe faulted at
+# 0x7050 before its checks reported (docs/research/bcm2722/isa.md).
+# Device sessions 2 and 3 (2026-10-10, probe v2, fnv 4d981526): required
+# checks 0-8 passed (1ff/1ff) and informational checks 10-11 passed, in
+# both sessions; isa.md "Exceptions on silicon".
+alu_reg abs      | device sessions 2-3 2026-10-10 | probe v2 check 0 passed
+alu_reg not      | device sessions 2-3 2026-10-10 | probe v2 check 1 passed
+alu3x mulhd.ss   | device sessions 2-3 2026-10-10 | probe v2 check 2 passed
+alu3 eor         | device sessions 2-3 2026-10-10 | probe v2 check 3 passed
+alu3x addscale6  | device sessions 2-3 2026-10-10 | probe v2 check 4 passed
+ldst_postinc ldh | device sessions 2-3 2026-10-10 | probe v2 check 5 passed
+mem48 st pc      | device sessions 2-3 2026-10-10 | probe v2 check 6 passed
+mem48 ld pc      | device sessions 2-3 2026-10-10 | probe v2 check 6 passed
+bcc.s hi         | device sessions 2-3 2026-10-10 | probe v2 check 7 passed
+bcc hi           | device sessions 2-3 2026-10-10 | probe v2 check 8 passed
+ldst_predec ld   | device sessions 2-3 2026-10-10 | probe v2 check 10 passed
+ldst_predec ldb  | device sessions 2-3 2026-10-10 | probe v2 check 11 passed
+ldst_predec stb  | device sessions 2-3 2026-10-10 | probe v2 check 11 passed
+# Device session 4 (2026-10-11, unified build 8417548e75; probe fnv 856a714d,
+# bench fnv f8377c94): probe 1ff/1ff again, same kinds.  Vector facts (not
+# kind lines: the vector units have no cover_key here yet), isa.md "Vector
+# stores on silicon":
+#   48-bit vld16 to d00/d01 and vst16 from d00: data correct (COPY, ALUX, MXSU r5)
+#   80-bit vmax / vadd D16 A16 B16 and vmov ... sum rN: result correct in the VRF (MXSU, SUMR)
+#   48-bit vmov.1 #imm6: imm6 is SIGNED (#52 wrote 0xfff4; CSUM r5 = 0xf40)
+#   48-bit vst16 from d08: did NOT write at its modelled address (COP8, CNST, all row-8 checks)

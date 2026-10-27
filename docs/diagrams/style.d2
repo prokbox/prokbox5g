@@ -1,0 +1,42 @@
+# Shared style for the ProkBox hardware diagrams.
+# Imported by every diagram with `...@style`.
+# Palette: one hue per subsystem; a pale fill with a darker stroke and text.
+# Edges: solid = data, dashed = control / I2C, dotted = clock.
+# A dashed, greyed outline or a "[hypothesis]" label marks an uncertain part.
+
+classes: {
+  # ---- subsystem clusters -------------------------------------------------
+  pp: {style: {fill: "#EAF2FB"; stroke: "#2B6CB0"; font-color: "#1A365D"; border-radius: 8; stroke-width: 2; bold: true; font-size: 24}}
+  bcm: {style: {fill: "#F1EAFB"; stroke: "#6B46C1"; font-color: "#3C1F7A"; border-radius: 8; stroke-width: 2; bold: true; font-size: 24}}
+  audio: {style: {fill: "#E6F5EC"; stroke: "#2F855A"; font-color: "#1C4532"; border-radius: 8; stroke-width: 2; bold: true; font-size: 24}}
+  power: {style: {fill: "#FDF3DE"; stroke: "#B7791F"; font-color: "#5F370E"; border-radius: 8; stroke-width: 2; bold: true; font-size: 24}}
+  stor: {style: {fill: "#E2F4F4"; stroke: "#2C7A7B"; font-color: "#1D4044"; border-radius: 8; stroke-width: 2; bold: true; font-size: 24}}
+  input: {style: {fill: "#FCE8EE"; stroke: "#B83280"; font-color: "#521B41"; border-radius: 8; stroke-width: 2; bold: true; font-size: 24}}
+  mem: {style: {fill: "#F2F4F7"; stroke: "#4A5568"; font-color: "#1A202C"; border-radius: 8; stroke-width: 2; bold: true; font-size: 24}}
+
+  # ---- blocks inside clusters ---------------------------------------------
+  ppb: {style: {fill: "#FFFFFF"; stroke: "#2B6CB0"; font-color: "#1A365D"; border-radius: 4; font-size: 20}}
+  bcmb: {style: {fill: "#FFFFFF"; stroke: "#6B46C1"; font-color: "#3C1F7A"; border-radius: 4; font-size: 20}}
+  audiob: {style: {fill: "#FFFFFF"; stroke: "#2F855A"; font-color: "#1C4532"; border-radius: 4; font-size: 20}}
+  powerb: {style: {fill: "#FFFFFF"; stroke: "#B7791F"; font-color: "#5F370E"; border-radius: 4; font-size: 20}}
+  storb: {style: {fill: "#FFFFFF"; stroke: "#2C7A7B"; font-color: "#1D4044"; border-radius: 4; font-size: 20}}
+  inputb: {style: {fill: "#FFFFFF"; stroke: "#B83280"; font-color: "#521B41"; border-radius: 4; font-size: 20}}
+  memb: {style: {fill: "#FFFFFF"; stroke: "#4A5568"; font-color: "#1A202C"; border-radius: 4; font-size: 20}}
+
+  # an uncertain block: dashed grey outline
+  hyp: {style: {fill: "#FAFAFA"; stroke: "#718096"; stroke-dash: 4; font-color: "#4A5568"; italic: true; border-radius: 4; font-size: 20}}
+  # hardware absent on this unit (kept for the variant), greyed out
+  absent: {style: {fill: "#F7F7F7"; stroke: "#A0AEC0"; stroke-dash: 2; font-color: "#718096"; italic: true; border-radius: 4; font-size: 18}}
+
+  # ---- edges --------------------------------------------------------------
+  data: {style: {stroke: "#1A202C"; stroke-width: 2; font-size: 19; font-color: "#1A202C"}}
+  ctl: {style: {stroke: "#C05621"; stroke-width: 2; stroke-dash: 5; font-size: 19; font-color: "#7B341E"}}
+  clk: {style: {stroke: "#2F855A"; stroke-width: 3; stroke-dash: 1; font-size: 19; font-color: "#1C4532"}}
+  pwr: {style: {stroke: "#B7791F"; stroke-width: 3; font-size: 19; font-color: "#5F370E"}}
+  hypedge: {style: {stroke: "#718096"; stroke-width: 2; stroke-dash: 4; font-size: 19; font-color: "#4A5568"; italic: true}}
+
+  # ---- page furniture -----------------------------------------------------
+  title: {shape: text; style: {font-size: 36; bold: true; font-color: "#1A202C"}}
+  foot: {shape: text; style: {font-size: 19; font-color: "#4A5568"}}
+  note: {shape: text; style: {font-size: 19; font-color: "#4A5568"; italic: true}}
+}

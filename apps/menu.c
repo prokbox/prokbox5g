@@ -59,6 +59,12 @@
 /* gui api */
 #include "list.h"
 
+#ifdef IPODUI_TRIM_STOCK_MENUS
+/* Phase 9: no root menu in the shell (root_menu.c is compiled out), so
+ * do_menu() is never handed it: every "menu == &root_menu_" test is false. */
+#define root_menu_ (*(const struct menu_item_ex *)0)
+#endif
+
 #define MAX_MENUS 8
 /* used to allow for dynamic menus */
 #define MAX_MENU_SUBITEMS 64

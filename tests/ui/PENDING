@@ -1,0 +1,17 @@
+# Scripts written ahead of the code they test (docs/process.md,
+# tests/ui/README.md): scripts/validate.sh skips each one with a note.
+#
+# (currently empty: #38's two pending scripts, ipodui-nav-reveal and
+# ipodui-nav-transitions, un-pended once agent A wired
+# nav_transition_ticks() (D7) into ui_main.c's slide code -- both now
+# pass against build/sim-ui.)
+# (Phase 5: ab-chapterkeys and shuffle-albums pass now and are un-pended.)
+
+# (Phase 8a: every ipodui-p8a-* script un-pended at integration.)
+# (Phase 6: every ipodui-p6-* script passes and is un-pended at integration;
+# the review video moved to tests/review/ab-review.{script,sh}.)
+
+# (Phase 11: U1's three Search scripts un-pended at integration, once
+# U2a's menu.c pointed Music > Search at ui_search_screen.)
+# Phase 11 (wave 2): the cross-area tour runs only once every screen has landed.
+ipodui-p11-tour

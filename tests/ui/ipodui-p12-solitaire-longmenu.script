@@ -1,0 +1,27 @@
+# P12 W4-0 (Q29): a long MENU (500 ms) leaves a Class A game, to the
+# Games list (not the main menu, as it would elsewhere); the deal is
+# saved through the graceful exit.
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-solitaire-longmenu.script
+# needs: modules
+# reset: mainmenu
+
+wait 4000
+sdk_clear            # a fresh deal (the simulator deals from a fixed seed)
+wheel +2             # Extras
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Games
+wait 600
+key SELECT
+wait 1200
+wheel +5             # Solitaire
+wait 600
+key SELECT
+wait 1500
+key SELECT           # draw three
+wait 600
+hold MENU 900
+wait 1500
+shot exited          # the Games list
+quit

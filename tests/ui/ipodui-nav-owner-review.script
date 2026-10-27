@@ -1,0 +1,50 @@
+# #38 owner round: the shots composed next to the owner's photos
+# (docs/reference/7g/owner/labeled/) into out/review/ -- main-menu panels
+# while playing (Podcasts, Extras, Settings, Music) are in
+# ipodui-nav-panels-playing; this one takes the Settings list with each
+# reviewed tile (About, Shuffle, Repeat, Backlight, EQ, Date & Time) and
+# the Backlight leaf, and Shuffle cycled Off -> Songs -> Albums -> Off
+# (owner note 2026-10-08). No goldens (review only).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-nav-owner-review.script
+
+wait 4000            # boot to the main menu
+sim_clock 15:04
+clock_format 24
+battery 100
+
+wheel +3             # "Settings"
+wait 400
+key SELECT
+wait 1200
+shot set_about       # About (capacity panel)
+wheel +1
+wait 900
+shot set_shuffle
+key SELECT           # Off -> Songs: crossed arrows, "Shuffle Songs"
+wait 900
+shot set_shuffle_songs
+key SELECT           # Songs -> Albums: crossed, "Shuffle Albums"
+wait 900
+shot set_shuffle_albums
+key SELECT           # Albums -> Off: parallel arrows again (left as found)
+wait 900
+shot set_shuffle_off
+wheel +1
+wait 900
+shot set_repeat
+wheel +4             # Backlight
+wait 900
+shot set_backlight
+wheel +3             # EQ
+wait 900
+shot set_eq
+wheel +3             # Date & Time
+wait 900
+shot set_datetime
+wheel -6             # Backlight
+wait 900
+key SELECT           # the Backlight leaf
+wait 1200
+shot backlight_leaf
+
+quit

@@ -1,0 +1,59 @@
+# 0.8.0 (VC first, owner 2026-10-26): the visualizer draws on the BCM in
+# the release line, through the merged image's overlay (viz-ovl-m.bin;
+# visualizer.md 8.5).  The job model takes its ops from the image as the
+# device does (bcm_viz ovl on, its default): SPECTRUM, BARS and the line
+# ops only once the overlay is loaded in this epoch.  So:
+#  start-c0  the view starts on the BCM path with its overlay owed: the
+#            art thread reads the file (never the UI thread), the UI's
+#            pass puts each piece, the frames hold meanwhile (no CPU
+#            draw), then the bars go to the BCM (BARS, 0x34);
+#  c0-c1     a cut (a new epoch: the overlay gone, as after a wake or a
+#            DECODE's swap into the shared region): held again, loaded
+#            again, never the CPU.
+# Runs on sim-ui-video (the gate) and on the release-config sim:
+#   SIM_BUILD=build/sim-rel-bcm scripts/shots.sh tests/ui/ipodui-p19-relviz.script
+# log: art bcm viz ask base=0012b000 bytes=19380
+# log: viz start style=0 path=bcm n=512 owed
+# log: viz hold why=owed
+# logbetween: start c0 bcmjob overlay load k=0 bytes=19380 at=0012b000
+# logbetween: start c0 bcmjob overlay ok ops=01e3bfff
+# logbetween: start c0 art bcm viz load pieces=3 res=0
+# logbetween: start c0 viz hold end ms=
+# logbetween: start c0 bcmjob submit op=0x34
+# logbetween: c0 c1 bcmjob overlay load k=0 bytes=19380
+# logbetween: c0 c1 art bcm viz load pieces=3 res=0
+# logbetween: c0 c1 viz hold end ms=
+# logbetween: c0 c1 bcmjob submit op=0x34
+# nolog: CPU FALLBACK
+# nolog: why=nojob
+# nolog: bcmjob overlay refused
+# nolog: FAULT bcm viz overlay
+# np: viz-full
+# reset: viz
+wait 3000
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait 1500
+key SELECT          # Music
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 1500
+key SELECT          # Scrubber
+wait 400
+key SELECT          # Rating
+wait 600
+key SELECT          # Shuffle
+wait 600
+key SELECT          # Visualizer: its overlay owed, then on the BCM
+wait 1500
+shot bars
+ab_mark c0
+bcm_fault cut       # a new epoch: the overlay gone
+wait 2000
+ab_mark c1
+shot bars_again
+key SELECT          # back to Normal
+wait 1200

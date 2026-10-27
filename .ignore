@@ -1,0 +1,44 @@
+# Search-noise filter for agents (ripgrep/Grep/Glob honor .ignore).
+# Hides code for other devices. Not a build change; git still tracks it all.
+# To search everything: rg --no-ignore-dot ...  (or Grep with the path given explicitly)
+
+# CPU families and vendors we never build for
+/firmware/target/coldfire/
+/firmware/target/mips/
+/firmware/target/arm/as3525/
+/firmware/target/arm/imx233/
+/firmware/target/arm/imx31/
+/firmware/target/arm/iriver/
+/firmware/target/arm/olympus/
+/firmware/target/arm/pbell/
+/firmware/target/arm/philips/
+/firmware/target/arm/rk27xx/
+/firmware/target/arm/s3c2440/
+/firmware/target/arm/s5l8700/
+/firmware/target/arm/s5l8702/
+/firmware/target/arm/samsung/
+/firmware/target/arm/sandisk/
+/firmware/target/arm/stm32/
+/firmware/target/arm/tcc780x/
+/firmware/target/arm/tms320dm320/
+
+# Hosted ports other than the SDL simulator
+/firmware/target/hosted/agptek/
+/firmware/target/hosted/aigo/
+/firmware/target/hosted/anbernic/
+/firmware/target/hosted/android/
+/firmware/target/hosted/ctru/
+/firmware/target/hosted/fiio/
+/firmware/target/hosted/hiby/
+/firmware/target/hosted/ibasso/
+/firmware/target/hosted/samsungypr/
+/firmware/target/hosted/sonynwz/
+/firmware/target/hosted/surfans/
+/firmware/target/hosted/xduoo/
+/firmware/target/hosted/tinyalsa/
+
+# Other platforms' packaging and ports
+/android/
+/packaging/
+/utils/rbutilqt/
+/utils/themeeditor/

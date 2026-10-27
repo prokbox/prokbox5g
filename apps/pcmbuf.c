@@ -40,6 +40,10 @@
 #include "settings.h"
 #include "audio.h"
 #include "voice_thread.h"
+#ifdef HAVE_IPOD_UI
+#include "ipodui/uilog.h"   /* pcm start/underrun lines (Fit-1 B) */
+#include "codec_place_core.h"   /* P19 19-1c (D) */
+#endif
 
 /* 2 channels * 2 bytes/sample, interleaved */
 #define PCMBUF_SAMPLE_SIZE   (2 * 2)
@@ -80,8 +84,15 @@ static inline unsigned int data_level(int quarter_secs)
 /* Keep watermark high for large memory target - at least (2s) */
 #define PCMBUF_WATERMARK    (BYTERATE * 2)
 #define MIN_BUFFER_SIZE     (BYTERATE * 3)
-/* 1 seconds of buffer is low data */
-#define LOW_DATA            data_level(4)
+#if defined(HAVE_IPOD_UI) && defined(HAVE_FLASH_STORAGE)
+/* ProkBox (Fit-1 C3): start after 0.25 s on flash. A read never stalls
+   past ~100 ms there and the file buffer runs ahead; the codec then
+   refills boosted at the top band (docs/fit1-brief.md section B) */
+#define PCMBUF_PREFILL_QSECS 1
+#else
+#define PCMBUF_PREFILL_QSECS 4  /* 1 s: upstream; a disk may spin up */
+#endif
+#define LOW_DATA            data_level(PCMBUF_PREFILL_QSECS)
 #else
 #define PCMBUF_WATERMARK    (BYTERATE / 4)  /* 0.25 seconds */
 #define MIN_BUFFER_SIZE     (BYTERATE * 1)
@@ -134,6 +145,17 @@ static enum
     PCM_FADING_OUT,
 } fade_state = PCM_NOT_FADING;
 static bool fade_out_complete = false;
+#ifdef HAVE_IPOD_UI
+/* P15: equal-dB fade; the state is the index into fade_amp[] */
+#include "ipodui/fadecurve.h"
+static int fade_idx = 0;            /* 0 unity .. FADE_STEPS mute */
+/* S36 (C6): how often the PCM fell under the boost watermark while it
+   played, i.e. the codec fell behind and needed the boost: the 24 MHz
+   policy's measure (apps/ipodui/clockpol.c). Counting boosts instead
+   also counted every other boost (library scan transfers, the UI) */
+static unsigned long pcm_rescues;
+static bool pcm_below_wm;
+#endif
 
 /* Voice */
 static bool soft_mode = false;
@@ -192,9 +214,32 @@ static void pcmbuf_finish_crossfade_enable(void);
 #endif /* HAVE_CROSSFADE */
 
 /* Thread */
-#ifdef HAVE_PRIORITY_SCHEDULING
+#if defined(HAVE_PRIORITY_SCHEDULING) && !defined(HAVE_SCHED_BANDS)
 static int codec_thread_priority = PRIORITY_PLAYBACK;
 #endif
+
+#if defined(HAVE_BCMFW_VIDEO) || defined(HAVE_IPOD_UI)
+/* The PCM ran dry while playing (the video's stage 7 counts them; the
+   shell logs them, Fit-1 B) */
+static unsigned long pcm_underruns;
+#endif
+
+#ifdef HAVE_IPOD_UI
+/* Fit-1 B device check: how long each prefill took to decode, and every
+   underrun while playing, in ipodui.log ("pcm start", "pcm underrun") */
+static unsigned long prefill_us;        /* a prefill began; 0: none */
+static unsigned long underruns_seen;    /* pcm_underruns already logged */
+static long underrun_log_tick;          /* next tick a line may go out */
+
+static unsigned long pcm_log_now_us(void)
+{
+#ifdef USEC_TIMER
+    return USEC_TIMER;
+#else
+    return current_tick * (1000000 / HZ);
+#endif
+}
+#endif /* HAVE_IPOD_UI */
 
 /* Callbacks into playback.c */
 extern void audio_pcmbuf_position_callback(unsigned long elapsed,
@@ -384,7 +429,7 @@ static void stamp_chunk(struct chunkdesc *desc, unsigned long elapsed,
 }
 
 /* Set priority of the codec thread */
-#ifdef HAVE_PRIORITY_SCHEDULING
+#if defined(HAVE_PRIORITY_SCHEDULING) && !defined(HAVE_SCHED_BANDS)
 /*
  * expects pcm_fill_state in tenth-% units (e.g. full pcm buffer is 10) */
 static void boost_codec_thread(int pcm_fill_state)
@@ -417,8 +462,11 @@ static void boost_codec_thread(int pcm_fill_state)
     }
 }
 #else
+/* HAVE_SCHED_BANDS (ProkBox Fit-1 C2): the codec stays at PRIORITY_CODEC,
+   above the UI, and the scheduler's time-bounded aging keeps lower threads
+   within 20 ms of a slice, so there is no ladder to climb */
 #define boost_codec_thread(pcm_fill_state) do{}while(0)
-#endif /* HAVE_PRIORITY_SCHEDULING */
+#endif /* HAVE_PRIORITY_SCHEDULING && !HAVE_SCHED_BANDS */
 
 /* Get the next available buffer and size - assumes adequate space exists */
 static void * get_write_buffer(size_t *size)
@@ -491,18 +539,66 @@ void * pcmbuf_request_buffer(int *count)
         size_t realrem = pcmbuf_size - freespace;
 
         if (realrem < pcmbuf_watermark)
+        {
+#ifdef HAVE_IPOD_UI
+            if (!pcm_below_wm)
+            {
+                pcm_below_wm = true;
+                pcm_rescues++;
+            }
+#endif
             trigger_cpu_boost();
+        }
+#ifdef HAVE_IPOD_UI
+        else
+            pcm_below_wm = false;
+#endif
 
         boost_codec_thread(realrem*10 / pcmbuf_size);
+#ifdef HAVE_IPOD_UI
+        /* at most one line a second (the count is cumulative), so a
+           storm can't push everything else out of the 12-line ring */
+        if (pcm_underruns != underruns_seen &&
+            TIME_AFTER(current_tick, underrun_log_tick))
+        {
+            underrun_log_tick = current_tick + HZ;
+            underruns_seen = pcm_underruns;
+            ui_log("pcm", "underrun n=%lu level_ms=%lu", underruns_seen,
+                   (unsigned long)(remaining * 1000 / BYTERATE));
+        }
+#endif
     }
     else    /* !playing */
     {
         /* Boost CPU for pre-buffer */
         trigger_cpu_boost();
+#ifdef HAVE_IPOD_UI
+        /* the refill after a start, skip or seek is no rescue: one
+           counts only once the level has reached the watermark */
+        pcm_below_wm = true;
+        if (!prefill_us)
+        {
+            prefill_us = pcm_log_now_us() | 1;
+            underruns_seen = pcm_underruns; /* the last track's end */
+        }
+#endif
 
         /* If pre-buffered to the watermark, start playback */
         if (!pcmbuf_data_critical())
+        {
             start_audio_playback();
+#ifdef HAVE_IPOD_UI
+            if (mixer_channel_status(PCM_MIXER_CHAN_PLAYBACK)
+                    != CHANNEL_STOPPED)
+            {
+                ui_log("pcm", "start prefill_ms=%lu level_ms=%lu",
+                       (pcm_log_now_us() - (prefill_us & ~1ul)) / 1000,
+                       (unsigned long)(pcmbuf_unplayed_bytes() * 1000
+                                       / BYTERATE));
+                prefill_us = 0;
+            }
+#endif
+        }
     }
 
     void *buf;
@@ -793,6 +889,33 @@ void pcmbuf_start_track_change(enum pcm_track_change_type type)
 /** Playback */
 
 /* PCM driver callback */
+#ifdef HAVE_BCMFW_VIDEO
+unsigned long pcmbuf_underruns(void)
+{
+    return pcm_underruns;
+}
+#endif
+#ifdef HAVE_IPOD_UI
+unsigned long pcmbuf_rescues(void)
+{
+    return pcm_rescues;
+}
+
+/* P19 19-1c (D): the playback FIQ drains the buffer at the output rate
+   and may not post to the codec's queue, so the codec's sleep on a full
+   buffer is the time the level takes to reach the low watermark, above
+   the boost one (a refill is then no rescue). An early wake (paused, or
+   the level higher than assumed) only re-runs this. Low latency keeps
+   the old poll. */
+long pcmbuf_full_wait_ticks(void)
+{
+    if (low_latency_mode)
+        return HZ/20;
+    return cpl_full_wait(pcmbuf_unplayed_bytes(), pcmbuf_watermark,
+                         BYTERATE, HZ);
+}
+#endif
+
 static void pcmbuf_pcm_callback(const void **start, size_t *size)
 {
     /*- Process the chunk that just finished -*/
@@ -836,6 +959,10 @@ static void pcmbuf_pcm_callback(const void **start, size_t *size)
                                            desc->pos_key);
         }
     }
+#if defined(HAVE_BCMFW_VIDEO) || defined(HAVE_IPOD_UI)
+    else if (desc && !fade_out_complete)
+        pcm_underruns++;
+#endif
 }
 
 static void pcmbuf_sampr_callback(uint32_t sampr)
@@ -881,6 +1008,9 @@ void pcmbuf_play_stop(void)
     /* Can unboost the codec thread here no matter who's calling,
      * pretend full pcm buffer to unboost */
     boost_codec_thread(10);
+#ifdef HAVE_IPOD_UI
+    prefill_us = 0;     /* a seek or skip times its own prefill */
+#endif
 }
 
 void pcmbuf_pause(bool pause)
@@ -1336,6 +1466,11 @@ static void pcmbuf_update_volume(void)
 /* Tick that does the fade for the playback channel */
 static void pcmbuf_fade_tick(void)
 {
+#ifdef HAVE_IPOD_UI
+    /* one index (2.5 dB) per tick: 250 ms for the full range */
+    fade_idx = fade_next(fade_idx, fade_state == PCM_FADING_IN);
+    fade_vol = fade_amp[fade_idx];
+#else
     /* ~1/3 second for full range fade */
     const unsigned int fade_step = MIX_AMP_UNITY / (HZ / 3);
 
@@ -1343,6 +1478,7 @@ static void pcmbuf_fade_tick(void)
         fade_vol += MIN(fade_step, MIX_AMP_UNITY - fade_vol);
     else if (fade_state == PCM_FADING_OUT)
         fade_vol -= MIN(fade_step, fade_vol - MIX_AMP_MUTE);
+#endif
 
     pcmbuf_update_volume();
 
@@ -1378,12 +1514,21 @@ void pcmbuf_fade(bool fade, bool in)
         /* Simply set the level */
         fade_state = PCM_NOT_FADING;
         fade_vol = in ? MIX_AMP_UNITY : MIX_AMP_MUTE;
+#ifdef HAVE_IPOD_UI
+        fade_idx = in ? 0 : FADE_STEPS;
+#endif
         pcmbuf_update_volume();
     }
     else
     {
         /* Set direction and resume fade from current point */
         fade_state = in ? PCM_FADING_IN : PCM_FADING_OUT;
+#ifdef HAVE_IPOD_UI
+        /* the shell's trace (anim.h UPDATE_TRACE's format; the fade tick
+         * itself can't log): steps < 25 means it turned around mid-fade */
+        DEBUGF("ipodui: fade dir=%s steps=%d\n", in ? "in" : "out",
+               fade_ticks_left(fade_idx, in));
+#endif
         tick_add_task(pcmbuf_fade_tick);
     }
 }

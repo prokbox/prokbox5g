@@ -1,0 +1,31 @@
+# The device test's stage 6 (apps/ipodui/devbcm.c) in the simulator: the
+# stage 6 clips (bcmfw/video/stage6-clip.mp4, synthetic, then
+# stage6-real.mp4, real footage) through the real player with the
+# picture-by-picture trace (vtrace.c), then each verdict.
+# Run by tests/video/sim_run.sh, never by the gate.
+# timeout: 150
+
+wait 4000                       # boot to the main menu
+video_trace on                  # the hook first, as devbcm_test6() does
+video_start /Videos/stage6.mp4
+repeat off
+play_files /Videos/stage6.mp4
+wait 3000
+video_shot stage6-playing
+wait 14000                      # 8 s of clip; the headless sim runs slow
+expect_video 200 done
+video_trace expect pass
+video_stop
+# clip 2: real footage (bcmfw/video/stage6-real.mp4, 13 s at 24 fps, pans
+# and cuts); its pacing line ("stage 6 pacing") shows the hitches
+wait 1000
+video_trace on
+video_start /Videos/stage6-real.mp4
+play_files /Videos/stage6-real.mp4
+wait 3000
+video_shot stage6-real-playing
+wait 22000                      # 13 s of clip; the headless sim runs slow
+expect_video 280 done
+video_trace expect pass
+video_stop
+quit

@@ -1,0 +1,29 @@
+# Commit peak with a 50k database queue live (#109, design 1.3 M6; the
+# 16-A "commit with a 50k queue live" case): as commit-peak-50k.script,
+# but Songs row 0 plays first (snapshot_play: lib_play() of all 50,000
+# rows, indices[] and the slot table ~406 KB held) and stops; the update
+# then commits with the queue still current. The peak margin is the
+# "floor_watch commit_peak free" minimum against the 7.5 MB floor (32 MB),
+# and the queue is rebased after the publication (dbq rebase).
+#   SIM_BUILD=build/sim-ui32 SIMDISK=<a clone of build/sim-50k/simdisk> \
+#     scripts/shots.sh tests/perf/commit-peak-dbq-50k.script
+# golden: skip published
+# fulls-extra: 2 snapshot_play pushes Now Playing and the stop returns
+# log: dbq build n=
+# log: dbq rebase block=
+
+wait 4000
+wait_db 300000
+snapshot_play
+wait 3000
+audio_stop
+wait 1000
+snapshot_stress_begin
+floor_watch begin timeline
+copy ../../tests/ui/fixtures/refresh.mp3 /zz-commit-peak.mp3
+update_db
+expect_snapshot_stress_switch 300000
+floor_watch end commit_peak free
+shot published
+wait 3000                  # the rebase runs at the thread's next pass
+quit

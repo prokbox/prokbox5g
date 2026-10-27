@@ -1,0 +1,18 @@
+# #47, run 1 of tests/perf/ab_oldkey_check.sh: the firmware before #47
+# (PROKBOX_SIM_ASCII_ARTKEY: ASCII-folded art keys, an unstamped
+# precompute file) indexes "ÉTÉ Multi" by "ÉMILE Auteur" into books.pak.
+# needs: ab
+# env: PROKBOX_SIM_ASCII_ARTKEY=1
+# timeout: 300
+
+wait 4000
+wait_db 45000
+mkdir /Audiobooks/ETEMulti
+copy ../../build/ab-fixtures/multi_acc/01.mp3 /Audiobooks/ETEMulti/01.mp3
+copy ../../build/ab-fixtures/multi_acc/02.mp3 /Audiobooks/ETEMulti/02.mp3
+copy ../../build/ab-fixtures/multi_acc/03.mp3 /Audiobooks/ETEMulti/03.mp3
+copy ../../build/ab-fixtures/multi_acc/04.mp3 /Audiobooks/ETEMulti/04.mp3
+update_db_wait_change 60000
+art_wait 120000
+shot done
+quit

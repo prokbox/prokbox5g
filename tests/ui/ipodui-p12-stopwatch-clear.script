@@ -1,0 +1,66 @@
+# P12 W1-S: two timings logged (Stop, then New Timer after a resume), the
+# log list newest first, Clear Logs empties it and stopwatch.dat, the
+# running state is untouched by it.
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-stopwatch-clear.script
+# golden: skip
+# timeout: 120
+# log: ipodui: stopwatch log total=
+# log: ipodui: stopwatch cleared
+# nolog: stopwatch dat write failed
+# nolog: stopwatch dat bad
+# trace: modclass
+# needs: modules
+# reset: mainmenu
+
+wait 4000
+rm_file /.rockbox/stopwatch.dat   # no logs left by an earlier run
+rtc_at 2026-10-06 15:06:00
+sim_clock 15:06
+wheel +2              # Extras
+wait 400
+key SELECT
+wait 1200
+wheel +7              # Stopwatch
+wait 800
+key SELECT
+wait 1200
+key SELECT            # New Timer
+wait 1000
+key PLAY
+wait 900
+key PLAY              # stop: the first log
+wait 500
+key PLAY              # resume
+wait 700
+key PLAY              # stop: the same log replaced, not a second one
+wait 500
+key MENU
+wait 1000
+shot one_log          # Resume, New Timer, Clear Logs, one log row
+key SELECT            # Resume (the first row)
+wait 800
+key MENU
+wait 800
+wheel +1
+wait 300
+key SELECT            # New Timer: a new timing
+wait 1000
+key PLAY
+wait 1100
+key SELECT            # a lap
+wait 600
+key PLAY              # stop: the second log
+wait 500
+key MENU
+wait 1000
+shot two_logs         # newest first
+wheel +1
+wait 300
+key SELECT            # Clear Logs
+wait 1000
+shot cleared          # Resume, New Timer, Clear Logs
+key MENU
+wait 800
+key MENU
+wait 800
+quit

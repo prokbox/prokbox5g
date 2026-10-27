@@ -227,6 +227,11 @@ int create_stream_internal(struct file_base_info *parentinfop,
                            const char *basename, size_t length,
                            unsigned int attr, unsigned int callflags,
                            struct filestr_base *stream);
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+/* file.c (#91): drop path's name only, when the last rename left it on
+ * the other name's chain; 1 dropped, 0 not an alias, < 0 undecided */
+int rbfs_intent_alias_drop(const char *path, unsigned int callflags);
+#endif
 int remove_stream_internal(const char *path, struct filestr_base *stream,
                            unsigned int callflags);
 int test_stream_exists_internal(const char *path, unsigned int callflags);

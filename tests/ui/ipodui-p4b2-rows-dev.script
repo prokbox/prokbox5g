@@ -1,0 +1,86 @@
+# Phase 4b-2 rows, developer check (agent C): every list fills the 220 px
+# body with whole rows (9 single-line, 5 two-line songs, 4 albums with
+# art), two-line typography, mini art / note / podcast glyphs, counts,
+# the unplayed dot, and glides over the full body. Shots marked (timing)
+# catch a glide mid-flight and depend on the host's timing.
+#   SHOTS_TIMEOUT=180 SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p4b2-rows-dev.script
+# needs: library
+# golden: skip all (dev script; mid-glide and art-build timing)
+
+wait 4000           # boot to the main menu, "Music" selected
+wait_db 30000
+wait 8000           # the art builder (~7 s for this library in the sim)
+shot main
+
+key SELECT          # Music (split, 9 rows)
+wait 800
+shot music
+wheel +1  200        # Artists
+wait 400
+key SELECT
+wait 800
+shot artists        # 9 single-line rows filling the body
+
+wheel +12 40        # a quick turn: the view glides
+shot artists_glide  # (timing) mid-glide, full body moving
+wait 1500
+shot artists_rest
+wheel -12 200
+wait 800
+
+wheel +5  200        # "The Bellwethers"
+wait 600
+key SELECT
+wait 1000
+shot artist_albums  # All Songs (note tile, "N Songs"), 3 albums with
+                    # mini art / note (NOART) / mini art, "N Songs"
+wheel +1 200
+wait 600
+shot artist_albums_sel
+
+key MENU            # Artists
+wait 800
+key MENU            # Music
+wait 800
+wheel +1  200        # Albums
+wait 400
+key SELECT
+wait 1000
+shot albums         # 4 rows of 55 px: art, title, album artist
+wheel +6 200
+wait 800
+shot albums_scrolled
+wheel +16 40
+shot albums_glide   # (timing) art from the LRU or the glyph mid-glide
+wait 1500
+shot albums_rest    # art filled in at rest
+
+key MENU            # Music
+wait 800
+wheel +2  200        # Compilations, Songs
+wait 400
+key SELECT
+wait 1000
+shot songs          # 5 two-line rows of 44 px: title over artist
+wheel +7 200
+wait 800
+shot songs_scrolled
+wheel +25 40
+shot songs_glide    # (timing)
+wait 1500
+shot songs_rest
+
+key MENU            # Music
+wait 800
+key MENU            # main menu
+wait 800
+wheel +1  200        # Podcasts
+wait 400
+key SELECT
+wait 1000
+shot podcasts       # shows: art or podcast glyph, "N Episodes", dot
+key SELECT
+wait 1000
+shot episodes       # 5 two-line rows, the dot, the show's name
+
+quit

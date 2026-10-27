@@ -1,0 +1,78 @@
+# Phase 6 (Rev 1 item 4): books.pak / books.idx hold a blob for EVERY book
+# (coverless, multi-file, single-file with and without chapters), built in
+# the stopped pass only. A stale book (newer mtime) is rebuilt; a lost or
+# torn index owes every book again. While a book plays the pak and its index
+# do not change (the generation word stays put).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p6-pak-build.script
+# needs: library
+# needs: ab
+# timeout: 240
+# log: art build books book=
+# log: art build books commit
+# (no page is opened here, so no "ab pak hit/miss": the builder's own lines)
+# golden: skip done
+# fulls-extra: 2   (the main menu gains its Now Playing row when play_files starts, and loses it at audio_stop: Phase 6 Revision 3)
+# DB state: ready. Needs B (artcache.c books pass). The fixtures have no covers.
+# With library generations (#85, cache-persist) the rescan while the book
+# plays builds a candidate whose RAM cache waits for the stop, so the new
+# generation (and the database's new max_mtime) lands after audio_stop:
+# update_db starts it, expect_db_gen_change waits for it after the stop
+# (the old update_db_wait during playback can no longer complete).
+# Books: the library's 4 + 3 single-file fixtures + the 4-file AB Multi.
+
+wait 4000
+wait_db 45000
+mkdir /Audiobooks/AB
+mkdir /Audiobooks/ABMulti
+copy ../../build/ab-fixtures/pref.m4b /Audiobooks/AB/pref.m4b
+copy ../../build/ab-fixtures/nochap.m4b /Audiobooks/AB/nochap.m4b
+copy ../../build/ab-fixtures/short.m4b /Audiobooks/AB/short.m4b
+copy ../../build/ab-fixtures/multi/01.mp3 /Audiobooks/ABMulti/01.mp3
+copy ../../build/ab-fixtures/multi/02.mp3 /Audiobooks/ABMulti/02.mp3
+copy ../../build/ab-fixtures/multi/03.mp3 /Audiobooks/ABMulti/03.mp3
+copy ../../build/ab-fixtures/multi/04.mp3 /Audiobooks/ABMulti/04.mp3
+update_db_wait_change 60000
+art_wait 60000
+expect_ab_pak 8 60000          # every book has a blob, stopped
+expect_ab_file pak present 1000
+expect_ab_file idx present 1000
+ab_pak_mark
+play_files /Audiobooks/AB/nochap.m4b
+wait 1500
+ab_touch /Audiobooks/AB/pref.m4b      # stale: mtime moved
+db_gen_mark
+update_db                            # staleness is the db max_mtime: rescan
+art_request
+wait 6000
+expect_ab_pak_same 3000          # playing: nothing written
+audio_stop
+expect_db_gen_change 60000       # the rescan's generation, after the stop
+wait 500
+art_wait 60000
+expect_ab_pak_changed 30000      # stopped: the stale book rebuilt
+expect_ab_pak 8 5000
+ab_power_cut now pak_drop
+ab_power_cut now idx_drop
+art_request
+art_wait 60000
+expect_ab_pak 8 60000
+expect_ab_file pak present 3000
+ab_power_cut now idx_flip
+art_request
+art_wait 60000
+expect_ab_pak 8 60000
+ab_power_cut now pak_tmp_left      # a compaction died mid-copy
+ab_touch /Audiobooks/AB/short.m4b
+update_db_wait 60000
+art_request
+art_wait 60000
+expect_ab_pak 8 60000
+shot done           # shots.sh needs one shot (not a golden)
+remove /Audiobooks/AB/pref.m4b
+remove /Audiobooks/AB/nochap.m4b
+remove /Audiobooks/AB/short.m4b
+remove /Audiobooks/ABMulti/01.mp3
+remove /Audiobooks/ABMulti/02.mp3
+remove /Audiobooks/ABMulti/03.mp3
+remove /Audiobooks/ABMulti/04.mp3
+quit

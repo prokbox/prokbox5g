@@ -1,0 +1,26 @@
+# Device 2026-10-19 (91fead48e1): a single-file book whose chapter images
+# include a PNG (the Mac tool's, 7b) failed the chapter phase on every pass
+# ("art phase=4", then "Artwork Update Pending" and the whole pass again).
+# A PNG is never decodable here, so its chapters show the cover, the book
+# is marked done and the pass completes: no retry, no failure line.
+# rich_chapters.m4b: 4 chapters, images jpg, png, jpg.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-art-chap-png.script
+# needs: library
+# golden: skip
+# log: art build chapters book=
+# log: art pass done
+# nolog: art retry
+# nolog: art fail
+# nolog: art chap fail
+# timeout: 200
+
+wait 1000
+wait_db 30000
+mkdir /Audiobooks/PNG
+copy ../../tests/fixtures/rich_chapters.m4b /Audiobooks/PNG/rich_chapters.m4b
+update_db_wait_change 60000
+art_wait 150000
+shot done
+rm_file /Audiobooks/PNG/rich_chapters.m4b
+update_db_wait_change 60000
+quit

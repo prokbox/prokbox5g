@@ -1,0 +1,45 @@
+# 2026-10-23 device freeze (fat_closewrite() "Updating size on empty dir
+# entry" at the first song press after a cold boot): a session that plays
+# and ends, then a cold boot, about 15 s idle, Music > Albums > an album >
+# a song > SELECT, which must reach Now Playing and play.
+# The simulator's host files can't show a FAT fault: run it with
+# IPODUI_FSTRACE=<file> and replay the trace on the firmware's FAT code
+# at the 5.5G's geometry with build/fatcrash/fsreplay <file> 32 2048
+# (tests/fatcrash/fsreplay.c).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-coldboot-album-play.script
+# needs: library
+# timeout: 150
+# golden: skip np1 np2
+# nolog: lib play fail
+# nolog: splash-pass
+
+wait 4000
+wait_db 30000
+key SELECT          # Music
+wait 800
+wheel +2            # Albums
+wait 400
+key SELECT
+wait 800
+key SELECT          # the first album
+wait 800
+key SELECT          # its first song
+wait 3000
+expect_playing 300
+shot np1
+reboot
+wait 15000
+key SELECT          # Music
+wait 800
+wheel +2            # Albums
+wait 400
+key SELECT
+wait 800
+wheel +1            # the second album
+wait 300
+key SELECT
+wait 800
+key SELECT          # its first song
+wait 3000
+expect_playing 300
+shot np2

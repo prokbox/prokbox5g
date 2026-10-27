@@ -1,0 +1,21 @@
+# Phase 18 (§3.2; Rev 1 M6): the header clock is redrawn from the RTC
+# before the first push: 10:08 at sleep, 11:08 after an hour asleep (the
+# golden shows 11:08, never 10:08).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p18-sleep-fresh-frame.script
+
+sleep_mode soft       # soft sleep is off by default (developer switch)
+wait 4000
+time_in_title on        # off by default (P11)
+clock_format 24
+sim_clock 10:08
+title_phase clock
+wait 1000
+shot before             # 10:08
+hold PLAY 1500          # the hold: dark at once, PLAY's release awaited
+expect_sleep asleep 8000
+sleep_warp 3600
+key MENU
+expect_sleep button 3000
+wait 1000
+shot woken              # 11:08
+quit

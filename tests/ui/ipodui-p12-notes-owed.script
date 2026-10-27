@@ -1,0 +1,118 @@
+# P12 W1-N (docs/phase12-brief.md 3.5, 8 row 10 "owed"): notes copied
+# while music plays are not indexed at the post-USB moment (only stopped,
+# or paused in P16's window): the build is owed ("xidx owed why=playing"),
+# the list keeps the last good index (two notes), and a marker in the
+# hidden folder keeps the debt across a power-off. Part 1 boots on a
+# stamp it trusts but still builds (the marker), at the boot window;
+# then, with a second owed build, a stop lets the next header pass run it
+# ("at=owed"). Never under the Notes screens.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p12-notes-owed.script
+# needs: library
+# timeout: 240
+# log: xidx build kind=1 n=2
+# log: xidx owed why=playing
+# log: notes open n=2 whole=1 rc=0
+# log: notes open n=8 whole=1 rc=0
+# log: xidx build kind=1 n=7 bytes=232
+# log: xidx build kind=1 n=8 bytes=264
+# nolog: modclass viol
+# golden: skip
+# reset: mainmenu
+
+sim_clock 15:06
+wait 4000
+wait_db 30000
+rm_file /Notes/Shopping.txt
+rm_file /Notes/Welcome.txt
+rm_file /Notes/Long%20note.txt
+rm_file /Notes/Unicode%20note.txt
+rm_file /Notes/Windows%20note.txt
+rm_file /Notes/._Shopping.txt
+rm_file /Notes/readme.md
+rm_file /Notes/Trips/Paris.txt
+rm_file /Notes/Trips/Lisbon.TXT
+rm_file /Notes/Trips
+rm_file /.rockbox/notes.idx
+rm_file /.rockbox/xindex.owe
+
+usb_connect                 # sync A, stopped: two notes
+wait 2500
+mkdir /Notes
+copy fixtures/notes/Shopping.txt /Notes/Shopping.txt
+copy fixtures/notes/Welcome.txt /Notes/Welcome.txt
+usb_disconnect
+wait 150
+wait_db 45000
+wait 3500
+storage_idle
+wait 1500
+
+usb_connect                 # sync B, then Play before its end: owed
+wait 2500
+mkdir /Notes/Trips
+copy fixtures/notes/long-note.txt /Notes/Long%20note.txt
+copy fixtures/notes/unicode-note.txt /Notes/Unicode%20note.txt
+copy fixtures/notes/windows-note.txt /Notes/Windows%20note.txt
+copy fixtures/notes/Trips/Paris.txt /Notes/Trips/Paris.txt
+copy fixtures/notes/Trips/Lisbon.TXT /Notes/Trips/Lisbon.TXT
+usb_disconnect
+wait 400                    # the USB exit stops music: Play just after it,
+repeat all                  # before the busy moment ends
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait 8000                   # the busy moment ends
+storage_idle
+wait 1500
+key MENU                    # Now Playing -> the main menu
+wait 1000
+wheel +2                    # Main Menu: "Extras" (the Now Playing row
+wait 800                    # sits at the end)
+key SELECT
+wait 1200
+wheel +7                    # Extras: the last row (Stopwatch; no wrap)
+wait 600
+wheel -2                    # "Notes", from the end: with or without a Games row
+wait 800
+key SELECT
+wait 1200
+shot owed_list              # the last good index: Shopping, Welcome
+key MENU
+wait 1000
+key MENU
+wait 1000
+reboot                      # still playing: the debt crosses the restart
+
+wait 4000                   # a trusted stamp, but the marker: built
+wait_db 30000
+wheel +2
+wait 800
+key SELECT
+wait 1200
+wheel +7
+wait 600
+wheel -2
+wait 800
+key SELECT
+wait 1200
+shot boot_list              # all eight
+key MENU
+wait 1000
+key MENU
+wait 1000
+usb_connect                 # sync C, Play again: owed again
+wait 2500
+rm_file /Notes/Windows%20note.txt
+usb_disconnect
+wait 400
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait 8000
+storage_idle
+wait 1500
+audio_stop                  # stopped: the next header pass builds
+wait 1000
+key MENU
+wait 1000
+wheel +1
+wait 800
+wheel -1
+wait 1500
+quit

@@ -1,0 +1,61 @@
+# #109 review H-A: after a long database queue (Songs at 50k: indices[]
+# grown past the setting), the next queue's playlist_create() shrinks
+# indices[] back under the playlist mutex while audio plays. It must free
+# the old block first, so no playback shrink (whose stop would wait on
+# that mutex while the audio thread waits on it in playlist_peek) runs.
+# Shuffle Songs (lib_shuffle.c) and On-The-Go (otg.c) replace the long
+# queue while it plays; the script must finish, playing each time.
+#   SIM_BUILD=build/sim-ui SIMDISK=<a clone of build/sim-50k/simdisk> \
+#     scripts/shots.sh tests/perf/dbq-switch-50k.script
+# golden: skip shuffle otg
+# log: dbq build n=
+# nolog: indices lost
+# nolog: lib play fail
+
+wait 4000
+wait_db 300000
+repeat all
+snapshot_play              # Songs row 0: the whole list
+wait 3000
+expect_playing 500
+hold MENU 1000
+wait 1500
+wheel +4 300               # "Shuffle Songs", while the long queue plays
+wait 500
+key SELECT
+wait 3000
+expect_playing 1000
+shot shuffle
+snapshot_play              # the long queue again
+wait 3000
+expect_playing 500
+hold MENU 1000
+wait 1500
+key SELECT                 # Music
+wait 1000
+wheel -10 100
+wait 300
+wheel +3 300               # Songs
+wait 600
+key SELECT
+wait 2500
+wheel +2 300
+wait 400
+hold SELECT 1500
+wait 600
+key SELECT                 # Add to On-The-Go
+wait 800
+key MENU                   # Music
+wait 800
+wheel -4 300               # Playlists
+wait 400
+key SELECT
+wait 800
+key SELECT                 # On-The-Go
+wait 1000
+key SELECT                 # play it, while the long queue plays
+wait 2000
+expect_playing 500
+shot otg
+audio_stop
+quit

@@ -1,0 +1,75 @@
+# P12 W1-L (docs/phase12-brief.md 9 "-lock-engage", Q10): Lock puts the
+# locked screen up (closed padlock, Enter Combination). Locked, MENU (a
+# press or a hold) never leaves it and short PLAY does nothing (no queue
+# starts); the wheel still turns the boxed digit.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p12-lock-engage.script
+# golden: skip
+# modclass: none (resident sim-ui: the accountant follows the module
+# loader; a modules-build run, SIM_BUILD=build/sim-ui-mod, is owed)
+# log: ipodui: lock engage ok=1
+# log: ipodui: lock save
+# log: ipodui: lock key swallow k=1
+# nolog: hold MENU: to the main menu
+# nolog: 1234
+# reset: mainmenu
+wait 4000            # boot to the main menu, "Music" selected
+wheel +2 300         # "Extras"
+wait 600
+key SELECT
+wait 1200
+wheel +7 200         # the last row (Stopwatch; the list does not wrap)
+wait 600
+wheel -1 200         # "Screen Lock", from the end: with or without a Games row
+wait 800
+key SELECT
+wait 1200
+# New Combination 1234, then Confirm 1234: Lock / Reset
+wheel +1 250
+wait 300
+key SELECT
+wait 200
+wheel +2 250
+wait 300
+key SELECT
+wait 200
+wheel +3 250
+wait 300
+key SELECT
+wait 200
+wheel +4 250
+wait 300
+key SELECT
+wait 200
+wait 800
+wheel +1 250
+wait 300
+key SELECT
+wait 200
+wheel +2 250
+wait 300
+key SELECT
+wait 200
+wheel +3 250
+wait 300
+key SELECT
+wait 200
+wheel +4 250
+wait 300
+key SELECT
+wait 200
+wait 800
+key SELECT           # Lock
+wait 1200
+shot locked
+key MENU
+wait 600
+hold MENU 1500
+wait 800
+shot after_menu      # still the locked screen
+key PLAY
+wait 1000
+shot after_play      # nothing plays
+wheel +3 250
+wait 400
+shot wheel           # 3 0 0 0
+quit

@@ -1,0 +1,87 @@
+# P11 U2a (docs/phase11-brief.md 3.5): Settings > Volume Limit on a dark
+# screen. No code: the volume bar with a small triangle at the limit, the
+# wheel moves it, SELECT sets it and goes to Enter Combination (four
+# digits, SELECT after each; MENU there would accept with no code). Then
+# the locked path: a wrong combination resets the digits to 0000 and stays
+# locked, the right one opens the limit screen, PLAY accepts. Then the
+# limit moved back to the maximum removes the limit and the code.
+# Trace lines (sim.log): "vlimit set=<db> code=<0|1> applied=<vol>",
+# "vlimit unlock ok=<0|1>".
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p11-vlimit-flow.script
+# golden: skip limit_nocode_max limit_nocode_moved combo_new combo_new_digits combo_wrong combo_unlocked limit_unlocked
+wait 4000
+
+wheel +3 300            # Settings
+wait 400
+key SELECT 50
+wait 1200
+wheel +5 300            # Volume Limit (row 5)
+wait 600
+shot settings_vlimit_row   # tile + "Set or Lock Volume Limit"
+key SELECT 50
+wait 1500
+shot limit_nocode_max      # triangle at the right end of the bar
+wheel -30 40
+wait 500
+shot limit_nocode_moved
+key SELECT 50              # -> Enter Combination
+wait 600
+shot combo_new
+wheel +1 300
+wait 300
+key SELECT 50
+wait 400
+wheel +2 300
+wait 500
+key SELECT 50
+wait 400
+wheel +3 300
+wait 500
+key SELECT 50
+wait 400
+shot combo_new_digits      # 1 2 3 and the box on the last digit
+wheel +4 300
+wait 500
+key SELECT 50              # the fourth: sets code 1234
+wait 1500
+shot settings_after_set
+
+# locked: wrong combination first
+wheel +0 300
+key SELECT 50
+wait 1500
+shot combo_locked          # Enter Combination first
+key SELECT 50
+wait 300
+key SELECT 50
+wait 300
+key SELECT 50
+wait 300
+key SELECT 50              # 0000
+wait 1200
+shot combo_wrong           # digits reset to 0000, still locked
+wheel +1 300
+wait 500
+key SELECT 50
+wait 300
+wheel +2 300
+wait 500
+key SELECT 50
+wait 300
+wheel +3 300
+wait 500
+key SELECT 50
+wait 300
+wheel +4 300
+wait 500
+key SELECT 50
+wait 1500
+shot limit_unlocked        # the limit screen
+wheel +30 40
+wait 500
+shot limit_unlocked_max
+key PLAY 50                # PLAY accepts: limit back at max = removed
+wait 1500
+shot settings_after_remove
+
+quit

@@ -1,0 +1,40 @@
+# Phase 3: push/pop slide transitions (~200 ms, ease-out; only the body
+# below the header moves, the header title just switches).
+# docs/phase3-brief.md, agent A "Slide transitions".
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p3-transition.script
+#
+# The *_mid shots are taken ~50-100 ms into a slide (the key is held 50 ms)
+# and depend on timing: kept out of the goldens.
+# golden: skip push_mid pop_mid push2_mid pop2_mid
+#
+# Trace: with animated push/pop there are fewer "update full" lines (only
+# boot); the upper bound stays 1 + SELECT/MENU presses.
+
+wait 4000           # boot to the main menu, "Music" selected
+shot boot
+
+# split screen (Music) push and pop
+key SELECT 50       # push Music: slides in from the right
+shot push_mid
+wait 600
+shot push_done
+
+key MENU 50         # pop: slides back to the left
+shot pop_mid
+wait 600
+shot pop_done       # main menu, "Music" still selected
+
+# full-width list (Settings, 4th main-menu row) push and pop
+wheel +3
+wait 400
+key SELECT 50
+shot push2_mid
+wait 600
+shot push2_done
+
+key MENU 50
+shot pop2_mid
+wait 600
+shot pop2_done
+
+quit

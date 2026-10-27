@@ -1,0 +1,145 @@
+# Phase 6 (checklist item 1, D10): books.dat survives a power cut. Three
+# books get a spot; then, AFTER the clean shutdown's own flush (the disk the
+# power cut leaves), the file is damaged and the next boot must recover:
+#   1. books.dat removed, books.tmp left (an insert died between its remove
+#      and its rename): the spots come back from books.tmp
+#   2. the first header lost: the second header copy is used, no spot lost
+#   3. both headers lost: the store reads as empty (logged "ab store bad
+#      header") and, with the header's "seeded" flag gone, the tagcache
+#      migration runs again: spots come back from the database's stats
+#      where it has them (ab seed n=...), and the next save rebuilds the
+#      file
+# Damage is injected by sim_cmd_ab.c ("ab_power_cut exit <kind>", README).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p6-powercut.script
+# needs: library
+# needs: ab
+# timeout: 150
+# trace: ab
+# log: ab store w=now
+# golden: skip page_tmp page_hdr0 page_empty
+# DB state: ready. Needs B (ab_store.c recovery). Rows: 1 AB No Chapters,
+# 2 AB Preface Book, 3 AB Short Book.
+
+wait 4000
+wait_db 45000
+mkdir /Audiobooks/AB
+copy ../../build/ab-fixtures/nochap.m4b /Audiobooks/AB/nochap.m4b
+copy ../../build/ab-fixtures/pref.m4b /Audiobooks/AB/pref.m4b
+copy ../../build/ab-fixtures/short.m4b /Audiobooks/AB/short.m4b
+update_db_wait_change 60000
+art_wait 60000
+key SELECT
+wait 800
+wheel +6 300   # Audiobooks (Compilations off: P11)
+wait 400
+key SELECT
+wait 900
+wheel +1 300
+wait 400
+key SELECT          # the book page
+wait 1000
+key SELECT
+wait 3500
+key PLAY            # pause: the record is written now
+wait 800
+hold MENU 1000
+wait 1200
+key SELECT
+wait 800
+wheel +6 300   # Audiobooks (Compilations off: P11)
+wait 400
+key SELECT
+wait 900
+wheel +2 300
+wait 400
+key SELECT          # the book page
+wait 1000
+key SELECT
+wait 3500
+key PLAY            # pause: the record is written now
+wait 800
+hold MENU 1000
+wait 1200
+key SELECT
+wait 800
+wheel +6 300   # Audiobooks (Compilations off: P11)
+wait 400
+key SELECT
+wait 900
+wheel +3 300
+wait 400
+key SELECT          # the book page
+wait 1000
+key SELECT
+wait 3500
+key PLAY            # pause: the record is written now
+wait 800
+expect_ab_store 3 0 3000
+ab_power_cut exit store_tmp
+reboot
+
+wait 4000
+wait_db 45000
+key SELECT
+wait 800
+wheel +6 300   # Audiobooks (Compilations off: P11)
+wait 400
+key SELECT
+wait 900
+wheel +2 300
+wait 400
+key SELECT          # the book page
+wait 1000
+shot page_tmp       # Resume is first: recovered from books.tmp
+key SELECT          # Resume
+wait 2500
+key PLAY
+wait 800
+expect_ab_file store present 3000   # the next write recreated books.dat
+expect_ab_store 3 0 3000
+ab_power_cut exit store_hdr0
+reboot
+
+wait 4000
+wait_db 45000
+key SELECT
+wait 800
+wheel +6 300   # Audiobooks (Compilations off: P11)
+wait 400
+key SELECT
+wait 900
+wheel +3 300
+wait 400
+key SELECT          # the book page
+wait 1000
+shot page_hdr0       # Resume still shown: the second header copy
+key SELECT
+wait 2500
+key PLAY
+wait 800
+expect_ab_store 3 0 3000
+ab_power_cut exit store_hdr_both
+reboot
+
+wait 4000
+wait_db 45000
+key SELECT
+wait 800
+wheel +6 300   # Audiobooks (Compilations off: P11)
+wait 400
+key SELECT
+wait 900
+wheel +2 300
+wait 400
+key SELECT          # the book page
+wait 1000
+shot page_empty      # Resume only if the re-seed found this book's stats
+key SELECT
+wait 2500
+key PLAY            # pause: the record is written now
+wait 800
+expect_ab_store ge1 0 3000     # a rebuilt store: this book (+ re-seeded)
+remove /Audiobooks/AB/nochap.m4b
+remove /Audiobooks/AB/pref.m4b
+remove /Audiobooks/AB/short.m4b
+quit

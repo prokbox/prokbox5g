@@ -1,0 +1,52 @@
+# Phase 16-1 review (H2): two takers at once: a library commit (tagcache
+# thread) takes the window, its restart held 8 s, while a second taker
+# (maint_try, the script's thread) asks for 2 MB; a chapter-image book
+# (art thread) follows.
+# maint_take() is serialised (one taker at a time) and the floor is
+# checked again on the audio thread: two takes, one after the other,
+# both done (the second finds the room the first made, or takes its
+# own), the queue still paused, never stopped.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-two-takers.script
+# needs: library
+# golden: skip
+# timeout: 300
+# fulls-extra: 2
+# log: maint take queued job=
+# log: maint job=chapters ok=1
+# log: maint try ok=1 alloc=1 shrink=0
+# log: maint take job=commit ok=1
+# log: audio give held ms=8000
+# logbetween: w0 w1 chapters=4 images=4 bundles=1 recs=3 rc=0
+# logbetween: w0 end maint job=commit ok=1
+# nolog: give refused
+# nolog: restart FAILED
+
+wait 1000
+wait_db 30000
+mkdir /Audiobooks/T16A
+copy ../../tests/fixtures/plain.mp3 /Audiobooks/T16A/plain.mp3
+mkdir /Audiobooks/T16B
+copy ../../tests/fixtures/rich_chapters.m4b /Audiobooks/T16B/rich.m4b
+update_db_wait_change 60000
+play_files /Audiobooks/T16A/plain.mp3
+wait 1500
+snapshot_pause
+expect_paused 500
+backlight_expire            # idle: the image book waits (young pause)
+art_wait 120000
+copy ../../tests/fixtures/plain.mp3 /Audiobooks/T16A/plain2.mp3
+update_db                   # its commit waits too (young pause)
+wait 4000
+ab_mark w0
+give_hold 8000
+pause_age 200               # the commit takes the window...
+wait 3000
+maint_try 2000000           # ...and a second taker comes meanwhile
+wait 6000
+art_wait 120000
+expect_paused 500
+ab_mark w1
+shot done
+key MENU
+wait 1000
+quit

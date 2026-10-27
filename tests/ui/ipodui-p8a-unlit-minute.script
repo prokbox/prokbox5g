@@ -1,0 +1,29 @@
+# Phase 8a (docs/phase8a-brief.md 3.5, 4.8): a minute step on the face
+# pushes exactly one digits band (update unlit:digits y=62 h=68) and
+# nothing else. Needs the host's real clock (sim_clock rtc), so it waits
+# a little over one minute (the face wakes once a minute, on the boundary
+# ui_unlit_timeout() computes) and the digits shot is timing-dependent.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p8a-unlit-minute.script
+# needs: library
+# trace: unlit
+# unlit-digits: 1 2
+# timeout: 150
+# golden: skip face_a face_b
+# nolog: splash-pass
+#
+# Window = 62 s: one minute boundary, or two when the face is entered in
+# the last 2 s of a minute (hence "1 2"); each is exactly one band
+# (check_trace.py p8a-unlit: bands only inside enter/exit, y=62 h=68).
+
+wait 4000
+sim_clock rtc
+clock_format 24
+battery 100
+backlight_expire
+wait 3500
+shot face_a
+wait 62000
+shot face_b         # the host's next minute
+key SELECT
+wait 800
+quit

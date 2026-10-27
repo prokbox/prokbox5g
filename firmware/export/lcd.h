@@ -527,6 +527,10 @@ void lcd_poweroff(void);
 extern void lcd_enable(bool on);
 #endif /* HAVE_LCD_ENABLE */
 
+#ifdef HAVE_LCD_E2
+/* ProkBox: the UI's pushes by the PP's second DMA engine (on at boot) */
+void lcd_e2_enable(bool on);
+#endif
 #ifdef HAVE_LCD_SLEEP
 /* Put the LCD into a power saving state deeper than lcd_enable(false). */
 extern void lcd_sleep(void);

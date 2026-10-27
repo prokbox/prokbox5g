@@ -1,0 +1,64 @@
+# P19 19-6: DECODE never powers the BCM2722 (the owner, 2026-10-24).
+# d0-d1, dark battery playback: np-sharp waits (never while playing on
+# battery), nothing goes to the BCM, no wake of any kind.  d1-d2, dark on
+# the charger: the render runs in the unlit window, while the panel is
+# still up for the BCM (power-contract.md: lit for the BCM, the user not
+# looking), so it decodes there; once the LCD sleeps the BCM is cut and
+# art_bcm_ready() is false (the CPU path, ipodui-p19-dec-cpu's pixels).
+# Either way no power-up of its own: expect_bcm_dark_ups 0.
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p19-dec-dark.script
+# env: IPODUI_NP_NO_PANEL=built
+# reset: mainmenu
+# needs: library
+# needs: np
+# needs: video
+# golden: skip
+# logbetween: d0 d1 no art npcover start
+# logbetween: d0 d1 no bcmjob
+# logbetween: d1 d2 art panel crc key=6a1b2f700f283f50 crc=5ac79827 bcm=1
+# logbetween: d1 d2 art npcover build key=6a1b2f700f283f50 slot=0 state=1
+# nolog: bcmjob fault op=0x30
+# nolog: expect_bcm failed
+# timeout: 300
+
+wait 1000
+bcm_decode panel
+wait_db 30000
+sim_clock 15:04
+clock_format 24
+battery 100
+charger off
+repeat one
+mkdir /NPDec
+copy ../../build/np-fixtures/art_169.mp3 /NPDec/art_169.mp3
+update_db_wait_change 60000
+art_wait 120000
+play_files /NPDec/art_169.mp3
+wait 1000
+np_pin 3000 50
+key SELECT          # Music (the menu re-reads "Now Playing" after a push/pop)
+wait 700
+key MENU
+wait 700
+wheel +10 100       # Now Playing: none built, the thumbnail, queued
+wait 1000
+disk_active 10000
+backlight_expire    # dark, on battery, playing
+wait 1500
+ab_mark d0
+wait 4000           # np-sharp waits (never while playing on battery)
+ab_mark d1
+charger on          # (lights the screen)
+wait 500
+disk_active 10000
+backlight_expire    # dark on the charger: the render runs
+wait 6000
+ab_mark d2
+expect_bcm_dark_ups 0
+key MENU            # wakes the screen
+wait 1500
+shot sharp_row
+audio_stop
+rm_file /NPDec/art_169.mp3
+rm_file /.rockbox/artcache/npcover.pak
+quit

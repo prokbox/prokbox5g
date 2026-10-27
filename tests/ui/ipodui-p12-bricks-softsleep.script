@@ -1,0 +1,38 @@
+# P12 integration (docs/design/sdk.md 2.2): a soft sleep (hold PLAY) over
+# a running game suspends it (SDK_WHY_SLEEP = 3) and writes its record
+# with the sleep entry's own saves; the waking press resumes it, the
+# field redrawn in full.
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-bricks-softsleep.script
+# needs: modules
+# golden: skip
+# timeout: 90
+# log: sdk suspend bricks why=3
+# log: why=sleep
+# log: sdk resume bricks
+# nolog: sdk kill
+# reset: mainmenu
+
+sleep_mode soft      # soft sleep is off by default (developer switch)
+wait 4000
+sdk_clear
+wheel +2             # Extras
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Games
+wait 600
+key SELECT
+wait 1200
+wait 600
+key SELECT           # Bricks
+wait 1500
+shot playing
+hold PLAY 1500       # the sleep
+expect_sleep asleep 8000
+sleep_warp 60
+expect_sleep asleep 1000
+key MENU             # wakes; swallowed
+expect_sleep button 3000
+wait 2000
+shot woken
+quit

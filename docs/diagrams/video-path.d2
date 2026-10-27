@@ -1,0 +1,93 @@
+# ProkBox hardware manual: a video frame's journey, flash to panel.
+# Facts: docs/bcm2722-reference/host-driver.md (§1-§8), memory-access.md (§2, §3, §7, §8), lcd.md §6;
+# docs/research/bcm2722/pipeline.md, player.md; docs/hardware.md (--bcmfw-video row).
+...@style
+
+direction: right
+
+title: |md
+  # A video frame's journey: flash to panel
+  Our own BCM2722 image (dev41) and host player; the PP keeps the audio and the clock, the BCM decodes and draws
+| {class: title; near: top-center}
+
+storage: "Storage" {
+  class: stor
+  file: ".m4v / .mp4 on the 1 TB flash\nH.264 Baseline + AAC-LC" {class: storb}
+}
+
+pp: "Host: PP5022 (player thread)" {
+  class: pp
+  direction: right
+  ata: "ATA read\n(bulk, buffered)" {class: ppb}
+  demux: "MP4 demux\nsamples → Annex B\naccess units" {class: ppb}
+  aac: "AAC decode\n(Rockbox codec)" {class: ppb}
+  i2s: "PCM → I²S" {class: ppb}
+  clock: "A/V clock\nwall time from PCM start,\nslewed toward elapsed\n(±25 ms) [ours]" {class: ppb}
+  feed: "Packet feeder\npaced by the clock;\nwraps ≤ 256 KB" {class: ppb}
+  copy: "Port copy: CPU ldm/stm\n≈ 16 MB/s, 0 wrong [silicon S31, S34]\nPP DMA ch 3: nothing landed [S34]" {class: ppb}
+  ui: "Overlay pixels\n(status strip, scrubber)" {class: ppb}
+  ata -> demux {class: data}
+  demux -> aac: "audio" {class: data}
+  aac -> i2s {class: data}
+  demux -> feed: "video" {class: data}
+  clock -> feed: "when to post" {class: ctl}
+  i2s -> clock: "PCM position" {class: ctl}
+  feed -> copy {class: data}
+}
+
+audio: "Audio" {
+  class: audio
+  codec: "WM8758 → headphones" {class: audiob}
+}
+
+bcm: "Video co-processor: BCM2722 at 150 MHz" {
+  class: bcm
+  direction: right
+  cmd: "Command ring\nSRAM 0xD0000\nFEED records" {class: bcmb}
+  fifo: "Bitstream FIFO, 1 MB\nSDRAM 0x000000\n(host 0xC000_0000)" {class: bcmb}
+  dec: "H.264 decode\nVC core + VPU\n~15 ms a picture [S29, S30]" {class: bcmb}
+  ref: "Reference frames\nSRAM arena 0x20000–0xCBFFF" {class: bcmb}
+  conv: "YUV → RGB565\n(2:1 box scale if > 320×240)\nVPU" {class: bcmb}
+  fb: "VIDEO_FB\nSRAM 0x105800" {class: bcmb}
+  hostfb: "Host frame\nSRAM 0xE0000" {class: bcmb}
+  blit: "Overlay blit\nafter every picture" {class: bcmb}
+  lcd: "LCD DMA ch 1 → LCD IF\n14.26 ms a frame [S7]" {class: bcmb}
+  evt: "Event ring 0xD2000 ·\nSTATUS · FIFO_RD ·\nHP_STATE heartbeat" {class: bcmb}
+  cmd -> dec: "FEED" {class: ctl}
+  fifo -> dec: "packets" {class: data}
+  dec <-> ref {class: data}
+  dec -> conv -> fb {class: data}
+  hostfb -> blit {class: data}
+  blit -> fb {class: data}
+  fb -> lcd {class: data}
+  dec -> evt: "decoded, shown,\nerrors" {class: ctl}
+}
+
+panel: "LCD panel 320 × 240\nRGB565" {class: mem}
+
+# ---- the journey -----------------------------------------------------------
+storage.file -> pp.ata: "ATA, UDMA4" {class: data}
+pp.i2s -> audio.codec: "I²S" {class: data}
+pp.copy -> bcm.fifo: "16-bit host port\n64-byte-aligned packets" {class: data}
+pp.copy -> bcm.cmd: "FEED record" {class: ctl}
+pp.ui -> bcm.hostfb: "host port" {class: data}
+pp.ui -> bcm.cmd: "HP_OP_OVERLAY (rect)" {class: ctl}
+bcm.lcd -> panel: "8080 parallel" {class: data}
+bcm.evt -> pp.feed: "polled: free FIFO space,\nprogress, failures" {class: ctl}
+
+notes: |md
+  **One-picture lag:** a picture is shown when its successor's first slice arrives (or at EOS), so the host feeds one frame ahead.
+
+  **Session start:** power-cycle, boot of a ~93 KB image, first frame ≈ 0.61 s (0.37 s with the BCM already off) [silicon S30].
+
+  **Ownership:** during a session the image owns the panel; host LCD updates are acknowledged without drawing [ours].
+| {class: note}
+
+legend: @legend
+legend.near: bottom-right
+
+foot: |md
+  **Sources:** docs/bcm2722-reference/host-driver.md §1–§8 · memory-access.md §2, §3, §7b, §8, §9 · lcd.md §6 · overview.md
+
+  docs/research/bcm2722/pipeline.md · player.md · docs/hardware.md (`--bcmfw-video`). [ours] = our protocol and image, not the chip.
+| {class: foot; near: bottom-center}

@@ -1,0 +1,15 @@
+# Phase 18 (§8): the developer "Sleep: off" switch (sleep_mode off)
+# gives today's power-off: no soft sleep; the next start is a full boot.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p18-sleep-off-switch.script
+# golden: skip
+# nolog: sim_sleep: sleep enter
+# nolog: splash-pass
+
+wait 4000
+sleep_mode off
+hold PLAY 1500          # today's power-off (the sim quits)
+wait 8000
+reboot
+wait 4000
+shot boot_menu
+quit

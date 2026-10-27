@@ -1,0 +1,31 @@
+# P19 19-1c: hi-res FLAC (96 kHz, 24-bit, resampled to the output rate)
+# in dark playback with the codec's low-watermark sleep: it keeps up, no
+# underrun, and the codec wakes about twice a second, not twenty. (On
+# the device a hi-res track may still take clockpol's LOAD hold; that
+# is unchanged.)
+#   sh tests/fixtures/p19c/make_p19c_fixtures.sh
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p19c-hires.script
+# needs: music
+# golden: skip
+# timeout: 200
+# nolog: pcm underrun
+# nolog: splash-pass
+
+wait 3000
+repeat off          # a shared disk may hold "repeat: one" (np-sharp)
+mkdir /P19C
+copy ../../build/p19c-fixtures/hires.flac /P19C/hires.flac
+play_files /P19C/hires.flac
+wait 3000
+expect_playing 500
+backlight_expire
+wait 15000
+wakes start
+wait 20000
+wakes hires_dim
+expect_wakes_le codec 80
+expect_playing 500
+key MENU
+wait 1500
+shot end
+quit

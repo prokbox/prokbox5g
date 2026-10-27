@@ -1,0 +1,50 @@
+# #38 (docs/phase-nav-brief.md, "C: verification"): the main menu's
+# per-item preview panel (D1 panel key, D10 item wiring, D2 rest delay).
+# Rests on every main-menu row long enough for its panel to arrive
+# (NAV_REST_COVER = 1.1 s for the drift panels, NAV_REST_ICON = 0.4 s for
+# the icon ones), so scripts/check_trace.py's "rest" rule (panel arrive
+# wait >= rest delay) and the owner round's visual side-by-side both have
+# something to check. Needs agent A's preview.c and, for the
+# Podcasts/Extras/Settings icon panels, agent B's providers
+# (screens/panels.c); both have landed.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-nav-panels.script
+# needs: library
+# resume: playing
+
+wait 4000           # boot to the main menu, "Music" selected (drift)
+wait_db 30000
+wait 1200            # past NAV_REST_COVER (1.1 s): the drift panel arrives
+shot music_panel
+
+wheel +1             # "Podcasts" (icon panel)
+wait 800             # past NAV_REST_ICON (0.4 s) + the 0.2 s cross-fade
+shot podcasts_panel
+
+wheel +1             # "Extras" (icon panel)
+wait 800
+shot extras_panel
+
+wheel +1             # "Settings" (capacity/icon panel)
+wait 800
+shot settings_panel
+
+wheel +1             # "Shuffle Songs" (drift panel, D10 ⚠️)
+wait 1500            # NAV_REST_COVER (1.1 s) + the 0.2 s cross-fade
+shot shuffle_panel
+
+wheel +1             # "Now Playing" ("# resume: playing" makes this row
+                     # visible; drift panel, D10 ⚠️)
+wait 1500
+shot nowplaying_panel
+
+# back up through every row once more, slowly: D1 says the panel key is
+# (provider, arg), so moving between two Music-menu-style rows that share
+# ui_preview_drift (Music itself is not one of these; this checks
+# Shuffle Songs <-> Now Playing, both ui_preview_drift) must not restart
+# the drift cycle, only the two icon/drift boundary crossings restart the
+# rest delay
+wheel -1
+wait 1500
+shot shuffle_panel_again
+
+quit

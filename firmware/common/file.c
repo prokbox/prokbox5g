@@ -30,6 +30,16 @@
 #include "rb_namespace.h"
 #include "string-extra.h"
 
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER) \
+    && !defined(RBFS_NO_RENAME_INTENT)
+/* ProkBox (#91): every rename is recorded before it starts (see
+ * "rename intent record" below); remove() and O_TRUNC check the last
+ * record's names before they free a chain */
+#define RENAME_INTENT
+int rbfs_intent_alias_drop(const char *path, unsigned int callflags);
+#define intent_alias_drop(p) rbfs_intent_alias_drop((p), FF_FILE)
+#endif
+
 /* Define LOGF_ENABLE to enable logf output in this file */
 //#define LOGF_ENABLE
 #ifdef LOGF_ENABLE
@@ -507,7 +517,17 @@ static int open_internal_inner1(const char *path, int oflag,
 
 file_error:
     if (fildes >= 0)
+    {
+#ifdef HAVE_IPOD_UI
+        /* keep the failed open's errno (ENOENT for a missing file): the
+         * stream is already closed, so this close fails with EBADF */
+        int err = errno;
         rbfs_close(fildes);
+        errno = err;
+#else
+        rbfs_close(fildes);
+#endif
+    }
     return rc;
 }
 
@@ -515,6 +535,23 @@ static int open_internal_locked(const char *path, int oflag,
                                 unsigned int callflags)
 {
     file_internal_lock_WRITER();
+#ifdef RENAME_INTENT
+    if ((oflag & O_TRUNC) && (oflag & O_ACCMODE))
+    {
+        /* a truncation frees the chain: when path is the second name on
+         * the last rename's other name's chain, only path's name goes
+         * and path is created afresh (the other name keeps the data) */
+        int a = intent_alias_drop(path);
+        if (a < 0)
+        {
+            file_internal_unlock_WRITER();
+            errno = EIO;
+            return -1;
+        }
+        if (a > 0)
+            oflag |= O_CREAT;
+    }
+#endif
     int rc = open_internal_inner1(path, oflag, callflags);
     file_internal_unlock_WRITER();
     return rc;
@@ -991,10 +1028,503 @@ int rbfs_remove(const char *path)
     DEBUGF("remove(path=\"%s\")\n", path);
 
     file_internal_lock_WRITER();
-    int rc = remove_stream_internal(path, NULL, FF_FILE);
+    int rc;
+    /* H2: a name never goes before every earlier write is durable (a
+     * caller's marker or record, written just before, #91) */
+    fat_barrier(IF_MV(0));
+#ifdef RENAME_INTENT
+    /* never free a chain the last rename's other name still names */
+    rc = intent_alias_drop(path);
+    if (rc > 0)
+        rc = 0;                         /* only path's name went */
+    else if (rc < 0)
+    {
+        errno = errno ? errno : EIO;
+        rc = -1;
+    }
+    else
+#endif
+    rc = remove_stream_internal(path, NULL, FF_FILE);
     file_internal_unlock_WRITER();
     return rc;
 }
+
+#ifdef HAVE_IPOD_UI
+static struct rbfs_rename_fault rbfs_rename_fault;
+
+void rbfs_rename_fault_take(struct rbfs_rename_fault *out)
+{
+    *out = rbfs_rename_fault;
+    rbfs_rename_fault.rc = 0;
+}
+
+/* ProkBox (#91 H1): drop 'path' when it is a second name on the very
+ * chain 'keep' names (what a power cut inside a rename leaves: fat.c
+ * FAT_ORDERED_DIRENTRIES). Only path's directory entries go; the data is
+ * keep's and stays. callflags: FF_FILE, or FF_DIR for a directory's two
+ * names (a cut inside a directory move). Returns 1 when an alias was
+ * dropped, 0 when either is missing, keep is not of path's type (M1) or
+ * they are different files (a plain remove is then safe), < 0 on an I/O
+ * error or when path is open elsewhere (EBUSY). Call holding WRITER. */
+static int remove_alias_internal(const char *path, const char *keep,
+                                 unsigned int callflags)
+{
+    int rc = 0, open1rc = -1, open2rc = -1;
+    struct filestr_base pathstr, keepstr;
+
+    open1rc = open_stream_internal(path, callflags, &pathstr, NULL);
+    /* either one missing: rc 0 */
+    if (open1rc <= 0)
+        FILE_ERROR(ERRNO, open1rc == 0 || errno == ENOENT ? RC : -1);
+
+    open2rc = open_stream_internal(keep, callflags, &keepstr, NULL);
+    /* keep missing, or a directory where path is a file (or the reverse):
+     * never the same chain */
+    if (open2rc <= 0)
+        FILE_ERROR(ERRNO, open2rc == 0 || errno == ENOENT || errno == EISDIR
+                          || errno == ENOTDIR ? RC : -2);
+
+    long cluster = pathstr.infop->fatfile.firstcluster;
+    if (!cluster || pathstr.bindp == keepstr.bindp
+        || cluster != keepstr.infop->fatfile.firstcluster)
+        FILE_ERROR(ERRNO, RC);          /* different files: rc 0 */
+
+    if (!(fileobj_get_flags(&pathstr) & FO_SINGLE))
+        FILE_ERROR(EBUSY, -3);
+
+    struct file_base_info oldinfo = *pathstr.infop;
+    rc = fat_remove(&pathstr.infop->fatfile, FAT_RM_DIRENTRIES);
+    if (rc < 0)
+        FILE_ERROR(EIO, rc * 10 - 4);
+
+    fileop_onremove_internal(&pathstr, &oldinfo);
+    /* the chain belongs to keep: the close must not free it */
+    pathstr.infop->fatfile.firstcluster = 0;
+    rc = 1;
+
+file_error:
+    if (open2rc >= 0)
+        close_stream_internal(&keepstr);
+    if (open1rc >= 0)
+    {
+        int rc2 = close_stream_internal(&pathstr);
+        if (rc2 < 0 && rc >= 0)
+            rc = rc2 * 10 - 5;
+    }
+    return rc;
+}
+
+int rbfs_remove_alias(const char *path, const char *keep)
+{
+    DEBUGF("remove_alias(path=\"%s\",keep=\"%s\")\n", path, keep);
+
+    file_internal_lock_WRITER();
+    int rc = remove_alias_internal(path, keep, FF_FILE);
+    file_internal_unlock_WRITER();
+    return rc;
+}
+#endif /* HAVE_IPOD_UI */
+
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+/* ProkBox: a one-sector record file in the hidden folder, written in
+ * place: one storage write of its first data sector, never a FAT or
+ * directory write (the file is never resized). The #91 rename intent and
+ * the boot guard's drained latch (apps/ipodui/bootbatt.c) use it. Read
+ * it, or write it when len (the bytes that matter) fits. Returns the
+ * sector size, or < 0. WRITER held; buf holds DC_CACHE_BUFSIZE bytes */
+static int record_io(const char *path, void *buf, bool write, size_t len)
+{
+    struct filestr_base str;
+    struct path_component_info info;
+    int rc = open_stream_internal(path, FF_FILE, &str, &info);
+    if (rc <= 0)
+    {
+        if (rc == 0)
+            close_stream_internal(&str);
+        return -1;
+    }
+
+    int secsize = fat_file_sector_size(IF_MV(&str.infop->fatfile));
+    if (secsize <= 0 || secsize > DC_CACHE_BUFSIZE || len > (size_t)secsize
+        || !str.infop->fatfile.firstcluster
+        || info.filesize < (file_size_t)secsize)
+        rc = -2;                        /* never allocates or extends */
+    else
+    {
+        fat_rewind(&str.fatstr);
+        rc = fat_readwrite(&str.fatstr, 1, buf, write) == 1 ? secsize : -3;
+    }
+    close_stream_internal(&str);
+    return rc;
+}
+
+/* the first boot (or a volume that lost it): one zeroed sector, one
+ * cluster, never resized. Not holding WRITER.
+ * The sector is record_io()'s: fat_file_sector_size(), the file layer's
+ * sector, never the BPB's bytes per sector. On the 5.5G's 2048-byte
+ * virtual sectors those differ (512 vs 2048): sizing by the BPB skipped
+ * the write (2048 > DC_CACHE_BUFSIZE) and left every record 0 bytes, so
+ * record_io() refused it (-2) forever (device, 2026-10-23). A full
+ * DC_CACHE_BUFSIZE is written: at least one record_io() sector in every
+ * configuration (DC_CACHE_BUFSIZE is the largest one) */
+static void record_create(const char *path)
+{
+    void *buf = dc_get_buffer();
+    int fd = buf ? rbfs_open(path, O_WRONLY | O_CREAT | O_EXCL) : -1;
+    if (fd >= 0)
+    {
+        memset(buf, 0, DC_CACHE_BUFSIZE);
+        rbfs_write(fd, buf, DC_CACHE_BUFSIZE);
+        rbfs_close(fd);
+    }
+    if (buf)
+        dc_release_buffer(buf);
+}
+
+int rbfs_record_read(const char *path, void *data, size_t n)
+{
+    file_internal_lock_WRITER();
+    void *buf = dc_get_buffer();
+    int rc = buf ? record_io(path, buf, false, 0) : -1;
+    if (rc > 0 && n <= (size_t)rc)
+        memcpy(data, buf, n);
+    else if (rc > 0)
+        rc = -2;
+    if (buf)
+        dc_release_buffer(buf);
+    file_internal_unlock_WRITER();
+    return rc > 0 ? (int)n : rc;
+}
+
+int rbfs_record_write(const char *path, const void *data, size_t n)
+{
+    file_internal_lock_WRITER();
+    void *buf = dc_get_buffer();
+    int rc = -1;
+    if (buf)
+    {
+        memset(buf, 0, DC_CACHE_BUFSIZE);
+        memcpy(buf, data, MIN(n, (size_t)DC_CACHE_BUFSIZE));
+        rc = record_io(path, buf, true, n);
+        dc_release_buffer(buf);
+    }
+    if (rc > 0)
+        fat_barrier(IF_MV(0));          /* durable before any power-off */
+    file_internal_unlock_WRITER();
+    return rc > 0 ? (int)n : rc;
+}
+
+int rbfs_record_create(const char *path)
+{
+    if (!rbfs_file_exists(path))
+        record_create(path);
+    return rbfs_file_exists(path) ? 0 : -1;
+}
+#endif /* HAVE_IPOD_UI && !BOOTLOADER */
+
+#ifdef RENAME_INTENT
+/* ProkBox (#91) rename intent record. fat.c's ordered directory entries
+ * make "one file under two names" what a cut inside any rename leaves,
+ * and a later plain remove() or O_TRUNC of either name would free the
+ * other's data. So every rename is recorded first: one sector of a
+ * preallocated file in the hidden folder, written in place (one storage
+ * write, no FAT or directory write: the file is never resized) with the
+ * two paths and the source's first cluster, then marked done after the
+ * rename's last commit. A torn write fails the checksum and reads as
+ * "nothing pending": the rename had not started. At boot, before any app
+ * opens a file, a pending record is resolved so one name remains:
+ *   file:      old dropped when it shares new's chain (new is kept);
+ *   directory: new dropped when it shares old's cluster, then the rename
+ *              is run again (it also rewrites "..", which a cut may have
+ *              left on either parent).
+ * The last record's names stay known (a hash each) after it is done, so
+ * remove() and O_TRUNC of either one check the other name's chain first.
+ * An overwrite removes its victim before the rename (never two entries of
+ * one name; a cut between leaves the source under its old name and the
+ * victim's clusters orphaned). Paths that do not fit the sector (both
+ * paths over 488 bytes on a 512-byte volume), an empty file (no chain)
+ * and a missing record file (made at the next boot) go unrecorded. */
+#define INTENT_FILE  ROCKBOX_DIR "/.rename_intent"
+#define INTENT_MAGIC 0x49524b50u        /* "PKRI" */
+#define INTENT_DIR   0x0001
+
+struct intent_hdr
+{
+    uint32_t magic, seq, sum, cluster;
+    uint16_t pending, flags, oldlen, newlen;    /* lengths with the NUL */
+};                                      /* then old\0new\0 */
+
+static struct
+{
+    uint32_t seq, oldh, newh;
+    bool     live;                      /* a valid record is on disk */
+} intent;
+
+static uint32_t intent_fnv(uint32_t h, const uint8_t *p, size_t n)
+{
+    while (n--)
+        h = (h ^ *p++) * 16777619u;
+    return h;
+}
+
+static uint32_t intent_hash(const char *path)
+{
+    return intent_fnv(2166136261u, (const uint8_t *)path, strlen(path));
+}
+
+static size_t intent_len(const struct intent_hdr *h)
+{
+    return sizeof(*h) + h->oldlen + h->newlen;
+}
+
+static uint32_t intent_sum(struct intent_hdr *h)
+{
+    uint32_t keep = h->sum, sum;
+    h->sum = 0;
+    sum = intent_fnv(2166136261u, (const uint8_t *)h, intent_len(h));
+    h->sum = keep;
+    return sum;
+}
+
+/* the record's one sector in place (record_io() above). WRITER held */
+static int intent_io(void *buf, bool write, size_t len)
+{
+    return record_io(INTENT_FILE, buf, write, len);
+}
+
+static bool intent_valid(struct intent_hdr *h, int secsize)
+{
+    const char *s = (const char *)(h + 1);
+    return secsize > 0 && h->magic == INTENT_MAGIC && h->oldlen > 1
+           && h->newlen > 1 && intent_len(h) <= (size_t)secsize
+           && !s[h->oldlen - 1] && !s[h->oldlen + h->newlen - 1]
+           && h->sum == intent_sum(h);
+}
+
+static void intent_remember(const struct intent_hdr *h)
+{
+    const char *s = (const char *)(h + 1);
+    intent.seq  = h->seq;
+    intent.oldh = intent_hash(s);
+    intent.newh = intent_hash(s + h->oldlen);
+    intent.live = true;
+}
+
+/* before fat_rename(): true when the record is on disk */
+static bool intent_begin(const char *old, const char *new, long cluster,
+                         bool is_dir)
+{
+    size_t ol = strlen(old) + 1, nl = strlen(new) + 1;
+    if (!cluster || !strcmp(old, INTENT_FILE) || !strcmp(new, INTENT_FILE)
+        || ol > 0xffff || nl > 0xffff)
+        return false;
+
+    struct intent_hdr *h = dc_get_buffer();
+    if (!h)
+        return false;
+    memset(h, 0, DC_CACHE_BUFSIZE);
+    h->magic   = INTENT_MAGIC;
+    h->seq     = intent.seq + 1;
+    h->cluster = cluster;
+    h->pending = 1;
+    h->flags   = is_dir ? INTENT_DIR : 0;
+    h->oldlen  = ol;
+    h->newlen  = nl;
+    bool ok = sizeof(*h) + ol + nl <= DC_CACHE_BUFSIZE;
+    if (ok)
+    {
+        memcpy(h + 1, old, ol);
+        memcpy((char *)(h + 1) + ol, new, nl);
+        h->sum = intent_sum(h);
+        ok = intent_io(h, true, intent_len(h)) > 0;
+    }
+    if (ok)
+        intent_remember(h);
+    dc_release_buffer(h);
+    return ok;
+}
+
+/* after the rename's last commit (or its failure): the record is done.
+ * A failed write leaves it pending; boot's resolution is idempotent */
+static void intent_end(void)
+{
+    /* H2: the rename's last commit is durable before the record says so */
+    fat_barrier(IF_MV(0));
+    struct intent_hdr *h = dc_get_buffer();
+    if (!h)
+        return;
+    int secsize = intent_io(h, false, 0);
+    if (intent_valid(h, secsize) && h->pending)
+    {
+        h->pending = 0;
+        h->sum = intent_sum(h);
+        intent_io(h, true, intent_len(h));
+    }
+    dc_release_buffer(h);
+}
+
+/* remove() / O_TRUNC (FF_FILE) or rmdir() (FF_DIR) of path: 1 when path
+ * was the second name on the last record's other name's chain and only
+ * its name went, 0 otherwise (a plain removal is safe), < 0 when
+ * undecided (nothing freed). WRITER */
+int rbfs_intent_alias_drop(const char *path, unsigned int callflags)
+{
+    if (!intent.live)
+        return 0;
+    uint32_t ph = intent_hash(path);
+    if (ph != intent.oldh && ph != intent.newh)
+        return 0;                       /* the common case: no I/O */
+
+    struct intent_hdr *h = dc_get_buffer();
+    if (!h)
+        return -1;
+    int rc = 0, secsize = intent_io(h, false, 0);
+    if (intent_valid(h, secsize))
+    {
+        const char *o = (const char *)(h + 1), *n = o + h->oldlen;
+        const char *other = !strcmp(path, o) ? n : !strcmp(path, n) ? o : NULL;
+        bool dir = h->flags & INTENT_DIR;
+        if (other && dir == !!(callflags & FF_DIR))
+            rc = remove_alias_internal(path, other, dir ? FF_DIR : FF_FILE);
+    }
+    dc_release_buffer(h);
+    return rc;
+}
+
+static void intent_resolve(const struct intent_hdr *h)
+{
+    const char *old = (const char *)(h + 1), *new = old + h->oldlen;
+
+    if (!(h->flags & INTENT_DIR))
+    {
+        remove_alias_internal(old, new, FF_FILE);
+        return;
+    }
+
+    struct filestr_base str;
+    int rc = open_stream_internal(old, FF_DIR, &str, NULL);
+    bool here = rc > 0 && str.infop->fatfile.firstcluster == (long)h->cluster;
+    if (rc >= 0)
+        close_stream_internal(&str);
+    if (!here)
+        return;                         /* the move finished */
+    /* L: the move is run again only over what a cut leaves: new missing,
+     * or new on the very same cluster. Anything else under the new name
+     * (someone's folder since) is never replaced or merged */
+    rc = open_stream_internal(new, FF_ANYTYPE, &str, NULL);
+    bool other = rc > 0 && str.infop->fatfile.firstcluster != (long)h->cluster;
+    if (rc >= 0)
+        close_stream_internal(&str);
+    if (rc < 0 && errno != ENOENT)
+        return;                         /* undecided: leave both */
+    if (other)
+        return;
+    remove_alias_internal(new, old, FF_DIR);
+    rbfs_rename(old, new);
+}
+#endif /* RENAME_INTENT */
+
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER) && !defined(RENAME_INTENT)
+int rbfs_intent_alias_drop(const char *path, unsigned int callflags)
+{
+    (void)path; (void)callflags;
+    return 0;                           /* tests/fatcrash: no record */
+}
+#endif
+
+#ifdef RENAME_INTENT
+static void intent_create(void)
+{
+    record_create(INTENT_FILE);
+}
+#endif /* RENAME_INTENT */
+
+#ifdef HAVE_IPOD_UI
+/* after a USB session, the disk ours again (usbscreen.c): the host may
+ * have deleted, truncated or edited the record. It is made again when
+ * missing or unusable. A record still pending here was left by a failed
+ * done-write in this run (a cut's is resolved at boot, before USB): the
+ * host's tree is the truth now, so it is retired, never run again */
+void rbfs_rename_intent_usb_exit(void)
+{
+#ifdef RENAME_INTENT
+    file_internal_lock_WRITER();
+    struct intent_hdr *h = dc_get_buffer();
+    int secsize = h ? intent_io(h, false, 0) : -1;
+    bool usable = secsize > 0;
+    intent.live = false;
+    if (h && usable && intent_valid(h, secsize))
+    {
+        intent_remember(h);
+        if (h->pending)
+        {
+            h->pending = 0;
+            h->seq = intent.seq + 1;
+            h->sum = intent_sum(h);
+            if (intent_io(h, true, intent_len(h)) > 0)
+                intent_remember(h);
+        }
+    }
+    if (h)
+        dc_release_buffer(h);
+    file_internal_unlock_WRITER();
+    if (!usable)
+    {
+        rbfs_remove(INTENT_FILE);       /* truncated by the host, if any */
+        intent_create();
+    }
+#endif /* RENAME_INTENT */
+}
+
+/* at boot, after the mount and before any app opens a file */
+void rbfs_rename_intent_boot(void)
+{
+#ifdef RENAME_INTENT
+    intent.live = false;
+    if (!rbfs_file_exists(INTENT_FILE))
+    {
+        intent_create();
+        return;
+    }
+
+    file_internal_lock_WRITER();
+    struct intent_hdr *h = dc_get_buffer();
+    bool remake = false;
+    if (h)
+    {
+        int secsize = intent_io(h, false, 0);
+        /* too short to hold a sector (-2: the 0-byte record the 2048-byte
+         * sector bug left, or a host truncation): made again, as at USB
+         * exit. An I/O error (-3) leaves it alone */
+        remake = secsize == -2;
+        if (intent_valid(h, secsize))
+        {
+            intent_remember(h);
+#ifndef RBFS_INTENT_NO_RESOLVE  /* tests/fatcrash: the safety net alone */
+            if (h->pending)
+#else
+            if (0)
+#endif
+            {
+                intent_resolve(h);
+                h->pending = 0;
+                h->seq = intent.seq + 1;
+                h->sum = intent_sum(h);
+                if (intent_io(h, true, intent_len(h)) > 0)
+                    intent_remember(h);
+            }
+        }
+        dc_release_buffer(h);
+    }
+    file_internal_unlock_WRITER();
+    if (remake)
+    {
+        rbfs_remove(INTENT_FILE);
+        intent_create();
+    }
+#endif /* RENAME_INTENT */
+}
+#endif /* HAVE_IPOD_UI */
 
 /* rename a file */
 int rbfs_rename(const char *old, const char *new)
@@ -1006,6 +1536,12 @@ int rbfs_rename(const char *old, const char *new)
     struct path_component_info oldinfo, newinfo;
 
     file_internal_lock_WRITER();
+#ifdef HAVE_IPOD_UI
+    rbfs_rename_fault.undo = 0;
+#endif
+#ifdef RENAME_INTENT
+    bool recorded = false;
+#endif
 
     /* open 'old'; it must exist */
     open1rc = open_stream_internal(old, FF_ANYTYPE | FF_PARENTINFO, &oldstr,
@@ -1098,6 +1634,27 @@ int rbfs_rename(const char *old, const char *new)
     /* first, create the new entry so that there's never a time that the
        victim's data has no reference in the directory tree, that is, until
        everything else first succeeds */
+#ifdef RENAME_INTENT
+    recorded = intent_begin(old, new, oldstr.infop->fatfile.firstcluster,
+                            are_dirs);
+    /* H2: the record (and the source's data, written before) is durable
+     * before any directory entry changes */
+    fat_barrier(IF_MV(oldinfo.parentinfo.volume));
+    if (is_overwrite)
+    {
+        /* the victim goes first: its name and the new one never coexist
+         * (a cut between leaves the source under its old name). Its data
+         * stays until our stream closes, as below. fat_remove() commits
+         * the cleared entry; the barrier makes it durable before the new
+         * name can be (#91 H1: never two entries named 'new') */
+        rc = remove_stream_internal(NULL, &newstr, callflags);
+        if (rc < 0)
+            FILE_ERROR(ERRNO, rc * 10 - 8);
+#ifndef RBFS_NO_VICTIM_BARRIER  /* tests/fatcrash: H1's control */
+        fat_barrier(IF_MV(oldinfo.parentinfo.volume));
+#endif
+    }
+#endif
     struct file_base_info old_fileinfo = *oldstr.infop;
     rc = fat_rename(&newinfo.parentinfo.fatfile, &oldstr.infop->fatfile,
                     newname);
@@ -1107,6 +1664,7 @@ int rbfs_rename(const char *old, const char *new)
         FILE_ERROR(rc == FAT_RC_ENOSPC ? ENOSPC : EIO, rc * 10 - 7);
     }
 
+#ifndef RENAME_INTENT
     if (is_overwrite)
     {
         /* 'new' would have been assigned its own directory entry and
@@ -1115,13 +1673,32 @@ int rbfs_rename(const char *old, const char *new)
            closed */
         rc = remove_stream_internal(NULL, &newstr, callflags);
         if (rc < 0)
+        {
+#ifdef HAVE_IPOD_UI
+            /* the new entry is already in place: give the source its old
+             * name back, or the directory keeps two entries named 'new'
+             * (the device's two index.prev, 2026-10-19) */
+            int err = errno;
+            rbfs_rename_fault.undo = fat_rename(&oldinfo.parentinfo.fatfile,
+                                                &oldstr.infop->fatfile,
+                                                oldname);
+            if (rbfs_rename_fault.undo >= 0)
+                rbfs_rename_fault.undo = 1;
+            errno = err;
+#endif
             FILE_ERROR(ERRNO, rc * 10 - 8);
+        }
     }
+#endif /* !RENAME_INTENT */
 
     fileop_onrename_internal(&oldstr, is_move ? &old_fileinfo : NULL,
                              &newinfo.parentinfo, newname);
 
 file_error:
+#ifdef RENAME_INTENT
+    if (recorded)
+        intent_end();       /* after fat_rename()'s last commit */
+#endif
     /* for now, there is nothing to fail upon closing the old stream */
     if (open1rc >= 0)
         close_stream_internal(&oldstr);
@@ -1138,6 +1715,10 @@ file_error:
         }
     }
 
+#ifdef HAVE_IPOD_UI
+    if (rc < 0)
+        rbfs_rename_fault.rc = rc;
+#endif
     file_internal_unlock_WRITER();
     return rc;
 }

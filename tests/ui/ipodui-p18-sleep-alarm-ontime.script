@@ -1,0 +1,17 @@
+# Phase 18 (§8; Rev 1 M5): an alarm 90 s after entry wakes at 90 s, not
+# at the next 60 s poll (the poll is programmed for min(poll, alarm)).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p18-sleep-alarm-ontime.script
+# golden: skip
+# fulls-extra: 1          (the wake pushes the left screen in full)
+# log: sleep wake why=3 s=90 polls=2 spurious=0
+
+sleep_mode soft       # soft sleep is off by default (developer switch)
+wait 4000
+alarm_in 90
+hold PLAY 1500          # the hold: dark at once, PLAY's release awaited
+expect_sleep asleep 8000
+sleep_warp 150
+expect_sleep alarm 3000
+wait 1000
+shot woken              # the gate needs one shot
+quit

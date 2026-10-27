@@ -1,0 +1,15 @@
+# Boot battery guard, drained latch: a record the host deleted is made
+# again (clear) at the next boot that may write. The sim boots at 3,450
+# mV with no record (IPODUI_SIM_DRAINED=missing): stage 2 reads -1 and,
+# the cell over disk-safe, makes it and writes "clear".
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-bootbatt-missing.script
+# env: IPODUI_SIM_BATT_MV=3450
+# env: IPODUI_SIM_DRAINED=missing
+# golden: skip
+# log: bootbatt latch drained=-1 boot mv=3450
+# log: bootbatt latch repair drained=0 rc=20
+# nolog: sys deadbatt
+# nolog: splash-pass
+
+wait 4000
+shot main_menu

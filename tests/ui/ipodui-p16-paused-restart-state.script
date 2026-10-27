@@ -1,0 +1,46 @@
+# Phase 16-1 (#88, Q2): the paused window's restart is silent. A take in
+# the window (maint_try: the same audio_buffer_give() path the commit
+# uses) restarts the paused song at its exact position and leaves it
+# paused, with no statistics event (a finish past 15 s would count a
+# play), no audiobook resume record write, no DAC wake (no pop) and no
+# fade; PLAY afterwards resumes from there.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-paused-restart-state.script
+# needs: library
+# needs: ab
+# golden: skip
+# timeout: 240
+# log: dac standby=1
+# log: audio give done
+# logbetween: w0 w1 no stats finish
+# logbetween: w0 w1 no ab store w=
+# logbetween: w0 w1 no dac standby=0
+# logbetween: w0 w1 audio give done
+# logbetween: w0 w1 maint try ok=1 alloc=1 shrink=0
+# logbetween: start w0 dac standby=1
+# fulls-extra: 1   (the main menu gains its Now Playing row at play_files)
+
+wait 4000
+wait_db 45000
+mkdir /Audiobooks/R16
+copy ../../build/ab-fixtures/pref.m4b /Audiobooks/R16/pref.m4b
+update_db_wait_change 60000
+play_files /Audiobooks/R16/pref.m4b
+wait_pos 17000 90000        # past 15 s: a finish event would count a play
+snapshot_pause              # pause
+expect_paused 500
+wait 10000                  # the DAC goes to standby (5 s idle)
+backlight_expire            # dark
+pause_age 200               # the window is open
+ab_mark w0
+maint_try 3000000           # a take: one front shrink, a silent restart
+wait 2000
+expect_paused 1500
+expect_pos 16000 21000      # the same spot
+shot paused_after
+ab_mark w1
+key MENU                    # the first key wakes the face
+wait 800
+key PLAY                    # a normal resume
+wait_pos 22000 60000
+expect_playing 500
+quit

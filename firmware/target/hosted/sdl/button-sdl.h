@@ -41,4 +41,9 @@ int button_read_device(int *data);
 int button_read_device(void);
 #endif
 
+#ifdef SIMULATOR
+/* Feed an SDL keycode through the same path as a real key event */
+void sim_inject_key(int key, bool pressed);
+#endif
+
 #endif /* __BUTTON_SDL_H__ */

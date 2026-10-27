@@ -1,0 +1,40 @@
+# Phase 5 (#39): chapter art. A book whose chapters carry images (ID3 CHAP
+# + APIC, chapters 1 and 2 share one image) gets its chapter bundles built
+# by the art builder while playback is stopped; Now Playing then switches the
+# art at the chapter boundary (the elapsed time is pinned inside chapter 1,
+# then chapter 3).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p5-chapart-build.script
+# needs: library
+# needs: np
+# golden: skip ch1 ch3
+# log: art build chapters
+# timeout: 150
+
+wait 1000
+wait_db 30000
+sim_clock 15:08
+clock_format 24      # P11: the default is 12-hour; this golden shows 24
+repeat off
+mkdir /NPBook
+copy ../../build/np-fixtures/book_chart.mp3 /NPBook/book_chart.mp3
+update_db_wait_change 60000
+art_wait 120000
+play_files /NPBook/book_chart.mp3
+wait 1000
+np_pin 10000 50
+key SELECT          # Music (the menu re-reads "Now Playing" after a push/pop)
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 1200
+shot ch1
+np_pin 70000 50
+wait 1500
+shot ch3
+audio_stop
+rm_file /NPBook/book_chart.mp3
+update_db_wait_change 60000
+quit

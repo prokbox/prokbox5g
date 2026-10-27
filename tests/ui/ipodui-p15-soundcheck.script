@@ -1,0 +1,52 @@
+# P15 wave 2b (docs/phase15-brief.md 3.5): hardware Sound Check. With
+# Sound Check on, each track's ReplayGain gain goes to the codec
+# (dac_set_gain_db10(), the sim's sdl.c rides it on the software volume)
+# when the track starts playing (PLAYBACK_EVENT_TRACK_CHANGE), and the
+# DSP's PGA stays at unity. apps/ipodui/sc_hw.c logs
+# "sc engine=hw gain_db10=<n> track=<queue display index>" at each applied
+# change. Three 4 s fixtures (tests/fixtures/sc/, make_sc_fixtures.sh;
+# play_files takes three paths): track -6.5 dB, track +3.2 dB, album
+# -4.0 dB only (the fallback); off is the 0 case.
+# Sound Check goes on before the queue, then off and on again during the
+# last track, and off at the end (the default, for the next script on
+# this disk). The fixtures sit in /.rockbox/sctest (database.ignore: never
+# in the library) and are removed at the end. check_trace.py's p15sc rule checks every line is
+# engine=hw and that the (track, gain) sequence is exactly "# sc-seq"
+# (boot's 0:0 first: off, nothing playing).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p15-soundcheck.script
+# needs: music
+# timeout: 90
+# trace: p15sc
+# sc-seq: 0:0 1:-65 2:32 3:-40 3:0 3:-40 3:0
+# golden: skip on off
+
+wait 4000
+repeat off
+mkdir /.rockbox/sctest
+copy ../fixtures/sc/sc_a.mp3 /.rockbox/sctest/sc_a.mp3
+copy ../fixtures/sc/sc_b.mp3 /.rockbox/sctest/sc_b.mp3
+copy ../fixtures/sc/sc_d.mp3 /.rockbox/sctest/sc_d.mp3
+wheel +3             # Settings
+wait 400
+key SELECT
+wait 1500
+wheel +10            # Sound Check
+wait 400
+key SELECT           # on (the shell's default is off)
+wait 800
+shot on
+play_files /.rockbox/sctest/sc_a.mp3 /.rockbox/sctest/sc_b.mp3 /.rockbox/sctest/sc_d.mp3
+wait_index 3 30000
+key MENU             # Now Playing came up on its own: back to Settings
+wait 1500
+key SELECT           # off during the last track: 0
+wait 600
+shot off
+key SELECT           # on again: the album fallback, -4.0 dB
+wait 800
+key SELECT           # off: as found
+wait 600
+rm_file /.rockbox/sctest/sc_a.mp3
+rm_file /.rockbox/sctest/sc_b.mp3
+rm_file /.rockbox/sctest/sc_d.mp3
+quit

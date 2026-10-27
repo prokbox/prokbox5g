@@ -1,0 +1,44 @@
+# #91 (docs/phase16-brief.md 4.3): play counts go to the statistics journal
+# (dbjournal.c: checkpoint, compaction and salvage use the safe replace).
+# A track played to its end counts once, and the count survives each
+# reboot; a second play after the reboot adds one more.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-playcount-reboot.script
+# needs: music
+# fresh-db
+# timeout: 180
+# golden: skip
+# fulls-extra: 4   (the main menu gains its Now Playing row at each play_files and loses it at each track end: Phase 6 Revision 3)
+#
+# The first boot only builds the database: on a fresh one the journal's
+# replay waits for the lookup table ("import without lookup table"), so a
+# play there reaches RAM only at the next boot (it is on disk at once).
+
+wait 3000
+wait_db 45000
+reboot
+
+wait 3000
+repeat off
+wait_db 45000
+expect_stat /Music/Tone%20Collective/Sine%20Studies/03%20Warble.mp3 playcount=0..0
+play_files /Music/Tone%20Collective/Sine%20Studies/03%20Warble.mp3
+wait_pos 23000 60000 Warble
+wait 4000           # past the end (25 s)
+expect_stat /Music/Tone%20Collective/Sine%20Studies/03%20Warble.mp3 playcount=1..1 5000
+reboot
+
+wait 3000
+wait_db 45000
+expect_stat /Music/Tone%20Collective/Sine%20Studies/03%20Warble.mp3 playcount=1..1 5000
+repeat off
+play_files /Music/Tone%20Collective/Sine%20Studies/03%20Warble.mp3
+wait_pos 23000 60000 Warble
+wait 4000
+expect_stat /Music/Tone%20Collective/Sine%20Studies/03%20Warble.mp3 playcount=2..2 5000
+reboot
+
+wait 3000
+wait_db 45000
+expect_stat /Music/Tone%20Collective/Sine%20Studies/03%20Warble.mp3 playcount=2..2 5000
+shot after_reboots
+quit

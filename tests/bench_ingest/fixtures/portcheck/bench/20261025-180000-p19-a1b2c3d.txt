@@ -1,0 +1,13 @@
+session build=p19-a1b2c3d date=2026-10-25 18:00 steps=3 mode=portcheck image=218660 fnv=cd8e5d96 kind=merged
+step=pre result=start
+step=pre log=pre: stage 5 pass flag: PASS
+step=pre result=pass answer=- ms=20 note=pre: stage 5 pass flag: PASS
+step=s05 result=skip answer=- ms=0 note=not needed: the stage 5 flag is there
+step=cr1 result=start
+step=cr1 log=cr1 region 0x105700 wrong=0/64 (control, host frame)
+step=cr1 log=cr1 region 0x046000 wrong=64/64 (drift) first got 00000000 want 3c6ef372
+step=cr1 log=cr1 variant addr16 at 0x046000 wrong=0/64
+step=cr1 log=cr1: variants landing where ours doesn't: addr16
+step=cr1 log=cr1: FAIL: region not writable after start (control 0 wrong, pools 7 of 7 wrong; slots 0 pass, 8 write, 0 sum, 0 other)
+step=cr1 result=fail answer=- ms=21000 note=cr1: FAIL: region not writable after start (control 0 wrong, pools 7 of 7 wrong; slots 0 pass, 8 write, 0 sum, 0 other)
+end passed=1 failed=1 skipped=1

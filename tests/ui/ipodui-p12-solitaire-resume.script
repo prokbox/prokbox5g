@@ -1,0 +1,41 @@
+# P12 W4-1 (docs/design/sdk.md 8.2, 13.1): a deal in progress survives.
+# A move and a draw, a long MENU out (the record written through
+# safefile), then Solitaire again: the same board, cursor back on the
+# stock.
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-solitaire-resume.script
+# needs: modules
+# reset: mainmenu
+
+wait 4000
+sdk_clear            # a fresh deal (the simulator deals from a fixed seed)
+wheel +2             # Extras
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Games
+wait 600
+key SELECT
+wait 1200
+wheel +5             # Solitaire
+wait 600
+key SELECT
+wait 1500
+wheel +8 800
+wait 400
+key SELECT
+wait 400
+wheel +1 300
+wait 400
+key SELECT           # 2 on the 3
+wait 600
+wheel -9 900
+wait 400
+key SELECT           # draw three
+wait 600
+shot before
+hold MENU 900        # out: the state is written
+wait 1500
+key SELECT           # Solitaire again (its row is still selected)
+wait 1500
+shot resumed         # the same board
+quit

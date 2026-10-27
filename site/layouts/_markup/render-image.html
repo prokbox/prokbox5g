@@ -1,0 +1,12 @@
+{{- /* Relative image paths are written from the page's own folder (so they
+       work on GitHub too); resolve them against docs/user/. */ -}}
+{{- $src := .Destination -}}
+{{- $u := urls.Parse $src -}}
+{{- if and (not $u.IsAbs) (not (hasPrefix $src "/")) -}}
+  {{- $src = path.Join .Page.File.Dir $src | path.Clean | relURL -}}
+{{- end -}}
+{{- if .Title -}}
+<figure><img src="{{ $src }}" alt="{{ .Text }}" loading="lazy"><figcaption>{{ .Title }}</figcaption></figure>
+{{- else -}}
+<img src="{{ $src }}" alt="{{ .Text }}" loading="lazy">
+{{- end -}}

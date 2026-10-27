@@ -1,0 +1,53 @@
+# Quadrus controls (owner, 2026-10-24; docs/design/sdk.md 3.1, 13.2): a
+# long MENU opens the pause menu (Resume, New Game, Settings, Exit; the
+# game opted in with sdk_long_menu(SDK_LONGMENU_PAUSE)) instead of
+# leaving; nothing falls under it; Resume carries on. Exit (the SDK's
+# row) leaves through the graceful exit, the game saved: entering again
+# shows the same board under the pause menu.
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-quadrus-pause-longmenu.script
+# needs: modules
+# log: sdk long menu quadrus pause
+# log: sdk menu pick quadrus row=3
+# log: sdk exit quadrus why=0 policy=graceful
+# log: sdk quadrus resume score=
+# nolog: sdk kill
+# reset: mainmenu
+
+wait 4000
+sdk_clear            # a fresh game (the simulator seeds from a fixed value)
+wheel +2             # Extras
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Games
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Quadrus
+wait 600
+key SELECT
+wait 800
+key SELECT           # a double tap: one piece down, for a board to keep
+wait 100
+key SELECT
+wait 400
+hold MENU 900        # the long MENU: paused, not gone
+wait 600
+shot paused
+wait 1500
+shot still_paused    # nothing moved
+key SELECT           # Resume
+wait 800
+shot playing
+hold MENU 900
+wait 600
+wheel +3 300         # Exit
+wait 400
+shot exit_row
+key SELECT
+wait 1500
+shot exited          # the Games list
+key SELECT           # Quadrus again
+wait 1500
+shot reentered       # the same board, paused
+quit

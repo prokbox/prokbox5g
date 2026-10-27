@@ -1,0 +1,25 @@
+# Phase 9 smoke (docs/phase9-brief.md 7.8): Music > Artists > an artist
+# > All Songs with the trims on (no tree/filetree code; the shell's own
+# library.c) and, under --ram=32, a 31 MB pool.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p9-smoke-browse.script
+# needs: library
+# nolog: splash-pass
+# golden: skip music artists artist all_songs
+
+wait 5000           # boot to the main menu, "Music" selected
+wait_db 30000       # database built (shots.sh primes it if missing)
+key SELECT          # Music
+wait 800
+shot music
+wheel +1            # "Artists"
+wait 400
+key SELECT
+wait 800
+shot artists
+key SELECT          # the first artist
+wait 800
+shot artist
+key SELECT          # "All Songs"
+wait 800
+shot all_songs
+quit

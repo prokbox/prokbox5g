@@ -1,0 +1,70 @@
+# Phase 6 fix round H1/M1: USB connect while a book PLAYS keeps the stop
+# position, and checkpoints ride storage wakes again after the session.
+# Path: SYS_USB_CONNECTED reaches the UI thread (default_event_handler()
+# -> system_flush() -> the store's persistent idle handler on the UI
+# thread: flush_pass() writes a stop record of its own if the book still
+# plays) and the audio thread (audio_stop_playback() -> STOP_OR_PAUSE ->
+# ab_store_pending_now(), written by the pass its wake posts after the
+# USB screen). M1: the idle handler is no longer one-shot, so after the
+# session the next storage wake (the sim's every 30 s) writes "w=idle".
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p6-usb-playing.script
+# needs: library
+# needs: ab
+# timeout: 170
+# trace: ab
+# log: ab store w=now
+# logrange: 29000 33000 after=usb until=usb_done ab store w=now book=\S+ ms=(\d+)
+# logafter: usb_done ab store w=idle
+# golden: skip page_resume
+# DB state: ready. Rows: 0 A Field Guide, 1 AB Preface Book.
+
+wait 4000
+wait_db 45000
+mkdir /Audiobooks/AB
+copy ../../build/ab-fixtures/pref.m4b /Audiobooks/AB/pref.m4b
+update_db_wait_change 60000
+art_wait 60000
+
+key SELECT          # Music
+wait 800
+wheel +6 300        # Audiobooks (Compilations off: P11)
+wait 400
+key SELECT
+wait 900
+wheel +1 300        # AB Preface Book
+wait 400
+key SELECT          # its page
+wait 1000
+wheel +1 300        # Chapter 1 (15 s)
+wait 300
+key SELECT
+wait_pos 30000 60000 pref.m4b   # 15 s of playback, still playing
+ab_mark usb
+usb_connect
+wait 2000
+usb_disconnect
+wait 2000
+expect_ab_store 1 0 3000
+ab_mark usb_done
+
+hold MENU 1000
+wait 1200
+key SELECT
+wait 800
+wheel +6 300   # Audiobooks (Compilations off: P11)
+wait 400
+key SELECT
+wait 900
+# (#67: AB Preface Book, the USB stop record, is pinned: row 0, no step)
+wait 400
+key SELECT
+wait 1000
+shot page_resume
+key SELECT          # Resume
+wait 1500
+expect_pos 29500 33500   # the USB spot (~30 s) + 1.5 s, within ~2 s
+wait_pos 68000 60000 pref.m4b   # > 30 s playing: a storage wake rides
+audio_stop
+wait 500
+remove /Audiobooks/AB/pref.m4b
+quit

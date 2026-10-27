@@ -1,0 +1,26 @@
+# Phase 9 (docs/phase9-brief.md 7.3, 7.8, 8 "Boot allocations and opens"):
+# boot to the main menu, then dump every live buflib allocation and the
+# file opens since boot. One of the five --ram=32 smoke scripts
+# (ipodui-p9-smoke-*), and the before/after artifact for criterion 3:
+# with the trims on, no browser cache (tree_mem_init, 300,000 B), skin or
+# backdrop buffer, iAP or dircache allocation may appear.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p9-smoke-boot.script
+# needs: library
+# log: p9 alloc total=
+# log: p9 opens=
+# log: ipodui: boot variant
+# nolog: splash-pass
+# golden: skip main
+#
+# The boot line "ipodui: boot variant <IPOD_VARIANT>" is ui_log()'s
+# (ipodui.log on the device); any variant, since the --ram=32 smoke run
+# shares this script.
+# alloc_dump/open_count: uisimulator/common/sim_cmd_p9.c. name= is the
+# allocation's buflib_callbacks symbol (buflib keeps no names).
+
+wait 5000           # boot to the main menu (5 s: 16 parallel sims)
+wait_db 30000       # database built (shots.sh primes it if missing)
+alloc_dump
+open_count
+shot main
+quit

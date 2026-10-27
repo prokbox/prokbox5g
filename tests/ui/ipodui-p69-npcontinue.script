@@ -1,0 +1,109 @@
+# #69 follow-up (owner 2026-10-19): SELECT on the row of the track that
+# is already playing (the speaker mark) carries on with it and shows Now
+# Playing, instead of starting it over, when the list is the one the
+# queue was started from (review 2026-10-20: picking the song in another
+# list still starts that list's queue, so it never traps the old order).
+# Paused, it resumes from where it was. The same on a book's page for the
+# chapter that plays. Any other row still plays from that row.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p69-npcontinue.script
+# needs: music
+# timeout: 120
+#
+# Independent of the library's size and order (the gate's disks grow):
+# playback starts from play_files, the album list comes from Now
+# Playing's Browse Album, and the book is found by Search ("mini"). Concert A is 45 s; Mini Audiobook's End Credits are 38-48 s.
+
+wait 3000
+sim_clock 15:08
+clock_format 24
+repeat off
+wait_db 30000
+art_wait 60000
+
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3 /Music/Tone%20Collective/Sine%20Studies/02%20Low%20E.mp3
+wait 1000
+key SELECT          # Music (the menu re-reads "Now Playing" after a push/pop)
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait_pos 3000 30000
+hold SELECT 1500    # Add to On-The-Go / Browse Album / Browse Artist / Cancel
+wait 800
+wheel +1 300        # Browse Album
+wait 400
+key SELECT          # Sine Studies' songs: Concert A first, marked
+wait 1200
+key SELECT          # marked, but the queue came from play_files, not this
+wait 1500           # list: the album starts from Concert A (stock-like)
+expect_pos 0 2500
+wait_pos 6000 30000
+key MENU            # back to Sine Studies' songs, the queue's own list
+wait 1000
+key SELECT          # the playing row: carries on, Now Playing
+wait 1000
+expect_pos 5000 45000
+shot np_continued   # Now Playing, the elapsed time not back at 0:00
+
+key PLAY            # pause
+wait 800
+key MENU            # back to Sine Studies' songs
+wait 1000
+key SELECT          # the paused playing row: resumes, Now Playing
+wait 1200
+expect_pos 7000 45000   # not started over
+wait_pos 13000 10000    # and moving again (paused: times out)
+expect_playing 500
+shot np_resumed
+
+key MENU            # the songs
+wait 1000
+wheel +1 300        # track 2: not the playing row
+wait 400
+key SELECT          # plays from track 2: starts at its beginning
+wait 1500
+expect_pos 0 4000
+
+audio_stop
+wait 800
+key MENU
+wait 600
+key MENU
+wait 600
+wheel -20 100       # the main menu's top: Music
+wait 400
+key SELECT
+wait 800
+wheel +20 100       # Search (the last Music row)
+wait 400
+key SELECT
+wait 1000
+type m
+wait 500
+type i
+wait 500
+type n
+wait 500
+type i
+wait 1200
+key MENU            # the strip hides: the results
+wait 1000
+shot search_mini    # Mini Audiobook first
+key SELECT          # Mini Audiobook's page
+wait 900
+wheel +9 300        # the last entry, End Credits (38-48 s), with or
+wait 400            # without a Resume row above the entries
+key SELECT          # plays the book from End Credits
+wait_pos 41000 30000
+key MENU            # back to the page: End Credits selected and marked
+wait 1200
+key SELECT          # the playing chapter: carries on (a restart: 38 s)
+wait 1000
+expect_pos 40500 48000
+expect_playing 500
+shot page_continued
+audio_stop
+wait 500
+quit

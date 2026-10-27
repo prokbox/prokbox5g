@@ -1,0 +1,39 @@
+# Phase 14a (#64, docs/phase14a-brief.md 7 A2): Videos > Movies: the list, thumbnails and the poster rules
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p14a-movies.script
+# (ipodui-p14a-* default to build/sim-ui-video; the gate runs them there)
+# needs: video
+#
+# Disk: tests/fixtures/videos/mkvideos.sh (installed by the gate's prime
+# step, or by shots.sh for a standalone run):
+#   Movies/        Audio First  High Profile  Late Chapter  Short Film
+#   TV Shows/      Show A (S1 x2, S2 x2, tagged)  Show B (S1 x2, untagged)
+#   Misc/          Show.C.S01E02.m4v  S01E03.m4v (nameless)
+#   Podcasts/Pod One/  Audio Episode.m4a  Video Episode.m4v
+#   Music/         Fixture Singer/Audio Only.mp4 (a song)
+#                  Fixture Author/Image Book.m4b (a book)
+# Main menu with Videos on (T1 default): Music, Videos, Podcasts, Extras,
+# Settings, Shuffle Songs. Videos: Movies, TV Shows, Settings.
+
+# golden: skip wheel_end
+# Movies sorted by title: Audio First, High Profile, Late Chapter, Short
+# Film. Short Film (embedded covr) and Late Chapter (sidecar jpg) show
+# posters fitted on blurred bars; the other two show the film-strip tile.
+wait 4000
+wait_db 45000
+art_wait 60000
+wheel +1 300        # Videos
+wait 600
+key SELECT
+wait 900
+key SELECT          # Movies (row 0)
+wait 1200
+shot list           # rows, thumbnails, duration sublabels
+wheel +2 300
+wait 500
+shot third          # Late Chapter selected
+wheel +2 300
+wait 500
+shot wheel_end      # end of the list, no wrap
+key MENU
+wait 700
+shot videos_back

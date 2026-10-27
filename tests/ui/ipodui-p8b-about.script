@@ -1,0 +1,21 @@
+# Phase 8b-3 (docs/phase8b-brief.md 4.3): Settings > About's three pages,
+# the 3D capacity capsule and the gel legend squares, for the side-by-side
+# against about-1/2/3.jpg.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p8b-about.script
+# needs: library
+
+wait 4000            # boot to the main menu
+wheel +3             # Settings
+wait 400
+key SELECT
+wait 1500
+key SELECT           # About
+wait 1500
+shot about_1
+key RIGHT
+wait 700
+shot about_2
+key RIGHT
+wait 700
+shot about_3
+quit

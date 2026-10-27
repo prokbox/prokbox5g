@@ -1,0 +1,41 @@
+# Quadrus controls (owner, 2026-10-24; docs/design/sdk.md 13.2): a MENU
+# tap puts the falling piece in the Hold box beside Next, and the next
+# piece comes in; a second tap on that piece does nothing (once a piece);
+# after a double-tap drop, a MENU tap swaps the new piece with the held
+# one, which comes back in at the top, unturned.
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-quadrus-hold.script
+# needs: modules
+# log: sdk quadrus hold slot=
+# nolog: sdk exit quadrus
+# nolog: sdk kill
+# reset: mainmenu
+
+wait 4000
+sdk_clear            # a fresh game (the simulator seeds from a fixed value)
+wheel +2             # Extras
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Games
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Quadrus
+wait 600
+key SELECT
+wait 800
+shot start           # Hold empty
+key MENU             # into the slot
+wait 400
+shot held            # the slot has it; the next piece falls
+key MENU             # once a piece: nothing
+wait 400
+shot held_again
+key SELECT           # a double tap: dropped where it is
+wait 100
+key SELECT
+wait 500
+key MENU             # the new piece and the held one swap
+wait 400
+shot swapped
+quit

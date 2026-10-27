@@ -1,0 +1,70 @@
+# #109 H3 (docs/design/queue-by-index.md 1.2, 7; Q-R4-7): play-all of the
+# whole Songs list while another queue plays, then while it is paused.
+# The slot table and the grown queue don't fit the free heap while audio
+# keeps its buffer (a paused shrink refuses this thread), so the old
+# track stops first (reserve=stop) and the new queue holds every row;
+# no paused-shrink refusal, no window, nothing shown.
+# (The 50k cases are in tests/perf/floor-50k.script: snapshot_play is
+# lib_play() of Songs row 0.)
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-dbq-playall.script
+# needs: library
+# timeout: 200
+# golden: skip from_playing from_paused
+# log: reserve=stop
+# nolog: shrink refused paused
+# nolog: reserve=window
+# nolog: reserve=path
+# nolog: lib play fail
+# nolog: splash-pass
+
+wait 4000
+wait_db 30000
+key SELECT          # Music
+wait 800
+wheel +1            # "Artists"
+wait 400
+key SELECT
+wait 800
+key SELECT          # the first artist
+wait 800
+key SELECT          # "All Songs"
+wait 800
+key SELECT          # plays 5 songs
+wait 2000
+expect_playing 300
+hold MENU 1000
+wait 1500
+key SELECT          # Music
+wait 1000
+wheel -10 100
+wait 300
+wheel +3 300        # Songs
+wait 600
+key SELECT
+wait 1500
+key SELECT          # from playing: the whole list
+wait 2500
+expect_playing 500
+shot from_playing
+key PLAY            # pause
+wait 800
+expect_paused 300
+hold MENU 1000
+wait 1500
+key SELECT          # Music
+wait 1000
+wheel -10 100
+wait 300
+wheel +3 300        # Songs
+wait 600
+key SELECT
+wait 1500
+wheel +3 300
+wait 300
+key SELECT          # from paused: the whole list from row 3
+wait 2500
+expect_playing 500
+shot from_paused
+audio_stop
+wait 500
+quit

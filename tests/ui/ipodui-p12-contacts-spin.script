@@ -1,0 +1,70 @@
+# P12 W3-K review (page-load rate): fast spins through 2,000 cards
+# (big2000.vcf, a ~200 KB paged index) with 10 ms wheel clicks, the
+# wheel's top acceleration: the list loads a window's pages only while
+# the last second's loads leave room under the manifest's pages = 8
+# (CONTACTS_PAGES), else the spin stops at the cached rows' edge until
+# the budget returns. No "pages" viol, no blank row, and every stop shows
+# whole rows.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p12-contacts-spin.script
+# needs: library
+# timeout: 360
+# modclass: paged
+# log: xidx build kind=2 n=2000
+# log: contacts open n=2000 whole=0 last=0
+# log: contacts page l=0
+# nolog: contacts row blank
+# golden: skip
+# reset: mainmenu
+
+sim_clock 15:06
+wait 4000
+wait_db 30000
+rm_file /Contacts/family.vcf
+rm_file /Contacts/work.vcf
+rm_file /Contacts/modern.vcf
+rm_file /Contacts/big.vcf
+rm_file /Contacts/big2000.vcf
+rm_file /Contacts/._family.vcf
+rm_file /Contacts/readme.txt
+rm_file /.rockbox/contacts.idx
+rm_file /.rockbox/xindex.owe
+
+usb_connect
+wait 2500
+mkdir /Contacts
+copy fixtures/contacts/big2000.vcf /Contacts/big2000.vcf
+usb_disconnect
+wait 150
+wait_db 45000
+wait 3500
+storage_idle
+wait 1500
+wheel +2            # Main Menu: "Extras"
+wait 800
+key SELECT
+wait 1200
+wheel +2            # Extras: "Contacts"
+wait 800
+key SELECT
+wait 1200
+shot first
+wheel +400 10       # fast: 100 clicks a second, 5 rows each
+wait 300
+shot spin_mid
+wheel +400 10
+wait 1500
+shot spin_stop
+wheel -800 10       # and back up as fast
+wait 1500
+shot spin_back
+wheel +2000 10      # a long spin: the budget refills as it goes
+wait 1500
+shot spin_far
+wheel -2000 10
+wait 1500
+shot top_again
+key MENU
+wait 800
+key MENU
+wait 800
+quit

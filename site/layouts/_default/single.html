@@ -1,0 +1,15 @@
+{{ define "main" }}
+<div class="doc{{ if eq .Section "guide" }} with-nav{{ end }}">
+  {{ if eq .Section "guide" }}{{ partial "guide-nav.html" . }}{{ end }}
+  <main id="main" class="article" data-pagefind-body>
+    <p class="crumb">{{ with .Parent }}{{ if not .IsHome }}<a href="{{ .RelPermalink }}">{{ .Title }}</a>{{ end }}{{ end }}</p>
+    <h1>{{ .Title }}</h1>
+    {{ with .Date }}{{ if not $.Params.weight }}<p class="date">{{ .Format "2 January 2006" }}</p>{{ end }}{{ end }}
+    {{ if gt (len .TableOfContents) 40 }}
+    <details class="toc"><summary>On this page</summary>{{ .TableOfContents }}</details>
+    {{ end }}
+    {{ .Content }}
+    {{ if eq .Section "guide" }}{{ partial "prevnext.html" . }}{{ end }}
+  </main>
+</div>
+{{ end }}

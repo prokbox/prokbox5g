@@ -1,0 +1,7 @@
+# #109 (design 1.3 M6, 7 "-dbq-commit-peak-32"): the commit peak on a
+# 32 MB unit with a 50k database queue live.
+# pending: needs the 50k library and the 32 MB simulator, which a tests/ui script can't select; the case is tests/perf/commit-peak-dbq-50k.script (SIM_BUILD=build/sim-ui32 SIMDISK=<a clone of build/sim-50k/simdisk>) and floor-50k.script's dbq_commit_live
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-dbq-commit-peak-32.script
+# golden: skip
+wait 1000
+quit

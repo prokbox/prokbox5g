@@ -1,0 +1,87 @@
+# #69: the now-playing marker (spec music-lists.md "Now-playing marker",
+# owner 2026-10-12, from the stock 7G). The row of the track playing now
+# shows the speaker-with-waves glyph (Now Playing's loud volume end) at
+# its right edge: white on the selected (blue gel) row, black on a plain
+# row; the label truncates before it. A track change moves it, redrawing
+# only the old and new rows. Our addition: the playing book's row in
+# Audiobooks and the current chapter's row on the book's page.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p69-npmark.script
+# needs: music
+# timeout: 90
+# log: npmark tc=
+#
+# Mini library: Sine Studies = Concert A (45 s), then two shorter tracks;
+# Mini Audiobook = one .m4b of 4 chapters: Opening Credits (8 s),
+# Chapter 1: The Tone, Chapter 2: The Warble, End Credits.
+# Elapsed is pinned (np_pin) so the chapter shots are deterministic.
+
+wait 3000
+sim_clock 15:08
+clock_format 24
+repeat off
+wait_db 30000
+art_wait 60000
+
+key SELECT          # Music
+wait 800
+wheel +2 300        # Albums
+wait 400
+key SELECT
+wait 800
+wheel +1 300        # Sine Studies
+wait 400
+key SELECT          # its songs
+wait 800
+wheel +1 300        # track 2
+wait 400
+key SELECT          # plays the album from track 2, Now Playing
+wait 1500
+np_pin 4000 50
+key MENU            # back to the album's songs: track 2 selected
+wait 1200
+shot album_sel      # the playing row selected: white glyph on the gel
+wheel -1 300        # track 1 selected
+wait 800
+shot album_unsel    # the playing row (track 2) plain: black glyph
+key NEXT            # track change: track 3 plays
+wait 1500
+shot album_moved    # the glyph moved from track 2 to track 3 (two rows redrawn)
+
+key MENU            # Albums
+wait 800
+key MENU            # Music
+wait 800
+wheel +1 300        # Songs (Albums -> Songs)
+wait 400
+key SELECT
+wait 900
+shot songs          # Songs: the playing track's row marked
+
+audio_stop
+wait 800
+key MENU            # Music
+wait 800
+wheel +3 300        # Audiobooks
+wait 400
+key SELECT
+wait 900
+key SELECT          # Mini Audiobook's page
+wait 900
+wheel +1 300        # the 2nd entry (no Resume row on a pristine disk)
+wait 400
+key SELECT          # plays the book from the 2nd entry, Now Playing
+wait 1500
+np_pin 10000 50     # inside the 2nd entry
+key MENU            # back to the page
+wait 1200
+shot page_sel       # the 2nd entry selected and marked (white)
+np_pin 4000 50      # back inside the 1st: a chapter change
+wait 1500
+shot page_moved     # the glyph (black) on the 1st, the 2nd selected, unmarked
+key MENU            # Audiobooks
+wait 1000
+shot books          # Mini Audiobook's row marked (left of the chevron's place)
+audio_stop
+wait 800
+shot books_stopped  # stopped: no glyph
+quit

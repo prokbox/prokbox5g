@@ -1,0 +1,61 @@
+# P19 19-6: USB never waits on a decode (the owner, 2026-10-24).  np-sharp
+# renders the 1000 px cover on the BCM (the model made to take real time:
+# bcm_decode pace 20); a USB plug in the
+# middle reaches the art thread's cancel hook (its own queue holds
+# SYS_USB_CONNECTED) within a millisecond of modelled time: the decode
+# ends ABORTED (bcmjob_dec_verdict(): DEFER, the render stays queued, no
+# CPU decode), and every thread acks the connect within 200 ms.
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p19-dec-usb.script
+# env: IPODUI_NP_NO_PANEL=built
+# reset: mainmenu
+# needs: library
+# needs: np
+# needs: video
+# golden: skip usb
+# logbetween: u0 u1 art npcover start key=d041e5ce04cedfc7
+# logbetween: u0 u1 bcmjob decode len=\d+ n=1
+# logbetween: u1 u2 art bcm decode key=d041e5ce04cedfc7 dw=300 dh=300 cw=300 ch=300 rc=-7 v=2
+# logbetween: u1 u2 no art panel crc
+# logrange: 0 200 after=u1 usb ack ms=(\d+)
+# nolog: glass owned STALE
+# nolog: shot POISONED
+# timeout: 300
+
+wait 1000
+bcm_decode panel pace 20
+wait_db 30000
+sim_clock 15:04
+clock_format 24
+battery 100
+charger off
+repeat one
+mkdir /NPDec
+copy ../../build/np-fixtures/art_big.mp3 /NPDec/art_big.mp3
+update_db_wait_change 60000
+art_wait 120000
+play_files /NPDec/art_big.mp3
+wait 1000
+np_pin 3000 50
+key SELECT          # Music (the menu re-reads "Now Playing" after a push/pop)
+wait 700
+key MENU
+wait 700
+wheel +10 100       # Now Playing: none built, the thumbnail, queued
+disk_active 3000
+wait 1000
+ab_mark u0
+audio_pause on      # paused, lit, idle: np-sharp on the BCM
+disk_active 10000
+wait 2500           # the overlay's load first (the art thread reads it,
+                    # ~100 ms), then the decode under way (seconds at
+                    # this pace)
+ab_mark u1
+usb_connect
+wait 2000
+shot usb
+ab_mark u2
+usb_disconnect
+wait 3000
+audio_stop
+rm_file /NPDec/art_big.mp3
+quit

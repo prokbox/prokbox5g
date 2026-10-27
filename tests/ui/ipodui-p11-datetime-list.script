@@ -1,0 +1,68 @@
+# Phase 11 (docs/phase11-brief.md 3.6, 7 criterion 8): Settings > Date &
+# Time. The split list (Date, Time, Time Zone, 24 Hour Clock, Time in
+# Title with inline values); Time in Title turned on from its row (the
+# setting defaults to Off, owner T1) shows the clock in the header; 24 Hour
+# Clock changes its format; Time Zone is a region list, then a city list,
+# and a city returns straight to Date & Time; Date opens the dark roller.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p11-datetime-list.script
+# needs: library
+# log: datetime time_in_title=1
+# log: datetime 24h=
+# log: datetime tz city=42
+# golden: skip date_roller
+#
+# Needs U2a's row wiring (Settings row 13 -> ui_datetime_menu_screen) and
+# U2a's roller.c for the roller's fields (date_roller is skipped as a
+# golden until both land).
+
+time_in_title off     # the default (a script before may have left it on)
+sim_clock 15:08
+title_phase clock    # when the clock shows, it shows at once (pinned)
+wait 4000
+wheel +3             # Settings
+wait 400
+key SELECT
+wait 1500
+wheel +12            # Date & Time
+wait 400
+key SELECT
+wait 1500
+shot list            # title "Date & Time", 24 Hour Clock / Time in Title Off
+
+wheel +4             # Time in Title
+wait 600
+key SELECT           # On
+wait 1000
+shot time_in_title_on   # the header shows 15:08; the row reads On
+
+wheel -1             # 24 Hour Clock
+wait 600
+key SELECT           # flips the format
+wait 1000
+shot clock_format    # the header clock in the other format
+
+wheel -1             # Time Zone
+wait 600
+key SELECT
+wait 1500
+shot regions         # Africa ... South America, North America highlighted
+wheel -1             # Europe
+wait 600
+key SELECT
+wait 1500
+shot cities_europe
+wheel +10            # London (Europe, by name: Amsterdam ... London is 11th)
+wait 600
+key SELECT           # back to Date & Time (both lists leave)
+wait 2500
+shot after_city
+
+wheel -2             # Date
+wait 600
+key SELECT
+wait 1500
+shot date_roller     # dark, title "Date", the month / day / year roller
+key MENU             # saves (D5) and returns
+wait 1200
+shot back_from_date
+quit

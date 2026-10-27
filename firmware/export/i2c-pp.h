@@ -44,5 +44,12 @@ int i2c_readbyte(unsigned int dev_addr, int addr);
 int pp_i2c_send(unsigned int addr, int data0, int data1);
 int i2c_readbytes(unsigned int dev_addr, int addr, int len, unsigned char *data);
 int i2c_sendbytes(unsigned int dev_addr, int len, const unsigned char *data);
+#ifdef HAVE_PP_GOV_DVS
+/* ProkBox: whether a thread holds the bus's mutex (a hint, read without
+ * its corelock: the band governor's raw write on a COP restart skips a
+ * held bus rather than cut into the other core's transaction) */
+#include <stdbool.h>
+bool i2c_held(void);
+#endif
 
 #endif

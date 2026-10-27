@@ -1,0 +1,32 @@
+# 0.8.0 release fix: Save Diagnostics on a PAUSED unit.  Paused, playback
+# refuses another thread's buffer shrink and posts the give instead, so the
+# one core_alloc for the report could say nomem; diag_save_report now waits
+# for the give (up to ~1 s).  The report must save, never "FAILED nomem".
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-diag-report-paused.script
+# needs: music
+# log: diag report saved
+# golden: skip
+# expect-file: "/ProkBox Report.txt" ProkBox diagnostics report
+
+wait 4000            # boot to the main menu
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait 1500
+key PLAY             # pause
+wait 800
+wheel +3             # Settings
+wait 400
+key SELECT
+wait 1500
+key SELECT           # About
+wait 1500
+key RIGHT
+wait 700
+key RIGHT
+wait 700
+key RIGHT
+wait 700
+shot page4           # Save Diagnostics, paused
+key SELECT           # save
+wait 2500
+shot saved_paused
+quit

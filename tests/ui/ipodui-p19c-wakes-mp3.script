@@ -1,0 +1,44 @@
+# P19 19-1c: the codec's wakes in dark playback of an MP3, before (the
+# old HZ/20 poll on a full PCM buffer, "fullwait legacy") and after (the
+# low-watermark sleep, "fullwait on"), 20 s each with the panel asleep;
+# then the boundary into a FLAC well into the dark (a codec change, no
+# underrun). The default decodes on the CPU with MP3's synthesis inline
+# (pinned, owner 2026-10-24; host test tests/mpainline); the simulator
+# has one core. Read
+# the "sim_script: wakes" lines.
+#   sh tests/fixtures/p19c/make_p19c_fixtures.sh
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p19c-wakes-mp3.script
+# needs: music
+# golden: skip
+# timeout: 400
+# nolog: pcm underrun
+# nolog: codec place
+# nolog: splash-pass
+
+wait 3000
+repeat off          # a shared disk may hold "repeat: one" (np-sharp)
+mkdir /P19C
+copy ../../build/p19c-fixtures/long.mp3 /P19C/long.mp3
+copy ../../build/p19c-fixtures/t1.flac /P19C/t1.flac
+fullwait legacy
+play_files /P19C/long.mp3 /P19C/t1.flac
+wait 3000
+backlight_expire
+expect_lcd_sleep 59000 66000
+wait 2000
+wakes start
+wait 20000
+wakes legacy_dark
+fullwait on
+wait 2000
+wakes skip
+wait 20000
+wakes wm_dark
+expect_wakes_le codec 80
+expect_playing 500
+wait_index 2 240000
+wait 3000
+key MENU
+wait 3000
+shot end
+quit

@@ -1,0 +1,39 @@
+# Owner session 2026-10-19: power.csv rotation. Past POWERLOG_MAX (4 MB,
+# apps/ipodui/powerlog.h; this script lowers it to 256 KB with the sim's
+# powerlog_max so a small seed crosses it) the UI thread's own flush (here the log going off) moves it to power.csv.1,
+# removing the old .1 first (never a rename over it), and starts a fresh
+# file with the CSV header. Seeds: a 377 KB power.csv (english.lang, no
+# header) and a small stale power.csv.1 (this script).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p10-powerlog-rotate.script
+# timeout: 60
+# log: power log on every=30s
+# log: power log off forced=0
+# nolog: log rotate failed
+# expect-file: /.rockbox/power.csv s,mv,pct,charger,charging,play
+# expect-file: /.rockbox/power.csv ,off
+# expect-file: /.rockbox/power.csv.1 id: LANG_
+# golden: skip devlist_rotated
+
+wait 5000           # boot to the main menu
+powerlog_max 262144
+rm_file /.rockbox/power.cfg
+copy ../../apps/lang/english.lang /.rockbox/power.csv
+copy ipodui-p10-powerlog-rotate.script /.rockbox/power.csv.1
+wheel +3            # Settings
+wait 400
+key SELECT
+wait 1500
+key SELECT          # About
+wait 1500
+chord SELECT+LEFT 3200
+wait 1000
+wheel +1            # Power log: off (the row after Status)
+wait 400
+key SELECT          # on, every 30 s
+wait 1500
+key SELECT          # off: the UI thread's flush rotates, then writes
+wait 1500
+shot devlist_rotated
+key LEFT
+wait 1000
+quit

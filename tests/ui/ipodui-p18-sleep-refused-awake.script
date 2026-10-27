@@ -1,0 +1,33 @@
+# Review H1: a refusal is not a deep wake. With a PLL hold that outlasts
+# SLEEP_QUIESCE_MS and the one retry, power_sleep() refuses twice: the
+# refusal is logged, the unit stays awake and dark (the ordinary idle),
+# and nothing powers it off. A key then lights it as from any timeout.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p18-sleep-refused-awake.script
+# needs: library
+# golden: skip
+# fulls-extra: 1          (the screen is redrawn after the refused sleep)
+# log: sim_sleep: sleep refused why=2
+# log: sleep refused why=2 try=0
+# log: sleep refused why=2 try=1
+# log: sleep refused stay=awake
+# nolog: sim_sleep: sleep enter
+# nolog: sleep deep
+# nolog: tier=off
+# nolog: splash-pass
+
+sleep_mode soft       # soft sleep is off by default (developer switch)
+wait 4000
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait_pos 6000 60000
+key PLAY
+wait 500                # the toggle lands (the expect does not wait)
+expect_paused 500
+pll_hold 30000          # past the 5 s bound and the 1 s retry
+hold PLAY 1200
+wait 9000               # the bound, both tries, then awake in the dark
+expect_sleep awake 500
+expect_paused 500       # nothing stopped, nothing powered off
+key SELECT              # lights the screen
+wait 1000
+shot awake
+quit

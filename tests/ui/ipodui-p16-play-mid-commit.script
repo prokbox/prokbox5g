@@ -1,0 +1,47 @@
+# Phase 16-1 (#88): PLAY during a commit that took the paused window's
+# memory. The update is found while paused; the window (3 min, dark)
+# takes room by one partial shrink and the commit starts; held mid-way
+# (commit_hold 1: after the dirty mark), the user comes back and presses
+# PLAY: playback resumes from the smaller buffer at once (no stop, no
+# wait for the commit) and the commit goes on to publish; the log says
+# "play_during=1".
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-play-mid-commit.script
+# needs: library
+# needs: ab
+# golden: skip
+# timeout: 300
+# log: maint take job=commit ok=1
+# logbetween: h0 end maint job=commit ok=1 ms=[0-9]+ play_during=1
+# logbetween: h0 end maint job=commit ok=1
+# logbetween: start h0 no maint job=commit ok=1
+# fulls-extra: 2
+
+wait 4000
+wait_db 45000
+mkdir /Audiobooks/M16
+copy ../../build/ab-fixtures/pref.m4b /Audiobooks/M16/pref.m4b
+update_db_wait_change 60000
+play_files /Audiobooks/M16/pref.m4b
+wait_pos 3000 60000
+snapshot_pause
+expect_paused 500
+backlight_expire            # dark
+pause_age 200               # paused 3 min 20 s
+commit_hold 1
+db_mark
+copy ../../tests/fixtures/plain.mp3 /Audiobooks/M16/new.mp3
+update_db
+commit_hold_wait 90000      # the window took the memory; held mid-commit
+ab_mark h0
+key MENU                    # the user is back (the face goes)
+wait 800
+key PLAY                    # PLAY while the commit runs
+wait 1500
+expect_playing 1500
+commit_release
+expect_db_grew 90000
+expect_playing 1000         # never stopped by the commit
+shot playing
+ab_mark h1
+rm_file /Audiobooks/M16/new.mp3
+quit

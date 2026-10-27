@@ -1,0 +1,57 @@
+# Legal package C (docs/legal.md section 2, L4): the first-boot notice.
+# The shell's first frame once per build, nothing behind it; only Select
+# dismisses it, and not in its first 3 s; every other button (MENU, PLAY,
+# the skips, the holds) does nothing; a USB session while it is up
+# acknowledges nothing (it comes back next boot); after a dismissal it
+# stays away. Every other script runs pre-acked (apps/ipodui/notice.h),
+# so their first frames never show it.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-legal-notice.script
+# env: IPODUI_SIM_NOTICE=clear
+# log: notice shown key=
+# log: legal lines=
+# log: notice=1
+# log: notice select ignored (guard)
+# log: notice not acked (usb)
+# log: notice acked
+# nolog: hold MENU: to the main menu
+# expect-file: /.rockbox/config.cfg ipodui notice ack:
+
+# boot 1: the ack is cleared, the notice is the first frame
+wait 1000
+key SELECT           # inside the first 3 s: ignored
+wait 300
+shot notice-guard
+wait 3000
+shot notice
+wheel +4             # all of it fits: nothing scrolls
+wait 400
+key MENU
+wait 400
+key PLAY
+wait 400
+key NEXT
+wait 400
+hold MENU 1200       # not "to the main menu" here
+wait 600
+shot notice-keys
+usb_connect
+wait 2500
+usb_disconnect
+wait 2500
+shot notice-after-usb
+key SELECT           # dismissed, but the USB session acks nothing
+wait 1500
+shot menu-usb-dismissed
+reboot
+# boot 2: not acknowledged, so it is back; Select acknowledges (well
+# past the 3 s guard: the module build's boot is slower)
+wait 6000
+shot notice-again
+key SELECT
+wait 1500
+shot menu
+reboot
+# boot 3: acknowledged, the Main Menu is the first frame
+wait 4000
+shot menu-next-boot
+quit

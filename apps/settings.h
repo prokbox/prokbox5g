@@ -263,6 +263,14 @@ bool settings_load_config(const char* file, bool apply);
 
 void status_save(bool force);
 int settings_save(void);
+#ifdef HAVE_IPOD_UI
+/* ProkBox (cfgsafe): a settings_save() is written within about 2 s (at
+ * most 8 s while changes keep coming). The shell's back end calls the
+ * service every UI pass; the UI folds the wait (ticks, or TIMEOUT_BLOCK
+ * when nothing is owed) into its sleep */
+long settings_save_wait(void);
+void settings_save_service(void);
+#endif
 
 /* defines for the options paramater */
 enum {
@@ -718,6 +726,63 @@ struct user_settings
     unsigned char remote_font_file[MAX_FILENAME+1]; /* last font */
 #endif
     unsigned char kbd_file[MAX_FILENAME+1];  /* last keyboard */
+#ifdef HAVE_IPOD_UI
+    /* the shell's device name (Settings capacity panel, About); empty
+     * means the localised default "iPod". This unit's config.cfg sets
+     * "device name: Sam's iPod" (owner, #38 Rev 6) */
+    unsigned char ipodui_device_name[48];
+    /* Settings > Shuffle "Albums" (with playlist_shuffle on): the 7G's
+     * third value. Stored only until album shuffle lands (Phase 5) */
+    bool ipodui_shuffle_albums;
+    /* Settings > Audiobooks speed (enum ab_speed: 0 Slower 0.75x, 1 Normal,
+     * 2 Faster 1.25x); audiobooks only (P6 D14) */
+    int ipodui_ab_speed;
+    /* Settings > Audiobooks > Sort By: 0 Title, 1 Author (enum
+     * lib_book_order, library.h; #59) */
+    int ipodui_ab_sort;
+    /* P11 (docs/phase11-brief.md section 4.7). Main Menu / Music Menu
+     * checklists: bit masks of enum ui_mm_bit / ui_mu_bit (menucfg.h) */
+    int ipodui_main_menu;
+    int ipodui_music_menu;
+    /* Volume Limit combination: -1 none, else 0..9999 (vlimit.h) */
+    int ipodui_vlimit_code;
+    /* P12 Extras > Screen Lock (lock.h): its own combination, -1 none,
+     * else 0..9999 (separate from Volume Limit's, Q11), and the lock
+     * itself, saved at once so it survives power-off and reboot (Q10) */
+    int ipodui_lock_code;
+    bool ipodui_locked;
+    /* Date & Time > Time in Title (owner: default Off, section 1.2 T1) */
+    bool ipodui_time_in_title;
+    /* Date & Time > Time Zone: a stable city id (tzcity.h) */
+    int ipodui_tz_city;
+    /* Extras > Clocks (P12 W1-C): the clocks' city ids, "3,42,79" (up to
+     * six; empty: one clock, the Time Zone city) */
+    unsigned char ipodui_clocks[24];
+    /* Settings > Sort By: Last (sort names by last name) */
+    bool ipodui_sort_last;
+    /* Settings > EQ: 0 Off, 1..22 the presets (eq.c) */
+    int ipodui_eq_preset;
+    /* About page 3 (hidden; set in config.cfg; an empty one is hidden) */
+    unsigned char ipodui_serial[17];
+    unsigned char ipodui_model[17];
+    /* the first-boot legal notice (ipodui/notice.h): the hash of the
+     * build it was last dismissed on, 0 never (hidden; kept by Reset) */
+    int ipodui_notice_ack;
+    int ipodui_viz_style;       /* #126: the visualizer's style (viz_core.h) */
+    int ipodui_charge_face;     /* #126: on a charger, 0 Clock, 1 Visualizer */
+    /* P19 19-9: where the shell runs from the next boot (hidden, set in
+     * config.cfg only): 0 the build default (IPODUI_UI_CORE_DEFAULT),
+     * 1 the main thread, 2 its own CPU thread, 3 the COP (fe_be.h) */
+    int ipodui_ui_core;
+#ifdef HAVE_BCMFW_VIDEO
+    /* Videos > Settings (Phase 14a, docs/phase14a-brief.md 3.8; rows in
+     * settings_list.c, V6): Start Playing 0 Where Left Off, 1 From
+     * Beginning; Fit to Screen (stored, handed to the player once it has
+     * a mode) */
+    int ipodui_video_start;
+    bool ipodui_video_fit;
+#endif
+#endif
     int  backlight_timeout;  /* backlight off timeout:  -1=never,
                                 0=always, or time in seconds */
     bool caption_backlight; /* turn on backlight at end and start of track */

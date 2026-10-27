@@ -1,0 +1,48 @@
+# P11 U2a: the Settings rows' wiring. Sort By is a stored setting now
+# (SELECT flips First/Last, the panel caption follows, it survives a
+# reboot), the Main Menu change survives a reboot, and every other row
+# that U2b builds opens its screen (stubs until then) with the Settings
+# panel layout unchanged.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p11-settings-wiring.script
+# golden: skip sortby_first sortby_last sortby_after_reboot main_menu_after_reboot brightness_row
+wait 4000
+
+wheel +3 300            # Settings
+wait 400
+key SELECT 50
+wait 1200
+wheel +13 40            # Sort By (row 13)
+wait 800
+shot sortby_first       # "First", caption "Sort Contacts By First Name"
+key SELECT 50
+wait 800
+shot sortby_last        # "Last", caption "... Last Name"
+
+# Main Menu: check Playlists, then reboot
+wheel -10 40            # Main Menu (row 3)
+wait 800
+key SELECT 50
+wait 1200
+wheel +1 300
+wait 400
+key SELECT 50
+wait 800
+reboot
+wait 4000
+shot main_menu_after_reboot   # Music, Playlists, Podcasts, Extras, Settings, Shuffle Songs
+wheel +4 300            # Settings
+wait 400
+key SELECT 50
+wait 1200
+wheel +13 40
+wait 800
+shot sortby_after_reboot      # still "Last"
+
+# the rows U2b builds open their screens (a stub until then): Brightness
+wheel -6 300
+wait 600
+key SELECT 50
+wait 1500
+shot brightness_row
+
+quit

@@ -1,0 +1,72 @@
+# P12 W1-L (9 "-lock-usb", Q10): a computer connected for data unlocks
+# (any host: we cannot know the "primary" one). The state changes in RAM
+# at the event; the save waits for the post-USB path (no write at USB
+# entry); after the session the locked screen is gone, and a reboot stays
+# unlocked.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p12-lock-usb.script
+# golden: skip
+# modclass: none (resident sim-ui: the accountant follows the module
+# loader; a modules-build run, SIM_BUILD=build/sim-ui-mod, is owed)
+# log: ipodui: lock usb unlock
+# log: ipodui: lock save
+# nolog: 1234
+# reset: mainmenu
+wait 4000            # boot to the main menu, "Music" selected
+wheel +2 300         # "Extras"
+wait 600
+key SELECT
+wait 1200
+wheel +7 200         # the last row (Stopwatch; the list does not wrap)
+wait 600
+wheel -1 200         # "Screen Lock", from the end: with or without a Games row
+wait 800
+key SELECT
+wait 1200
+# New Combination 1234, then Confirm 1234: Lock / Reset
+wheel +1 250
+wait 300
+key SELECT
+wait 200
+wheel +2 250
+wait 300
+key SELECT
+wait 200
+wheel +3 250
+wait 300
+key SELECT
+wait 200
+wheel +4 250
+wait 300
+key SELECT
+wait 200
+wait 800
+wheel +1 250
+wait 300
+key SELECT
+wait 200
+wheel +2 250
+wait 300
+key SELECT
+wait 200
+wheel +3 250
+wait 300
+key SELECT
+wait 200
+wheel +4 250
+wait 300
+key SELECT
+wait 200
+wait 800
+key SELECT           # Lock
+wait 1200
+shot locked
+usb_connect
+wait 2500
+shot usb
+usb_disconnect
+wait 2500
+shot after_usb       # Lock / Reset: unlocked
+reboot
+wait 5000
+shot booted          # the main menu, not the locked screen
+quit

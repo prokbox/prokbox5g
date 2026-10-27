@@ -25,6 +25,10 @@
 #include "kernel.h"
 #include "ata-driver.h"
 #include "ata.h"
+#include "devstats.h"
+#if defined(HAVE_USB_PREFETCH) && !defined(BOOTLOADER)
+#include "usb.h"
+#endif
 
 void ata_reset()
 {
@@ -54,8 +58,35 @@ static const unsigned long pio80mhz[] = {
     0xC293, 0x43A2, 0x11A1, 0x7232, 0x3131
 };
 
+#ifdef HAVE_ATA_DMA_IRQ
+/* ProkBox (Fit-1 C4b): the end of a DMA transfer raises the drive's
+ * INTRQ, seen in IDE0_CFG bit 3 and as interrupt source 23 (IDE_IRQ). The
+ * waiting thread sleeps on a semaphore the handler releases, so the core
+ * idles through the transfer instead of yielding in a poll loop. Every
+ * wait is sliced (DMA_IRQ_SLICE) and re-reads the bit itself, so a lost
+ * or unrouted interrupt costs at most a slice; DMA_IRQ_MISS_MAX
+ * consecutive transfers that end without the interrupt switch the driver
+ * back to polling for the rest of the boot. The handler only masks the
+ * source and releases; it never reads the ATA status (quirks.md #26). */
+#define DMA_IRQ_SLICE       2       /* ticks */
+#define DMA_IRQ_MISS_MAX    3
+static struct semaphore dma_sem;
+static bool dma_irq_off;            /* polling: the interrupt was not seen */
+static unsigned char dma_irq_misses;
+
+void ata_dma_irq(void)
+{
+    CPU_INT_DIS = IDE_MASK;
+    semaphore_release(&dma_sem);
+}
+#endif
+
 void ata_device_init()
 {
+#ifdef HAVE_ATA_DMA_IRQ
+    CPU_INT_DIS = IDE_MASK;
+    semaphore_init(&dma_sem, 1, 0);
+#endif
 #ifdef SAMSUNG_YH920
     CPU_INT_DIS = (1<<IDE_IRQ);
 #endif
@@ -141,12 +172,78 @@ void ata_dma_set_mode(unsigned char mode) {
 #define IDE_CFG_INTRQ           8
 #define IDE_DMA_CONTROL_READ    8
 
+#if defined(HAVE_USB_PREFETCH) && !defined(BOOTLOADER)
+/* ProkBox (USB reliability): while the computer owns the disk, a wait for
+ * the end of a DMA transfer that sleeps or yields lets the main thread
+ * run, and its next LCD push (~110 ms, no yield) delays the completion,
+ * which macOS took for a dead device and answered with a bus reset (upstream
+ * e13befb925 found the same on iFlash units). A wait made by the thread
+ * that answers the host (a READ or WRITE it serves itself; nothing else
+ * could use the time) therefore spins on INTRQ and runs nothing else. The
+ * prefetch worker is the exception, `ata_usb_bg_thread`: the USB thread
+ * must run while it waits (that overlap is what the ring is for), and a
+ * late landing costs the host nothing, its READs are answered from the
+ * ring. Outside USB mode nothing changes. */
+unsigned int ata_usb_bg_thread;     /* set by usb_storage.c; 0: none */
+
+static bool ata_usb_spin(void)
+{
+    return usb_exclusive_storage() && thread_self() != ata_usb_bg_thread;
+}
+#endif
+
 /* This waits for an ATA interrupt using polling.
    In ATA_CONTROL, CONTROL_nIEN must be cleared.
  */
 static ICODE_ATTR int ata_wait_intrq(void)
 {
     long timeout = current_tick + HZ*10;
+
+#if defined(HAVE_USB_PREFETCH) && !defined(BOOTLOADER)
+    if (ata_usb_spin())
+    {
+        do
+        {
+            if (IDE0_CFG & IDE_CFG_INTRQ)
+                return 1;
+            ata_keep_active();
+        } while (TIME_BEFORE(current_tick, timeout));
+        return 0;
+    }
+#endif
+
+#ifdef HAVE_ATA_DMA_IRQ
+    if (!dma_irq_off)
+    {
+        do
+        {
+            int rc;
+
+            if (IDE0_CFG & IDE_CFG_INTRQ)
+                return 1;           /* done before we slept */
+            CPU_INT_EN = IDE_MASK;  /* a pending INTRQ fires at once */
+            rc = semaphore_wait(&dma_sem, DMA_IRQ_SLICE);
+            CPU_INT_DIS = IDE_MASK;
+            ata_keep_active();
+            if (IDE0_CFG & IDE_CFG_INTRQ)
+            {
+                if (rc == OBJ_WAIT_SUCCEEDED)
+                {
+                    dma_irq_misses = 0;
+                    DEVSTATS_ATA_IRQ(true);
+                }
+                else if (++dma_irq_misses >= DMA_IRQ_MISS_MAX)
+                {
+                    dma_irq_off = true;     /* not routed: poll */
+                    DEVSTATS_ATA_IRQ(false);
+                }
+                return 1;
+            }
+            /* a stale release from a late interrupt: loop, re-check */
+        } while (TIME_BEFORE(current_tick, timeout));
+        return 0;
+    }
+#endif
 
     do
     {
@@ -180,8 +277,20 @@ bool ata_dma_setup(void *addr, unsigned long bytes, bool write) {
             return false;
         if (!ata_is_ssd)
             return false;
+#ifdef HAVE_ATA_UDMA_FORCE
+        if (ata_udma_forced_now())
+            return false;           /* C7: writes by PIO while forced */
+#endif
     }
 
+#ifdef HAVE_PLL_IDLE
+    /* Fit-1 C6: UDMA2 is rated at 30 MHz, so no transfer at 24 MHz.
+     * Held before a UDMA4 boost (below), so that boost starts from 30 MHz
+     * and the 24 MHz policy does not count it as the codec being rescued:
+     * S36 struck FLAC for ~56k boosts that were the library scan's
+     * forced-UDMA4 transfers, one per command (clockpol.c) */
+    cpu_pll_hold(CPU_PLL_HOLD_ATA, true);
+#endif
 #if ATA_MAX_UDMA > 2
     if (dma_needs_boost && !dma_boosted) {
         cpu_boost(true);
@@ -250,6 +359,9 @@ bool ata_dma_finish(void) {
         cpu_boost(false);
         dma_boosted = false;
     }
+#endif
+#ifdef HAVE_PLL_IDLE
+    cpu_pll_hold(CPU_PLL_HOLD_ATA, false);
 #endif
 
     return res;

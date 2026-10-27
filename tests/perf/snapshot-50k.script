@@ -1,0 +1,10 @@
+# Disposable synthetic disk only; tests the real two-context publication.
+# golden: skip published
+wait 4000
+wait_db 300000
+snapshot_stress_begin
+copy ../../tests/ui/fixtures/refresh.mp3 /zz-snapshot-stress.mp3
+update_db
+expect_snapshot_stress_switch 300000
+shot published
+quit

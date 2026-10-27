@@ -1,0 +1,85 @@
+# Phase 6 (Rev 2 / D17): a book is finished within 30 s of its end, or when
+# its queue ends. The resume spot is then CLEARED: no Resume on the page, and
+# the next play starts over at 0. "AB Short Book" is 40 s (Opening 0-20 s,
+# Closing 20-40 s): any stop at or after 10 s is within 30 s of the end.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p6-finished.script
+# needs: library
+# needs: ab
+# timeout: 120
+# trace: ab
+# log: ab store w=now
+# golden: skip np_closing
+# DB state: ready. Needs B and U. Rows: 0 A Field Guide, 1 AB Short Book.
+# Sequence: started (3 s) -> Resume -> NEXT to Closing (20 s) and pause =
+# finished -> page without Resume -> entry 1 starts at 0 -> NEXT, play to
+# the queue's end = finished again.
+
+wait 4000
+wait_db 45000
+mkdir /Audiobooks/AB
+copy ../../build/ab-fixtures/short.m4b /Audiobooks/AB/short.m4b
+update_db_wait_change 60000
+art_wait 60000
+
+key SELECT
+wait 800
+wheel +6 300   # Audiobooks (Compilations off: P11)
+wait 400
+key SELECT
+wait 900
+wheel +1 300
+wait 400
+key SELECT          # page: Opening, Closing
+wait 1000
+key SELECT          # Opening from 0
+wait 3500
+key PLAY            # paused at ~3 s of 40: a spot, not finished
+wait 800
+expect_ab_store 1 0 3000
+
+hold MENU 1000
+wait 1200
+key SELECT
+wait 800
+wheel +6 300   # Audiobooks (Compilations off: P11)
+wait 400
+key SELECT
+wait 900
+# (#67: the short book, paused, is pinned on top: row 0, no step)
+wait 400
+key SELECT
+wait 1000
+shot page_resume    # Resume, Opening, Closing
+key SELECT          # Resume
+wait 1500
+key NEXT            # Closing: 20 s, 20 s from the end
+wait 1500
+expect_pos 19000 26000
+shot np_closing
+key PLAY            # pause inside the last 30 s = finished
+wait 800
+expect_ab_store 0 1 3000
+
+hold MENU 1000
+wait 1200
+key SELECT
+wait 800
+wheel +6 300   # Audiobooks (Compilations off: P11)
+wait 400
+key SELECT
+wait 900
+# (#67: still pinned, finished or not: row 0, no step)
+wait 400
+key SELECT
+wait 1000
+shot page_finished  # no Resume: Opening, Closing
+key SELECT          # Opening: starts over
+wait 1800
+expect_pos 0 3500
+key NEXT            # Closing, then let the queue end
+wait_pos 39500 90000 short.m4b
+wait 2500
+expect_ab_store 0 1 3000
+shot after_end
+remove /Audiobooks/AB/short.m4b
+quit

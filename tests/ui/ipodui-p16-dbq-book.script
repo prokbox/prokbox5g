@@ -1,0 +1,51 @@
+# #109 (design 6 row 11, 7 "-dbq-book"): an audiobook's queue is a
+# database queue too (its names still read for the book map): it plays
+# from the chapter, its spot goes to books.dat, and after a restart PLAY
+# resumes the same one-file block.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-dbq-book.script
+# needs: library
+# needs: ab
+# timeout: 200
+# golden: skip resumed
+# log: dbq build n=1
+# log: ab map src=
+# log: dbq resume n=1
+# nolog: dbq resume fail
+# nolog: dbq miss
+# nolog: splash-pass
+
+wait 4000
+wait_db 45000
+mkdir /Audiobooks/AB
+copy ../../build/ab-fixtures/pref.m4b /Audiobooks/AB/pref.m4b
+update_db_wait_change 60000
+art_wait 60000
+key SELECT          # Music
+wait 800
+wheel +6 300        # Audiobooks (Compilations off: P11)
+wait 400
+key SELECT
+wait 900
+wheel +1 300        # AB Preface Book
+wait 400
+key SELECT          # its page
+wait 1000
+wheel +1 300        # Chapter 1
+wait 300
+key SELECT
+wait_pos 20000 60000 pref.m4b
+key PLAY            # pause: the spot goes to books.dat
+wait 800
+reboot
+
+wait 4000
+wait_db 45000
+key PLAY            # resume the book's queue
+wait 1500
+expect_playing 1000
+shot resumed
+audio_stop
+wait 500
+remove /Audiobooks/AB/pref.m4b
+update_db_wait_change 60000
+quit

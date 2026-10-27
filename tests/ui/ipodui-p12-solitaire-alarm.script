@@ -1,0 +1,43 @@
+# P12 integration (docs/design/sdk.md 2.2, 8.2): an alarm that rings over
+# a running game suspends it (SDK_WHY_ALARM = 2) and dismissing the ring
+# resumes it, the board as it was. The suspend's record is not written at
+# once: it waits for the next natural disk wake (here `disk_active`),
+# never a spin-up of its own.
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-solitaire-alarm.script
+# needs: modules
+# golden: skip
+# timeout: 120
+# env: IPODUI_SIM_ALARM_IN=30
+# alarm-rings: 1
+# log: sdk suspend solitaire why=2
+# log: sdk resume solitaire
+# log: sdk state write solitaire bytes=
+# log: why=deferred
+# nolog: sdk kill
+# reset: mainmenu
+
+wait 4000
+sdk_clear            # a fresh deal (the simulator deals from a fixed seed)
+wheel +2             # Extras
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Games
+wait 600
+key SELECT
+wait 1200
+wheel +5             # Solitaire
+wait 600
+key SELECT
+wait 1500
+key SELECT           # draw three from the stock
+wait 800
+shot before
+wait 30000           # the alarm rings over the game
+shot ringing
+key MENU             # dismiss: back to the same board
+wait 2000
+shot resumed
+disk_active 2000     # the disk wakes for something else: the record goes
+wait 2500
+quit

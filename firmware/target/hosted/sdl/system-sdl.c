@@ -64,6 +64,10 @@ bool            debug_buttons = false;
 
 bool            sim_alarm_wakeup = false;
 const char     *sim_root_dir = SIMULATOR_DEFAULT_ROOT;
+#ifdef SIMULATOR
+const char     *sim_script_file = NULL;    /* --script: scripted UI input */
+const char     *sim_shot_dir = ".";        /* --shotdir: script screenshots */
+#endif
 
 static SDL_Thread *evt_thread = NULL;
 
@@ -370,6 +374,23 @@ void sys_handle_argv(int argc, char *argv[])
                     printf("Root directory: %s\n", sim_root_dir);
                 }
             }
+#ifdef SIMULATOR
+            else if (!strcmp("--script", argv[x]))
+            {
+                x++;
+                if (x < argc)
+                {
+                    sim_script_file = argv[x];
+                    printf("Input script: %s\n", sim_script_file);
+                }
+            }
+            else if (!strcmp("--shotdir", argv[x]))
+            {
+                x++;
+                if (x < argc)
+                    sim_shot_dir = argv[x];
+            }
+#endif
             else if (!strcmp("--mapping", argv[x]))
             {
                     mapping = true;
@@ -405,6 +426,10 @@ void sys_handle_argv(int argc, char *argv[])
                 printf("  --alarm \t Simulate a wake-up on alarm\n");
                 printf("  --root [DIR]\t Set root directory\n");
                 printf("  --mapping \t Output coordinates and radius for mapping backgrounds\n");
+#ifdef SIMULATOR
+                printf("  --script [FILE]\t Run scripted input (see uisimulator/common/sim_script.c)\n");
+                printf("  --shotdir [DIR]\t Directory for script screenshots (default: .)\n");
+#endif
                 printf("  --audiodev [NAME] \t Audio device name to use\n");
                 exit(0);
             }

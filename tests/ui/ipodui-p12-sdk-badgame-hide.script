@@ -1,0 +1,35 @@
+# P12 W4-0 (docs/design/sdk.md 11.3, 12.2, Q20): three kills in a row hide
+# a game. Mode 5 (one 300 ms step: over 10 x its slice, killed at once),
+# mode 3 (a loop of SDK calls: the kill flag, honoured at an SDK
+# boundary), mode 2 (a loop in the game's own code: the watchdog's unwind,
+# the simulator's model of the IRQ path). After the third, "sdk hide
+# badgame kills=3" and the Games list no longer shows it.
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-sdk-badgame-hide.script
+# needs: modules
+# reset: mainmenu
+
+wait 4000
+sdk_clear
+wheel +2             # Extras
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Games
+wait 600
+key SELECT
+wait 1200
+wheel +3             # Game rule tests (below Bricks, Chess, Chute)
+wait 600
+sdk_bad 5
+key SELECT
+wait 1500
+shot kill1
+sdk_bad 3
+key SELECT
+wait 2500
+shot kill2
+sdk_bad 2
+key SELECT
+wait 2500
+shot hidden          # no Game rule tests row
+quit

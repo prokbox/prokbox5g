@@ -62,6 +62,13 @@
 
 #define str_or_empty(x) (x ? x : "(NULL)")
 
+#ifndef IPODUI_TRIM_TAGTREE
+/* Phase 9 (docs/phase9-brief.md 3.3.2, Rev 1 H1): in the shell everything
+ * in this file is compiled out except the two playback handlers below
+ * (playcount, playtime, lastplayed, lastelapsed, lastoffset: their only
+ * writers, read by the shell's library and book resume) and a minimal
+ * tagtree_init() that registers them. No tagnavi.config, no uniqbuf, no
+ * menus. The stock build sees the file unchanged. */
 #define TAGNAVI_DEFAULT_CONFIG  ROCKBOX_DIR "/tagnavi.config"
 #define TAGNAVI_USER_CONFIG     ROCKBOX_DIR "/tagnavi_user.config"
 
@@ -931,6 +938,8 @@ static int compare_with_albums(const void *p1, const void *p2)
     return qsort_fn(e1->name, e2->name, MAX_PATH);
 }
 
+#endif /* !IPODUI_TRIM_TAGTREE */
+
 static void tagtree_buffer_event(unsigned short id, void *ev_data)
 {
     (void)id;
@@ -938,7 +947,12 @@ static void tagtree_buffer_event(unsigned short id, void *ev_data)
     struct mp3entry *id3 = ((struct track_event *)ev_data)->id3;
 
     bool runtimedb = global_settings.runtimedb;
-    bool autoresume = global_settings.autoresume_enable;
+    bool autoresume = global_settings.autoresume_enable
+                      || id3->is_audiobook
+#ifdef HAVE_IPOD_UI
+                      || tagcache_ui_resumes(id3)
+#endif
+                      ;
 
     /* Do not gather data unless proper setting has been enabled. */
     if (!runtimedb && !autoresume)
@@ -990,6 +1004,9 @@ static void tagtree_buffer_event(unsigned short id, void *ev_data)
 
     /* Store our tagcache index pointer. */
     id3->tagcache_idx = tcs.idx_id+1;
+#if defined(HAVE_IPOD_UI) && defined(HAVE_TC_RAMCACHE)
+    id3->tagcache_bind = tagcache_ui_bind_token(&tcs);
+#endif
 
     tagcache_search_finish(&tcs);
 }
@@ -1007,10 +1024,21 @@ static void tagtree_track_finish_event(unsigned short id, void *ev_data)
         return;
     }
     tagcache_idx--;
+#ifdef HAVE_IPOD_UI
+    /* #88: a paused window's silent restart must send none (scripts
+     * ipodui-p16-*: "logbetween ... no stats finish") */
+    DEBUGF("ipodui: stats finish idx=%ld elapsed=%lu\n", tagcache_idx,
+           (unsigned long)id3->elapsed);
+#endif
 
     bool auto_skip = te->flags & TEF_AUTO_SKIP;
     bool runtimedb = global_settings.runtimedb;
-    bool autoresume = global_settings.autoresume_enable;
+    bool autoresume = global_settings.autoresume_enable
+                      || id3->is_audiobook
+#ifdef HAVE_IPOD_UI
+                      || tagcache_ui_resumes(id3)
+#endif
+                      ;
 
     /* Don't process unplayed tracks, or tracks interrupted within the
        first 15 seconds but always process autoresume point */
@@ -1039,6 +1067,11 @@ static void tagtree_track_finish_event(unsigned short id, void *ev_data)
         return;
     }
 
+#if defined(HAVE_IPOD_UI) && defined(HAVE_TC_RAMCACHE)
+    unsigned char ui_tags[5];
+    long ui_vals[5];
+    int ui_n = 0;
+#endif
     long lastplayed = tagcache_increase_serial();
     if (lastplayed < 0)
     {
@@ -1062,23 +1095,51 @@ static void tagtree_track_finish_event(unsigned short id, void *ev_data)
              MIN(id3->length, id3->elapsed + 15 * 1000));
 
         /* Queue the updates to the tagcache system. */
+#if defined(HAVE_IPOD_UI) && defined(HAVE_TC_RAMCACHE)
+        /* deltas: the base read at buffering can predate the journal's
+         * boot replay (H3) */
+        ui_tags[ui_n] = tag_playcount | TAGCACHE_UI_DELTA; ui_vals[ui_n++] = 1;
+        ui_tags[ui_n] = tag_playtime | TAGCACHE_UI_DELTA;
+        ui_vals[ui_n++] = MIN(id3->length, id3->elapsed + 15 * 1000);
+        ui_tags[ui_n] = tag_lastplayed; ui_vals[ui_n++] = lastplayed;
+        (void)playcount; (void)playtime;
+#else
         tagcache_update_numeric(tagcache_idx, tag_playcount, playcount);
         tagcache_update_numeric(tagcache_idx, tag_playtime, playtime);
         tagcache_update_numeric(tagcache_idx, tag_lastplayed, lastplayed);
+#endif
     }
 
     if (autoresume)
     {
         unsigned long elapsed = auto_skip ? 0 : id3->elapsed;
         unsigned long offset = auto_skip ? 0 : id3->offset;
+#if defined(HAVE_IPOD_UI) && defined(HAVE_TC_RAMCACHE)
+        ui_tags[ui_n] = tag_lastelapsed; ui_vals[ui_n++] = elapsed;
+        ui_tags[ui_n] = tag_lastoffset;  ui_vals[ui_n++] = offset;
+#else
         tagcache_update_numeric(tagcache_idx, tag_lastelapsed, elapsed);
         tagcache_update_numeric(tagcache_idx, tag_lastoffset, offset);
+#endif
 
         logf("tagtree_track_finish_event: Save resume for %s: %lX %lX",
              str_or_empty(id3->title), elapsed, offset);
     }
+#if defined(HAVE_IPOD_UI) && defined(HAVE_TC_RAMCACHE)
+    /* Audio thread: one call, no disk I/O and no wait (B-H1) */
+    tagcache_ui_update_stats(id3->path, tagcache_idx, id3->tagcache_bind,
+                             ui_n, ui_tags, ui_vals);
+#endif
 }
 
+#ifdef IPODUI_TRIM_TAGTREE
+void tagtree_init(void)
+{
+    add_event(PLAYBACK_EVENT_TRACK_BUFFER, tagtree_buffer_event);
+    add_event(PLAYBACK_EVENT_TRACK_FINISH, tagtree_track_finish_event);
+}
+
+#else /* !IPODUI_TRIM_TAGTREE */
 int tagtree_export(void)
 {
     struct tagcache_search tcs;
@@ -2879,3 +2940,4 @@ int tagtree_get_icon(struct tree_context* c)
 
     return icon;
 }
+#endif /* IPODUI_TRIM_TAGTREE */

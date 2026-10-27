@@ -1,0 +1,23 @@
+# Phase 14a V6 (docs/phase14a-brief.md 3.8): Videos > Settings.
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/video/ui_video_settings.script
+# "setvideos" -> ui_setvideos_push() (proposed sim_cmd_video.c command;
+# once V5's Videos menu lands, reach it with Videos > Settings keys).
+# needs: library
+# (kept under tests/video, not tests/ui: the gate runs ui/ against build/sim-ui, which has no video commands; move to tests/ui once the Movies list can reach the screen)
+wait 4000
+setvideos
+wait 800
+shot start               # Start Playing: Where Left Off / Fit to Screen: On
+key SELECT
+wait 300
+shot from_beginning      # Start Playing: From Beginning
+wheel +1
+wait 300
+key SELECT
+wait 300
+shot fit_off             # Fit to Screen: Off
+key SELECT
+wait 300
+key MENU
+wait 700
+shot back

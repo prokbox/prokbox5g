@@ -1,0 +1,22 @@
+# P12 W1-C (9 "-clocks-night"): the one clock at 22:34, the owner video's
+# frame (VIDEO-2 A3, clocks-reveal-08): the band stays blue, the face is
+# the dark one with light numerals and hands.
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-clocks-night.script
+# needs: modules
+# reset: clocks
+# modclass: steady
+# log: clocks open n=1
+# reset: mainmenu
+
+wait 4000
+sim_clock 22:34
+wheel +2             # Extras
+wait 1500
+key SELECT
+wait 2500
+key SELECT           # Clocks
+wait 1500
+shot night
+key MENU             # the visit ends: the accountant's line
+wait 1500
+quit

@@ -160,6 +160,62 @@ void sample_output_dithered(struct sample_io_data *this,
     while (--count > 0);
 }
 
+#if defined(HAVE_IPOD_UI) || defined(WARBLE)
+/* Automatic dither (iPod UI shell): dither only when the samples carry
+ * more than 16 bits. Lossless and PCM decoders (FLAC, WAV, ALAC...)
+ * deliver 16-bit sources shifted up into a 28-bit word, so the format's
+ * depth can't tell; the block's own bits can. If no sample has a bit set
+ * below the 16-bit LSB, the source is 16-bit and no DSP stage changed it:
+ * the exact copy keeps it bit-perfect. Otherwise (a 24-bit or lossy
+ * source, or EQ, ReplayGain, timestretch, resampling...) it is dithered.
+ * Decided per block, so a stage turning on or off takes effect at once. */
+static bool dither_auto_active;
+
+static void sample_output_auto(struct sample_io_data *this,
+                               struct dsp_buffer *src, struct dsp_buffer *dst)
+{
+    int count = this->outcount;
+    int channels = src->format.num_channels;
+    int32_t mask = (1L << src->format.output_scale) - 1;
+    int32_t bits = 0;
+
+    for (int ch = 0; ch < channels && !bits; ch++)
+    {
+        const int32_t *s = src->p32[ch];
+        int i = 0;
+
+        /* 8 at a time; a lossy or 24-bit source stops at the first group */
+        for (; i + 8 <= count && !bits; i += 8)
+            bits = (s[i] | s[i + 1] | s[i + 2] | s[i + 3] |
+                    s[i + 4] | s[i + 5] | s[i + 6] | s[i + 7]) & mask;
+
+        for (; i < count && !bits; i++)
+            bits = s[i] & mask;
+    }
+
+    if (bits)
+    {
+        dither_auto_active = true;
+        sample_output_dithered(this, src, dst);
+        return;
+    }
+
+    if (dither_auto_active)
+    {
+        /* exact samples quantize with no error: drop the old history */
+        dither_auto_active = false;
+        for (int ch = 0; ch < 2; ch++)
+            memset(dither_data.state[ch].error, 0,
+                   sizeof (dither_data.state[ch].error));
+    }
+
+    if (channels > 1)
+        sample_output_stereo(this, src, dst);
+    else
+        sample_output_mono(this, src, dst);
+}
+#endif /* HAVE_IPOD_UI || WARBLE */
+
 /* Initialize the output function for settings and format */
 void dsp_sample_output_format_change(struct sample_io_data *this,
                                      struct sample_format *format)
@@ -179,6 +235,10 @@ void dsp_sample_output_format_change(struct sample_io_data *this,
     DSP_PRINT_FORMAT(DSP Output, *format);
 
     this->output_samples = fns[dither ? 1 : 0][channels - 1];
+#if defined(HAVE_IPOD_UI) || defined(WARBLE)
+    if (!dither && dsp_get_id((void *)this) == CODEC_IDX_AUDIO)
+        this->output_samples = sample_output_auto;
+#endif
     this->output_version = format->version;
 }
 

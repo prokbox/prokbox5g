@@ -1,0 +1,104 @@
+# The first-use video check (0.8.0 gate; docs/research/bcm2722/first-use-check.md)
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p19-vcheck.script
+# needs: video
+# env: SIM_VCHECK=1
+# timeout: 150
+#
+# SIM_VCHECK makes the sim's model image count as one with a clock token
+# (apps/video/vplayer.c gate_now) and gives the model HP_OP_VCLK, so the
+# first play on the unit checks first: "Preparing Video..." on black while
+# the test stream (vcheck.bin) runs at the top band, then the film. The
+# check's pictures take 20 ms each in the sim, so the shot lands inside.
+# The port's reads cost silicon's 8.9 us (vbcm_model.h VBM_RD_NS); the
+# check sums one sampled row per macroblock row, so a passing check takes
+# about 0.9 s here and on the device (the old whole-plane sum took 8 s).
+#   play 1: no token -> the check -> PASS at 150 MHz, token written
+#   play 2: the token -> no check, no "Preparing Video..."
+#   play 3: token gone, /.rockbox/.sim_vcheck_band (the top band's switch
+#           falls back) -> the check steps down: PASS at 147 MHz
+#   play 4: token gone, /.rockbox/.sim_vcheck_bad (every picture from the
+#           sixth decodes wrong) -> each band fails at picture 5 in about
+#           0.2-0.3 s; all nine tried bands fail on the sum in 2.1 s,
+#           inside the 4 s budget (vcheck.h VCHECK_BUDGET_US), so the check
+#           ends FAIL and the styled error screen comes, as the design
+#           intends (first-use-check.md).  Under the old 8 s check the
+#           budget made this INCONCLUSIVE and the film played.
+# Movies: Audio First (row 1, a playable Baseline file) each time.
+
+# trace: video
+# log: unit check: due (no token)
+# log: vck PASS band 11 150 MHz tried 1
+# logrange: 600 1500 vck PASS band 11 150 MHz tried 1 (\d+)ms
+# log: unit check: token, 150 MHz
+# log: vck 150 FAIL fallback p0
+# log: vck PASS band 10 147 MHz tried 2
+# log: vck 150 FAIL sum p5
+# log: vck 140 FAIL sum p5
+# log: vck 74 FAIL sum p5
+# logrange: 1200 3500 vck FAIL band -1 0 MHz tried 9 (\d+)ms
+# nolog: vck INCONCLUSIVE
+# nolog: vck stopped
+# log: video error page=check
+# logbetween: first second video preparing due=1
+# logbetween: second third no video preparing
+# logbetween: second third unit check: token, 150 MHz
+# logbetween: third fourth video preparing due=1
+# logbetween: fourth end video preparing due=1
+# nolog: splash
+wait 4000
+wait_db 45000
+art_wait 60000
+# the test stream: buildzip.pl ships it in the device zip; the sim's
+# install copies only text files, so the script puts it on the disk
+copy ../../bcmfw/video/vcheck.bin /.rockbox/vcheck.bin
+rm_file /.rockbox/vcheck.tok
+rm_file /.rockbox/.sim_vcheck_band
+rm_file /.rockbox/.sim_vcheck_bad
+wheel +1 300
+wait 600
+key SELECT          # Videos
+wait 900
+key SELECT          # Movies
+wait 1200
+
+ab_mark first
+key SELECT          # Audio First: the unit's first play checks first
+wait 400
+shot preparing      # "Preparing Video..." while the check runs
+wait 4000            # the check (~0.9 s) and a few seconds of the film
+expect_video 10 playing
+key MENU            # stops, back to the list
+wait 1500
+shot list_after_first
+
+ab_mark second
+key SELECT          # the token: straight to the film
+wait 400
+shot second_start   # no "Preparing Video..." (the list until the picture)
+wait 2500
+expect_video 10 playing
+key MENU
+wait 1500
+
+rm_file /.rockbox/vcheck.tok
+copy fixtures/refresh.mp3 /.rockbox/.sim_vcheck_band
+ab_mark third
+key SELECT          # the top band falls back: the check steps down
+wait 4000
+expect_video 10 playing
+key MENU
+wait 1500
+rm_file /.rockbox/.sim_vcheck_band
+
+rm_file /.rockbox/vcheck.tok
+copy fixtures/refresh.mp3 /.rockbox/.sim_vcheck_bad
+ab_mark fourth
+key SELECT          # decodes wrong at every band: the check fails
+wait 4000
+shot bad_unit       # the styled error screen, not the film
+storage_idle        # the log ring to the file before the next lines
+key MENU            # dismisses the error screen
+wait 1500
+shot list_after_bad
+rm_file /.rockbox/.sim_vcheck_bad
+rm_file /.rockbox/vcheck.tok

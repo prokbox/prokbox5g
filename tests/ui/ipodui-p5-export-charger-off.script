@@ -1,0 +1,25 @@
+# Phase 5 (tagcache.c ui_export_idle): the changelog export runs in the
+# background only while stopped on external power, 60 s after the last
+# statistics change, and never at shutdown. Charger off: expects none
+# after a 65 s idle.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p5-export-charger-off.script
+# needs: library
+# golden: skip idle
+# nolog: changelog export:
+# timeout: 150
+
+wait 3000
+wait_db 45000
+sim_clock 15:08
+clock_format 24      # P11: the default is 12-hour; this golden shows 24
+repeat off
+charger off
+play_files /Music/Fixture%20Author/Mini%20Audiobook/Mini%20Audiobook.m4b
+wait 5000
+audio_stop          # a statistics change (the resume point)
+key SELECT          # the menu loses its Now Playing row: one more full redraw
+wait 700
+key MENU
+wait 64000
+shot idle
+quit

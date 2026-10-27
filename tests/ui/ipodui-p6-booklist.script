@@ -1,0 +1,56 @@
+# Phase 6 (#5): the Audiobooks list is two-line rows (title / author) with
+# cover thumbnails, 4 per screen, like unfiltered Albums (owner decision,
+# Revision 3), and NO played/unplayed dots (Revision 2: the 7G tracks no
+# such state). A book that was opened still shows no dot afterwards.
+# Covers: "The Lighthouse Keeper" and "Winter Stories" have art; "A Field
+# Guide to Tones" (PNG covr, unsupported) and the AB fixtures show the
+# light grey book tile, like the 7G (owner; rowart.c render_booktile()).
+# "Tall Cover Book" (2:3) and "Wide Cover Book" (16:9) are fitted into the
+# square thumbnail at build time, on a darkened, blurred copy of the
+# cover (owner; artcache.c thumb_fitted(), artblur.c). Author = album
+# artist, else artist.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p6-booklist.script
+# needs: library
+# needs: ab
+# needs: np
+# timeout: 90
+# fresh-db
+# trace: ab
+# golden: skip page
+# DB state: fresh. Passes now on the list part; the page shot, the dot-free
+# rows and the ab trace lines need B (ab_page_*) and U (screens/audiobooks.c).
+
+wait 4000
+wait_db 45000
+mkdir /Audiobooks/AB
+copy ../../build/ab-fixtures/pref.m4b /Audiobooks/AB/pref.m4b
+copy ../../build/ab-fixtures/nochap.m4b /Audiobooks/AB/nochap.m4b
+copy ../../build/np-fixtures/book_23.mp3 /Audiobooks/AB/book_23.mp3
+copy ../../build/np-fixtures/book_169.mp3 /Audiobooks/AB/book_169.mp3
+update_db_wait_change 60000
+art_wait 60000
+
+key SELECT          # Music
+wait 800
+wheel +6 300        # Audiobooks (Compilations off: P11)
+wait 400
+key SELECT
+wait 900
+shot list           # two-line rows, thumbnails, no dots
+wheel +1 300
+wait 300
+shot list_row2
+key SELECT          # opens the book's page (AB-1), never plays directly
+wait 900
+shot page
+key MENU
+wait 700
+shot list_back      # still no dot or progress after viewing a book
+wheel +5 300        # Wide Cover Book: the list scrolls
+wait 600
+shot list_end       # Lighthouse, Mini, Tall (2:3) and Wide (16:9) covers
+remove /Audiobooks/AB/pref.m4b
+remove /Audiobooks/AB/nochap.m4b
+remove /Audiobooks/AB/book_23.mp3
+remove /Audiobooks/AB/book_169.mp3
+quit

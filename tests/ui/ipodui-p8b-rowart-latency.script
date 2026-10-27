@@ -1,0 +1,59 @@
+# Phase 8b-0 tooling (a): row-art fill latency while scrolling the Albums
+# and Audiobooks lists (owner report 2026-10-11: thumbnails appear slowly).
+# apps/ipodui/ptrace.h hooks (sim only, zero cost on the device) log, per
+# row, the stages of getting a thumbnail on the glass:
+#   rowart fetch key= res= lookup_us= read_us= decode_us=0   art cache index
+#       lookup, then the pak read (thumbnails are stored ready to blit)
+#   rowart draw  key= thumb= draw_us=                        the blit
+#   rowart fill  row= fill_us= push_us= px=                   an at-rest fill
+#       of a row that got a stand-in during the glide: the whole row redraw,
+#       then the LCD push of its art box
+# check_trace.py rule p8b-rowart summarises them (min/mean/max per stage) and
+# fails on a stage over the budget. The shots only prove the rows arrive.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p8b-rowart-latency.script
+# needs: library
+# trace: p8bperf
+# golden: skip albums_glide albums_rest books_glide books_rest
+# timeout: 120
+
+wait 4000           # boot to the main menu, "Music" selected
+wait_db 30000
+art_wait 120000     # every thumbnail built before the rows are shown
+sim_clock 15:04
+clock_format 24
+battery 100
+
+key SELECT          # Music
+wait 800
+wheel +1            # "Artists"
+wait 400
+wheel +1            # "Albums"
+wait 400
+key SELECT
+wait 800
+shot albums_top
+
+wheel +16 40        # a quick turn: the view glides, rows get stand-ins
+shot albums_glide
+wait 1500           # at rest: the stand-ins are filled from the cache
+shot albums_rest
+wheel -16 40        # and back: the rows that left the key cache return
+wait 1500
+shot albums_back
+wheel +16 40
+wait 1500
+
+key MENU            # Music
+wait 800
+wheel +5            # "Audiobooks"
+wait 400
+key SELECT
+wait 800
+shot books_top
+wheel +8 40
+shot books_glide
+wait 1500
+shot books_rest
+wheel -8 40
+wait 1500
+shot books_back

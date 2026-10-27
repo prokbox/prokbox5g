@@ -1,0 +1,29 @@
+# Phase 8a (docs/phase8a-brief.md 3.3, 7.6, 8): the splash funnel. A probe
+# splashf() (what any stock code path would call) is suppressed in the
+# shell: the screen is unchanged, the text is logged, and the line reaches
+# /.rockbox/ipodui.log at the next flush.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p8a-splash.script
+# needs: library
+# trace: splash
+# trace: log
+# same: before after
+# log: splash-suppressed probe
+# nolog: splash-pass
+# expect-file: /.rockbox/ipodui.log splash-suppressed probe
+#
+# Needs P (splash.c funnel) and U2 (uilog.c). `storage_idle` runs the
+# stock storage-idle notifies; the log flush hangs off DISK_EVENT_SPINUP
+# (brief 3.3), so if the sim never posts it the flush line stays absent and
+# this script FAILS loudly: U2 must add a sim trigger (or flush on idle).
+
+wait 4000
+rm_file /.rockbox/ipodui.log
+key SELECT 50       # Music (a screen to compare)
+wait 1000
+shot before
+splash_probe probe
+wait 1500
+shot after          # == before
+storage_idle
+wait 1500
+quit

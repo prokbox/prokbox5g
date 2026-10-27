@@ -1,0 +1,43 @@
+# #58 idle build (owner, 2026-10-09), case 4: a builder that finished
+# its backlog sleeps until a database change: a rescan that commits a new
+# album wakes it ("art wake ev=1", a request) and it builds the new album
+# (and checks the rest); a USB session wakes it too ("art wake ev=2"),
+# and the post-USB pass runs. Between them, nothing.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-idle-resume.script
+# needs: library
+# needs: np
+# logbetween: done db no \bart (wake|io|build)\b
+# logbetween: db db_done art wake ev=1
+# logbetween: db db_done art build start
+# logbetween: db db_done art io write key=
+# logbetween: db_done usb no \bart (wake|io|build)\b
+# logbetween: usb usb_done art build start
+# golden: skip after
+# timeout: 150
+
+wait 1000
+wait_db 30000
+art_wait 120000     # the backlog is done
+ab_mark done
+wait 10000          # asleep
+ab_mark db
+mkdir /IdleNew
+copy ../../build/np-fixtures/art_23.mp3 /IdleNew/idle_new.mp3
+update_db_wait_change 30000     # a commit: lib_committed() requests
+art_wait 60000
+ab_mark db_done
+wait 10000          # asleep again
+ab_mark usb
+usb_connect
+wait 2000
+usb_disconnect
+wait 1000
+wait_db 30000
+art_wait 120000
+ab_mark usb_done
+shot after
+rm_file /IdleNew/idle_new.mp3
+update_db_wait_change 30000     # leave the database as it was
+art_wait 60000
+
+quit

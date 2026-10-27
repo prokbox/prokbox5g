@@ -1,0 +1,32 @@
+# Phase 8a (docs/phase8a-brief.md 3.5, 7.4): USB over the unlit face: USB
+# first (unlit exit usb), then the USB screen, and the screen after
+# disconnect is the one before the face.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p8a-unlit-usb.script
+# needs: library
+# trace: unlit
+# trace: usb
+# same: before after_usb
+# log: unlit exit usb
+# nolog: splash-pass
+#
+# NOT scriptable in the sim (device-only, listed for P10): the shell's
+# sleep path (hold PLAY with the charger in, "unlit skip sleep", U5) lives
+# in ui_main.c under `CONFIG_CHARGING && !HAVE_POWEROFF_WHILE_CHARGING`,
+# and config.h defines HAVE_POWEROFF_WHILE_CHARGING for every SIMULATOR
+# build, where a held PLAY is sys_poweroff() and ends the sim. The skip
+# rules are covered by tests/unlit (U2); the 90 s LCD sleep by the device.
+
+wait 4000
+sim_clock 10:30
+clock_format 24
+battery 100
+shot before
+backlight_expire
+wait 3500           # the face is up
+usb_connect
+wait 1500
+shot usb_over_face  # the USB screen (not the face)
+usb_disconnect
+wait 1500
+shot after_usb      # == before
+quit

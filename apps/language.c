@@ -43,7 +43,18 @@
 #define HEADER_SIZE 4
 #define SUBHEADER_SIZE 6
 
+#ifdef IPODUI_TRIM_MISC
+/* Phase 9 (brief 3.3.2, R4): no static sized to the largest language. The
+   loaded .lng gets an allocation of exactly its size, made by the boot-time
+   settings_apply() before audio starts and pinned for good, because str()
+   hands out pointers into it. Built-in English allocates nothing. A later
+   load that needs more room is refused (it applies at the next boot). */
+#include "core_alloc.h"
+static int lang_handle = 0;
+static int lang_alloc_size = 0;
+#else
 static unsigned char language_buffer[MAX_LANGUAGE_SIZE];
+#endif
 static unsigned char lang_options = 0;
 
 void lang_init(const unsigned char *builtin, unsigned char **dest, int count)
@@ -125,12 +136,67 @@ int lang_load(const char *filename, const unsigned char *builtin,
     return retcode;
 }
 
+#ifdef IPODUI_TRIM_MISC
+/* lang_size of the core language (subheader 0), or < 0 */
+static int lang_core_size(const char *filename)
+{
+    unsigned char hdr[HEADER_SIZE + SUBHEADER_SIZE];
+    int size = -1;
+    int fd = open(filename, O_RDONLY);
+    if (fd < 0)
+        return -1;
+    if (read(fd, hdr, sizeof hdr) == (ssize_t)sizeof hdr &&
+        hdr[0] == LANGUAGE_COOKIE && hdr[1] == LANGUAGE_VERSION &&
+        hdr[2] == TARGET_ID)
+        size = (hdr[HEADER_SIZE + 2] << 8) | hdr[HEADER_SIZE + 3];
+    close(fd);
+    return size;
+}
+
+int lang_core_load(const char *filename)
+{
+    int size = lang_core_size(filename);
+    bool fresh = false;
+    int ret;
+
+    if (size <= 0) {
+        DEBUGF("Illegal language file\n");
+        return 3;
+    }
+    if (lang_handle <= 0) {
+        lang_handle = core_alloc(size);
+        if (lang_handle <= 0) {
+            DEBUGF("p9 lang alloc %d failed\n", size);
+            lang_handle = 0;
+            return 2;   /* the built-in English stays */
+        }
+        core_pin(lang_handle);
+        lang_alloc_size = size;
+        fresh = true;
+    } else if (size > lang_alloc_size) {
+        DEBUGF("p9 lang %d > %d: next boot\n", size, lang_alloc_size);
+        return 2;
+    }
+
+    ret = lang_load(filename, core_language_builtin, language_strings,
+                    core_get_data(lang_handle), 0, lang_alloc_size,
+                    LANG_LAST_INDEX_IN_ARRAY);
+    if (ret == 3 && fresh) {
+        /* header refused before any string pointed into the block */
+        core_free(lang_handle);
+        lang_handle = 0;
+        lang_alloc_size = 0;
+    }
+    return ret;
+}
+#else
 int lang_core_load(const char *filename)
 {
     return lang_load(filename, core_language_builtin, language_strings,
                      language_buffer, 0, MAX_LANGUAGE_SIZE,
                      LANG_LAST_INDEX_IN_ARRAY);
 }
+#endif
 
 int lang_english_to_id(const char *english)
 {

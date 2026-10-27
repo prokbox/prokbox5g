@@ -1,0 +1,40 @@
+# P19 19-1c: crossfade (Rockbox's, hidden in the shell) with the codec's
+# low-watermark sleep: crossfade's watermark sits 1 s under a full
+# buffer, so the sleep takes half that band; the fade into the next
+# track and the dark wakes hold, with no underrun. Then crossfade off
+# again and a gapless boundary between two FLACs of one album.
+#   sh tests/fixtures/p19c/make_p19c_fixtures.sh
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p19c-xfade.script
+# needs: music
+# golden: skip
+# timeout: 360
+# nolog: pcm underrun
+# nolog: splash-pass
+
+wait 3000
+repeat off          # a shared disk may hold "repeat: one" (np-sharp)
+mkdir /P19C
+copy ../../build/p19c-fixtures/t1.flac /P19C/t1.flac
+copy ../../build/p19c-fixtures/t2.flac /P19C/t2.flac
+crossfade always
+wait 1000
+play_files /P19C/t1.flac /P19C/t2.flac /P19C/t1.flac
+wait 3000
+expect_playing 500
+backlight_expire
+wait 10000
+wakes start
+wait 20000
+wakes xfade_dim
+expect_wakes_le codec 80
+wait_index 2 120000
+wait 3000
+expect_playing 500
+crossfade off
+wait_index 3 120000
+wait 3000
+expect_playing 500
+key MENU
+wait 1500
+shot end
+quit

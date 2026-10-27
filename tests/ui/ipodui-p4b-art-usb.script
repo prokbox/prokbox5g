@@ -1,0 +1,36 @@
+# Phase 4b: the art builder pauses on USB and resumes after (docs/
+# phase4b-brief.md Revision 1 point 8, Agent B): it acks
+# SYS_USB_CONNECTED, closes every fd and stops at a safe point; the
+# UI's own thumbs.pak fd is closed on connect and reopened after.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p4b-art-usb.script
+# needs: library
+# fresh-db
+#
+# Listed in tests/ui/PENDING until Agent B's builder lands. "usb_connect"
+# / "usb_disconnect" simulate SYS_USB_CONNECTED/_DISCONNECTED the same
+# way the SDL window's own USB key toggle does (sim_trigger_usb(),
+# uisimulator/common/sim_cmd_art.c).
+
+wait 4000
+wait_db 45000       # the shell builds the database itself (fresh-db)
+
+key SELECT          # Music (first open: "Playlists" selected)
+wait 800
+wheel +2            # "Albums" (Playlists, Artists, Albums)
+wait 400
+key SELECT
+wait 800
+shot before_usb     # builder running, some albums still glyphs
+
+usb_connect
+wait 1000
+shot usb_connected  # builder paused (no new mini art should appear
+                    # after this point)
+
+usb_disconnect
+wait 500
+art_wait 120000     # resumes and finishes
+wait 500
+shot after_usb      # mini art filled in on every album with a source
+
+quit

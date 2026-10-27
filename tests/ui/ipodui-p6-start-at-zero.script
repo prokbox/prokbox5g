@@ -1,0 +1,49 @@
+# Phase 6 (Rev 1 item 1): the shell is the ONLY resume authority for book
+# queues. playback.c's own auto-resume (from tagcache stats) must not move a
+# book started from the shell: a book with old tagcache stats (played outside
+# a book queue, then stopped at ~6 s) opens WITHOUT Resume (books.dat is
+# empty), and its first entry starts at 0 ms, not at the old stats position.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p6-start-at-zero.script
+# needs: library
+# needs: ab
+# timeout: 90
+# trace: ab
+# nolog: ab resume book=
+# golden: skip np_start
+# DB state: ready. Passes only with M's guarded hook (ab_shell_owns_resume)
+# and B's page. Rows: 0 A Field Guide, 1 AB No Chapters.
+
+wait 4000
+wait_db 45000
+mkdir /Audiobooks/AB
+copy ../../build/ab-fixtures/nochap.m4b /Audiobooks/AB/nochap.m4b
+update_db_wait_change 60000
+art_wait 60000
+
+# a plain (non-book) queue gives the file tagcache stats
+play_files /Audiobooks/AB/nochap.m4b
+wait_pos 6000 60000 nochap.m4b # ~6 s of playback, not wall clock
+audio_stop
+wait 800
+expect_resume /Audiobooks/AB/nochap.m4b 3000 4000
+expect_ab_store 0 0 1000    # a non-book queue writes no resume record
+
+key SELECT
+wait 800
+wheel +6 300   # Audiobooks (Compilations off: P11)
+wait 400
+key SELECT          # Audiobooks
+wait 900
+wheel +1 300        # AB No Chapters
+wait 400
+key SELECT
+wait 1000
+shot page_nospot    # no Resume: books.dat has no record for this book
+key SELECT          # the entry: starts over, whatever the stats say
+wait 1800
+expect_pos 0 3500
+shot np_start
+audio_stop
+wait 500
+remove /Audiobooks/AB/nochap.m4b
+quit

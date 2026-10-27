@@ -22,6 +22,7 @@
 #include <stdlib.h>
 #include <ctype.h>
 #include <inttypes.h>
+#include <limits.h>
 #include "platform.h"
 #include "metadata.h"
 #include "metadata_common.h"
@@ -290,6 +291,60 @@ bool ogg_file_init(struct ogg_file* file, int fd, int type, int remaining)
     return true;
 }
 
+#ifdef HAVE_ALBUMART
+/* Positions 'file' (the caller's) on the base64 picture data of Vorbis-
+ * comment album art at file offset 'pos' (mp3_albumart.pos with
+ * AA_FLAG_VORBIS_BASE64), so that ogg_file_read() then returns the base64
+ * characters with any Ogg page headers in between skipped: the comment
+ * header of real cover art spans several pages (#120). 'buf' is scratch of
+ * at least 92 bytes. In a file that is not Ogg (a FLAC with a picture in its
+ * Vorbis comment) the data is contiguous from 'pos'. Returns false on a
+ * read error.
+ */
+bool ogg_file_open_art(struct ogg_file* file, int fd, off_t pos,
+                       unsigned char* buf)
+{
+    int type = get_ogg_format_and_move_to_comments(fd, buf);
+
+    if (type == AFMT_UNKNOWN)
+    {
+        memset(file, 0, sizeof(*file));
+        file->fd = fd;
+        file->packet_remaining = LONG_MAX;
+        file->packet_ended = true;
+        return lseek(fd, pos, SEEK_SET) == pos;
+    }
+
+    if (!ogg_file_init(file, fd, type, 0))
+    {
+        return false;
+    }
+
+    /* Walk the pages up to 'pos', reading each page header on the way */
+    for (;;)
+    {
+        off_t ahead = pos - lseek(fd, 0, SEEK_CUR);
+
+        if (ahead < 0)
+        {
+            return false;
+        }
+
+        if (ahead <= file->packet_remaining)
+        {
+            return ogg_file_read(file, NULL, ahead) >= 0;
+        }
+
+        /* A zero-length read at a page end reads the next page header */
+        if (ogg_file_read(file, NULL, file->packet_remaining) < 0
+            || (file->packet_remaining == 0 && file->packet_ended))
+        {
+            return false;
+        }
+    }
+}
+#endif
+
 #define B64_START_CHAR '+'
 /* maps char codes to BASE64 codes ('A': 0, 'B': 1,... '+': 62, '-': 63 */
 const signed char b64_codes[] =
@@ -412,6 +467,7 @@ long read_vorbis_tags(int fd, struct mp3entry *id3,
         len -= read_len;
 #ifdef HAVE_ALBUMART
         int before_block_pos = lseek(fd, 0, SEEK_CUR);
+        struct ogg_file before_block = file; /* page state at the value */
 #endif
         read_len = file_read_string(&file, id3->path, sizeof(id3->path), -1, len);
 
@@ -438,10 +494,38 @@ long read_vorbis_tags(int fd, struct mp3entry *id3,
                 // But it's OK with our jpeg decoder if we add or miss few bytes in jpeg header
                 const int picframe_pos_b64 = base64_encoded_size(picframe_pos + 4);
 
-                id3->has_embedded_albumart = true;
-                id3->albumart.type |= AA_FLAG_VORBIS_BASE64;
-                id3->albumart.pos = picframe_pos_b64 + before_block_pos;
-                id3->albumart.size = after_block_pos - id3->albumart.pos;
+                /* The image data's offset, counted through the page layer:
+                 * a page break can fall between the value's start and the
+                 * image data (#120), and then the plain sum lands inside
+                 * the next page header. Readers go through the page layer
+                 * from here (ogg_file_open_art()); the size stays the file
+                 * span to the value's end, page headers included, as
+                 * before (an upper bound on the base64 characters). */
+                off_t pic_pos = -1;
+
+                if (lseek(fd, before_block_pos, SEEK_SET) == before_block_pos
+                    && ogg_file_read(&before_block, NULL, picframe_pos_b64)
+                       == picframe_pos_b64)
+                {
+                    pic_pos = lseek(fd, 0, SEEK_CUR);
+                }
+
+                if (lseek(fd, after_block_pos, SEEK_SET) != after_block_pos)
+                {
+                    return 0;
+                }
+
+                if (pic_pos >= 0 && after_block_pos > pic_pos)
+                {
+                    id3->has_embedded_albumart = true;
+                    id3->albumart.type |= AA_FLAG_VORBIS_BASE64;
+                    id3->albumart.pos = pic_pos;
+                    id3->albumart.size = after_block_pos - pic_pos;
+                }
+                else
+                {
+                    id3->albumart.type = AA_TYPE_UNKNOWN;
+                }
             }
             continue;
         }

@@ -1,0 +1,34 @@
+# Quadrus controls (owner, 2026-10-24; docs/design/sdk.md 13.2): SELECT
+# held is the soft drop. Past 250 ms the press's turn is taken back and
+# the piece falls at a tenth of gravity's step (level 1: 100 ms a row)
+# for as long as SELECT is down, scoring a point a row; at release the
+# normal rate (1,000 ms a row) comes back.
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-quadrus-softdrop.script
+# needs: modules
+# log: sdk quadrus soft on rot=0
+# log: sdk quadrus soft off score=
+# nolog: sdk quadrus dbltap
+# nolog: sdk kill
+# reset: mainmenu
+
+wait 4000
+sdk_clear            # a fresh game (the simulator seeds from a fixed value)
+wheel +2             # Extras
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Games
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Quadrus
+wait 600
+key SELECT
+wait 800
+shot start
+hold SELECT 1300     # soft drop: about ten rows, unturned
+wait 50
+shot soft
+wait 1500            # gravity again: a row or two
+shot after
+quit

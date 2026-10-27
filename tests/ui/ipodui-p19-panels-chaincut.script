@@ -1,0 +1,35 @@
+# Sitting 4c's damaged panels.pak (sim-fidelity.md "Device surprises" 6):
+# the device's read-only fsck found the file's cluster chain ending after
+# 2 clusters (32 KB) while its directory entry said 5,407,744 B, the rest
+# of the chain free, 61 orphaned clusters: a write cut after the size was
+# updated and before the chain was completed.  Its header still passed,
+# so the builder wrote slots in place past the cut and every PP panel
+# build failed (ok=0), pass after pass.  "fs_chaincut" gives the sim's
+# file the same damage (filesystem-sim.c: the size and lseek kept, reads
+# and writes past the chain's end refused); the builder must notice at
+# load (the last byte does not read) and recover panels.pak.prev or
+# start the set over in a new file, never write into the cut one.
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p19-panels-chaincut.script
+# needs: library
+# golden: skip
+# timeout: 300
+# logbetween: c0 end art panels chain cut: tail unreadable
+# logbetween: c0 end art panels chain cut: (prev recovered|set rebuilt)
+# logbetween: c0 end fs_chaincut /.rockbox/artcache/panels.pak whole
+# logbetween: c0 end expect_panels_valid ok
+# nolog: fs_chaincut /.rockbox/artcache/panels.pak cut
+# nolog: expect_panels_valid failed
+# nolog: art retain panels
+wait 1000
+wait_db 30000
+art_wait 120000
+expect_panels_valid
+ab_mark c0
+fs_chaincut /.rockbox/artcache/panels.pak 32768
+art_request         # the next pass loads the set
+wait 1000
+art_wait 120000
+fs_chaincut /.rockbox/artcache/panels.pak check
+expect_panels_valid
+shot end            # one shot so shots.sh counts the run (golden: skip)
+quit

@@ -1,0 +1,77 @@
+# 0.8.0 (owner, device sitting 4b), the jobs-on twin of
+# ipodui-p19-npviz-title-cpu.script: the view on the BCM, the title as
+# its stepped PAN.  After the style list's push and pop the view's claim
+# takes the strip back and tells Now Playing ("np strip lost by=viz"):
+# the PAN's next start renders the title again ("np mq render") rather
+# than taking what the list left there, should its slot have to go up
+# again.  Out of the view the title comes back at rest (same:).
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p19-npviz-title-bcm.script
+# needs: music
+# needs: np
+# needs: video
+# golden: skip
+# reset: viz
+# np: viz-full
+# log: viz start style=0 path=bcm
+# nolog: viz CPU FALLBACK why=nojobs
+# logbetween: p0 p1 np strip lost by=viz
+# logbetween: p2 p3 np mq render w=\d+
+# logbetween: p2 p3 np mq bcm start key=\S+ lap=\d+ w=1392 up=\d
+# logbetween: start p0 np mq bcm start key=\S+ lap=\d+ w=1392 up=1
+# nolog: np mq cpu why=
+# nolog: shot POISONED
+# same: rest back_rest
+
+wait 3000
+bcm_drift on        # the developer switch: jobs (the model's auto: off)
+sim_clock 15:08
+clock_format 24
+repeat off
+wait_db 30000
+art_wait 60000
+mkdir /NPTest
+copy ../../build/np-fixtures/long_title.mp3 /NPTest/long_title.mp3
+play_files /NPTest/long_title.mp3
+wait 1000
+np_pin 8000 50
+key SELECT          # Music (the menu re-reads "Now Playing" after a push/pop)
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 700
+shot rest           # the title at rest (its first step is 1 s in)
+wait 2500
+ab_mark p0
+shot scroll
+key SELECT          # Scrubber
+wait 400
+key SELECT          # Rating
+wait 600
+key SELECT          # Shuffle
+wait 600
+key SELECT          # Visualizer
+wait 1500
+hold SELECT 1200    # the style list
+wait 1200
+wheel +1            # Mirror
+wait 400
+key SELECT          # back to the view
+wait 1800
+ab_mark p1
+shot viz
+key SELECT          # Normal
+wait 400
+ab_mark p2
+shot back_rest      # at rest again
+wait 2500
+shot back_scroll    # the title scrolling, not a black band
+ab_mark p3
+key MENU
+wait 800
+bcm_drift auto
+audio_stop
+rm_file /NPTest/long_title.mp3
+quit

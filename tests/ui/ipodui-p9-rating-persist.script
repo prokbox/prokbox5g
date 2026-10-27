@@ -1,0 +1,69 @@
+# Phase 9 Rev 1 H2: with tree.c compiled out (IPODUI_TRIM_BROWSER), the
+# shutdown flush moved to misc.c's system_flush_db() (tagcache_shutdown():
+# the queued statistics and ratings go to disk). A rating set on Now
+# Playing survives a power-off and a new boot; the database is read back
+# after the reboot, not from the RAM cache of the boot that wrote it.
+# Path: power_off_now -> SYS_POWEROFF -> clean_shutdown() -> system_flush()
+# -> system_flush_db() -> tagcache_shutdown() (UI thread), while playing.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p9-rating-persist.script
+# needs: music
+# timeout: 120
+# golden: skip rated after_reboot
+
+wait 3000
+wait_db 30000
+repeat off
+play_files /Music/Tone%20Collective/Sine%20Studies/02%20Low%20E.mp3
+wait 1000
+key SELECT          # Music (the menu re-reads "Now Playing" after a push/pop)
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 1200
+key SELECT          # Scrubber
+wait 500
+key SELECT          # Rating
+wait 500
+wheel -6 100        # to 0 stars first (the rating persists between runs)
+wait 300
+wheel +3 300        # 3 stars
+wait 300
+key SELECT          # commit
+wait 1500
+shot rated
+expect_rating /Music/Tone%20Collective/Sine%20Studies/02%20Low%20E.mp3 6 4000
+
+power_off_now       # still playing: clean_shutdown() flushes the database
+wait 3000
+reboot              # a new boot on the same disk
+
+wait 3000
+wait_db 30000
+expect_rating /Music/Tone%20Collective/Sine%20Studies/02%20Low%20E.mp3 6 4000
+shot after_reboot
+
+# leave the database as found: Low E back to 0 stars
+play_files /Music/Tone%20Collective/Sine%20Studies/02%20Low%20E.mp3
+wait 1000
+key SELECT
+wait 700
+key MENU
+wait 700
+wheel +10
+wait 500
+key SELECT
+wait 1200
+key SELECT          # Scrubber
+wait 500
+key SELECT          # Rating
+wait 500
+wheel -6 100        # to 0 stars
+wait 300
+key SELECT          # commit
+wait 1500
+expect_rating /Music/Tone%20Collective/Sine%20Studies/02%20Low%20E.mp3 0 4000
+audio_stop
+quit

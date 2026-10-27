@@ -1,0 +1,9 @@
+# gate-speed mutant control: none: must pass, with the real goldens
+# golden: skip down
+# resume: playing
+wait 4000
+shot boot
+wheel +2
+wait 800
+shot down
+quit

@@ -1,0 +1,39 @@
+# Phase 11 (docs/phase11-brief.md 3.6, 7 criteria 6 and 8): Settings > EQ,
+# the split value list: Off then the 22 presets. A preset sets the bands,
+# turns the EQ on and sets the precut to its largest positive gain (Bass
+# Booster: +5.5 dB = 55); Off turns it off. P15: with IPODUI_HW_EQ (on in
+# the sim) Bass Booster fits the codec's EQ (maxerr 0.9 dB), so the
+# software EQ stays off and flat (enabled=0 precut=0) and the engine line
+# shows the hardware precut (6 dB).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p11-eq.script
+# needs: library
+# log: eq preset=2 enabled=0 precut=0
+# log: eq engine=hw preset=2 maxerr=9 precut=6
+# log: eq preset=0 enabled=0 precut=0
+# log: eq engine=sw preset=0 maxerr=0 precut=0
+#
+# Needs U2a's row wiring (Settings row 10 -> ui_eq_screen).
+
+wait 4000
+wheel +3             # Settings
+wait 400
+key SELECT
+wait 1500
+wheel +9             # EQ
+wait 400
+key SELECT
+wait 1500
+shot list_off        # Off highlighted, the EQ tile, caption "Off"
+wheel +2             # Bass Booster
+wait 1200
+shot bass_booster    # the caption follows the highlight
+key SELECT
+wait 1200
+key SELECT           # open it again: Bass Booster is highlighted
+wait 1500
+shot reopened
+wheel -2             # Off
+wait 400
+key SELECT
+wait 1200
+quit

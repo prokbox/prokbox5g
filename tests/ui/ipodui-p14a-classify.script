@@ -1,0 +1,129 @@
+# Phase 14a (#64, docs/phase14a-brief.md 7 A2): Classification: a video is in no music list; an audio .mp4 is a song, an m4b with image chapters a book
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p14a-classify.script
+# (ipodui-p14a-* default to build/sim-ui-video; the gate runs them there)
+# needs: video
+# timeout: 180
+#
+# Disk: tests/fixtures/videos/mkvideos.sh (installed by the gate's prime
+# step, or by shots.sh for a standalone run):
+#   Movies/        Audio First  High Profile  Late Chapter  Short Film
+#   TV Shows/      Show A (S1 x2, S2 x2, tagged)  Show B (S1 x2, untagged)
+#   Misc/          Show.C.S01E02.m4v  S01E03.m4v (nameless)
+#   Podcasts/Pod One/  Audio Episode.m4a  Video Episode.m4v
+#   Music/         Fixture Singer/Audio Only.mp4 (a song)
+#                  Fixture Author/Image Book.m4b (a book)
+# Main menu with Videos on (T1 default): Music, Videos, Podcasts, Extras,
+# Settings, Shuffle Songs. Videos: Movies, TV Shows, Settings.
+# Music (this library): Playlists, Artists, Albums, Songs, Genres,
+# Composers, Audiobooks, Search.
+
+# golden: skip shuffle_songs shuffle_albums
+# trace: shuf
+# The audio-only Audio Only.mp4 stays in Songs; Image Book.m4b (an mjpeg
+# chapter-image trak, not avc1) stays in Audiobooks. No video file is in
+# Songs, Albums, Artists, Genres, Composers, Shuffle Songs, Shuffle Albums
+# or Search ("audio" finds the song Audio Only, never the movie Audio
+# First). Shuffle: the queue holds the music songs only (the queued count
+# below is the mini library's songs plus Audio Only; a video or podcast
+# would raise it), and no track change starts the video player.
+# log: shuf: start songs ok queued=6
+# log: shuf: mode albums ok src=albums
+# log: search screen q=5 n=4 pl=0
+# ("audio": the Search row, Audio Episode, the album and the song Audio
+# Only; the movie Audio First would make it n=5)
+wait 4000
+wait_db 45000
+art_wait 60000
+repeat off
+key SELECT          # Music
+wait 900
+shot music_menu
+wheel +3 300        # Songs
+wait 400
+key SELECT
+wait 1200
+shot songs          # Audio Only among the songs; no video titles
+wheel +30 300
+wait 600
+shot songs_end      # the end of the list: no Short Film / Show A
+key MENU
+wait 700
+wheel -2 300        # Artists
+wait 400
+key SELECT
+wait 1200
+shot artists        # Fixture Singer, Square Wave Quartet, Tone Collective
+key MENU
+wait 700
+wheel +1 300        # Albums
+wait 400
+key SELECT
+wait 1200
+shot albums         # no movie or show among the albums
+key MENU
+wait 700
+wheel +2 300        # Genres
+wait 400
+key SELECT
+wait 1200
+shot genres
+key MENU
+wait 700
+wheel +2 300        # Audiobooks
+wait 400
+key SELECT
+wait 1200
+shot audiobooks     # Mini Audiobook and Image Book
+key MENU
+wait 700
+wheel +1 300        # Search
+wait 400
+key SELECT
+wait 900
+type audio
+wait 1500
+shot search_audio   # Audio Only (song), never Audio First (movie)
+key MENU            # the letter picker
+wait 700
+key MENU            # Search
+wait 700
+key MENU            # Music
+wait 900
+key MENU            # main menu
+wait 900
+
+wheel +5 300        # Shuffle Songs (after Settings)
+wait 400
+key SELECT
+wait_pos 100 20000
+expect_video 0 none
+shot shuffle_songs
+key NEXT
+wait 800
+key NEXT
+wait 800
+key NEXT
+wait 800
+expect_video 0 none
+key PLAY            # pause; Now Playing's shelf: Shuffle > Albums
+wait 300
+key SELECT
+wait 500
+key SELECT
+wait 500
+key SELECT
+wait 700
+wheel +2 300        # Albums
+wait 300
+key SELECT          # commit
+wait 2500
+shot shuffle_albums
+key PLAY
+wait 500
+key NEXT
+wait 800
+key NEXT
+wait 800
+expect_video 0 none
+audio_stop
+wait 500

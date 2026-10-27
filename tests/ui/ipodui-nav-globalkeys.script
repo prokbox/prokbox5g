@@ -1,0 +1,61 @@
+# Revision 3 (owner, 2026-10-07, docs/phase-nav-brief.md): global
+# buttons, agent A (input.c/ui_main.c). NEEDS that work: on `nav` alone,
+# UI_KEY_MENU only pops one level on release (never a hold-to-root), and
+# a long-held UI_KEY_PLAY does nothing at all (ui_main.c's
+# "!in.long_press" guard on its release-time handling skips both the
+# short pause-toggle and -- there being no long-press handling yet --
+# anything else), so all three cases below currently show no effect.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-nav-globalkeys.script
+# needs: library
+
+wait 4000           # boot to the main menu, "Music" selected
+wait_db 30000
+
+# -- NEXT/PREV from every screen: the track changes, the screen doesn't -
+wheel +4             # "Shuffle Songs"
+wait 400
+key SELECT           # starts playback. NAV-H1's stub enter() calls
+wait 1500            # today's gui_wps_show() path, the stock Rockbox
+                     # WPS, which blocks until it is left: "key MENU"
+                     # below does that (ipodui-p2-wps.script), landing
+                     # back on the main menu with "Shuffle Songs" still
+                     # selected
+key MENU
+wait 700
+wheel -4             # back to "Music"
+wait 400
+key SELECT           # Music
+wait 800
+wheel +1             # "Artists"
+wait 400
+key SELECT
+wait 800
+shot artists_before  # browsing, audio playing in the background
+key RIGHT             # NEXT: a tap skips to the next shuffled track
+wait 500
+shot artists_after   # the screen must be pixel-identical to artists_before
+                     # (the track changed in the background; this script
+                     # can't yet assert that by itself -- see the report:
+                     # it needs either a playback-side sim hook, such as
+                     # the current track path, or Now Playing visible for
+                     # a visual check)
+
+# -- hold MENU from three levels deep: pop to root, slide back ----------
+# still in Artists (RIGHT/NEXT didn't move the screen): three pushes deep
+# from the main menu once in (Music menu, Artists, an artist's albums)
+wheel +5 300          # "The Bellwethers" (slow clicks, one row each)
+wait 1500
+key SELECT            # push: the artist's albums ("All Songs" first)
+wait 800
+shot three_deep
+hold MENU 1000          # hold MENU: jump straight to the main menu
+wait 700
+shot after_hold_menu    # must be the main menu, not one level up
+
+# -- hold PLAY: sleep (shutdown through the normal path) -----------------
+hold PLAY 1000
+wait 3000               # clean_shutdown()/shutdown_hw() run on other
+                        # threads; give them time
+shot after_hold_play
+
+quit
