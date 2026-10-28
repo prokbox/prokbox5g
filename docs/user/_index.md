@@ -3,6 +3,8 @@ title: "ProkBox5g"
 headline: "The classic feel, free for your iPod Video."
 lede: "ProkBox5g is free, open-source firmware for the iPod Video (5th generation and 5.5). Drag your music on, play almost any format, and enjoy audiobooks the way they should work."
 description: "Free, open-source firmware for the iPod Video (5th generation and 5.5)."
+hero_image: "images/getting-started-main-menu.png"
+hero_alt: "The ProkBox5g main menu (simulator screenshot)"
 features:
   - title: "Drag and drop"
     text: "Copy music on and off over USB. No sync app needed."

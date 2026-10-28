@@ -115,22 +115,14 @@ img { max-width: 100%; height: auto; }
 .btn.primary:hover { filter: brightness(1.06); }
 .btn.ghost { background: transparent; }
 
-/* A drawn device, when no screenshot is set */
+/* The hero: a real screenshot in a plain device frame */
 .device { margin: 0 auto; width: min(100%, 270px); }
-.device img { display: block; width: 100%; image-rendering: pixelated; border-radius: 6px; border: 10px solid var(--shell); box-shadow: 0 1px 0 var(--shell-line), 0 18px 40px rgba(20, 30, 50, .18); }
+.device img { display: block; width: 100%; height: auto; image-rendering: pixelated; border-radius: 5px; border: 1px solid var(--shell-line); }
 .device .body {
   background: linear-gradient(160deg, #f7f8fa, var(--shell) 60%);
   border: 1px solid var(--shell-line); border-radius: 26px; padding: 18px 18px 26px;
   box-shadow: 0 24px 50px rgba(20, 30, 50, .18), inset 0 1px 0 rgba(255,255,255,.7);
 }
-.device .screen {
-  background: #fff; color: #111; border-radius: 5px; overflow: hidden;
-  border: 1px solid var(--shell-line); aspect-ratio: 4 / 3;
-  display: flex; flex-direction: column; font-weight: 700; font-size: 12.5px; line-height: 1;
-}
-.device .screen .hdr { background: linear-gradient(#fbfbfc, #dfe3e9); color: #333; font-size: 10px; text-align: center; padding: 4px 0; border-bottom: 1px solid #c9ced6; }
-.device .screen span { flex: 1; display: flex; align-items: center; padding: 0 9px; border-bottom: 1px solid #eef0f3; }
-.device .screen span.sel { background: linear-gradient(#5b9cf2, #2f6fd6); color: #fff; }
 .device .wheel { width: 74%; aspect-ratio: 1; margin: 22px auto 0; border-radius: 50%; background: #fdfdfe; border: 1px solid var(--shell-line); display: grid; place-items: center; box-shadow: inset 0 2px 6px rgba(0,0,0,.06); }
 .device .wheel i { width: 38%; aspect-ratio: 1; border-radius: 50%; background: var(--shell); border: 1px solid var(--shell-line); }
 @media (max-width: 760px) {

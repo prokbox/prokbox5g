@@ -4,7 +4,7 @@
   <section class="hero">
     <div class="wrap hero-grid">
       <div>
-        <p class="eyebrow">Free firmware for the iPod Video · pre-release {{ site.Params.version }}</p>
+        <p class="eyebrow">Free firmware for the iPod Video · latest: {{ site.Params.version }}</p>
         <h1>{{ with .Params.headline }}{{ . }}{{ else }}{{ site.Title }}{{ end }}</h1>
         {{ with .Params.lede }}<p class="lede">{{ . }}</p>{{ end }}
         <p class="actions">
@@ -13,8 +13,8 @@
           <a class="btn ghost" href="{{ site.Params.repo }}">Source code</a>
         </p>
       </div>
-      {{ with .Params.hero_image }}<figure class="device"><img src="{{ . | relURL }}" alt="{{ $.Params.hero_alt }}" width="320" height="240"></figure>
-      {{ else }}<figure class="device" aria-hidden="true"><div class="body"><div class="screen"><div class="hdr">ProkBox</div><span class="sel">Music</span><span>Audiobooks</span><span>Videos</span><span>Extras</span><span>Settings</span><span>Shuffle Songs</span></div><div class="wheel"><i></i></div></div></figure>{{ end }}
+      {{/* A real screenshot only: never a drawn mock-up of the screen */}}
+      {{ with .Params.hero_image }}<figure class="device"><div class="body"><img src="{{ . | relURL }}" alt="{{ $.Params.hero_alt }}" width="320" height="240"><div class="wheel"><i></i></div></div></figure>{{ end }}
     </div>
   </section>
   {{ with .Params.features }}

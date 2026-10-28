@@ -9,7 +9,8 @@ enableRobotsTXT = false
 
 [params]
   description = "Free, open-source firmware for the iPod Video (5th generation and 5.5)."
-  version = "0.8"
+  # the latest published release (the PDF cover and the home page badge)
+  version = "0.7.0-alpha"
   repo = "https://github.com/prokbox/prokbox5g"
   releases = "https://github.com/prokbox/prokbox5g/releases"
   contact = "prokbox.project@gmail.com"
