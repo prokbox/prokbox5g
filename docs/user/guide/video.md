@@ -4,6 +4,9 @@ weight: 40
 description: "Play converted videos, use the controls and find the video settings."
 ---
 
+> [!NOTE]
+> Video is switched off in 0.7.0-alpha: the **Videos** menu isn't shown yet. It arrives in 0.8.0, and this chapter describes it as it will work then.
+
 The player's picture is small, so it plays videos best when they are converted first. Converting is quick and free; see [Making videos that play well](video-converter.md). Videos you have converted show up on their own after you copy them over.
 
 ## Finding and playing

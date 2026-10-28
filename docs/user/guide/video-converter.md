@@ -4,6 +4,9 @@ weight: 900
 description: "Appendix: convert movies, TV episodes and podcasts so they play well on the player."
 ---
 
+> [!NOTE]
+> Video is switched off in 0.7.0-alpha: the **Videos** menu isn't shown yet. It arrives in 0.8.0, and this chapter describes it as it will work then.
+
 Your player has a small 320 x 240 screen and a modest video chip. It plays one kind of video very well, so the easy way to get a good result is to convert your videos first. This page shows how, using the converter that comes with ProkBox5g: `prokbox-convert.py`.
 
 ## What the converter does
