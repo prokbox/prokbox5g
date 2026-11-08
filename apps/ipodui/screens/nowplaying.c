@@ -103,7 +103,7 @@ NP_STATIC_ASSERT(sizeof(fb_data) == sizeof(np_px));
 #define TXT_W           155             /* to x 315 */
 /* The text block at the owner's 2.0.5 positions (fidelity audit 1, row 1:
  * cap tops 71 / 91 / 109 / 146, rating stars y 128-136 measured on the
- * rectified photo 1208). */
+ * rectified photo `np-shuffle-b`). */
 #define TITLE_BAND_Y    69              /* title cap top 71 */
 #define TITLE_BAND_H    NP_MARQUEE_H    /* 18 */
 #define TITLE_CAP_TOP   71
@@ -134,7 +134,7 @@ NP_STATIC_ASSERT(sizeof(fb_data) == sizeof(np_px));
 #define GLYPH_BAND_Y    (BODY_Y + 1)    /* NPD_GLYPHS: y 21-38 */
 #define GLYPH_BAND_H    18
 #define GLYPH_BAND_X    262
-/* bar row (measured on the rectified photo 1203, 1208, 1222) */
+/* bar row (measured on the rectified photo `np-normal-b`, `np-shuffle-b`, `np-audiobook-volume-b`) */
 #define BAR_Y           206             /* y 206-219, reflection 220-224;
                                            the art's reflection runs behind
                                            it to y 219 (P11) */
@@ -147,7 +147,7 @@ NP_STATIC_ASSERT(sizeof(fb_data) == sizeof(np_px));
 #define SPK_X           42              /* ink x 42-51: 4 px before the bar */
 #define SPKW_X          273             /* ink from x 273: 4 px after it */
 #define RATE_PITCH      21              /* 19 px stars, tips ~2 px apart */
-#define RATE_Y          203             /* stars y 203-221 (photo 1206) */
+#define RATE_Y          203             /* stars y 203-221 (photo `np-rating-4stars-b`) */
 #define STAR_REFL       4               /* flat reflection rows */
 #define SHELF_X         70              /* the sunken channel x 70-269 */
 #define SHELF_W         200
@@ -160,7 +160,7 @@ NP_STATIC_ASSERT(sizeof(fb_data) == sizeof(np_px));
 #define BTN_SHADOW      3               /* soft shadow rows under it */
 #define SHUF_ICON_X     30              /* ink x 32-52 */
 #define SHUF_ICON_Y     208             /* ink y 209-225 */
-#define SHELF_CAP_TOP   212             /* option text, as photo 1208 */
+#define SHELF_CAP_TOP   212             /* option text, as photo `np-shuffle-b` */
 /* lyrics page (owner, 2026-10-08, lyrics-screenshot.png) */
 #define LYR_X           10              /* lines left-aligned, ~x 11 */
 #define LYR_TITLE_CAP   31              /* centred title, Bold 12 */
@@ -473,7 +473,7 @@ static int font_bold12(void)
 /* ---- materials (spec now-playing.md "Bar row materials", index.md
  * "blue gel"): light from the top. The blue gel and the groove come from
  * the shared material kit (material.h, art/materials.py: key colours
- * measured on the rectified owner photos 1209 / 1222, toned down a
+ * measured on the rectified owner photos `np-volume-b` / `np-audiobook-volume-b`, toned down a
  * little for the camera's saturation; tests/material pins them to the
  * values this screen had before the move). */
 /* the gel's faint lighter top line and its 1 px darker bottom edge */
@@ -542,7 +542,7 @@ static void build_styles(struct np_styles *s)
 
     /* the rating star: a colour + alpha tile (composited over whatever is
      * behind it: the art's reflection reaches the stars' top rows, owner
-     * on photo 1206), the blue gel down the star (deeper top, brightest
+     * on photo `np-rating-4stars-b`), the blue gel down the star (deeper top, brightest
      * just above the bottom), a faint lighter line along the top edges of
      * the arms and a slightly darker bottom edge, then its faint flat
      * reflection: the rows mirrored about its bottom row */
@@ -1459,7 +1459,7 @@ static void rating_delta(struct np_mem *m)
     sc->row_rating = n;
 }
 
-/* The shelf (owner photo 1208): a sunken rounded channel; the three
+/* The shelf (owner photo `np-shuffle-b`): a sunken rounded channel; the three
  * options sit flat inside it in near-black; the selection is a raised
  * satin button with a soft drop shadow and blue text, no outline. The
  * channel never changes; the button moves. */
@@ -2090,12 +2090,20 @@ static bool mq_bcm_begin(struct np_mem *m, int lap)
 #ifdef HAVE_BCM_JOBS_MODEL
 /* The simulator's parity (bcm_drift parity): F2 draws and pushes each
  * step too, at the PAN's own phase, a tick past the step; the model's
- * panel must equal it in the window */
+ * panel must equal it in the window.  Both sides read one clock
+ * (current_tick: mqj_phase() here, sync_model() in the diff), so a pair
+ * is a comparison only when no tick passed between them: under host load
+ * the draw and push can outlast a tick (once 99 ticks), and from a step's
+ * last tick the model is synced into the next step (#192: "x=370
+ * diff=1153", the phase at 10240 ms with 10 ms to go, the model at
+ * 10260 ms, x=372).  Such a pass is not counted (traced as "skip"); it
+ * looks again a tick later. */
 static int mq_parity(struct np_mem *m)
 {
     struct np_scr *sc = m->sc;
     int wait_ms = 0;
     unsigned long d;
+    long t0 = current_tick;
     long u = mqj_phase();
 
     sc->mq_x = mqj_phase_x(u, &wait_ms);
@@ -2106,6 +2114,12 @@ static int mq_parity(struct np_mem *m)
     marquee_show(m);
     ui_lcd_push("np:title", 0, TITLE_BAND_Y, LCD_WIDTH, TITLE_BAND_H);
     d = bcmjob_model_diff(TXT_X, TITLE_BAND_Y, MQ_WIN, NP_MARQUEE_H);
+    if (current_tick != t0)
+    {
+        UPDATE_TRACE("np mq parity skip x=%d ticks=%ld diff=%lu", sc->mq_x,
+                     (long)(current_tick - t0), d);
+        return 1;
+    }
     UPDATE_TRACE("np mq parity x=%d diff=%lu", sc->mq_x, d);
     return (wait_ms * HZ + 999) / 1000 + 1;
 }
@@ -2428,7 +2442,7 @@ static void request_mode_visual(struct np_mem *m, enum np_mode from,
 
         if (!full)
         {
-            viz_stop();             /* the BCM's rect handed back */
+            viz_stop_why("mode");   /* the BCM's rect handed back */
             ui_fb_settle(0, 0, LCD_WIDTH, LCD_HEIGHT);
             /* the title comes back at rest, the full delay first (as
              * after dark): not from the offset it had when the view
@@ -2836,7 +2850,7 @@ static enum ui_result np_input(struct ui_screen *s, const struct ui_input *in)
             /* #126: hold SELECT in the Visualizer: its style list.  The
              * rect goes back to the CPU first (the push captures the
              * framebuffer) */
-            viz_stop();
+            viz_stop_why("style");
             ui_push(&ui_viz_style_screen, NULL);
             break;
         }
@@ -3034,7 +3048,7 @@ static int np_tick(struct ui_screen *s)
         mq_bcm_end(&m, "dark");     /* parked at the light (below) */
 #endif
         sc->lit = false;
-        viz_stop();                 /* lit only: the tap closes */
+        viz_stop_why("dark");       /* lit only: the tap closes */
         if (sc->dirty & NPD_ART)
             sc->dirty |= NPD_BODY;
         if (m.st->mode != NP_NORMAL || m.st->volume_shown

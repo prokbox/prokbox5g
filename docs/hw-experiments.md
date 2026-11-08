@@ -68,7 +68,7 @@ Columns: **Needs** is nothing / owner action / meter / scope / second unit / HDD
 | HX-A3 | PP#1, PP#27 (read only) | Dump `0x7000_0000`–`0x7000_0044`, plus `0x7000_008C` (strap, SDRAM controller neighbourhood, the external device clock `0x7000_0018`, the BCM bootstrap word `0x7000_0040`). **`0x7000_0030` is read, never written** (the flash write gate, `boot.md` §1) | R0 | none | Values recorded against the emulator reading in `memory-map.md` §2: agreement promotes it to [silicon] for a 64 MB unit; a 32 MB comparison needs a second unit (HX-X2). Bits in `0x7000_0030` that differ from the emulator's are recorded, not interpreted | — | A |
 | HX-A4 | PP#2 | Read `MMAP0..7` (`0xF000_F000`–`0xF000_F03C`), `CACHE_MASK`, `CACHE_OPERATION` from the CPU, and from a COP job | R0 | none | COP reads MMAP1 = 0 while the CPU reads `0x2000_3C00`: the windows are banked per core. Both read the same: one register set, and the "hidden from the COP" comment needs another explanation. Low byte `0x84` read back as written or altered: whether it is a stored field or partly status | — | A |
 | HX-A5 | PP#3, PP#5 | Read `CACHE_CTL` `0x6000_C000` on each core; the local vector table `0x6000_F100`–`0x6000_F17F` | R0 | none | Words shaped like ARM instructions (e.g. `0xE59F_F018`, `ldr pc,[pc,#24]`) against words shaped like addresses (`0x1xxx_xxxx`, `0x4xxx_xxxx`) hint at the table's format; HX-D4 settles it. All zero or all ones: no hint | — | A |
-| HX-A6 | PP#22 (our baseline) | `PP_VER1`/`PP_VER2` (`0x7000_0000/0004`) as ASCII; the hardware-version word at NOR `0x405C` through the mapping the firmware already reads it by | R0 | none | "PP5022C" and `0x000B_0011`: our unit's identity is [silicon] (today [external]). Anything else updates `overview.md` | — | A |
+| HX-A6 | PP#22 (our baseline) | `PP_VER1`/`PP_VER2` (`0x7000_0000/0004`) as ASCII; the hardware-version word at NOR `0x405C` through the mapping the firmware already reads it by | R0 | none | "PP5022C" and `0x000B_0011`: our unit's identity is [silicon] (today [external]). **Done, sitting 4gh: "PP5022C " [silicon]**. Anything else updates `overview.md` | — | A |
 | HX-A7 | PP#23, timers | Sample `0x6000_6038` (pairs, as Apple does), `0x6000_5014` (`RTC`), `0x7000_2804` and `USEC_TIMER` 1,000 times at fixed `USEC_TIMER` spacing, at 24, 30 and 80 MHz, with audio stopped and then playing | R0 | none | `6038` advances at a rate that follows the core clock: a cheap cycle counter. A fixed rate across clocks: an independent clock (its rate recorded). No order: an entropy source. `5014` steps once a second: a seconds counter. `2804` moves only while playing: I2S-related [hypothesis until its bits are matched to events] | — | A |
 | HX-A8 | PP#6 (baseline) | Snapshot the interrupt controller (`0x6000_4000` block, both banks, per-core enable and status, raw `INT_STAT` `0x6000_4010`) at idle and during playback. No forcing | R0 | none | Raw bits set that no enabled handler owns are candidate sources for HX-D5 | — | A |
 | HX-A9 | PP#17 (baseline) | Snapshot `WHEEL_CTL` `0x7000_C100` and `WHEEL_STAT` `0x7000_C104` at idle, while the wheel is touched, and with hold on (controller off); count packets and `0x3A` packets per second | R0 | owner: do (touch the wheel, toggle hold) | Baseline for HX-D7; bits that change only while touched are status, not control | — | A |
@@ -251,7 +251,7 @@ Each batch is one developer build after the next one, sized to an owner session 
 
 ## 5. Accessory mods: the Bluetooth unit
 
-The unit may come soon; it is **the owner's wife's daily device**. Rules before anything else:
+The unit may come soon; it is **a second, borrowed unit**. Rules before anything else:
 - **Read-only first.** A full backup of its disk before any session (read-only image, stored as the stock 7G's backups are), and its own firmware left untouched.
 - **Never flash, patch or install** on it without the owner's explicit go for that unit. Installing our firmware is itself a write, so every experiment that runs our code on it needs that go first; until then only observation under its own firmware.
 - **First establish what it is.** It may not be a 5G/5.5G at all: a 6G/7G Classic has a different SoC, and almost nothing in this guide applies to it. Record the model and serial numbers engraved on the back and shown in its own Settings › About; capacity; whether it still has a hard drive; and which mod is fitted.
@@ -371,3 +371,47 @@ The backlog above is a plan. These are experiments that did run, on the owner's 
 | Flash adapter alone | 21-22 MiB/s |
 
 **Handover, 54 s case.** The `usb hand` log line proved the wait: the host's first CBW was held (WAITING_FOR_STORAGE, nothing primed, `e00`). Each slow handover coincided with the end of a `db scan ms=~60000`. Six threads acked at once; the seventh was tagcache, still scanning or committing. Fix: tagcache acknowledges at once and runs its changelog export after disconnect (`0ded0466a6`); a lock-free quiesce flag stops scan and commit at their checkpoints before the GUI acknowledges (`248ee66c81`, `ec96be8910`); artcache stops cooperatively at panel-decode rows and its final flush (`7d5e7fc086`). A commit cut this way keeps its temp database and is retried after disconnect (`5a1d396d87`).
+
+## 8. Results: sitting 4gh (2026-11-06, build `56cd4e2096`)
+
+The battery probes, the awake rows and the core layout probe on the owner's 5.5G. Details in the reference: `pp5022-reference/clocks-power.md` §11–12, `interrupts-timers.md` §6, quirks 74–77.
+
+| Row | Answers | Result |
+|---|---|---|
+| `preg` / `pgrd` | HX-A6, #22, #35, #43 | "PP5022C " [silicon]; `STRAP_OPT_A` `0x003F_008C`, grade 0 (133 MHz in Apple's table, meaning [hypothesis]); Apple's sleep pad words are already the awake values |
+| `prtc` | HX-A7 (part), #44, S-6 | `0x6000_5014` does not count awake |
+| `pstl` | #46, S-8 | the `CPU_CTL` count-mode stalls don't hold |
+| `pldo` / `awld` | #42, S-4, AW-4 | LCD LDO mode `010` restores cleanly, 5 of 5 lit, worst wake 447 ms; token set. The codec half did not run |
+| `awd2` / `awd2c` | AW-3, T-D2REG | the accessory rail off for 5 s with USB-C audio playing on: the board's audio is not on it |
+| `awus` | AW-2 | pass; token set |
+| `awi2` | AW-5 | fail: 2 late resumes of 6 |
+| `pden` | #41 (awake) | nothing to cut |
+| `p2` | P-2 | Timer 2 on the COP: 1000/1000, 0 on the CPU |
+| `p1` | P-1 | 0 FIQs: the COP's F bit was never cleared (a code bug, quirk 74), not a route verdict; fixed, rerun |
+| `k1` | K-1 | COP wakes 100.5 → 0.6/s, 0 underruns; the row's old verdict failed it on 44 rescues seen equally in both arms (rule corrected to A/B) |
+| `duty` | D-1 (arm C) | CPU idle 136 ‰, 60 wakes/s, COP 100/s (a video's soundtrack, #154); arm F: playback did not start |
+| `awlg`, `psrf` | AW-1, #39 | not really run (nothing playing; music not stopped): rerun |
+
+## 9. Results: sittings 4gh-b7 and 4gh-b8 (2026-11-07)
+
+### 4gh-b7 (build `e77ca14dc4`, merged image `b9bcbe57`): 2 passed, 2 failed, 24 skipped
+
+| Row | Answers | Result |
+|---|---|---|
+| `i2creg` | `gpio-i2c.md` §6.1 | **Data abort** [silicon]. The panic record's pc `0x86294` is `ldrb r2, [r3, #13]` in `devbench_dma_i2c` (b7 ELF): a **byte read at `0x7000_C00D`**, with `r3 = 0x7000_C000` and `r2` still `0x44332211` in the saved registers. These completed without a fault before it: byte reads at the lane-0 addresses `C00C`, `C010`, `C014` and `C018`, the word store of `0x44332211` at `C00C`, and the byte read at `C00C` after it. So `C010`–`C018` are not byte lanes of one word; whether a word store fans out to them stays open (quirk 91). The row is retired; a lane-0-only follow-up (`i2cfan`) is built for the next sitting |
+| `s05` | stages 0–5 | Answered "Garbled", but the hardware path matched 4gh-b5 exactly: every DMA counter, frame time and status word, and stage 5 PASS [silicon]. Two things differed. **Every photo hold lasted about 5 ms instead of 8–15 s** (stage 3: 1.1 s against 94 s): a system event left pending by the restart cut each hold short, because `dt_hold()` re-posts it (#199). **The CPU stayed boosted**: the "unboosted" upload lab ran at 125 ns/px against 352 ns/px in b5, drawing at 45 against 120 ms a frame. The likely holder is the library rescan after the unclean restart (#200, unconfirmed). So the owner saw an unheld flash-through, not bad pixels |
+| the rest | — | auto-skipped behind `s05`'s gate. The BCM pass flags and configs are byte-identical to the pre-sitting backup: nothing persisted from the abort |
+
+### 4gh-b8 (build `dc42b22039`, the PP rows only, decode on the CPU): 7 passed, 1 failed, 1 skipped, no panic
+
+| Row | Answers | Result |
+|---|---|---|
+| `p1` | P-1 | PASS [silicon]: the audio DMA's FIQ taken on the COP, 215 of 215 expected in 10 s (44.1 kHz, 1 kHz tone), 0 on the CPU |
+| `pcop` | P-1 (driver) | PASS [silicon]: `pcm-pp.c`'s driver with the FIQ on the COP. `fiq_cop` 15,560, `fiq_cpu` 0; refills 2,593 (expected 2,584, band 2,454–2,713); late 0, stuck 0; largest refill gap 23,426 µs (piece 23,219 µs); 2,999 lock holds, none inside a lock |
+| `alb` | — | pass (album played outside the session) |
+| `heap` | the morning heap crash; #197 | PASS [silicon]: arm F (decode on the COP) 89 cycles, 0 fails, 88 of 89 runs on the COP; arm C (the CPU) 90 cycles, 0 fails; every header and every live block good in 179 walks. The UI ran inline on the main thread (`fe shell up mode=inline`), and no "PCM did not move back" line appeared (audit unknowns U3 and U4 clear) |
+| `dmaodd` | #191 | **Not run**: "the music did not stop". The row waited 3 s for the PCM to stop, and the mixer plays 3 s of silence after its last channel stops (`pcm_mixer.c` `max_idle_frames`), so with music playing the wait always lost. All five such waits now take `BENCH_PCM_STOP_TICKS`, 6 s (b9) |
+| `cslice` | #156 | done [silicon], decode on the CPU at 80 MHz. MP3: 7,867 runs, longest 12,681 µs, busy 59 %, wheel-to-paint median 4 ms, max 96 ms. FLAC: longest 4,162 µs, busy 17 %, max 31 ms. AAC: longest 10,165 µs, busy 53 %, max 102 ms. No run over 50 ms: the input lag is the decoder's share of the CPU, not one long slice (4gh's 379 ms was not seen). With the decode on the COP (0.8.0's default since rc.5), b9 repeats it |
+| `psrf` | #39 | skipped: the disk had spun up again (it ran after `cslice`'s clips; b9 runs it first) |
+
+From these, rc.5 decodes on the COP by default.

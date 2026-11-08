@@ -62,9 +62,19 @@ static void probe_block_init(void)
 }
 #endif
 
+#if BCMFW_IDLE_ADAPT
+/* crt0.S's tick handler re-arms timer compare 1 with this (config.h
+ * BCMFW_IDLE_ADAPT); .data, so it holds 1 ms before main runs */
+uint32_t bcmfw_idle_tick_us = BCMFW_IDLE_TICK_US;
+#endif
+
 static void publish_info(void)
 {
     MB(BCMFW_MB_INFO) = info | (lcd_is_on() ? BCMFW_INFO_PANEL_ON : 0)
+#if BCMFW_IDLE_ADAPT
+                      | (bcmfw_idle_tick_us != BCMFW_IDLE_TICK_US
+                         ? BCMFW_INFO_TICK_SLOW : 0)
+#endif
 #if BCMFW_LCD_DMA
                       | dma_info()
 #endif
@@ -99,6 +109,37 @@ static void irq_init(void)
 #endif
 }
 
+#if BCMFW_IDLE_ADAPT
+/* The next sleep's tick (config.h BCMFW_IDLE_ADAPT): 10 ms once a
+ * doorbell has been seen and nothing BCM-timed is pending, else 1 ms.
+ * Interrupts are off here: a period that shrinks re-arms the compare at
+ * once, so a frame due in 1 ms never waits out a 10 ms tick; one that
+ * grows takes effect at the next tick */
+static void idle_period(void)
+{
+    uint32_t us = BCMFW_IDLE_TICK_SLOW_US;
+
+    if (!MB(BCMFW_MB_IDLE_BELLS)
+#if BCMFW_JOBS
+        || jobs_anim_live()
+#endif
+#if BCMFW_VIDEO
+        || video_anim_live()
+#endif
+#if BCMFW_HOSTPROTO
+        || hp_session_live()
+#endif
+        )
+        us = BCMFW_IDLE_TICK_US;
+    if (us == bcmfw_idle_tick_us)
+        return;
+    bcmfw_idle_tick_us = us;
+    if (us == BCMFW_IDLE_TICK_US)
+        REG(TIMER_C(1)) = REG(TIMER_CLO) + us;
+    publish_info();
+}
+#endif
+
 static inline void idle_wait(void)
 {
 #if BCMFW_IDLE_SLEEP
@@ -106,6 +147,9 @@ static inline void idle_wait(void)
     /* the resident video image: only while the host allows it */
     if (MB(BCMFW_MB_IDLE_EN) != BCMFW_IDLE_EN_MAGIC)
         return;
+#endif
+#if BCMFW_IDLE_ADAPT
+    idle_period();
 #endif
     /* The tick handler re-arms itself, so a wake-up is never lost.  r0-r5
      * hold known values across the sleep: an interrupt return that

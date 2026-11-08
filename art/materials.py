@@ -64,7 +64,7 @@ ROOT = os.path.dirname(HERE)
 # The materials, in material.h's enum order. keys: (t 0..255, r, g, b).
 MATERIALS = [
     # Now Playing's bar fill, scrubber diamond and stars (owner
-    # 2026-10-08; photo 1209/1222): a faint lighter top line, medium blue
+    # 2026-10-08; photo `np-volume-b`/`np-audiobook-volume-b`): a faint lighter top line, medium blue
     # deepening to the richest blue around the middle, brightening toward
     # cyan in the lower third, brightest just above a 1 px darker edge.
     ('GEL_BLUE', dict(
@@ -136,7 +136,7 @@ MAT = dict(MATERIALS)
 # audit row 12): the build-time switch UI_MAT_SEL_VARIANT (2 = B, the
 # default; 1 = A, 3 = C) picks one; each variant replaces the sky gel (selection bar,
 # header play/pause) and the green gel (battery fill) together. Measured on
-# the owner's photos (photo 1212, 1186, 1199, 1214, cast-corrected by the list
+# the owner's photos (photo `music-menu-b`, `backlight-values`, `extras-games`, `artist-albums-allsongs-b`, cast-corrected by the list
 # white): the 7G bar is a deep saturated blue, hue ~207, lightest at the
 # top, deepening steadily to the bottom, no cyan lift, a darker foot; the
 # battery a muted green with a bright gloss band in its upper third.

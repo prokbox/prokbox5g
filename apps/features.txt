@@ -1,3 +1,4 @@
+/* Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md. */
 /* This file controls which strings are included when rockbox is built and
    when the .lng and .voice files are built. That means that a change in this
    file will break compatibility with older .lng and .voice files and that those

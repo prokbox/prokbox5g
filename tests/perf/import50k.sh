@@ -41,6 +41,7 @@ B=$ROOT/build/sim-50k
 SIM=${SIM_BUILD:-$B}
 [ -f "$B/simdisk/.rockbox/database_idx.tcd" ] \
     || { echo "run tests/perf/lib50k.sh first" >&2; exit 2; }
+"$ROOT/tests/perf/ensure50k.sh" "$B/simdisk" || exit 1
 # #47: this script works on the disk itself; re-sort it once first so the
 # import is timed against the steady state (tests/perf/settle50k.sh)
 "$ROOT/tests/perf/settle50k.sh" "$B/simdisk" --in-place >/dev/null

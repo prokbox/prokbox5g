@@ -113,7 +113,26 @@ def match(table, ref):
                                                or f == '*')]
 
 
-def check(elf, need, allow, seen):
+LOCAL_N = re.compile(r'^(.+)\.(\d+)$')
+
+
+def allow_key(f, n, objs):
+    """The allow-list key of object (f, n).  GCC names a function-local
+    static NAME.N, N a counter over the whole translation unit, so any
+    new local static elsewhere in the file renumbers it (rc-0.8.0:
+    #154's tags[] turned tagcache.c's wakeup_tick.6 into .7).  An allow
+    line names it without the number, "FILE:NAME", and that key covers
+    it only while it is the file's one object of that name; a second
+    one keeps its numbered key, which no line names, so it fails."""
+    m = LOCAL_N.match(n)
+    if not m or f == '*':
+        return '%s:%s' % (f, n)
+    same = [k for k in objs if k[0] == f and LOCAL_N.match(k[1])
+            and LOCAL_N.match(k[1]).group(1) == m.group(1)]
+    return '%s:%s' % (f, m.group(1) if len(same) == 1 else n)
+
+
+def check(elf, need, allow, seen, used):
     objs, every = symbols(elf)
     bad, ok = [], 0
     for ref, opt, anchor in need:
@@ -139,8 +158,10 @@ def check(elf, need, allow, seen):
         if sect.startswith('.text') or sect.startswith('.rodata'):
             continue
         kl += 1
-        if '%s:%s' % (f, n) in allow:
+        key = allow_key(f, n, objs)
+        if key in allow:
             allowed += 1
+            used.add(key)
             continue
         if '%s:%s' % (f, n) in needed:
             continue                    # reported above
@@ -189,7 +210,13 @@ def main(argv):
     need, allow = load_list(lst)
     need += extra
     seen = set()
-    good = all([check(e, need, allow, seen) for e in elfs])
+    used = set()
+    good = all([check(e, need, allow, seen, used) for e in elfs])
+    for ref in sorted(allow - used):
+        # a note, not a failure: a flavour this run did not build may
+        # still need the line
+        print('xcore: note: allow %s matched nothing in the ELFs checked '
+              '(renamed, numbered, or another flavour\'s?)' % ref)
     for ref, opt, anchor in need:
         if opt and ref not in seen:
             print('xcore: absent   %s? from every ELF checked (renamed? '

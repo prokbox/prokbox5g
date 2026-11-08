@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>dev.prokopto.ipod-automount</string>
+    <string>org.prokbox.automount</string>
     <key>ProgramArguments</key>
     <array>
         <string>/usr/local/libexec/ipod-automount</string>

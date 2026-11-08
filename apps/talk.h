@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2004 Jörg Hohensohn
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This module collects the Talkbox and voice UI functions.
  * (Talkbox reads directory names from mp3 clips called thumbnails,

@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2007 Michael Sevakis
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * LCD scrolling driver and scheduler
  *

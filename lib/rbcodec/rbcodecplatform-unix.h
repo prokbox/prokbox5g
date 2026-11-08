@@ -1,3 +1,4 @@
+/* Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md. */
 #ifndef RBCODECPLATFORM_H_INCLUDED
 #define RBCODECPLATFORM_H_INCLUDED
 

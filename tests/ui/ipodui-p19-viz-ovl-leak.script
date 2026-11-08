@@ -1,0 +1,58 @@
+# The overlays' session piece buffer, its leak path (art_bcm.c, the
+# hardware agent's condition 1): a piece the pass took and never finished
+# retires the buffer (kept pinned and unfreed, never refilled), and a later
+# load while playing takes the CPU face: no new block, no shrink, no stop.
+# The model blocks the pass inside the first load's last put for 5 s
+# (bcm_ovl_stall), then refuses it: the art thread times out with the
+# piece taken (OVL_WAIT 1 s, then OVL_TAKEN_WAIT 3 s) and the overlay stays
+# due, so the second visit asks again.
+# log: bcm overlay buf session h=
+# log: bcmjob overlay stall ms=5000
+# log: bcmjob overlay refused why=stall
+# log: FAULT art_bcm_ready_ovl wait=pass-piece
+# log: FAULT bcm ovl buf retired, playing: CPU path
+# log: CPU FALLBACK why=noop
+# nolog: audio shrink
+# nolog: np pop stopped
+# logbetween: leaked end no bcm overlay buf session
+# logbetween: v2 end viz start style=0 path=cpu
+wait 3000
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait 1500
+key SELECT          # Music
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 1500
+bcm_ovl_stall 5000
+key SELECT          # Scrubber
+wait 400
+key SELECT          # Rating
+wait 600
+key SELECT          # Shuffle
+wait 600
+key SELECT          # Visualizer: its load stalls, the piece stays taken
+wait 6000
+ab_mark leaked
+shot first_view
+key SELECT          # back to Normal
+wait 1200
+bcm_suspend on      # a new epoch: the second visit has a load try again
+wait 300
+bcm_suspend off
+wait 500
+ab_mark v2
+key SELECT          # Scrubber
+wait 400
+key SELECT          # Rating
+wait 600
+key SELECT          # Shuffle
+wait 600
+key SELECT          # Visualizer again: playing, no buffer: the CPU face
+wait 2000
+shot second_view
+key SELECT          # back to Normal
+wait 1200

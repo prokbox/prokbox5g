@@ -597,7 +597,8 @@ void jobs_init(void)
 #if BCMFW_VIZ
     /* proposed, sim only: SPECTRUM and BARS, each on the vector unit
        if its start-up check agrees (J_VPU_FFT, J_VPU_BARS) */
-    if (viz_vpu_init(BCMFW_VIZ_FFT_FAIL))
+    JB(J_VFFT) = viz_vpu_check(BCMFW_VIZ_FFT_FAIL);
+    if (JB(J_VFFT) == J_VFFT_ALL)
     {
         j.spectrum = viz_spectrum;
         JB(J_VPU) |= J_VPU_FFT;
@@ -690,6 +691,11 @@ void jobs_mode(uint32_t mode)
     publish();
     ev[0] = j.epoch;
     hp_event(J_EV_EPOCH, HP_OK, ev, 1);
+}
+
+int jobs_anim_live(void)
+{
+    return anim_on;
 }
 
 /* Between command passes: the running animation's next frame, if due.

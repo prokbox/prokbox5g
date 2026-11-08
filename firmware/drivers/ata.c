@@ -89,6 +89,9 @@
 #ifdef HAVE_STORAGE_POWEROFF
 #include "stor_pwr.h"
 #include "backlight.h"
+#ifdef HAVE_PWR_AWAKE
+#include "pwr_awake.h"
+#endif
 static struct stor_pwr spw;         /* ~170 B: counters and event ring */
 static const struct stor_pwr_tune spw_tune = {
     .hold_dark = STOR_PWR_HOLD_DARK_S * HZ,
@@ -96,12 +99,14 @@ static const struct stor_pwr_tune spw_tune = {
     .min_off   = STOR_PWR_MIN_OFF_S * HZ,
     .hold_max  = STOR_PWR_HOLD_MAX_S * HZ,
     .relax     = STOR_PWR_RELAX_S * HZ,
+    .linger_rewake = STOR_PWR_LINGER_REWAKE_S * HZ,
 };
 static bool spw_allow = true;       /* the developer switch */
 static bool spw_solid;              /* set at init from IDENTIFY */
 static bool spw_usb;                /* USB owns the drive */
 static int spw_reason = STOR_PWR_R_ACCESS;  /* why the next power-on */
 static bool spw_clean;              /* in standby with the cache safe */
+static long spw_last_xfer;          /* AW-1: the last read or write */
 #endif
 
 #if defined(HAVE_USBSTACK)
@@ -620,6 +625,9 @@ static int ata_transfer_sectors(uint64_t start,
 #endif
 
     keep_ata_active();
+#ifdef HAVE_STORAGE_POWEROFF
+    spw_last_xfer = current_tick;   /* AW-1: not the standby's commands */
+#endif
 
     ata_led(true);
 
@@ -1114,8 +1122,9 @@ static bool spw_off_due(void)
         return false;       /* #114 M2: never with the cache unsafe */
     if (!spw_solid)
         return ata_power_off_timed_out();
-    return stor_pwr_off_due(&spw, &spw_tune, current_tick,
-                            last_disk_activity, is_backlight_on(true));
+    return stor_pwr_off_due_x(&spw, &spw_tune, current_tick,
+                              last_disk_activity, spw_last_xfer,
+                              is_backlight_on(true));
 }
 #endif /* HAVE_STORAGE_POWEROFF */
 
@@ -1151,8 +1160,9 @@ long ata_tick_wait(bool ticked)
         if (spw_solid) {
             in.lit = is_backlight_on(true);
             in.off_armed = spw.on;
-            in.off_deadline = last_disk_activity
-                + stor_pwr_hold(&spw, &spw_tune, in.lit);
+            in.off_deadline = stor_pwr_off_deadline(&spw, &spw_tune,
+                                                    last_disk_activity,
+                                                    spw_last_xfer, in.lit);
         }
 #ifdef HAVE_ATA_POWER_OFF
         else {
@@ -1814,7 +1824,20 @@ int ata_event(long id, intptr_t data)
             if (ata_state == ATA_SLEEPING && spw_off_due()) {
                 mutex_lock(&ata_mutex);
                 if (ata_state == ATA_SLEEPING && spw_off_due())
-                    spw_cut(STOR_PWR_R_IDLE);
+                {
+                    /* AW-1: the linger's cut, or the hold's */
+                    bool lg = spw_solid &&
+                        stor_pwr_linger_live(&spw, spw_last_xfer,
+                                             is_backlight_on(true));
+#ifdef HAVE_PWR_LINGER
+                    if (lg)
+                        pwraw_note(PWRAW_LINGER, true,
+                                   (uint32_t)((current_tick - spw.linger_at)
+                                              * (1000 / HZ)),
+                                   spw.lingers + 1);
+#endif
+                    spw_cut(lg ? STOR_PWR_R_LINGER : STOR_PWR_R_IDLE);
+                }
                 mutex_unlock(&ata_mutex);
             }
 #elif defined(HAVE_ATA_POWER_OFF)
@@ -1835,6 +1858,17 @@ int ata_event(long id, intptr_t data)
     }
     else if (id == Q_STORAGE_SLEEP) {
         last_disk_activity = current_tick - sleep_timeout + HZ / 5;
+#if defined(HAVE_STORAGE_POWEROFF) && defined(HAVE_PWR_LINGER)
+        /* AW-1: a fill reached its target (buffering.c): on flash, dark,
+         * the power goes STOR_PWR_LINGER_MS after this unless an access
+         * comes first (stor_pwr_core.c); the fallback's trip is logged */
+        if (spw.linger_off && pwraw_active(PWRAW_LINGER))
+            pwraw_fail(PWRAW_LINGER, spw.rewakes, spw.lingers);
+        else if (spw_solid && pwraw_active(PWRAW_LINGER) &&
+                 !is_backlight_on(true))
+            stor_pwr_linger_arm(&spw, current_tick,
+                                STOR_PWR_LINGER_MS * HZ / 1000);
+#endif
     }
 #ifndef USB_NONE
     else if (id == SYS_USB_CONNECTED) {

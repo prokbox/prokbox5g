@@ -8,6 +8,7 @@
  *
  * Copyright (C) 2002 by Alan Korr
  * Copyright (C) 2007 by Michael Sevakis
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -172,6 +173,30 @@ void commit_discard_idcache(void);
 #if defined(IPOD_VIDEO) && !defined(BOOTLOADER)
 extern unsigned char probed_ramsize;
 int battery_default_capacity(void);
+#endif
+
+#if defined(IPOD_VIDEO) && !defined(BOOTLOADER) && \
+    defined(HAVE_IPOD_UI_DEVMODE)
+/* ProkBox P19 4h (core layout probe, docs/design/core-layout-decision.md
+ * section 5): what wakes the CPU, for the bench's dark duty row.  Developer
+ * builds only (a release compiles none of it).  pp_irq_n: the CPU's IRQ
+ * entries by the source irq_handler serves (its own order, one per
+ * entry); pp_idle_exits: each core's returns from core_sleep() (single
+ * writer per index).  Plain counters, read as deltas by the UI thread */
+#define HAVE_PP_IRQ_TALLY
+enum
+{
+    PP_IRQ_TICK = 0,        /* Timer 1: the kernel tick */
+    PP_IRQ_T2,              /* Timer 2: the user timer */
+    PP_IRQ_USB,             /* the USB controller */
+    PP_IRQ_IDE,             /* the IDE DMA end (Fit-1 C4b) */
+    PP_IRQ_WHEEL,           /* I2C: the click wheel */
+    PP_IRQ_GPIO,            /* GPIO group 2: the USB insert */
+    PP_IRQ_OTHER,           /* anything else (unhandled here) */
+    PP_IRQ_N
+};
+extern uint32_t pp_irq_n[PP_IRQ_N];
+extern uint32_t pp_idle_exits[2];
 #endif
 
 #ifdef BOOTLOADER

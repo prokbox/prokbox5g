@@ -27,11 +27,12 @@
 #ifndef BCMVIDEO_CLOCK_H
 #define BCMVIDEO_CLOCK_H
 #include <stdint.h>
-static const uint32_t bcmvideo_clock150_fnv[3] =
+static const uint32_t bcmvideo_clock150_fnv[4] =
 {
     0x80bc8611u,   /* bcmvideo_jobs (merged, 218692 bytes) */
     0x2c6dc03au,   /* bcmvideo_jobs (merged, 214772 bytes) */
     0x23693ff4u,   /* bcmvideo_jobs (merged, 214356 bytes) */
+    0xb9bcbe57u,   /* bcmvideo_jobs (merged, 215064 bytes) */
 };
-#define BCMVIDEO_N_CLOCK150 3
+#define BCMVIDEO_N_CLOCK150 4
 #endif

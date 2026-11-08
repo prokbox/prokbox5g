@@ -296,8 +296,8 @@ enum { PGOV2_OFF = 0, PGOV2_SHADOW, PGOV2_APPLY };
 
 #if defined(HAVE_PP_GOV) && !defined(PGOV_HOST)
 /* Per core, single writer: the time in core_sleep() (thread-pp.c) */
-extern uint32_t pgov_idle_us[2];
-extern uint32_t pgov_sleep_t0[2];
+#include "pgov_idle.h"
+extern struct pgov_idle pgov_idle[2];
 
 struct pgov_stats {
     uint32_t band_ms[PGOV_NBANDS];

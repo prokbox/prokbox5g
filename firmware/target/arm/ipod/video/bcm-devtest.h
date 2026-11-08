@@ -417,6 +417,14 @@ int bcm_video_hand_back(void);
 /* The resident image's idle counters as read at the last take: ticks,
  * doorbells, sleeps, bad sleeps; c[4] 1 if read (the image was resident) */
 void bcm_video_idle_counters(uint32_t c[5]);
+#if defined(HAVE_BCMFW_DEVTEST) && defined(HAVE_BCMFW_RESIDENT)
+/* p19-vcpwr, bench row VS: inside a session on the resident image, the
+ * idle gate (on 1 writes "SLP1", 0 clears it, -1 leaves it) and the four
+ * counters now (c may be NULL).  The session's own thread, between its
+ * port accesses (cooperative threads; a PP DMA block is waited out
+ * first).  0 done; -1 no session on the resident image */
+int bcm_video_idle_gate(int on, uint32_t c[4]);
+#endif
 /* The power map's probes (brief-map-power.md section 9).  took_ours: the
  * last take found our image running, not Apple's vmcs (PW1's context).
  * pp_regs: GPO32_VAL, GPO32_ENABLE, 0x70000088, STRAP_OPT_A, 0x70000040,
@@ -696,6 +704,31 @@ int bcm_boot_res_read(uint32_t c[4], uint32_t *reg);
 int bcm_boot_res_bell(void);
 /* What this boot's resident image runs with now (RAM) */
 void bcm_boot_res_now(bool *idle, bool *level5);
+#ifdef HAVE_BCMFW_DEVTEST
+/* p19-vcpwr (power-apple-vs-ours.md S1, L5; apps/ipodui/devbench_vcpwr.c):
+ * the developer build's watch over the two idle levers.
+ * bcm_boot_res_state(): 1 the resident image drives a lit display and
+ * answers (bcm_boot_res_live() would run); 0 not now (no resident image,
+ * the display off, a session or a device test owns the chip); -1 it is
+ * marked stopped with the display lit (the heartbeat or a wait gave up).
+ * *gen: moves at the swap and at every wake (each a fresh image: its
+ * counters start again, the level is applied again) */
+int bcm_boot_res_state(uint32_t *gen);
+/* Latch a lever off for this boot (RAM: the next wakes keep it off), the
+ * gate cleared and the level put back to 11 when the image still
+ * answers; one log line "chip idle: off why=..." / "chip level: 11
+ * why=...".  The saved setting is the caller's (bcm_boot_resident_set,
+ * bcm_boot_level5_set) */
+void bcm_boot_res_latch(bool idle_off, bool level_off, const char *why);
+/* The cut: the image marked stopped (no strike), so the next update
+ * power-cycles the chip and the boot ladder brings it up again, with
+ * what the RAM settings say (a latched level comes back at 11) */
+void bcm_boot_res_cut(const char *why);
+/* One register or memory word through the port under the LCD driver's
+ * lock (as bcm_boot_res_live): write != 0 writes *val; else reads it.
+ * 0 done; -1 as bcm_boot_res_live */
+int bcm_boot_res_rw(uint32_t addr, uint32_t *val, int write);
+#endif
 #endif
 #ifdef HAVE_BCMFW_L1
 #include "bcmfw-boot.h"         /* #62 level 1 */

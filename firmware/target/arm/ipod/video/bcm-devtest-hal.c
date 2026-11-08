@@ -1263,6 +1263,22 @@ void bcm_video_idle_counters(uint32_t c[5])
     memcpy(c, video_idle, sizeof(video_idle));
 }
 
+#if defined(HAVE_BCMFW_DEVTEST) && defined(HAVE_BCMFW_RESIDENT)
+/* p19-vcpwr, row VS (power-apple-vs-ours.md): the take cleared the gate
+ * ("the session polls, as proven"); the bench's B phases set it again
+ * after OPEN, the hand-back puts the boot's own setting back */
+int bcm_video_idle_gate(int on, uint32_t c[4])
+{
+    if (!video_running || !video_res || vdma_wait())
+        return -1;
+    if (on >= 0)
+        dt_wr(BCMA_IDLE_EN, on ? BCMA_IDLE_EN_MAGIC : 0);
+    if (c && !bcmfw_idle_read(dt_rd, c))
+        return -1;
+    return 0;
+}
+#endif
+
 #ifdef HAVE_BCMFW_DEVTEST
 /* ---- The power map's probes (brief-map-power.md section 9) ----------- */
 

@@ -73,13 +73,12 @@ enum ui_mu_bit { UI_MU_COVERFLOW, UI_MU_GENIUS, UI_MU_PLAYLISTS, UI_MU_ARTISTS,
 /* Phase 14a (docs/phase14a-brief.md 3.6, T1): a video build offers
  * Videos and turns it on by default (stock 7G); a saved mask from before
  * keeps it off until it is ticked in Settings > Main Menu.
- * p19-bcm-release: a release build carries the player for the BCM path
- * (--bcmfw-video without --bcmfw-devtest) but keeps Videos hidden, its
- * bit and screens kept and not offered, like Photos (CLAUDE.md: hide them,
- * don't make them impossible); the developer build and the simulator
- * offer it as before. */
-#if defined(HAVE_BCMFW_VIDEO) && \
-    (defined(SIMULATOR) || defined(HAVE_BCMFW_DEVTEST))
+ * p19-relvideos: every build with the player (HAVE_BCMFW_VIDEO), the
+ * release included, since basic video ships in the first 0.8.x
+ * (docs/release-plan.md 1.3a). p19-bcm-release had hidden it outside the
+ * simulator and the developer build, so the 0.7.0-alpha release build had
+ * no Videos row. Photos stays hidden (its bit kept, not offered). */
+#ifdef HAVE_BCMFW_VIDEO
 #define UI_MM_DEFAULT (UI_MM_DEFAULT_BASE | (1u<<UI_MM_VIDEOS))
 #define UI_MM_OFFERED (UI_MM_OFFERED_BASE | (1u<<UI_MM_VIDEOS))
 #else

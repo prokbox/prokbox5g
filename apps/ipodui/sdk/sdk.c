@@ -66,6 +66,13 @@
 #include "ipodui/sdk/sdk_core.h"
 #include "ipodui/sdk/sdk_int.h"
 #include "ipodui/sdk/sdk_priv.h"
+#ifdef SIMULATOR
+#include <time.h>
+#ifdef __APPLE__
+#include <mach/mach_time.h>             /* not <mach/mach.h>: its
+                                           semaphore_wait() clashes */
+#endif
+#endif
 
 struct sdk_ctx *sdk_cur;
 static const char *const entry_names[] = { "init", "step", "back",
@@ -75,13 +82,122 @@ static const char *const entry_names[] = { "init", "step", "back",
 static void clock_stop(struct sdk_ctx *c)
 {
     if (c->in_game && c->sdk_depth == 0)
+    {
+        SIM_SEG(false);
         c->game_us += NOW_US() - c->seg_t0;
+    }
 }
 
 static void clock_go(struct sdk_ctx *c)
 {
     c->seg_t0 = NOW_US();
+    if (c->in_game)
+        SIM_SEG(true);
 }
+
+#ifdef SIMULATOR
+/* The device clock model (a UI script's `sdk_devclock on`; off by
+ * default, and then NOW_US() is the tick's, as before). The host runs a
+ * game's code several hundred times faster than the 30 MHz PP5022, so
+ * a game that overruns its 20 ms slice on the device passes here. With
+ * the model on, game code (between SIM_SEG(true) and SIM_SEG(false):
+ * the slice clock's own segments) is timed by the work it does, and
+ * everything else by the wall clock: the slice judge, the watchdog and
+ * the game's own sdk_now_us() then see device time.
+ *  - The work: the games' code (apps/ipodui/games/) is built with gcc's
+ *    -fsanitize-coverage=trace-pc in the simulator (tools/root.make),
+ *    and every basic block it runs counts one (sdki_sim_bb). A block is
+ *    DEV_BB_INSNS ARM instructions at CPI 1.5 and 30 MHz. By qemu's
+ *    counts of the same work (docs/design/games.md 5.6), a chess search
+ *    block is ~5.5 ARM (Thumb, -Os) instructions, drawing ~9, set-up
+ *    ~10: the model takes 10, the slow end, so it errs toward a kill
+ *    the device would not have, never the other way.
+ *  - Every SDK call (a segment's end) adds the device's own side of the
+ *    call, DEV_CALL_INSNS.
+ *  - Deterministic: the host's speed, its load, its cores and a
+ *    sanitizer build change nothing. */
+#define DEV_BB_INSNS    10u
+#define DEV_CALL_INSNS  35u
+#define DEV_NS(insns)   ((insns) * 3u / 2u * 1000u / 30u)
+unsigned long sdki_sim_bb;              /* the games' basic blocks run */
+static bool dev_on, dev_seg;
+static unsigned long dev_bb0;
+static uint64_t dev_wall0;
+static int64_t dev_off;                 /* ns: the model's lead on the wall */
+
+/* gcc's hook, in every basic block of the games' code (simulator) */
+void __sanitizer_cov_trace_pc(void);
+void __sanitizer_cov_trace_pc(void)
+{
+    sdki_sim_bb++;
+}
+
+static uint64_t wall_ns(void)
+{
+#ifdef __APPLE__
+    static mach_timebase_info_data_t tb;
+
+    if (!tb.denom)
+        mach_timebase_info(&tb);
+    return mach_absolute_time() * tb.numer / tb.denom;
+#else
+    struct timespec ts;
+
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000000000u + (uint64_t)ts.tv_nsec;
+#endif
+}
+
+uint32_t sdki_sim_now_us(void)
+{
+    int64_t ns;
+
+    if (!dev_on)
+        return (uint32_t)current_tick * (1000000u / HZ);
+    if (dev_seg)                        /* only the watchdog reads here */
+        ns = (int64_t)dev_wall0 + dev_off
+             + (int64_t)((sdki_sim_bb - dev_bb0) * DEV_NS(DEV_BB_INSNS));
+    else
+        ns = (int64_t)wall_ns() + dev_off;
+    return (uint32_t)(ns / 1000);
+}
+
+/* SIM_SEG(false) comes before the clock read that ends a segment, so
+ * that read sees the segment's model time */
+void sdki_sim_seg(bool on)
+{
+    uint64_t w;
+
+    if (!dev_on || on == dev_seg)
+        return;
+    if (on)
+    {
+        dev_bb0 = sdki_sim_bb;
+        dev_wall0 = wall_ns();
+        dev_seg = true;
+        return;
+    }
+    w = wall_ns();
+    dev_off += (int64_t)((sdki_sim_bb - dev_bb0) * DEV_NS(DEV_BB_INSNS)
+                         + DEV_NS(DEV_CALL_INSNS))
+               - (int64_t)(w - dev_wall0);
+    dev_seg = false;
+}
+
+void sdk_sim_devclock(bool on)
+{
+    dev_seg = false;
+    dev_on = on;
+    /* no jump: the model's clock starts at the tick's */
+    dev_off = (int64_t)((uint64_t)current_tick * (1000000000u / HZ))
+              - (int64_t)wall_ns();
+}
+
+bool sdk_sim_devclock_on(void)
+{
+    return dev_on;
+}
+#endif
 
 static void unwind(struct sdk_ctx *c)
 {
@@ -186,6 +302,7 @@ int sdki_call_game(struct sdk_ctx *c, int entry, uint32_t budget,
     if (SDK_SETJMP(c->jb))
     {
         c->in_game = 0;
+        SIM_SEG(false);
         c->killed = true;
         ui_log("sdk", "kill %s %s us=%lu", c->name,
                entry_names[c->kill_rule < 6 ? c->kill_rule : 1],
@@ -194,6 +311,7 @@ int sdki_call_game(struct sdk_ctx *c, int entry, uint32_t budget,
     }
     clock_go(c);
     c->in_game = 1;
+    SIM_SEG(true);
     switch (entry)
     {
         case E_INIT:    rc = c->g->init(c); break;
@@ -204,7 +322,14 @@ int sdki_call_game(struct sdk_ctx *c, int entry, uint32_t budget,
         case E_EXIT:    if (c->g->exit) c->g->exit(c, arg); break;
     }
     c->in_game = 0;
+    SIM_SEG(false);
     c->game_us += NOW_US() - c->seg_t0;
+#ifdef SIMULATOR
+    if (entry == E_STEP && c->game_us > c->sim_step_max_us)
+        c->sim_step_max_us = c->game_us;
+    if (entry < 6 && c->game_us > c->sim_entry_max_us[entry])
+        c->sim_entry_max_us[entry] = c->game_us;
+#endif
     if (entry == E_EXIT)
         return rc;                      /* the deadline is the watchdog's */
     j = sdk_slice_judge(c->game_us, budget, &c->viols);

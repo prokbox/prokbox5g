@@ -34,6 +34,7 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 SOURCE=${FLOOR_SOURCE:-$ROOT/build/sim-50k/simdisk}
 BUILD=${1:-$ROOT/build/sim-ui}
 [ -d "$SOURCE/Synth" ] || { echo "artpass50k: no 50k disk at $SOURCE" >&2; exit 2; }
+"$ROOT/tests/perf/ensure50k.sh" "$SOURCE" || exit 2
 RUN=$(mktemp -d "$ROOT/build/artpass50k.XXXXXX")
 mkdir -p "$RUN/simdisk"
 /bin/cp -cpR "$SOURCE/." "$RUN/simdisk/" 2>/dev/null || cp -pR "$SOURCE/." "$RUN/simdisk/"

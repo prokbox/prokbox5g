@@ -27,17 +27,17 @@
     tests/npscreen/qw2_sheets.py --photos DIR [--out out/review]
 
 DIR holds the rectified owner captures (320 x 240, out/fidelity/rect of
-the fidelity audit): np-normal.png (photo 1203) and np-ab-vol.png
-(photo 1222). Shots come from out/shots/ (run the ipodui-qw2-*,
+the fidelity audit): np-normal.png (photo `np-normal-b`) and np-ab-vol.png
+(photo `np-audiobook-volume-b`). Shots come from out/shots/ (run the ipodui-qw2-*,
 ipodui-p5-normal, -p5-volume, -p5-art-fit, -p5-noart, -p6-book-noart
 scripts first) and goldens from tests/ui/golden/. Writes:
 
   p11-q-geometry.png    owner question Q1: both candidate art boxes on
-                        the rectified photo 1203 and on ours, 3x (red: the
+                        the rectified photo `np-normal-b` and on ours, 3x (red: the
                         spec / code box x 10-147, y 34-175 / 43-167; cyan:
                         the coordinator's x 10-145, y 32-167 / 42-162)
   p11-q-speakers.png    the bar row's speakers at 8x: before (golden),
-                        after (ours), the rectified photo 1222
+                        after (ours), the rectified photo `np-audiobook-volume-b`
   p11-q-trackchange.png Now Playing before (golden) / after (ours) /
                         diff for real art, fitted art, the placeholders,
                         and the volume-limit triangle

@@ -71,4 +71,4 @@ Milestone summary: Library & maintenance. Updates land while paused, the boot wa
 1. Merge `p16-artist` and `p16-art` into `p16`; drop the "(pending merge)" markers in `docs/changes-from-rockbox.md`, `docs/design/changes-from-7g.md`, `docs/hardware.md` and this file.
 2. Re-run `scripts/upstream_changes.sh p16`; reconcile the 2.21 table.
 3. One full `scripts/validate.sh` (`GATE PASSED`), then the `budget-reviewer` agent; fill the owed floor, `rockbox.ipod` and `_end` figures in `docs/hardware.md`.
-4. Owner round, then release each issue with `scripts/forgejo.py release N "summary" --close`.
+4. Owner round, then close each issue on the development tracker with a short summary.

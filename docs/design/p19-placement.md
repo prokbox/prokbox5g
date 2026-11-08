@@ -1,5 +1,7 @@
 # P19 workload placement: where every job runs, and what is off in each state
 
+> **Status (2026-11-05): superseded.** Owner decision #148 adopts Apple's core layout (audio engine on the COP, UI on the CPU) and retires 19-9; the release build compiles the UI thread split out. See `docs/design/core-layout-decision.md`. The text below is kept as the record of the study and the machinery that developer builds still carry until (A) lands.
+
 *Plan, rev 0.1 (2026-10-23). Docs and analysis only: nothing here has been built. Written by the platform session together with the BCM session (`bcm2722-hardware-video-decode`), whose contracts on `p19-bcm-prep` (`7f91368864`; answers to this plan's questions at `c1634393d5`, §9.1) it builds on: `bcmfw/jobs.h` and `docs/research/bcm2722/jobs.md` (job interface rev 0.1), `memory-contract.md`, and `power-contract.md` (states C0–C5). The ranked offloads come from `p14-r3d:docs/research/bcm2722/display-offload-plan.md`.*
 
 **The owner's request:** "a detailed plan of where each current job will occur, so we can shut down as much of the iPod in idle as possible, while keeping everything smooth and elegant the whole time."

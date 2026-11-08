@@ -132,4 +132,22 @@ static inline uint8_t pl_acc_pct(uint16_t k, uint16_t n)
     return n ? (uint8_t)((k * 100u + n / 2) / n) : 0;
 }
 
+/* A11 (apple-power-catalog.md; Apple 1.3 keeps usage totals): the power
+ * log's running totals since boot, from the same 4 Hz sub-samples, 16 B.
+ * The CPU's and COP's idle come from devstats (microseconds, the caller
+ * passes them in ms). One line, "up_s=.. disk_on_s=.. bl_s=..
+ * darkplay_s=.. idle_cpu_s=.. idle_cop_s=..", hourly and when the log
+ * stops (powerlog.c). */
+struct pl_totals {
+    uint32_t subs;          /* sub-samples counted */
+    uint32_t disk_on;       /* the drive powered (on or standby) */
+    uint32_t bl;            /* the backlight lit */
+    uint32_t dark_play;     /* playing with the backlight off */
+};
+void pl_totals_add(struct pl_totals *t, bool disk_on, bool bl, bool playing);
+/* idle_*_ms: UINT32_MAX when the build has no measure ("-") */
+int pl_totals_format(char *buf, size_t size, const struct pl_totals *t,
+                     int subs_per_sec, uint32_t idle_cpu_ms,
+                     uint32_t idle_cop_ms);
+
 #endif /* _IPODUI_POWERLOG_CORE_H_ */

@@ -1,0 +1,39 @@
+{{- /* Links in the developer reference (docs/manual/, mounted at
+       content/developers). A relative link is resolved as a repository
+       path, so the same Markdown reads well on GitHub:
+       - into docs/manual/ or docs/user/: must be a page of this site
+         (a broken one fails the build, as in the user guide);
+       - anywhere else in the repository: the file on GitHub at this
+         release's tag, because the rest of the tree (the hardware
+         manuals, scripts, sources) is not published on the site;
+       - outside the repository: fails the build. */ -}}
+{{- $dest := .Destination -}}
+{{- $u := urls.Parse $dest -}}
+{{- if and (not $u.IsAbs) $u.Path (not (strings.HasPrefix $u.Path "/")) -}}
+  {{- $rel := strings.TrimPrefix "developers" .Page.File.Dir -}}
+  {{- $repo := path.Join "docs/manual" $rel $u.Path | path.Clean -}}
+  {{- $repo = strings.TrimSuffix "/_index.md" $repo -}}
+  {{- $frag := "" -}}{{- with $u.Fragment }}{{ $frag = printf "#%s" . }}{{ end -}}
+  {{- if or (eq $repo "docs/manual") (strings.HasPrefix $repo "docs/manual/") -}}
+    {{- $target := path.Join "/developers" (strings.TrimPrefix "docs/manual" $repo) -}}
+    {{- with site.GetPage $target -}}
+      {{- $dest = printf "%s%s" .RelPermalink $frag -}}
+    {{- else -}}
+      {{- errorf "%s: broken link to %s" $.Page.File.Path $.Destination -}}
+    {{- end -}}
+  {{- else if strings.HasPrefix $repo "docs/user/" -}}
+    {{- $target := strings.TrimPrefix "docs/user" $repo -}}
+    {{- with site.GetPage $target -}}
+      {{- $dest = printf "%s%s" .RelPermalink $frag -}}
+    {{- else -}}
+      {{- errorf "%s: broken link to %s" $.Page.File.Path $.Destination -}}
+    {{- end -}}
+  {{- else if or (eq $repo "..") (strings.HasPrefix $repo "../") -}}
+    {{- errorf "%s: link leaves the repository: %s" $.Page.File.Path $.Destination -}}
+  {{- else -}}
+    {{- $dest = printf "%s/blob/v%s/%s%s" site.Params.repo site.Params.version $repo $frag -}}
+  {{- end -}}
+{{- end -}}
+{{- $ext := or $u.IsAbs (strings.HasPrefix $dest "http") -}}
+<a href="{{ $dest | safeURL }}"{{ with .Title }} title="{{ . }}"{{ end }}{{ if $ext }} rel="noopener"{{ end }}>{{ .Text }}</a>
+{{- /**/ -}}

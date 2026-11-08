@@ -214,30 +214,52 @@ const uint32_t *video_sdram_diag(void)
     return sd_diag;
 }
 
-#if !BCMFW_JOBS
 /* PW5 (hostproto.c cmd_hib; brief-map-power.md section 3): Apple's SDRAM
  * idle before its hibernate park (@14892: the cache flushed, bits 30 and
  * 16 cleared, command 0, bit 15 polled up to 8,000 times) and its
  * bring-up after the wake (@147ca, the two probe words kept: read here
- * while SDRAM still answers).  The plain video image only: the merged
- * image is unchanged. */
+ * while SDRAM still answers).  The idle is also CLOSE's
+ * (HP_CLOSE_SDRAM_IDLE), in every video image; the bring-up after a
+ * hibernate wake is the plain video image's only (sdram_init sets bit 16
+ * again at the next OPEN). */
+#if !BCMFW_JOBS
 static uint32_t hib_probe[2];
+#endif
+
+static uint32_t sd_idle_polls;     /* the last idle's bit-15 polls */
 
 uint32_t video_sdram_idle(void)
 {
     uint32_t k;
 
+#if !BCMFW_JOBS
     hib_probe[0] = MB(SDRAM_PROBE_A);
     hib_probe[1] = MB(SDRAM_PROBE_B);
+#endif
     cache_flush(0);
     REG(CACHE_CTL) &= ~0x40010000u;
     REG(SDRAM_CTL(0x20)) = 0;
     for (k = 0; k < HP_HIB_SDIDLE_POLLS; k++)
         if (!(REG(SDRAM_CTL(0x20)) & 0x8000))
+        {
+            sd_idle_polls = k + 1;
             return 0;
+        }
+    sd_idle_polls = HP_HIB_SDIDLE_POLLS;
     return 1;
 }
 
+/* Down either way: after command 0 the controller is no longer as the
+ * bring-up left it, so the next OPEN runs the whole bring-up again */
+uint32_t video_sdram_down(void)
+{
+    uint32_t r = video_sdram_idle();
+
+    sdram_ready = 0;
+    return (r ? HP_CLOSE_SD_STUCK : HP_CLOSE_SD_IDLED) | sd_idle_polls << 8;
+}
+
+#if !BCMFW_JOBS
 uint32_t video_sdram_rewake(void)
 {
     uint32_t r = sdram_init();
@@ -669,6 +691,11 @@ void video_overlay(uint32_t xy, uint32_t wh, uint32_t slide)
         sl_mode = 0;
     }
     overlay_blit();
+}
+
+int video_anim_live(void)
+{
+    return sl_mode && ovl_w;
 }
 
 void video_anim(void)

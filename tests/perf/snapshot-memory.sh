@@ -31,6 +31,7 @@ SOURCE=${SNAPSHOT_SOURCE:-$ROOT/build/sim-50k/simdisk}
     echo 'Run tests/perf/lib50k.sh first (requires a built 50k database).' >&2
     exit 2
 }
+"$ROOT/tests/perf/ensure50k.sh" "$SOURCE" || exit 1
 # #47: measure the steady state, not the one-time re-sort (settle50k.sh)
 SETTLED=$("$ROOT/tests/perf/settle50k.sh" "$SOURCE")
 if [ "$SETTLED" != "$SOURCE" ]; then

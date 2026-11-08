@@ -201,6 +201,9 @@ struct world
        failing (bad_from: every sample from there; bad_left reads, < 0
        for ever) */
     int race_sample, bad_from, bad_left;
+    /* day 4c: the audio's buffer never holds the bytes from this sample
+       on (its fill stopped short), < 0 none; the file still reads */
+    int hole_from;
     bool race_armed;
     uint32_t races, bad_reads;
 
@@ -293,6 +296,8 @@ static void present(void *ctx, const uint8_t *pkt, uint32_t len,
 }
 
 /* the video file through the "audio buffer" */
+static struct vpc V;            /* (the scenarios' core, below) */
+
 static long src_read(void *ctx, uint64_t off, void *buf, uint32_t n)
 {
     int64_t a = audio_now();
@@ -320,6 +325,11 @@ static long src_read(void *ctx, uint64_t off, void *buf, uint32_t n)
         W.bad_reads++;
         return -1;
     }
+    if (W.hole_from >= 0 && !V.read_direct && off + n > F.off[W.hole_from])
+    {
+        W.again++;
+        return VPC_NOT_BUFFERED;
+    }
     if (W.ahead_us >= 0)
     {
         /* the buffer holds the file from (audio - keep) to (audio +
@@ -339,9 +349,101 @@ static long src_read(void *ctx, uint64_t off, void *buf, uint32_t n)
     return mem_read(&F, off, buf, n);
 }
 
+/* Sitting 4g: storage that powers off after an idle hold and takes a
+   while to power up (on: 600-765 ms on the device's flash, 2-4 s on a
+   disk), for the index window.  model off: always on, as before.  #175:
+   the reader (vplayer.c's buffering-thread job) reads ahead and waits out
+   the power-up there; a read in the player's thread while off is a cold
+   read (the device's late thread and dropped GOPs) */
+static struct
+{
+    bool model, on, busy, never;    /* never: the reader refuses */
+    uint32_t last, wake_at, hold_us, up_us;
+    uint32_t reads, cold_reads, wakes, asks;
+    /* the reader's read under way: done at done_at */
+    bool req;
+    uint64_t req_off;
+    void *req_buf;
+    uint32_t req_n, done_at;
+} D;
+
+static void disk_tick(void)
+{
+    if (D.wake_at && now >= D.wake_at)
+    {
+        D.on = true;
+        D.last = now;
+        D.wake_at = 0;
+        D.wakes++;
+    }
+    if (D.on && now - D.last > D.hold_us)
+        D.on = false;
+}
+
+#if VPC_WINDOW_RECORDS < 1024   /* run.sh's small-window build */
+static int disk_op(void *ctx, int how)
+{
+    (void)ctx;
+    disk_tick();
+    return how == VPC_DISK_BUSY && D.busy && D.on;
+}
+
+/* the reader: another thread; a power-up waits there, not here */
+static int idx_post(void *ctx, uint64_t off, void *buf, uint32_t n)
+{
+    (void)ctx;
+    disk_tick();
+    D.asks++;
+    if (D.never || D.req)
+        return -1;
+    D.req = true;
+    D.req_off = off;
+    D.req_buf = buf;
+    D.req_n = n;
+    D.done_at = now + (D.on ? 2000 : D.up_us);
+    if (!D.on)
+        D.wake_at = D.done_at;
+    return 0;
+}
+
+static long idx_done(void *ctx)
+{
+    (void)ctx;
+    disk_tick();
+    if (!D.req)
+        return -1;
+    if ((int32_t)(now - D.done_at) < 0)
+        return VPC_NOT_BUFFERED;
+    D.req = false;
+    D.reads++;
+    D.last = now;
+    if ((long)(D.req_off + D.req_n) > F.vix_size)
+        return -1;
+    memcpy(D.req_buf, F.vix + D.req_off, D.req_n);
+    return D.req_n;
+}
+
+static void idx_wait(void)
+{
+    now += 1000;
+}
+#endif
+
 static long idx_read(void *ctx, uint64_t off, void *buf, uint32_t n)
 {
     (void)ctx;
+    if (D.model)
+    {
+        disk_tick();
+        D.reads++;
+        if (!D.on)
+        {
+            D.cold_reads++;     /* the power-up waits in this thread */
+            now += D.up_us;
+            D.on = true;
+        }
+        D.last = now;
+    }
     if ((long)(off + n) > F.vix_size)
         return -1;
     memcpy(buf, F.vix + off, n);
@@ -476,10 +578,19 @@ static const struct vpc_backend be =
     .check = be_check, .unit_bad = be_unit_bad,
 };
 
-static const struct vpc_source src =
+static const struct vpc_source src0 =
 {
     .ctx = NULL, .read = src_read, .index_read = idx_read,
 };
+#if VPC_WINDOW_RECORDS < 1024
+static const struct vpc_source src_disk =
+{
+    .ctx = NULL, .read = src_read, .index_read = idx_read, .disk = disk_op,
+    .index_post = idx_post, .index_done = idx_done, .wait = idx_wait,
+};
+#endif
+static const struct vpc_source *srcp = &src0;
+#define src (*srcp)
 
 /* ---- running a scenario ---- */
 
@@ -509,7 +620,7 @@ static int setup(void)
     W.keep_us = 3000000;
     W.last_pts = -1;
     W.t_base = now;
-    W.race_sample = W.bad_from = -1;
+    W.race_sample = W.bad_from = W.hole_from = -1;
     W.verbose = getenv("VERBOSE") != NULL;
     vbm_init(&M, sram, sdram, mscratch, now_fn);
     M.present = present;
@@ -546,6 +657,20 @@ static enum vpc_state run(uint32_t max_ms, hook_fn hook)
             break;
     }
     return st;
+}
+
+/* 3c6b: the audio jumps back 1.5 s while the pushes wait on the hole
+   (the simulator's slow audio did this in ipodui-p19-vstall) */
+static void h_hole_jump(int64_t t)
+{
+    if (step == 0 && t >= 5500)
+    {
+        step++;
+        W.a_base = audio_now() - 1500000;
+        W.t_base = now;
+        W.settle_until = now + 300000;
+        vpc_seek(&V, audio_now());
+    }
 }
 
 static void report(const char *name)
@@ -841,6 +966,72 @@ int main(int argc, char **argv)
     printf("     %s: %u samples, frame %lld us, params %ld bytes\n", argv[1],
            F.n, (long long)F.frame_us, F.params_len);
 
+#if VPC_WINDOW_RECORDS < 1024
+    /* Built with a small index window (run.sh): the window's slides
+       against storage that powers off (sitting 4f: the window ran out
+       with the drive off, 610-765 ms of power-up in the video thread,
+       GOPs dropped).  Steady play: no index read while it's off */
+    {
+        static const struct
+        {
+            bool disk, never;
+            uint32_t up_us;
+            const char *what;
+        } c[4] =
+        {
+            { true, false, 700000, "index: the reader reads ahead and "
+              "waits out a flash wake (700 ms); no index read here while "
+              "storage is off, every picture in time (#175)" },
+            { true, false, 3000000, "index: the same with a disk's worst "
+              "wake (3 s)" },
+            { true, true, 700000, "index: a reader that refuses: the "
+              "window's end is read here (the power-up waits), the play "
+              "goes on" },
+            { false, false, 700000, "index: without the reader the "
+              "window's end meets storage off (sitting 4f, #175)" },
+        };
+        int k;
+
+        printf("     index window %u records\n", VPC_WINDOW_RECORDS);
+        for (k = 0; k < 4; k++)
+        {
+            srcp = c[k].disk ? &src_disk : &src0;
+            memset(&D, 0, sizeof(D));
+            D.model = D.on = true;
+            D.hold_us = 1500000;
+            D.up_us = c[k].up_us;
+            D.never = c[k].never;
+            setup();
+            D.last = now;
+            st = run(60000, NULL);
+            report(c[k].what);
+            printf("     disk: reads %u, while off %u, reader asked %u, "
+                   "wakes %u; ahead %u, here %u; GOPs dropped %u\n",
+                   D.reads, D.cold_reads, D.asks, D.wakes,
+                   V.stats.idx_reads, V.stats.idx_here,
+                   V.eng.stats.dropped_gops);
+            if (k <= 1)
+                check(st == VPC_DONE && W.shown == F.n && D.cold_reads == 0 &&
+                      D.wakes >= 2 && V.stats.idx_reads >= D.wakes &&
+                      V.stats.idx_here == 0 &&
+                      V.eng.stats.dropped_gops == 0 &&
+                      W.err_max <= frame(), c[k].what);
+            else if (k == 2)
+                check(st == VPC_DONE && W.shown > F.n / 2 &&
+                      D.cold_reads >= 1 && V.stats.idx_reads == 0 &&
+                      V.stats.idx_here >= 1 && D.asks >= 1, c[k].what);
+            else
+                check(st == VPC_DONE && D.cold_reads >= 2 && !D.asks,
+                      c[k].what);
+            vpc_stop(&V);
+        }
+        srcp = &src0;
+        D.model = false;
+        printf("vpcore (index window): %d failures\n", fails);
+        return fails ? 1 : 0;
+    }
+#endif
+
     /* 0. the profile check at open */
     check(vpc_baseline_ok(66, 0x00) && vpc_baseline_ok(66, 0xc0)
           && vpc_baseline_ok(77, 0xc0) && vpc_baseline_ok(77, 0x80)
@@ -1047,6 +1238,69 @@ int main(int argc, char **argv)
     check(st != VPC_FAILED && V.stats.stills == 0 && V.stats.reloads == 0 &&
           V.stats.audio_stills == 1 && M.boots == 1 && W.shown > 60,
           "audio stands still: no restart or reload, pictures once it runs");
+    vpc_stop(&V);
+
+    /* 3c4. one FEED refused (day 4c: about 10 minutes into an episode
+       the pictures stopped, the audio played on, a scrub cured it): the
+       refused packet is never consumed, every later FEED is out of place
+       (HP_E_FIFO) and FIFO_RD stops.  Once the image's queue drains, no
+       post can go out, so the old watchdog (posts counted) never fired.
+       Now: the refusal restarts the session where the audio is */
+    setup();
+    M.busy_at = 200;
+    st = run(20000, NULL);
+    report("one FEED refused");
+    printf("     refusals %u, stills %u (behind %u), FIFO errors %u\n",
+           V.stats.feed_refusals, V.stats.stills, V.stats.stills_behind,
+           M.fifo_errors);
+    check(st != VPC_FAILED && V.stats.feed_refusals == 1 &&
+          W.shown > 300, "one FEED refused: a restart at the audio, then "
+          "pictures to the end");
+    vpc_stop(&V);
+
+    /* 3c5. the same stall with the refusal's reply lost: the posts
+       that follow (each refused, HP_E_FIFO) are what the still watchdog
+       counts; VPC_STILL_US on, a still restart */
+    setup();
+    M.busy_at = 200;
+    M.feed_err_quiet = true;
+    st = run(20000, NULL);
+    report("one FEED refused, reply lost");
+    printf("     refusals %u, stills %u (behind %u), FIFO errors %u\n",
+           V.stats.feed_refusals, V.stats.stills, V.stats.stills_behind,
+           M.fifo_errors);
+    check(st != VPC_FAILED && V.stats.stills == 1 &&
+          V.stats.feed_refusals == 0 && M.fifo_errors > 0 && W.shown > 250,
+          "one FEED refused, reply lost: a still restart, pictures again");
+    vpc_stop(&V);
+
+    /* 3c6. the audio's buffer stops short of the samples and never
+       fills (day 4c: a scrub, which refills it, cured the device): no
+       push, no post, the old watchdog (posts counted) never fired and
+       the picture stood for good.  Now: a still (the stream behind the
+       audio) on data waits reads the samples from the file */
+    setup();
+    W.hole_from = 150;
+    st = run(20000, NULL);
+    report("buffer hole");
+    printf("     stills %u (behind %u, data %u)\n", V.stats.stills,
+           V.stats.stills_behind, V.stats.data_stills);
+    check(st != VPC_FAILED && V.stats.stills == 1 &&
+          V.stats.stills_behind == 1 && V.stats.data_stills == 1 &&
+          V.read_direct &&
+          W.shown > 250, "buffer hole: a still past VPC_STILL_US, the "
+          "samples from the file, pictures again");
+    vpc_stop(&V);
+
+    setup();
+    W.hole_from = 150;
+    step = 0;
+    st = run(20000, h_hole_jump);
+    report("buffer hole, a seek back in it");
+    check(st != VPC_FAILED && V.stats.data_stills == 1 &&
+          W.bad_bytes == 0 && W.params_missing == 0 && W.order_bad == 0 &&
+          W.shown > 250, "buffer hole, a seek back in it: every packet "
+          "intact, pictures again");
     vpc_stop(&V);
 
     /* 3d. a session that never shows anything, however often restarted:
@@ -1590,6 +1844,60 @@ int main(int argc, char **argv)
               "vclk: a seek races to the top");
     }
     vpc_stop(&V);
+    /* (b2) sitting 4f: a restart (a dropped GOP's, a skip's) mid-play.
+       Its CLOSE puts the chip on the crystal (the model as video.c,
+       [silicon]); the governor reads the clock again and races to the
+       top: one tick after the restart the chip runs the governor's band,
+       never 27 MHz.  Without HP_OPEN_FAST_CLOCK, as the 4f play */
+    fast = 0;
+    setup();
+    M.vclk = true;
+    {
+        uint32_t r0, wait, bad_at = 0;
+
+        st = run(1, NULL);
+        while (now < 1000000 + 6000000 && st != VPC_FAILED)
+        {
+            now += tick_us;
+            vbm_run(&M);
+            st = vpc_tick(&V, audio_now(), W.playing, W.display_on, &wait);
+        }
+        check(M.band < VCLK_TOP && M.band > 0 && V.gov.band == M.band,
+              "vclk restart: a lower band before");
+        r0 = V.stats.restarts;
+        V.ops.skip(V.ops.ctx, V.eng.posted);    /* as a dropped GOP */
+        for (i = 0; i < 50 && V.stats.restarts == r0; i++)
+        {
+            now += tick_us;
+            vbm_run(&M);
+            st = vpc_tick(&V, audio_now(), W.playing, W.display_on, &wait);
+        }
+        now += tick_us;
+        vbm_run(&M);
+        st = vpc_tick(&V, audio_now(), W.playing, W.display_on, &wait);
+        printf("     restart: chip band %u (%u MHz), governor's %u, "
+               "floor %u\n", M.band, vclk_band_mhz[M.band], V.gov.band,
+               V.vfl.floor);
+        check(V.stats.restarts == r0 + 1 && M.band == VCLK_TOP &&
+              V.gov.band == M.band && V.vfl.floor == VCLK_TOP,
+              "vclk restart: one tick on, the chip at the governor's band "
+              "(the top), not the crystal");
+        /* and it stays off the crystal to the end */
+        while (st != VPC_FAILED && st != VPC_DONE &&
+               now < 1000000 + 20000000)
+        {
+            now += tick_us;
+            vbm_run(&M);
+            st = vpc_tick(&V, audio_now(), W.playing, W.display_on, &wait);
+            if (!M.band && !bad_at)
+                bad_at = now;
+        }
+        check(!bad_at && V.gov.band == M.band && !M.vclk_bad,
+              "vclk restart: never on the crystal after, the governor in "
+              "step with the chip");
+    }
+    vpc_stop(&V);
+    fast = HP_OPEN_FAST_CLOCK;
     /* (c) the dark: the BCM cut, the sum so far; the wake starts again at
        the top */
     /* (d) no verified band but the crystal, or an image without the op:

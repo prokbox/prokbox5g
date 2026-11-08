@@ -79,7 +79,7 @@ Developer
     Labs ›                   Sleep lab ›, Alarm lab ›, Drive power A/B (length, switch, start)
     Video chip ›             (--bcmfw-devtest) Boot path ›, Fault injection › (--bcmfw-l1),
                              Probes › (the optional stages and labs, PB/PW probes, C1-C3),
-                             BCM jobs: driver self-test, BCM jobs: drift on video chip,
+                             BCM jobs: driver self-test, Drift on video chip: On/Off/Auto (On)/Still,
                              Video: full log on every play
     System debug ›          debug_menu(), the stock debug screens
   Back                       returns to the shell's About screen

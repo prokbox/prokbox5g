@@ -1,0 +1,66 @@
+# #175 (owner's log, build 4c241d1df3, a TV episode, 2026-11-06):
+# storage powered off while a video played; the index window's next read
+# met the power-up (600-700 ms on flash, 2-4 s on a disk) in the video
+# thread: "thread late", then "dropped GOPs" and 5-10 s of concealment.
+# Here the episode plays twice against storage that powers off after a
+# short hold (stor_tune), with the device's wake on flash (700 ms) and a
+# disk's worst (3000 ms), and an index window of 480 records (20 s at
+# 24 fps, video_fault window) so it is read ahead several times a play:
+#  p0-p1  the 700 ms wake: storage powers up during the play, on the
+#         buffering thread (the reader), never on the video thread; the
+#         thread is never late by a wake (700 ms or more);
+#  q0-q1  the same with a 3000 ms wake (2400 ms or more);
+#  both   the play's end line: the index was read ahead at least once and
+#         never in the video thread ("here" 0).
+# Why not "no thread late, no dropped GOPs" at all: the simulator's audio
+# clock jumps back about 1.5 s every 3 s (a seek each time), and with
+# storage never powered off the same play logs lates up to 484 ms and
+# GOPs dropped after those seeks (control run, 2026-11-06).  The old code
+# fails every line below: "sim stor on by=video", 731-744 ms and
+# 2979-3014 ms late, "here" 3 and more.
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p19-video-wake.script
+#   python3 scripts/check_trace.py out/shots/ipodui-p19-video-wake/sim.log tests/ui/ipodui-p19-video-wake.script
+# needs: video
+# needs: soak
+# golden: skip
+# timeout: 300
+# logbetween: p0 p1 sim stor on by=buffering
+# logbetween: p0 p1 no sim stor on by=video
+# logbetween: p0 p1 no video: thread late \(ms past its wait, audio ms\) \(([7-9]\d\d|\d{4,}),
+# logbetween: p1 q0 video: end: index reads ahead, here \([1-9]\d*, 0\)
+# logbetween: q0 q1 sim stor on by=buffering
+# logbetween: q0 q1 no sim stor on by=video
+# logbetween: q0 q1 no video: thread late \(ms past its wait, audio ms\) \((2[4-9]\d\d|[3-9]\d{3}|\d{5,}),
+# logbetween: q1 x0 video: end: index reads ahead, here \([1-9]\d*, 0\)
+# nolog: video: index read ahead
+# nolog: video: stopped, BCM given back
+# nolog: video: image lost
+# nolog: CPU FALLBACK
+wait 4000
+mkdir /.rockbox/soak    # hidden: never in the library
+copy ../../build/soak-fixtures/soak.m4v /.rockbox/soak/wake.m4v
+stor_tune 1500 500      # off 1.5 s after the last access
+stor_pwrup 700          # the owner's flash adapter (600-700 ms)
+video_fault window 480
+video_screen /.rockbox/soak/wake.m4v
+wait 4000
+expect_video 20 playing
+ab_mark p0
+wait 60000
+expect_video 600 playing
+ab_mark p1
+key MENU                # stop
+wait 2000
+stor_pwrup 3000         # a disk's worst wake
+video_screen /.rockbox/soak/wake.m4v
+wait 6000
+expect_video 20 playing
+ab_mark q0
+wait 60000
+expect_video 600 playing
+ab_mark q1
+key MENU
+wait 2000
+ab_mark x0
+shot after              # the list again (shots.sh wants one)
+rm_file /.rockbox/soak/wake.m4v   # nothing left for the next script

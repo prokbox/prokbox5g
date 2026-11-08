@@ -13,6 +13,7 @@
  * Copyright (C) 2007 Nicolas Pennequin, Tom Ross, Ken Fazzone, Akio Idehara
  *     Color gradient background
  * Copyright (C) 2009 Andrew Mahone
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *     Merged common LCD bitmap code
  *
  * Rockbox common bitmap LCD functions

@@ -74,6 +74,10 @@ struct ui_screen_ops {
      * there; no lcd_update. Returns the height of those rows. x =
      * LCD_WIDTH draws nothing (the main loop's query after a full draw). */
     int  (*reveal)(struct ui_screen *s, int x);
+    /* optional (#154): another screen was just pushed over this one,
+     * which stays under it on the stack (no leave()). The video screen
+     * ends its session here: a video never plays on behind a screen. */
+    void (*covered)(struct ui_screen *s);
 };
 
 struct ui_screen {

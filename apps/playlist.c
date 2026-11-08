@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2002 by wavey@wavey.org
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -240,6 +241,16 @@ static struct playlist_info on_disk_playlist;
 #ifdef HAVE_IPOD_UI
 /* #109: indices[]'s allocation, so playlist_reserve_ipodui() can grow it */
 static int indices_handle;
+/* #154: a video's one-item queue (playlist_play_video_ipodui()). Its
+ * control lines go to their own file, and the resume point
+ * (global_status.resume_*) is left alone, so the audio queue's control
+ * file and spot stay the ones Play and the next boot resume. CPU only:
+ * the audio thread and the shell's calls (febe) run there. */
+#define PLAYLIST_CONTROL_VIDEO  PLAYLIST_CONTROL_FILE "_video"
+static bool video_session;
+#define pl_video_session()      (video_session)
+#else
+#define pl_video_session()      false
 #endif
 
 /* playlist elapsed percent function from skin_tokens.c */
@@ -425,12 +436,29 @@ static int convert_m3u_name(char* buf, int buf_len, int buf_max, char* temp)
     return dest - temp;
 }
 
+#ifdef HAVE_IPOD_UI
+/* #154: the video session ends here: its file is closed and the audio
+ * queue's control file name is back. The caller then empties, reloads or
+ * replaces the current playlist. */
+static void video_session_drop_unlocked(struct playlist_info *playlist)
+{
+    if (!video_session || playlist != &current_playlist)
+        return;
+    pl_close_control(playlist);
+    playlist->control_created = false;
+    strmemccpy(playlist->control_filename, PLAYLIST_CONTROL_FILE,
+               sizeof(playlist->control_filename));
+    video_session = false;
+}
+#endif
+
 /*
  * create control file for playlist
  */
 static void create_control_unlocked(struct playlist_info* playlist)
 {
-    if (playlist == &current_playlist && file_exists(PLAYLIST_CONTROL_FILE))
+    if (playlist == &current_playlist && !pl_video_session()
+        && file_exists(PLAYLIST_CONTROL_FILE))
     {
 #ifdef HAVE_IPOD_UI
         /* never a rename onto an existing name (two entries for one name
@@ -442,11 +470,12 @@ static void create_control_unlocked(struct playlist_info* playlist)
         rename(PLAYLIST_CONTROL_FILE, PLAYLIST_CONTROL_FILE".old");
     }
 #ifdef HAVE_IPOD_UI
-    else if (playlist != &current_playlist)
+    else if (playlist != &current_playlist || pl_video_session())
     {
         /* O_TRUNC below must not free the control file's data: a cut
          * playlist_set_current() can leave the working file on its
-         * chain (#91 H1) */
+         * chain (#91 H1). #154: a video's own file the same way; the
+         * audio queue's control file is never touched */
         safefile_remove(playlist->control_filename, PLAYLIST_CONTROL_FILE);
     }
 #endif
@@ -2314,6 +2343,9 @@ int playlist_create(const char *dir, const char *file)
     dc_thread_stop(playlist);
     playlist_write_lock(playlist);
 
+#ifdef HAVE_IPOD_UI
+    video_session_drop_unlocked(playlist);  /* #154: an audio queue now */
+#endif
     new_playlist_unlocked(playlist, dir, file);
 #ifdef HAVE_IPOD_UI
     /* #109 P5: a new queue: no slots; indices[] back to the setting's
@@ -2349,6 +2381,71 @@ int playlist_create(const char *dir, const char *file)
 
     return status;
 }
+
+#ifdef HAVE_IPOD_UI
+/* #154 (owner, 2026-11-06): Play, the resume point and Now Playing are
+ * only ever audio. A video plays as a one-item queue whose control lines
+ * go to PLAYLIST_CONTROL_VIDEO; the audio queue's control file, its
+ * database block (#109: the slot table stays, so a commit during the
+ * video still rebases it) and global_status.resume_* are untouched, so
+ * Play after the video, and a boot after a cut, resume the music. The
+ * caller has stopped the audio. 0, or -1 (nothing plays; the session
+ * is over). */
+int playlist_play_video_ipodui(const char *path, unsigned long elapsed,
+                               unsigned long offset)
+{
+    struct playlist_info* playlist = &current_playlist;
+
+    dc_thread_stop(playlist);
+    playlist_write_lock(playlist);
+    if (!video_session)
+    {
+        pl_close_control(playlist);         /* the audio queue's, kept */
+        playlist->control_created = false;
+        strmemccpy(playlist->control_filename, PLAYLIST_CONTROL_VIDEO,
+                   sizeof(playlist->control_filename));
+        video_session = true;
+    }
+    new_playlist_unlocked(playlist, NULL, NULL);
+    playlist_write_unlock(playlist);
+    dc_thread_start(playlist, true);
+
+    if (playlist->control_fd < 0
+        || playlist_insert_track(NULL, path, PLAYLIST_INSERT_LAST, false,
+                                 true) < 0)
+    {
+        logf("video queue: %s refused", path);
+        playlist_end_video_ipodui();
+        return -1;
+    }
+    playlist_start(0, elapsed, offset);
+    return 0;
+}
+
+/* The video session ends (the video screen's leave, a bench step's end):
+ * its sound stops with it (owner: a video's audio never plays on in the
+ * background), the track-finish handler keeping the file's own spot, and
+ * the current playlist is left empty; Play then resumes the audio queue
+ * (ui_playback_resume(): playlist_resume() and the kept spot). Nothing
+ * when no video session is open. The session's file stays for the next
+ * video's truncate: no write here. */
+void playlist_end_video_ipodui(void)
+{
+    struct playlist_info* playlist = &current_playlist;
+
+    if (!video_session)
+        return;
+    if (audio_status())
+        audio_stop();       /* before the lock: the finish runs on the
+                               audio thread, video_session still set */
+    dc_thread_stop(playlist);
+    playlist_write_lock(playlist);
+    video_session_drop_unlocked(playlist);
+    empty_playlist_unlocked(playlist, true);    /* no control file made */
+    playlist_write_unlock(playlist);
+    dc_thread_start(playlist, false);
+}
+#endif /* HAVE_IPOD_UI */
 
 /* Returns false if 'steps' is out of bounds, else true */
 bool playlist_check(int steps)
@@ -3481,6 +3578,9 @@ int playlist_resume(void)
     STORAGE_ALIGN_BUFFER(buffer, buflen);
     buflen = ALIGN_DOWN(buflen, 512); /* to avoid partial sector I/O */
 
+#ifdef HAVE_IPOD_UI
+    video_session_drop_unlocked(playlist);  /* #154: the audio queue's file */
+#endif
     empty_playlist_unlocked(playlist, true);
 #ifdef HAVE_IPOD_UI
     /* #109 H4: room for the persisted database slots before the replay
@@ -3945,6 +4045,9 @@ int playlist_set_current(struct playlist_info* playlist)
     dc_thread_stop(&current_playlist);
     playlist_write_lock(&current_playlist);
 
+#ifdef HAVE_IPOD_UI
+    video_session_drop_unlocked(&current_playlist);     /* #154 */
+#endif
     empty_playlist_unlocked(&current_playlist, false);
 
     strmemccpy(current_playlist.filename, playlist->filename,
@@ -4213,6 +4316,12 @@ int playlist_update_resume_info(const struct mp3entry* id3)
 {
     struct playlist_info* playlist = &current_playlist;
 
+#ifdef HAVE_IPOD_UI
+    /* #154: a video is never the resume point; the audio queue's stays
+     * (the video's own spot is its database entry's, tagtree.c) */
+    if (video_session)
+        return 0;
+#endif
     bool pl_modified = (PLAYLIST_FLAG_MODIFIED ==
                         (playlist->flags & PLAYLIST_FLAG_MODIFIED));
     if (id3)

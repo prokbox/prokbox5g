@@ -31,8 +31,11 @@
  *   CONVTTF_GAP=soft     same parts, natural height and fractional
  *                        edges, CONVTTF_GAP_PX (default 0.75) px from the
  *                        letter, so the mark anti-aliases like the rest
- *   CONVTTF_CP1252=1     curly quotes etc. in U+0080..U+009F
- *                        (see shell_cp1252[])
+ *   CONVTTF_CP1252=1     the characters of font_shell_slot[] (quotes,
+ *                        dashes, music notes, euro, ...) in the C1 slots
+ *                        U+0080..U+009F (firmware/include/font_shell_map.h)
+ *   CONVTTF_FB=<file>    fallback face (DejaVu Sans) for the glyphs the
+ *                        main font lacks (see shell_fallback[])
  *   CONVTTF_LSB=clip     negative left bearings (see shell_lsb()): ink
  *                        left of the pen origin is dropped instead of the
  *                        whole glyph moving right; CONVTTF_LSB_REPORT=1
@@ -55,6 +58,7 @@
 #include <ft2build.h>
 #include FT_FREETYPE_H
 #include FT_OUTLINE_H
+#include "../../../firmware/include/font_shell_map.h"
 
 static FT_UInt env_res(const char *name, FT_UInt res)
 {
@@ -389,9 +393,128 @@ static void shell_lsb(FT_Face face, FT_Error err, FT_Int32 flags)
     g->bitmap_left = 0;
 }
 
+/* Glyphs the main font (TeX Gyre Heros) lacks, taken from DejaVu Sans
+ * (the same weight as the target font, CONVTTF_FB=<file>) and fitted to
+ * Heros: scaled about the baseline, emboldened toward Heros' stem weight
+ * and moved vertically. DejaVu because its licence (Bitstream Vera, the
+ * DejaVu changes in the public domain) lets its glyphs go into a font
+ * under another licence; glyphs from an OFL font would make the whole
+ * font OFL-only, which Heros' GUST licence (LPPL) doesn't allow. Every
+ * glyph is listed in README.md. Only with CONVTTF_CP1252 (the shell's
+ * text fonts). */
+static const struct shell_fb {
+    unsigned short code;
+    short scale;                /* percent */
+    short bold;                 /* extra stem weight, 1/64 px */
+    short dy;                   /* vertical move, 1/64 px, up */
+} shell_fallback[] = {
+    { 0x0138,  94,  0,  0 },    /* kra (old Greenlandic) */
+    { 0x0149,  94,  0,  0 },    /* n preceded by apostrophe */
+    { 0x0166, 100,  0,  0 },    /* T with stroke (Northern Sami) */
+    { 0x0167,  94,  0,  0 },    /* t with stroke */
+    { 0x2009, 100,  0,  0 },    /* thin space */
+    { 0x2032, 100,  0,  0 },    /* prime */
+    { 0x2033, 100,  0,  0 },    /* double prime */
+    { 0x2669, 100, 64,  0 },    /* quarter note */
+    { 0x266B, 100, 48, 40 },    /* beamed eighth notes */
+    { 0x266C, 100, 24,  0 },    /* beamed sixteenth notes */
+};
+
+static const struct shell_fb *fb_pending;   /* set by shell_char_index() */
+static FT_Face fb_face;
+static FT_F26Dot6 fb_w, fb_h;
+static FT_UInt fb_hres, fb_vres;
+
+static const struct shell_fb *fb_find(FT_ULong code)
+{
+    unsigned i;
+    for (i = 0; i < sizeof(shell_fallback) / sizeof(shell_fallback[0]); i++)
+        if (shell_fallback[i].code == code)
+            return &shell_fallback[i];
+    return NULL;
+}
+
+static FT_Face fb_open(FT_Library lib)
+{
+    const char *path = getenv("CONVTTF_FB");
+    if (fb_face)
+        return fb_face;
+    if (!path || FT_New_Face(lib, path, 0, &fb_face)) {
+        fprintf(stderr, "convttf-shell: CONVTTF_FB not set or unreadable\n");
+        exit(1);
+    }
+    FT_Set_Char_Size(fb_face, fb_w, fb_h, fb_hres, fb_vres);
+    return fb_face;
+}
+
+/* Load the main font's placeholder glyph unrendered, then render the
+ * fitted fallback outline in its slot, so convttf.c reads face->glyph as
+ * for any other glyph (tracking and CONVTTF_LSB apply as usual). */
+static FT_Error shell_load_fallback(FT_Face face, FT_UInt idx, FT_Int32 flags,
+                                    const struct shell_fb *fb)
+{
+    FT_GlyphSlot g = face->glyph;
+    FT_Face src = fb_open(g->library);
+    FT_Outline o, saved;
+    FT_Matrix m;
+    FT_Pos bold = fb->bold;
+    const char *w = getenv("CONVTTF_WEIGHT");
+    FT_Fixed lin;
+    FT_Error err;
+
+    err = FT_Load_Glyph(src, FT_Get_Char_Index(src, fb->code),
+                        shell_load_flags(flags) & ~FT_LOAD_RENDER);
+    if (err || src->glyph->format != FT_GLYPH_FORMAT_OUTLINE)
+        return err ? err : FT_Err_Invalid_Glyph_Format;
+    if (FT_Outline_New(g->library, src->glyph->outline.n_points,
+                       src->glyph->outline.n_contours, &o))
+        return FT_Err_Out_Of_Memory;
+    FT_Outline_Copy(&src->glyph->outline, &o);
+    lin = FT_MulDiv(src->glyph->linearHoriAdvance, fb->scale, 100);
+    if (fb->scale != 100) {
+        m.xx = m.yy = FT_MulDiv(0x10000, fb->scale, 100);
+        m.xy = m.yx = 0;
+        FT_Outline_Transform(&o, &m);
+    }
+    if (w)
+        bold += (FT_Pos)(atof(w) * 64.0);
+    if (bold && o.n_points)
+        FT_Outline_EmboldenXY(&o, bold, bold);
+    if (fb->dy)
+        FT_Outline_Translate(&o, 0, fb->dy);
+
+    gap_n = 0;
+    err = FT_Load_Glyph(face, idx, shell_load_flags(flags) & ~FT_LOAD_RENDER);
+    if (!err && (flags & FT_LOAD_RENDER)) {
+        saved = g->outline;
+        g->outline = o;
+        g->format = FT_GLYPH_FORMAT_OUTLINE;
+        err = FT_Render_Glyph(g, FT_RENDER_MODE_NORMAL);
+        g->outline = saved;
+    }
+    FT_Outline_Done(g->library, &o);
+    if (err)
+        return err;
+    /* advance: the source's, scaled, plus the extra weight */
+    g->linearHoriAdvance = lin + ((FT_Fixed)bold << 10);
+    g->metrics.horiAdvance = ((lin >> 10) + bold + 32) & ~63;
+    g->advance.x = g->metrics.horiAdvance;
+    g->metrics.width = (FT_Pos)g->bitmap.width << 6;
+    g->metrics.height = (FT_Pos)g->bitmap.rows << 6;
+    return 0;
+}
+
 static FT_Error shell_load_glyph(FT_Face face, FT_UInt idx, FT_Int32 flags)
 {
     FT_Error err;
+    const struct shell_fb *fb = fb_pending;
+
+    fb_pending = NULL;
+    if (fb) {
+        err = shell_track(face, shell_load_fallback(face, idx, flags, fb));
+        shell_lsb(face, err, flags);
+        return err;
+    }
     shell_unhinted(face, idx, flags);
     err = FT_Load_Glyph(face, idx, shell_pre(flags));
     err = shell_track(face, shell_render(face, err, flags));
@@ -401,35 +524,51 @@ static FT_Error shell_load_glyph(FT_Face face, FT_UInt idx, FT_Int32 flags)
 
 static FT_Error shell_load_char(FT_Face face, FT_ULong code, FT_Int32 flags)
 {
+    fb_pending = NULL;
     return shell_load_glyph(face, FT_Get_Char_Index(face, code), flags);
 }
 
 /* CONVTTF_CP1252: fill the C1 control slots U+0080..U+009F with the
- * Windows-1252 punctuation (curly quotes, en and em dash, ellipsis) so the
- * font stays one contiguous range; firmware/font.c (HAVE_IPOD_UI) maps
- * those code points onto the slots. Only these seven, at their
- * Windows-1252 positions (each costs a full-height cell, about 100 B at
- * 15 px); the other slots stay empty. Must match the table there. */
-static const unsigned short shell_cp1252[32] = {
-    0, 0, 0, 0, 0, 0x2026, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0x2018, 0x2019, 0x201C, 0x201D, 0, 0x2013, 0x2014,
-    0, 0, 0, 0, 0, 0, 0, 0,
-};
-
+ * characters of font_shell_slot[] (firmware/include/font_shell_map.h, the
+ * table firmware/font.c maps them with); empty slots stay empty. A
+ * character the main font lacks comes from shell_fallback[]: the index
+ * returned is a placeholder (the main font's '.') whose glyph slot
+ * shell_load_glyph() then fills from the fallback face. convttf.c always
+ * loads right after it asks for an index. */
 static FT_UInt shell_char_index(FT_Face face, FT_ULong code)
 {
-    if (code >= 0x80 && code <= 0x9F && getenv("CONVTTF_CP1252")) {
-        if (!shell_cp1252[code - 0x80])
+    FT_UInt idx;
+    const struct shell_fb *fb;
+
+    fb_pending = NULL;
+    if (!getenv("CONVTTF_CP1252"))
+        return FT_Get_Char_Index(face, code);
+    if (code >= 0x80 && code <= 0x9F) {
+        if (!font_shell_slot[code - 0x80])
             return 0;
-        code = shell_cp1252[code - 0x80];
+        code = font_shell_slot[code - 0x80];
     }
-    return FT_Get_Char_Index(face, code);
+    idx = FT_Get_Char_Index(face, code);
+    if (!idx && (fb = fb_find(code)) != NULL) {
+        fb_pending = fb;
+        return FT_Get_Char_Index(face, '.');
+    }
+    return idx;
+}
+
+static FT_Error shell_set_size(FT_Face face, FT_F26Dot6 w, FT_F26Dot6 h,
+                               FT_UInt hres, FT_UInt vres)
+{
+    fb_w = w;
+    fb_h = h;
+    fb_hres = hres;
+    fb_vres = vres;
+    return FT_Set_Char_Size(face, w, h, hres, vres);
 }
 
 #define FT_Set_Char_Size(face, w, h, hres, vres) \
-    FT_Set_Char_Size(face, w, h, env_res("CONVTTF_HDPI", hres), \
-                     env_res("CONVTTF_VDPI", vres))
+    shell_set_size(face, w, h, env_res("CONVTTF_HDPI", hres), \
+                   env_res("CONVTTF_VDPI", vres))
 #define FT_Load_Glyph shell_load_glyph
 #define FT_Load_Char  shell_load_char
 #define FT_Get_Char_Index shell_char_index

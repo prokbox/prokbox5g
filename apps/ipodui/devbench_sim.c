@@ -326,6 +326,34 @@ static int verdict_row(const char *id, const char *what)
 int dbs_vclk_verify(void) { return verdict_row("vbv", "clock bands"); }
 int dbs_vclk_gov(void)    { return verdict_row("vgov", "clock governor"); }
 
+/* Sitting 4h's core layout probe (devbench_cop.h).  The simulator has no
+ * second core and no interrupt controller: routing a source to the COP is
+ * [hypothesis] until the bench, so the sim refuses the rows (Not run, a
+ * skip) rather than model a pass.  The fault switch DBS_FAIL<id> fails
+ * one instead, for the runner's failure path */
+static int cop_row(const char *id, const char *what)
+{
+    char text[160];
+
+    boot_once();
+    if (fails(id))
+    {
+        snprintf(text, sizeof(text), "%s: FAIL: %s (sim fault switch)", id,
+                 what);
+        line(text);
+        return BENCH_FAIL;
+    }
+    snprintf(text, sizeof(text), "%s: Not run (sim): %s needs the second "
+             "core; the route is [hypothesis] until the bench", id, what);
+    line(text);
+    return BENCH_SKIP;
+}
+
+int dbs_cop_t2(void)   { return cop_row("p2", "Timer 2 on the COP"); }
+int dbs_cop_fiq(void)  { return cop_row("p1", "the PCM DMA's FIQ on the COP"); }
+int dbs_cop_duty(void) { return cop_row("duty", "the dark duty row"); }
+int dbs_cop_heap(void) { return cop_row("heap", "the heap A/B on both cores"); }
+
 /* The boot path's DMA rung for the next start: the display driver then */
 bool dbs_boot_dma(void)
 {
@@ -693,6 +721,7 @@ static void expect(char *argv[], int argc, int lineno)
     char path[MAX_PATH];
     int fd, n = 0, i, a, bad = 0, pos = 0;
     bool reverify = false, ended = false, verified = false, token = false;
+    bool probe = false, batch = false;
 
     if (!newest(path, sizeof(path)))
     {
@@ -712,12 +741,26 @@ static void expect(char *argv[], int argc, int lineno)
 
         if (!strncmp(l, "session ", 8) && strstr(l, " mode=reverify"))
             reverify = true;
+        else if (!strncmp(l, "session ", 8) && strstr(l, " mode=probe"))
+            probe = true;       /* sitting 4h: the core layout probe */
+        else if (!strncmp(l, "session ", 8) && strstr(l, " mode=batch"))
+            batch = true;       /* a chip batch's own checks (batch 5) */
         else if (!strncmp(l, "end ", 4))
             ended = true;
         else if (!strncmp(l, "verified ", 9))
             verified = true;
         else if (!strncmp(l, "token clock150 ", 15))
             token = true;
+    }
+    if (probe)
+    {
+        picks = bench_probe_picks;
+        np = (int)(sizeof(bench_probe_picks) / sizeof(bench_probe_picks[0]));
+    }
+    if (batch)
+    {
+        picks = bench_batch_picks;
+        np = (int)(sizeof(bench_batch_picks) / sizeof(bench_batch_picks[0]));
     }
     for (a = 1; a < argc; a++)
     {
@@ -729,10 +772,10 @@ static void expect(char *argv[], int argc, int lineno)
             bool retry_ok[64] = { false };
             int seen[64] = { 0 };
 
-            if (!reverify)
+            if (!reverify && !probe && !batch)
             {
                 fprintf(stderr, "sim_script:%d: expect_bench failed: not a "
-                        "re-verify session\n", lineno);
+                        "picked session\n", lineno);
                 bad++;
             }
             pos = 0;

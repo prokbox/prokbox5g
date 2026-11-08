@@ -128,7 +128,7 @@ simpool_clone() {
         return 0
     fi
     rm -rf "$2"
-    cp -R "$1" "$2"
+    cp -pR "$1" "$2"   # -p: the pinned mtimes (tag_mtime orders "newest" lists) must survive
 }
 
 simpool_prime() {

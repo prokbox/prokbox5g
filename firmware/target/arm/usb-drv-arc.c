@@ -9,6 +9,7 @@
  * Driver for ARC USBOTG Device Controller
  *
  * Copyright (C) 2007 by Björn Stenberg
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -401,6 +402,21 @@ static uint32_t last_in_fr;     /* FRINDEX at the last bulk IN completion */
 #define DSTAT(x) ((void)0)
 #endif
 
+#ifdef HAVE_USB_ISOPROBE
+/* #144 P1 bench probe (developer bench build only): the variants it
+ * selects for its session and what the isochronous endpoint did */
+#include "usb-arc-iso.h"
+static unsigned iso_variant;
+static struct usb_drv_iso_stats iso_st;
+static int pp_pipe = -1;        /* B: the ping-pong pipe, -1: none */
+static uint8_t pp_busy[2];      /* B: slot handed to the controller */
+static uint8_t pp_head;         /* B: the slot that retires next */
+static bool pipe_is_iso(int ep, int dir)
+{
+    return arc_epctrl_type(REG_ENDPTCTRL(ep), dir) == ARC_EP_ISO;
+}
+#endif
+
 /* every endpoint, both directions (ENDPTFLUSH/ENDPTSTATUS bit layout) */
 #define ALL_EP_MASK (((1u << USB_NUM_ENDPOINTS) - 1) * 0x00010001u)
 /* flush retries (manual: repeat while ENDPTSTATUS still shows the
@@ -571,6 +587,18 @@ static void init_endpoint(int ep, int type, int mps) {
         qh->max_pkt_length = mps << QH_MAX_PKT_LEN_POS | QH_ZLT_SEL;
 
     qh->dtd.next_td_ptr = QH_NEXT_TERMINATE;
+#ifdef HAVE_USB_ISOPROBE
+    if(type == USB_ENDPOINT_XFER_ISOC) {
+        /* C: the endpoint's other direction, unused, must not be control */
+        if((iso_variant & USB_ISO_VAR_C) &&
+           arc_epctrl_type(REG_ENDPTCTRL(ep_num), ep_dir != DIR_IN)
+               == ARC_EP_CONTROL)
+            REG_ENDPTCTRL(ep_num) = arc_epctrl_deinit(REG_ENDPTCTRL(ep_num),
+                                                      ep_dir != DIR_IN);
+        iso_st.epctrl = REG_ENDPTCTRL(ep_num);  /* type 1 = isochronous */
+        iso_st.portsc = REG_PORTSC1;            /* the speed, configured */
+    }
+#endif
 }
 
 
@@ -587,6 +615,14 @@ void usb_drv_init(void)
 #endif
     REG_USBMODE = USBMODE_CTRL_MODE_DEVICE;
     DSTAT(dstats.usbmode = REG_USBMODE);
+#ifdef HAVE_USB_ISOPROBE
+    /* step 0: the core's identity; DCCPARAMS bits 4:0 = endpoints */
+    memset(&iso_st, 0, sizeof(iso_st));
+    iso_st.id = REG_ID;
+    iso_st.dciversion = REG_DCIVERSION;
+    iso_st.dccparams = REG_DCCPARAMS;
+    pp_pipe = -1;
+#endif
 #if defined(HAVE_USB_STATS) && (CONFIG_CPU == PP5022)
     /* read only, never written (docs/usb-speed.md, overlap track) */
     dstats.bus[0] = *(volatile uint32_t *)(USB_BASE + 0x090);
@@ -718,7 +754,25 @@ void usb_drv_get_stats(struct usb_drv_stats *out)
 }
 #endif /* HAVE_USB_STATS */
 
+#ifdef HAVE_USB_ISOPROBE
+/* the probe's longest interrupt: the whole handler, timed around it */
+static void usb_drv_int_body(void);
 void usb_drv_int(void)
+{
+    uint32_t t0 = USEC_TIMER;
+
+    usb_drv_int_body();
+    t0 = USEC_TIMER - t0;
+    iso_st.irq_n++;
+    if (t0 > iso_st.irq_max_us)
+        iso_st.irq_max_us = t0;
+}
+#define USB_DRV_INT_FN usb_drv_int_body
+#else
+#define USB_DRV_INT_FN usb_drv_int
+#endif
+
+void USB_DRV_INT_FN(void)
 {
     unsigned int usbintr = REG_USBINTR; /* Only watch enabled ints */
     unsigned int raw = REG_USBSTS;
@@ -1249,6 +1303,9 @@ void usb_drv_cancel_all_transfers(void)
     ep_flush(ALL_EP_MASK);
 
     memset(td_array, 0, sizeof td_array);
+#ifdef HAVE_USB_ISOPROBE
+    pp_pipe = -1;                       /* B: its slots went with them */
+#endif
     for(i=0;i<USB_NUM_ENDPOINTS*2;i++) {
         if(qh_array[i].wait) {
             qh_array[i].wait=0;
@@ -1271,6 +1328,14 @@ void usb_drv_ep_deinit(const struct usb_drv_ep_alloc_ctx* ctx, int ep) {
 
     logf("ep deinit: %d %s", ep_num, XFER_DIR_STR(ep_dir));
 
+#ifdef HAVE_USB_ISOPROBE
+    if(iso_variant & USB_ISO_VAR_C) {
+        /* C: never leave the direction as control (manual 32.9.5.18) */
+        REG_ENDPTCTRL(ep_num) =
+            arc_epctrl_deinit(REG_ENDPTCTRL(ep_num), ep_dir == DIR_IN);
+        return;
+    }
+#endif
     if(ep_dir == DIR_IN) {
         REG_ENDPTCTRL(ep_num) &= ~EPCTRL_TX_ENABLE & ~EPCTRL_TX_TYPE;
     } else {
@@ -1337,6 +1402,146 @@ static void setup_received(void)
         usb_core_setup_received(req);
 }
 
+#ifdef HAVE_USB_ISOPROBE
+static void iso_count(unsigned int sts)
+{
+    iso_st.done++;
+    if (sts & DTD_STATUS_TRANSACTION_ERR)
+        iso_st.txn_err++;
+    if (sts & DTD_STATUS_DATA_BUFF_ERR)
+        iso_st.buf_err++;
+    if (sts & DTD_STATUS_HALTED)
+        iso_st.halted++;
+}
+
+void usb_drv_iso_set_variant(unsigned variant)
+{
+    iso_variant = variant;
+}
+
+void usb_drv_iso_get_stats(struct usb_drv_iso_stats *out)
+{
+    int oldlevel = disable_irq_save();
+    *out = iso_st;
+    restore_irq(oldlevel);
+}
+
+uint32_t usb_drv_iso_frindex(void)
+{
+    return REG_FRINDEX;
+}
+
+/* B: the slots that have retired, oldest first; each completion goes to
+ * the class driver, which queues the slot again from it (IRQ context) */
+static void pp_retire(void)
+{
+    const int ep = pp_pipe >> 1;
+    struct transfer_descriptor *td;
+    unsigned int sts;
+    int len, n;
+
+    for (n = 0; n < 2 && pp_busy[pp_head]; n++) {
+        td = &td_array[pp_pipe * NUM_TDS_PER_EP + pp_head];
+        sts = td->size_ioc_sts;
+        if (sts & DTD_STATUS_ACTIVE)
+            break;
+        pp_busy[pp_head] = 0;
+        len = (td->reserved & DTD_RESERVED_LENGTH_MASK) -
+              ((sts & DTD_PACKET_SIZE) >> DTD_LENGTH_BIT_POS);
+        iso_count(sts);
+        sts = arc_iso_td_fatal(sts, true);  /* TR_ERR: a missed packet */
+        pp_head ^= 1;
+        complete_transfer(ep, USB_DIR_IN, sts, len);
+    }
+}
+
+/* B: hand slot (0 or 1) to the controller with one packet: appended to
+ * the other slot when that is still in flight (manual 32.14.5.3, the
+ * ATDTW tripwire), else primed.  IRQ-safe, never spins on a prime. */
+int usb_drv_iso_pp_queue(int endpoint, int slot, const void *ptr, int len)
+{
+    const int pipe = EP_NUM(endpoint) * 2 + 1;
+    const unsigned int mask = pipe2mask[pipe];
+    struct queue_head *qh = &qh_array[pipe];
+    struct transfer_descriptor *td, *tail;
+    const int mps = (qh->max_pkt_length >> QH_MAX_PKT_LEN_POS) & 0x7ff;
+    uint32_t token = arc_iso_td_token(len, mps);
+    bool live = false;
+    int spin, oldlevel;
+
+    if (slot < 0 || slot > 1 || !token || !arc_iso_len_ok(len, 1, mps))
+        return -1;
+    oldlevel = disable_irq_save();
+    if (pp_pipe != pipe) {              /* the session's first packet */
+        if (pp_pipe >= 0) {
+            restore_irq(oldlevel);
+            return -2;
+        }
+        pp_pipe = pipe;
+        pp_busy[0] = pp_busy[1] = 0;
+        pp_head = slot;
+    }
+    if (pp_busy[slot]) {
+        iso_st.pp_busy++;
+        restore_irq(oldlevel);
+        return -3;
+    }
+    td = &td_array[pipe * NUM_TDS_PER_EP + slot];
+    tail = &td_array[pipe * NUM_TDS_PER_EP + (slot ^ 1)];
+    memset(td, 0, sizeof(*td));
+    td->next_td_ptr = DTD_NEXT_TERMINATE;
+    td_set_buf_ptr(td, ptr);
+    td->reserved = (len & DTD_RESERVED_LENGTH_MASK) | DTD_RESERVED_IN_USE |
+                   pipe << DTD_RESERVED_PIPE_OFFSET;
+    td->size_ioc_sts = token;
+    if (!pp_busy[0] && !pp_busy[1])
+        pp_head = slot;                 /* an empty list starts here */
+    pp_busy[slot] = 1;
+
+    if (pp_busy[slot ^ 1]) {
+        tail->next_td_ptr = (unsigned int)td;
+        if (REG_ENDPTPRIME & mask) {
+            live = true;
+        } else {
+            for (spin = 0; spin < 1000; spin++) {
+                REG_USBCMD |= USBCMD_ATDTW;
+                live = (REG_ENDPTSTATUS & mask) != 0;
+                if (REG_USBCMD & USBCMD_ATDTW)
+                    break;
+            }
+            if (spin == 1000)
+                iso_st.pp_atdtw_to++;
+            REG_USBCMD &= ~USBCMD_ATDTW;
+        }
+    }
+    if (live) {
+        iso_st.pp_append++;
+    } else {
+        qh->dtd.next_td_ptr = (unsigned int)td;
+        qh->dtd.size_ioc_sts &= ~(QH_STATUS_HALT | QH_STATUS_ACTIVE);
+        REG_ENDPTPRIME |= mask;
+        iso_st.pp_prime++;
+    }
+    restore_irq(oldlevel);
+    return 0;
+}
+
+void usb_drv_iso_pp_stop(int endpoint)
+{
+    const int pipe = EP_NUM(endpoint) * 2 + 1;
+    int oldlevel = disable_irq_save();
+
+    if (pp_pipe == pipe) {
+        td_array[pipe * NUM_TDS_PER_EP].next_td_ptr = DTD_NEXT_TERMINATE;
+        td_array[pipe * NUM_TDS_PER_EP + 1].next_td_ptr = DTD_NEXT_TERMINATE;
+        pp_pipe = -1;
+        pp_busy[0] = pp_busy[1] = 0;
+    }
+    restore_irq(oldlevel);
+    ep_flush(pipe2mask[pipe]);
+}
+#endif /* HAVE_USB_ISOPROBE */
+
 static void transfer_completed(void)
 {
     int ep;
@@ -1345,6 +1550,15 @@ static void transfer_completed(void)
     int pipe;
     int lens[USB_NUM_ENDPOINTS*2];
     unsigned int errs[USB_NUM_ENDPOINTS*2];
+
+#ifdef HAVE_USB_ISOPROBE
+    /* B: the ping-pong pipe retires its own slots, in order */
+    if (pp_pipe >= 0 && (seen & pipe2mask[pp_pipe])) {
+        REG_ENDPTCOMPLETE = pipe2mask[pp_pipe];
+        seen &= ~pipe2mask[pp_pipe];
+        pp_retire();
+    }
+#endif
 
     /* Pass 1: which of the flagged pipes really finished. Their bits are
      * cleared before any completion runs (a class driver primes the next
@@ -1410,6 +1624,16 @@ static void transfer_completed(void)
                     }
                     else if (!dir && !errs[pipe])
                         last_out_us = DRV_NOW_US();
+                }
+#endif
+#ifdef HAVE_USB_ISOPROBE
+                if (ep != EP_CONTROL && pipe_is_iso(ep, dir)) {
+                    iso_count(errs[pipe]);
+                    if (iso_variant & USB_ISO_VAR_A)
+                        /* A: a missed (micro)frame, not a failure */
+                        errs[pipe] = arc_iso_td_fatal(errs[pipe], true);
+                    if (errs[pipe])
+                        iso_st.flushed++;
                 }
 #endif
                 if (errs[pipe]) {

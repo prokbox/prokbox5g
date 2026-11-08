@@ -57,6 +57,7 @@
 #include "vclock_ladder.h"
 #include "version.h"
 #include "timefuncs.h"
+#include "storage.h"
 #include "../../bcmfw/hostproto.h"
 #include "../../bcmfw/jobs.h"
 #if defined(HAVE_BCM_JOBS) && !defined(SIMULATOR)
@@ -81,6 +82,14 @@ static volatile bool ovl_done XCORE_BSS;
 static int ovl_rc XCORE_BSS;
 static uint32_t ovl_rect[4] XCORE_BSS;
 static uint32_t ovl_slide XCORE_BSS;    /* HP_OVL_SLIDE_* | ms, or 0 */
+/* day 4e: the last play's long-play record (vplayer_prog_get): the
+   player's thread writes it, the shell (on the COP in 19-9) reads it,
+   so it is uncached.  The thread's own (cached): prog_us, the audio time
+   played; prog_mark, the last two minute lines' pictures and played time
+   (the tail) */
+static struct vplayer_prog prog XCORE_BSS;
+static uint64_t prog_us;
+static uint32_t prog_mark[2][2];
 /* 1 KB by default on the PP: the client's records and ui_log need more;
    the sim adds its signal stack */
 #define STACK_SIZE  (DEFAULT_STACK_SIZE + 0x1000)
@@ -113,6 +122,12 @@ struct vblock
     int fd, vix_fd;
     uint64_t fd_pos, vix_pos;
     uint32_t direct;
+    /* #175: the index's read ahead on the buffering thread (idx_job) */
+    uint64_t idx_at;
+    void *idx_buf;
+    uint32_t idx_n;
+    volatile long idx_rc;
+    volatile bool idx_busy;     /* posted, not yet read */
     /* the audio clock: elapsed (ms) as last seen and when it moved */
     unsigned long el;
     uint32_t el_at_us;
@@ -139,6 +154,7 @@ struct vblock
     bool ended;                 /* the last picture went up */
     volatile bool up;           /* vpc_start returned: the audio may start */
     long stop_after;            /* the audio left the file: stop then */
+    uint32_t prog_at;           /* day 4c: the last progress line (port us) */
     uint8_t mem[VPC_MEM_SIZE + 8];
     uint8_t stack[STACK_SIZE] __attribute__((aligned(8)));
 };
@@ -366,6 +382,15 @@ static void jobs_failed_poll(void)
 void vplayer_bench_play(bool on)
 {
     bench_play = on;
+}
+
+/* Bench row sdc (batch 5): the next first-use check's passing band
+   closes with HP_CLOSE_SDRAM_IDLE, once; vc_said gets its reply */
+static bool sd_idle_once;
+
+void vplayer_sd_idle_arm(void)
+{
+    sd_idle_once = true;
 }
 
 int vplayer_check_reset(void)
@@ -861,6 +886,8 @@ static int be_check(struct bvp *b)
     io.ctx = b;
     io.scratch = (uint16_t *)(mem + ALIGN_UP(VCHECK_FILE_BYTES, 8));
     io.sums = vcheck_sums;
+    io.close_flags = sd_idle_once ? HP_CLOSE_SDRAM_IDLE : 0;
+    sd_idle_once = false;
     /* the shell's frame ("Preparing video...") over the test pictures */
     io.screen = (const uint16_t *)FBADDR(0, 0);
 #ifdef HAVE_FE_FB_HANDOFF
@@ -888,6 +915,18 @@ static int be_check(struct bvp *b)
         boosted = true;
     }
     v = vcheck_run(&io, &s, vclock_ladder, VCLOCK_LADDER_N, &r);
+    if (io.close_flags)
+    {
+        /* bench row sdc's line: the idle's code and bit-15 polls (the
+           play's OPEN then runs the bring-up again) */
+        uint32_t w = v == VCHECK_PASS ? r.tried[r.n - 1].sd_close : 0xFFFFFFFFu;
+
+        if (w == 0xFFFFFFFFu)
+            ui_log("video", "sdc: no idle (check %d, no CLOSE reply)", v);
+        else
+            ui_log("video", "sdc: idle code %lu polls %lu", (unsigned long)
+                   HP_CLOSE_SD_CODE(w), (unsigned long)HP_CLOSE_SD_POLLS(w));
+    }
     if (boosted)
     {
         cpu_boost(false);
@@ -986,6 +1025,13 @@ static long src_read(void *ctx, uint64_t off, void *buf, uint32_t n)
     int hid = audio_handle();
 
     (void)ctx;
+#ifdef SIMULATOR
+    /* video_fault hole: the audio's buffer stops short of this offset
+       and never fills (day 4c's stall); the file still reads */
+    if (sim_video_hole() && !B->core.read_direct &&
+        off + n > sim_video_hole())
+        return VPC_NOT_BUFFERED;
+#endif
     if (hid >= 0 && !B->core.read_direct)
     {
         ssize_t rc = bufpeek_at(hid, (off_t)off, n, buf);
@@ -1012,9 +1058,94 @@ static void src_wait(void)
     sleep(1);
 }
 
+/* #175 (owner's log, build 4c241d1df3): the index window's read ahead
+   runs on the buffering thread, which waits out a storage power-up (600-
+   700 ms on flash, 2-4 s on a disk) instead of this one.  Both threads
+   run on the CPU; the job touches only the slots vpcore handed over, the
+   index's own fd and vix_pos, which this thread leaves alone until
+   idx_done says the read is over (vpcore settles it before any read of
+   its own and before vpc_stop returns) */
+static void idx_job(void)
+{
+    struct vblock *b = B;
+
+    if (!b)
+        return;
+    b->idx_rc = read_at(b->vix_fd, &b->vix_pos, b->idx_at, b->idx_buf,
+                        b->idx_n);
+    b->idx_busy = false;
+}
+
+static int idx_post(void *ctx, uint64_t off, void *buf, uint32_t n)
+{
+    (void)ctx;
+    if (B->idx_busy)
+        return -1;
+    B->idx_at = off;
+    B->idx_buf = buf;
+    B->idx_n = n;
+    B->idx_rc = VPC_NOT_BUFFERED;
+    B->idx_busy = true;
+    if (!buffering_post_job(idx_job))
+    {
+        B->idx_busy = false;
+        return -1;
+    }
+    return 0;
+}
+
+static long idx_done(void *ctx)
+{
+    (void)ctx;
+    return B->idx_busy ? VPC_NOT_BUFFERED : B->idx_rc;
+}
+
+#ifdef HAVE_STORAGE_POWEROFF
+/* another thread's transfer under way: a read ahead now rides along */
+static int idx_disk(void *ctx, int how)
+{
+    (void)ctx;
+    return how == VPC_DISK_BUSY && storage_disk_is_active();
+}
+#endif
+
+/* day 4c: a still on data waits (vpcore): where the audio's buffer of
+   this file stands against the byte the push waited for, once an event
+   (KB: start and end buffered, the byte, the watermark; filling) */
+static void src_report(void *ctx, uint64_t want_off)
+{
+    int hid = audio_handle();
+    off_t start = hid >= 0 ? buf_handle_offset(hid) : -1;
+    off_t rem = hid >= 0 ? buf_handle_remaining(hid) : -1;
+    off_t size = hid >= 0 ? buf_filesize(hid) : -1;
+
+    (void)ctx;
+    ui_log("video", "buf %d st=%ldK end=%ldK want=%ldK", hid,
+           (long)(start >> 10),
+           (long)(size >= 0 && rem >= 0 ? (size - rem) >> 10 : -1),
+           (long)(want_off >> 10));
+    ui_log("video", "buf wm=%luK used=%luK/%luK fill=%d",
+           (unsigned long)(buf_get_watermark() >> 10),
+           (unsigned long)(buf_used() >> 10),
+           (unsigned long)(buf_length() >> 10),
+#ifdef HAVE_IPOD_UI
+           (int)buffering_is_filling());
+#else
+           -1);
+#endif
+}
+
+#ifdef SIMULATOR
+static struct vpc_source source =   /* window_records: video_fault window */
+#else
 static const struct vpc_source source =
+#endif
 {
     .ctx = NULL, .read = src_read, .index_read = idx_read, .wait = src_wait,
+    .report = src_report, .index_post = idx_post, .index_done = idx_done,
+#ifdef HAVE_STORAGE_POWEROFF
+    .disk = idx_disk,
+#endif
 };
 
 /* The file's mtime as the library has it (its directory entry) */
@@ -1496,6 +1627,73 @@ static void port_report(void)
            (long)(wall / 1000000));
 }
 
+/* day 4c: the long-play line, once a minute while playing and at the
+   stop: pictures shown over the play against the audio's time, and the
+   watchdog's counts (a 4e bench long-play step reads the last one; a
+   steady unit shows about 30 pictures an audio second) */
+#define VPLAYER_PROGRESS_US 60000000u
+
+static uint32_t prog_minutes;               /* minute lines this play */
+
+/* the record from the play so far (the player's thread); minute: a
+   minute line, whose figures become the tail's next mark */
+static void prog_update(struct vpc *v, bool minute)
+{
+    uint32_t ms = (uint32_t)(prog_us / 1000);
+    int m = prog_minutes >= 2 ? 1 : 0;
+
+    prog.pics = v->stats.pictures;
+    prog.played_ms = ms;
+    prog.stills = v->stats.stills;
+    prog.behind = v->stats.stills_behind;
+    prog.data = v->stats.data_stills;
+    prog.refused = v->stats.feed_refusals;
+    prog.decode_err = v->error_said != 0;
+    if (prog_minutes)
+    {
+        /* from the mark one or two minutes back */
+        prog.tail_pics = prog.pics - prog_mark[m][0];
+        prog.tail_ms = ms - prog_mark[m][1];
+    }
+    else
+    {
+        prog.tail_pics = prog.pics;
+        prog.tail_ms = ms;
+    }
+    if (minute)
+    {
+        prog_mark[1][0] = prog_mark[0][0];
+        prog_mark[1][1] = prog_mark[0][1];
+        prog_mark[0][0] = prog.pics;
+        prog_mark[0][1] = ms;
+        prog_minutes++;
+    }
+}
+
+void vplayer_prog_get(struct vplayer_prog *p)
+{
+    *p = prog;
+    p->running = prog.valid && vplayer_running();
+}
+
+void vplayer_prog_reset(void)
+{
+    memset(&prog, 0, sizeof(prog));
+}
+
+static void progress_line(struct vpc *v, const char *why)
+{
+    prog_update(v, why[0] == 'm');
+    /* two lines: the log's ring keeps 55 characters a line */
+    ui_log("video", "prog %s pics=%lu audio_ms=%ld", why,
+           (unsigned long)v->stats.pictures, (long)(B->last_a / 1000));
+    ui_log("video", "prog %s still=%lu behind=%lu data=%lu ref=%lu", why,
+           (unsigned long)v->stats.stills,
+           (unsigned long)v->stats.stills_behind,
+           (unsigned long)v->stats.data_stills,
+           (unsigned long)v->stats.feed_refusals);
+}
+
 static void vplayer_thread(void)
 {
     struct vpc *v = &B->core;
@@ -1509,6 +1707,12 @@ static void vplayer_thread(void)
     playing = (st & AUDIO_STATUS_PLAY) && !(st & AUDIO_STATUS_PAUSE);
     B->last_a = audio_us(playing);
     B->tr_t0 = bcm_video_now_us();     /* the start-up clock trace */
+    /* day 4e: this play's long-play record (the last play's goes) */
+    memset(&prog, 0, sizeof(prog));
+    prog_us = 0;
+    prog_minutes = 0;
+    memset(prog_mark, 0, sizeof(prog_mark));
+    prog.valid = true;
     /* boosted while the session plays (dev39: session 31's PP sat at
        30 MHz between the audio's boosts and the thread fell seconds
        behind); the boot and OPEN too */
@@ -1587,8 +1791,30 @@ static void vplayer_thread(void)
                    (long)(B->last_a / 1000), (long)(a / 1000));
             vpc_seek(v, a);
         }
+        if (playing && audio_handle() >= 0 && a > B->last_a &&
+            a <= B->last_a + 1500000)
+        {
+            /* day 4e: audio time played (the jumps above left out) */
+            prog_us += (uint64_t)(a - B->last_a);
+            if (!prog.fps_x100)
+            {
+                /* the file's rate: its samples over the track's length */
+                struct mp3entry *id3 = audio_current_track();
+
+                if (id3 && id3->length)
+                    prog.fps_x100 = (uint32_t)((uint64_t)v->hdr.count *
+                                               100000 / id3->length);
+            }
+        }
         B->last_a = a;
         vpc_tick(v, a, playing, is_backlight_on(true), &wait_ms);
+        if (playing && v->state == VPC_PLAYING &&
+            t_loop - B->prog_at >= VPLAYER_PROGRESS_US)
+        {
+            if (B->prog_at)
+                progress_line(v, "minute");
+            B->prog_at = t_loop ? t_loop : 1;
+        }
         if (playing)
         {
             al_tick(v);         /* two blocks a turn at most: 46 ms of */
@@ -1626,6 +1852,7 @@ static void vplayer_thread(void)
             B->stop_after = 0;
     }
     dump_if_asked(v);
+    progress_line(v, "end");
     al_stop();
     port_report();
     vpc_stop(v);
@@ -1806,6 +2033,9 @@ bool vplayer_start(const char *path)
 
         bcm_video_port_load(&l, true);  /* this play's load only */
     }
+#ifdef SIMULATOR
+    source.window_records = sim_video_window();
+#endif
     nk = vpc_init(&B->core, &source, &backend, B->mem, sizeof(B->mem));
     B->core.sd_check = sd_check || sd_diag;
     B->core.sd_whole = sd_diag;
@@ -2185,6 +2415,9 @@ static uint32_t warm_park_prog;     /* HP_WARM_PROG read once parked */
 /* the host's flush of the round (warm_flush): the cache word before it
    and after it, its re-requests << 12 | polls, its microseconds */
 static struct { uint32_t before, after, rp, us; } warm_fl;
+/* sitting 4g: the round's host flush form (BCM quirk #41's A/B) */
+enum { WARM_FL_25A = 0, WARM_FL_COLD };
+static const char *const warm_fl_name[2] = { "@25a", "cold" };
 /* the upload checked against the image (warm_check): 1 KB pieces whose
    first or last word read back wrong straight after the upload, and
    again after the host's flush, and the pieces written again */
@@ -2204,12 +2437,79 @@ static struct { uint32_t up_bad, fl_bad, rewrites, passes; } warm_ck;
 #define WARM_DIAG_LIMIT     0x180       /* BCMFW_MB_LIMIT */
 #define WARM_DIAG_DMA_CS    0x10000880  /* DMA_CS(DMA_LCD_CHAN) */
 #define WARM_DIAG_DMA_INT   0x10000884  /* DMA_INT(DMA_LCD_CHAN) */
+#define BCMFW_MB_STEP_ADDR  0x1C0       /* BCMFW_MB_STEP: the image's step */
 static uint32_t warm_rd(uint32_t addr)
 {
     uint32_t v;
 
     return bcm_video_rd(addr, &v) < 0 ? ~0u : v;
 }
+
+/* B13's timeline (sitting 4gh-b5: the owner saw black and white flashes
+   BEFORE the last round's green square went, not in the 446 ms dark
+   restart).  From that square on: each stage's microseconds since it was
+   drawn, the image's warm word and info word (bit 8: its panel on; read
+   only while the chip is powered), and the chip's power line (GPO32 bit
+   14).  Logging only: nothing it reads changes the swap.  At most
+   WTL_N lines, logged after the cold restart.  Developer builds only: a
+   release compiles none of it (fw-ship byte for byte) */
+#ifdef HAVE_IPOD_UI_DEVMODE
+#define WTL_N   16
+static struct { const char *what; uint32_t us, word, info, pwr; } wtl[WTL_N];
+static int wtl_n;
+static bool wtl_on;
+static uint32_t wtl_t0;
+
+static void wtl_stamp(const char *what, bool port)
+{
+    uint32_t us = bcm_video_now_us();
+
+    if (!wtl_on || wtl_n >= WTL_N)
+        return;
+    if (!wtl_n)
+        wtl_t0 = us;
+    wtl[wtl_n].what = what;
+    wtl[wtl_n].us = us - wtl_t0;
+    wtl[wtl_n].word = port ? warm_rd(HP_WARM_WORD) : ~0u;
+    wtl[wtl_n].info = port ? warm_rd(WARM_INFO) : ~0u;
+#ifdef SIMULATOR
+    wtl[wtl_n].pwr = 2;
+#else
+    wtl[wtl_n].pwr = (GPO32_VAL & 0x4000) ? 1 : 0;
+#endif
+    wtl_n++;
+}
+
+static void wtl_log(void (*log)(const char *line))
+{
+    char line[120];
+    int i;
+
+    for (i = 0; i < wtl_n; i++)
+    {
+        snprintf(line, sizeof(line), "warm tl %2d %-18s +%lu us word %08lx "
+                 "info %08lx (panel %s) power %lu", i, wtl[i].what,
+                 (unsigned long)wtl[i].us, (unsigned long)wtl[i].word,
+                 (unsigned long)wtl[i].info, wtl[i].info == ~0u ? "?" :
+                 wtl[i].info & WARM_INFO_ON ? "on" : "off",
+                 (unsigned long)wtl[i].pwr);
+        log(line);
+    }
+    wtl_on = false;
+    wtl_n = 0;
+}
+
+static void wtl_begin(const char *what)
+{
+    wtl_on = true;
+    wtl_n = 0;
+    wtl_stamp(what, true);
+}
+#else
+#define wtl_stamp(what, port)   do { } while (0)
+#define wtl_log(log)            do { } while (0)
+#define wtl_begin(what)         do { } while (0)
+#endif
 
 static void warm_diag(uint32_t round, void (*log)(const char *line))
 {
@@ -2298,7 +2598,31 @@ static void warm_diag_up(uint32_t round, const uint8_t *im, uint32_t bytes,
    0 polled (5 ms); then 0, the word every image starts with after a cold
    start.  0, or -1 on a port failure or a flush that never ended. */
 #define WARM_FLUSH_US   5000
-static int warm_flush(void)
+/* Sitting 4g's A form: the cold start's flush (host-interface.md,
+   "Starting an image"), as the warm swap made it before caa718193c
+   (sitting 3: 9 of 10 swaps): 0xC0000000, bit 0 polled (5 ms), then 0 */
+static int warm_flush_cold(uint32_t t0)
+{
+    uint32_t v, k = 0;
+
+    if (bcm_video_wr(WARM_CACHE, 0xC0000000u))
+        return -1;
+    do
+    {
+        if (bcm_video_now_us() - t0 > WARM_FLUSH_US ||
+            bcm_video_rd(WARM_CACHE, &v) < 0)
+            return -1;
+        k++;
+    } while (!(v & 1));
+    if (bcm_video_wr(WARM_CACHE, 0))
+        return -1;
+    warm_fl.after = warm_rd(WARM_CACHE);
+    warm_fl.rp = k > 0xFFF ? 0xFFF : k;
+    warm_fl.us = bcm_video_now_us() - t0;
+    return 0;
+}
+
+static int warm_flush(int form)
 {
     uint32_t keep, v, t0 = bcm_video_now_us(), t, k = 0;
 
@@ -2306,6 +2630,8 @@ static int warm_flush(void)
     if (bcm_video_rd(WARM_CACHE, &v) < 0)
         return -1;
     warm_fl.before = v;
+    if (form == WARM_FL_COLD)
+        return warm_flush_cold(t0);
     keep = v & 0x3FFFFFFFu;
     for (t = 0; t != 15; t++)
     {
@@ -2406,7 +2732,7 @@ static int warm_check(const uint8_t *im, uint32_t bytes, bool rewrite,
    ready, t[3] the whole; *flags the park's.  go false stops before the
    go word (the injected fault).  0, or WARM_E_*. */
 static int warm_swap(struct bvp *b, const uint8_t *im, uint32_t bytes,
-                     bool e2, bool flush, bool go, uint32_t t[4],
+                     bool e2, int flush, bool go, uint32_t t[4],
                      uint32_t *flags, uint32_t *info)
 {
     uint32_t a = HP_PARK_MAGIC, f = 0, n = 0, w = 0, t0, t1, i;
@@ -2415,6 +2741,7 @@ static int warm_swap(struct bvp *b, const uint8_t *im, uint32_t bytes,
     memset(&warm_park, 0, sizeof(warm_park));
     warm_park_prog = 0;
     warm_park.st = bvp_call(b, HP_OP_PARK, &a, 1, &f, 1, &n, WARM_CALL_US);
+    wtl_stamp("park answered", true);
     warm_park.n = n;
     warm_park.f = f;
     if (warm_park.st != HP_OK || !n)
@@ -2437,6 +2764,7 @@ static int warm_swap(struct bvp *b, const uint8_t *im, uint32_t bytes,
     t[0] = bcm_video_now_us() - t0;
     *flags = w & 0xFF;
     warm_park_prog = warm_rd(HP_WARM_PROG);
+    wtl_stamp("parked", true);
     /* the image over the old one, as a cold start uploads it; the core
        spins in the stub above it meanwhile */
     if (e2)
@@ -2456,6 +2784,7 @@ static int warm_swap(struct bvp *b, const uint8_t *im, uint32_t bytes,
         return WARM_E_UPLOAD;
     }
     t[1] = bcm_video_now_us() - t1;
+    wtl_stamp("uploaded over it", true);
     bcm_video_set_dma(false);
     if (bcm_video_wr(WARM_READY, 0))
         return WARM_E_UPLOAD;
@@ -2464,10 +2793,13 @@ static int warm_swap(struct bvp *b, const uint8_t *im, uint32_t bytes,
     /* as uploaded (counted only), then the flush, then made right */
     if (warm_check(im, bytes, false, &warm_ck.up_bad))
         return WARM_E_UPLOAD;
-    if (flush && warm_flush())
+    wtl_stamp("checked", true);
+    if (flush >= 0 && warm_flush(flush))
         return WARM_E_CACHE;
+    wtl_stamp("chip cache flushed", true);
     if (warm_check(im, bytes, true, &warm_ck.fl_bad))
         return WARM_E_UPLOAD;
+    wtl_stamp("rewritten", true);
     if (!go)
         return 0;
     t1 = bcm_video_now_us();
@@ -2537,8 +2869,9 @@ int vplayer_warm_lab(const uint8_t *disp, uint32_t disp_bytes,
         "attach", "use after the swap" };
     struct bvp *bp;
     uint32_t round, t[4], flags = 0, info = 0, t0, v;
-    char line[160];
-    int rc, e;
+    char line[160], forms[64];
+    int rc, e, nf = 0;
+    bool in_video = false;      /* which image runs: the cold boot's */
 
     memset(r, 0, sizeof(*r));
     r->first_fail = -1;
@@ -2568,27 +2901,36 @@ int vplayer_warm_lab(const uint8_t *disp, uint32_t disp_bytes,
     log(line);
     for (round = 0; rc == 0 && round < VPLAYER_WARM_ROUNDS; round++)
     {
-        bool video = !(round & 1);              /* in, then back out */
-        bool e2 = round % 4 >= 2;               /* the upload's method */
-        bool flush = round < VPLAYER_WARM_ROUNDS - 4;
+        bool video = !in_video;                 /* to the other image */
+        bool e2 = false;                        /* the CPU's upload */
+        /* the host's flush: the cold form in every round.  Sitting 4gh's
+           A/B (quirk #56): the cold form's round passed, the @25a form's
+           new image stopped in its own timer_init (step 0x50530004) */
+        int flush = WARM_FL_COLD;
 
         memset(t, 0, sizeof(t));
         e = warm_swap(bp, video ? img : disp, video ? img_bytes : disp_bytes,
                       e2, flush, true, t, &flags, &info);
         if (!e)
             e = warm_use(bp, video, round);
+        /* B13's timeline from the last round's square on (wtl_stamp) */
+        if (!e && !video && round == VPLAYER_WARM_ROUNDS - 1)
+            wtl_begin(round & 2 ? "red square shown" : "green square shown");
         /* a swap that failed before its info read left the last round's
            in info (sitting 3's "never ready" showed the video image's) */
         if (e && e < WARM_E_INFO)
             info = warm_rd(WARM_INFO);
         r->rounds++;
-        if (!(info & WARM_INFO_ON))
+        /* a passed swap only: a failed one's info word is 0 or stale (its
+           image never published one), which said "panel off" in every
+           failed sitting; the cold restart after it is the one dark */
+        if (!e && !(info & WARM_INFO_ON))
             r->panel_off++;
-        snprintf(line, sizeof(line), "warm %lu: to %s by %s%s: %s; park %lu "
-                 "us, upload %lu us, ready %lu us, all %lu us, flags %lx, "
-                 "info %08lx", (unsigned long)round,
+        snprintf(line, sizeof(line), "warm %lu: to %s by %s, flush %s: %s; "
+                 "park %lu us, upload %lu us, ready %lu us, all %lu us, "
+                 "flags %lx, info %08lx", (unsigned long)round,
                  video ? "video" : "display", e2 ? "engine 2" : "CPU",
-                 flush ? "" : ", no cache flush", e ? why[e] : "PASS",
+                 warm_fl_name[flush], e ? why[e] : "PASS",
                  (unsigned long)t[0], (unsigned long)t[1],
                  (unsigned long)t[2], (unsigned long)t[3],
                  (unsigned long)flags, (unsigned long)info);
@@ -2636,13 +2978,47 @@ int vplayer_warm_lab(const uint8_t *disp, uint32_t disp_bytes,
                 warm_diag_up(round, video ? img : disp,
                              video ? img_bytes : disp_bytes, log);
             }
+            /* sitting 4g: what the new image had reached (its step
+               word), what the image there offers, and the job block's
+               start-up checks (program-swap.md: a started image clears
+               its .bss; a stale one shows the old image's words) */
+            {
+                uint32_t jb = warm_rd(HP_JOBS);
+                bool jok = jb && !(jb & 3) && jb < 0x140000;
+
+                snprintf(line, sizeof(line), "warm %lu: diag step %08lx, "
+                         "caps %08lx, jobs %08lx, J_VPU %08lx, J_VPU2 %08lx",
+                         (unsigned long)round,
+                         (unsigned long)warm_rd(BCMFW_MB_STEP_ADDR),
+                         (unsigned long)warm_rd(HP_CAPS), (unsigned long)jb,
+                         (unsigned long)(jok ? warm_rd(jb + J_VPU) : ~0u),
+                         (unsigned long)(jok ? warm_rd(jb + J_VPU2) : ~0u));
+                log(line);
+            }
             if (r->first_fail < 0)
             {
                 r->first_fail = round;
                 r->first_why = e;
             }
-            break;                  /* the chip's state is unknown now */
+            nf += snprintf(forms + nf, sizeof(forms) - nf, " r%lu %s %s,",
+                           (unsigned long)round, warm_fl_name[flush], why[e]);
+            /* the chip's state is unknown now: a cold restart into the
+               display-only image, and the next round from there (4g: the
+               session goes on, the other form still tried) */
+            bcm_video_cut();
+            rc = bcm_video_boot(disp, disp_bytes);
+            if (rc == 0)
+                rc = bvp_attach(bp, &port);
+            in_video = false;
+            snprintf(line, sizeof(line), "warm %lu: cold restart %s",
+                     (unsigned long)round, rc ? "FAILED" : "ok");
+            log(line);
+            continue;
         }
+        if (nf < (int)sizeof(forms))
+            nf += snprintf(forms + nf, sizeof(forms) - nf, " r%lu %s ok,",
+                           (unsigned long)round, warm_fl_name[flush]);
+        in_video = video;
         r->ok++;
         if (t[0] > r->park_us_max)
             r->park_us_max = t[0];
@@ -2660,15 +3036,20 @@ int vplayer_warm_lab(const uint8_t *disp, uint32_t disp_bytes,
        and the host's fallback is a cold start */
     if (rc == 0 && r->first_fail < 0)
     {
-        e = warm_swap(bp, disp, disp_bytes, false, true, false, t, &flags,
-                      &info);
+        e = warm_swap(bp, disp, disp_bytes, false, WARM_FL_COLD, false, t,
+                      &flags, &info);
         sleep(HZ / 10);             /* time enough for a stray start */
         if (!e && bcm_video_rd(WARM_READY, &v) == 0 && v)
             r->no_go_ready = 1;
+        wtl_stamp("the cut", true);
         t0 = bcm_video_now_us();
         bcm_video_cut();
+        wtl_stamp("cut (60 ms off)", false);
+        /* the cold restart: bootstrap, upload, ready, the frame upload,
+           LCD_UPDATE (the first update), then the backlight */
         e = e ? e : bcm_video_boot(disp, disp_bytes) ? WARM_E_READY : 0;
         r->cold_us = bcm_video_now_us() - t0;
+        wtl_stamp("first frame after", true);
         snprintf(line, sizeof(line), "warm fault: no go word, %s; cold "
                  "restart %s in %lu us", r->no_go_ready ?
                  "an image STARTED anyway" : "nothing started",
@@ -2676,6 +3057,13 @@ int vplayer_warm_lab(const uint8_t *disp, uint32_t disp_bytes,
         log(line);
         if (e || r->no_go_ready)
             r->first_fail = VPLAYER_WARM_ROUNDS;
+    }
+    wtl_log(log);
+    if (nf)
+    {
+        forms[nf - 1] = '\0';      /* the last comma */
+        snprintf(line, sizeof(line), "warm forms:%s", forms);
+        log(line);
     }
     snprintf(line, sizeof(line), "warm: %s (%lu of %lu swaps; park max %lu "
              "us, ready max %lu us, into video max %lu us CPU, %lu us engine "
@@ -4183,6 +4571,7 @@ bool vplayer_info(struct vplayer_info *info)
     info->refused_nal = B->core.refused_nal;
     info->stills = B->core.stats.stills;
     info->reloads = B->core.stats.reloads;
+    info->feed_refusals = B->core.stats.feed_refusals;
     info->state = B->core.state;
     info->fail_why = B->core.fail_why;
     info->restarts = B->core.stats.restarts;

@@ -36,6 +36,10 @@
 #include "ipodui/nav_core.h"
 #include "ipodui/preview.h"
 #include "ipodui/uilog.h"
+#include <stdio.h>
+#include "string-extra.h"
+#include "lang.h"                   /* the developer row's state */
+#include "settings.h"               /* str() */
 #ifdef HAVE_BCMFW_DEVTEST
 #include "ipodui/devbcm.h"
 #endif
@@ -449,6 +453,7 @@ static void poison(void)
 
     if (dj_parity_mode())
         return;                 /* parity: the CPU drew the same frame */
+    bcmjob_poison_claim(UI_PANEL_X, 0, UI_PANEL_W, UI_PANEL_H);
     for (y = 0; y < UI_PANEL_H; y++)
     {
         /* not ownable: the owner's own poison of its stale copy (simulator) */
@@ -722,6 +727,36 @@ void dj_parity(const char *kind)
     }
     if (frames % 32 == 1 || d)
         ui_log("panel", "drift parity frames=%lu bad=%lu", frames, bad);
+}
+#endif
+
+#ifdef HAVE_IPOD_UI_DEVMODE
+/* The developer row's text with its state (sitting 4gh-b5: on or off at a
+   glance), from the language file: auto shows what it gives now */
+const char *dj_dev_name(char *buf, size_t len)
+{
+    char state[32];
+    bool on = dj_jobs_wanted() && !dj.cpu;
+
+    switch (bcmjob_drift_mode())
+    {
+        case BCMJOB_DRIFT_AUTO:
+            snprintf(state, sizeof(state), str(LANG_IPODUI_DEV_VC_DRIFT_AUTO),
+                     str(on ? LANG_ON : LANG_OFF));
+            break;
+        case BCMJOB_DRIFT_STILL:
+            strlcpy(state, str(LANG_IPODUI_DEV_VC_DRIFT_STILL),
+                    sizeof(state));
+            break;
+        case BCMJOB_DRIFT_OFF:
+            strlcpy(state, str(LANG_OFF), sizeof(state));
+            break;
+        default:                    /* on (and the sim's parity) */
+            strlcpy(state, str(LANG_ON), sizeof(state));
+            break;
+    }
+    snprintf(buf, len, str(LANG_IPODUI_DEV_VC_DRIFT_STATE), state);
+    return buf;
 }
 #endif
 

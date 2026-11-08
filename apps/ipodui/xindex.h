@@ -113,6 +113,11 @@ struct xidx_ops {
      * missing), rebuilds calendars.idx when the signature (files, home
      * city, month) differs or it does not check. NULL: not built */
     int (*cal)(struct xidx_job *j);
+#ifdef HAVE_IPOD_UI_DEVMODE
+    /* #137: the Apple fallback's job (afb.c), when the switch is on or a
+     * state is left to undo; when: enum afb_when */
+    int (*afb)(struct xidx_job *j, int when);
+#endif
 };
 
 #endif /* IPODUI_XINDEX_H */

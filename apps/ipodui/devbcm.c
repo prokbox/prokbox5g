@@ -35,6 +35,7 @@
 #include <stdio.h>
 #include "file.h"
 #include "kernel.h"
+#include "hang_watch.h"           /* a stage run pauses the UI slot */
 #include "rbpaths.h"
 #include "version.h"
 #include "timefuncs.h"
@@ -240,7 +241,19 @@ static bool devbcm_test_stages(unsigned stages)
 {
     struct bcmdt_result r;
     struct simplelist_info info;
+#ifdef HAVE_HANG_RECORD
+    /* a stage run is minutes of work on this thread under the test's own
+     * bounds (stage 3d: 116 s); unpaused, the hang watcher wrote a false
+     * "ui no progress" record for it (day 4c, d3_run -> wait_done).  A
+     * bench step has the thread paused already: kept as it was */
+    bool was_paused = hang_slots[HANG_UI].paused;
+
+    hang_pause(HANG_UI, true);
+#endif
     int rc = bcm_devtest_run_stages(stages, &r);
+#ifdef HAVE_HANG_RECORD
+    hang_pause(HANG_UI, was_paused);
+#endif
 
     stages_passed = rc == -3 ? 0 : r.passed_mask;
     int last = (stages & (BCMDT_STAGE(3) | BCMDT_STAGE(BCMDT_STAGE_5))) ? 3
@@ -1030,9 +1043,8 @@ static void s6_play(int n, const char *path, const char *what,
     if (p->started)
     {
         global_settings.repeat_mode = REPEAT_OFF;
-        playlist_create(NULL, NULL);
-        playlist_insert_track(NULL, path, PLAYLIST_INSERT_LAST, false, true);
-        playlist_start(0, 0, 0);
+        /* the video's own queue: never the audio queue (#154) */
+        playlist_play_video_ipodui(path, 0, 0);
         for (s = 0; s < STAGE6_MAX_S * 10; s++)
         {
             vplayer_pump();     /* the player's release, if it gives up */
@@ -1060,6 +1072,7 @@ static void s6_play(int n, const char *path, const char *what,
         s6_log("stage 6: the player refused the clip (ipodui.log)");
     vplayer_stop();
     audio_stop();
+    playlist_end_video_ipodui();     /* #154 */
     global_settings.repeat_mode = repeat;
     vplayer_set_frame_hook(NULL);
     vplayer_set_sdram_check(false);
@@ -1520,10 +1533,8 @@ static bool s7_start(unsigned long elapsed)
 {
     if (!vplayer_start(STAGE7_FILE))
         return false;
-    playlist_create(NULL, NULL);
-    playlist_insert_track(NULL, STAGE7_FILE, PLAYLIST_INSERT_LAST, false,
-                          true);
-    playlist_start(0, elapsed, 0);
+    /* the video's own queue: never the audio queue (#154) */
+    playlist_play_video_ipodui(STAGE7_FILE, elapsed, 0);
     if (elapsed)
         vplayer_seek(elapsed);          /* as ui_video_play resumes */
     s7_audio_runs(elapsed);
@@ -1788,10 +1799,8 @@ bool devbcm_test8(void)
 
     repeat = global_settings.repeat_mode;
     global_settings.repeat_mode = REPEAT_OFF;
-    playlist_create(NULL, NULL);
-    playlist_insert_track(NULL, STAGE7_FILE, PLAYLIST_INSERT_LAST, false,
-                          true);
-    playlist_start(0, 0, 0);
+    /* the video's own queue: never the audio queue (#154) */
+    playlist_play_video_ipodui(STAGE7_FILE, 0, 0);
     pcm_ok = s8_wait_pcm(8000);         /* the PCM really running */
     snprintf(line, sizeof(line), "stage 8a-0: PCM %s before the playing "
              "probe", pcm_ok ? "running" : "NOT running after 8 s");
@@ -1989,8 +1998,8 @@ bool devbcm_warmswap(void)
     if (!bench_batch)       /* the bench session asked already */
     {
         simplelist_addline("Optional, under 1 min: the video");
-        simplelist_addline("chip changes program up to %d times", VPLAYER_WARM_ROUNDS);
-        simplelist_addline("(stops at a failure), screen on.");
+        simplelist_addline("chip changes program %d times", VPLAYER_WARM_ROUNDS);
+        simplelist_addline("(two flush forms), screen on.");
         simplelist_addline("No blink, blank or flicker allowed.");
         simplelist_addline("Then one dark restart (expected).");
         simplelist_addline("MENU: cancel");
@@ -3600,10 +3609,8 @@ static void e2_step7(void)
         bool pcm;
 
         global_settings.repeat_mode = REPEAT_OFF;
-        playlist_create(NULL, NULL);
-        playlist_insert_track(NULL, STAGE7_FILE, PLAYLIST_INSERT_LAST, false,
-                              true);
-        playlist_start(0, 0, 0);
+        /* the video's own queue: never the audio queue (#154) */
+        playlist_play_video_ipodui(STAGE7_FILE, 0, 0);
         pcm = s8_wait_pcm(8000);
         e2_raw("e2 E2-7(3): PCM %s", pcm ? "running" : "NOT running");
         if (pcm)

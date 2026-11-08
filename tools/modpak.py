@@ -20,9 +20,12 @@
 # KIND, either express or implied.
 """ProkBox shell modules (#106): build-time half of apps/ipodui/modload.c.
 
-  modpak.py keep -o keep.txt --nm NM obj...
+  modpak.py keep -o keep.txt --nm NM [--wraps OPTS] obj...
       --undefined=SYM for every symbol the module objects use but do not
-      define, so the core's --gc-sections link keeps it.
+      define, so the core's --gc-sections link keeps it.  --wraps names
+      the UI boundary's linker options (apps/ipodui/febe_rpc.opts): a
+      wrapped SYM keeps __wrap_SYM too, the remote-call stub the module's
+      own link (--wrap, modules.make) resolves its calls to (p19-copfileio).
 
   modpak.py pack -o modules.pak --core rockbox.elf --base B --delta D \
                  --nm NM --objcopy OC [--manifests DIR] id:name:a.elf:b.elf ...
@@ -331,7 +334,12 @@ def deny_list(path):
     return out
 
 
-SYNC_ALLOWED = ("opendir", "readdir")
+# a 'context = sync' module runs only in a sync window (the post-USB
+# moment after the library scan, the boot window), never under a screen:
+# it may walk directories and (#137, the Apple fallback's job) read the
+# library once through a search of its own
+SYNC_ALLOWED = ("opendir", "readdir", "tagcache_search",
+                "tagcache_search_finish")
 
 
 def find_manifest(dirs, name):
@@ -513,9 +521,17 @@ def cmd_keep(args):
             elif len(p) == 3 and p[1] in "TDRBCGSVW":
                 defined.add(p[2])
     need = sorted(undef - defined)
+    wraps = set()
+    if args.wraps:
+        for line in open(args.wraps):
+            line = line.strip()
+            if line.startswith("-Wl,--wrap="):
+                wraps.add(line[len("-Wl,--wrap="):])
     with open(args.o, "w") as fh:
         for s in need:
             fh.write("--undefined=%s\n" % s)
+            if s in wraps:
+                fh.write("--undefined=__wrap_%s\n" % s)
     return 0
 
 
@@ -599,6 +615,7 @@ def main():
     k = sub.add_parser("keep")
     k.add_argument("--nm", required=True)
     k.add_argument("-o", required=True)
+    k.add_argument("--wraps", default="")
     k.add_argument("objs", nargs="+")
     p = sub.add_parser("pack")
     for opt in ("--nm", "--objcopy", "--core", "--base", "--delta", "-o"):

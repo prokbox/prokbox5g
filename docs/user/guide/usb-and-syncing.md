@@ -9,7 +9,7 @@ You don't need a sync program. The player shows up on your computer as an ordina
 ## Put music on the player
 
 1. Connect the player to your computer.
-2. The player shows a **Connected** screen with the words "Eject before disconnecting." Your computer shows a new drive.
+2. The player shows a **Connected** screen with the words "Eject it from your computer before you unplug it." Your computer shows a new drive.
 3. Open the drive and drag in your music, audiobooks and converted videos. Folders are fine; you don't need a special layout.
 4. **Eject** the drive from your computer (right-click it, or use the eject button).
 5. Unplug the cable.
@@ -34,5 +34,6 @@ New cover pictures appear a little after the songs do.
 - Always eject before unplugging. Pulling the cable early can leave a file half-copied.
 - If you are listening to music while you plug in, that is fine; the player takes care of it.
 - The player charges over USB while connected.
+- A video you paused keeps its place through a USB connection.
 
 If a song doesn't show up, see [Troubleshooting](troubleshooting.md).

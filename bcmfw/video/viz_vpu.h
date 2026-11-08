@@ -24,14 +24,15 @@
 #ifndef BCMFW_VIZ_VPU_H
 #define BCMFW_VIZ_VPU_H
 
-/* The visualizer's FFT and bars on the vector unit (viz_vpu.c; proposed,
- * sim only).  viz_vpu_init: the start-up check, 1 if the kernel agrees
- * with the C at both sizes (jobs.h J_VPU_FFT; fail: tests only, the check
- * expects the wrong powers).  viz_spectrum: jref's spectrum hook. */
+/* The visualizer's FFT and bars on the vector unit (viz_vpu.c).
+ * viz_vpu_check: the FFT's start-up check, jobs.h J_VFFT's word (the
+ * kernel is used only for J_VFFT_ALL, J_VPU_FFT; fail: tests only, the
+ * kernel's output taken as off).  viz_spectrum: jref's spectrum hook (512
+ * samples on the vector unit; 256 left to the C). */
 #include <stdint.h>
 #include "jviz.h"
 
-int viz_vpu_init(int fail);
+uint32_t viz_vpu_check(int fail);
 int viz_spectrum(uint32_t *p, const int16_t *pcm, uint32_t n);
 
 /* The bars on the vector unit (proposed, sim only; viz_vpu.c, gen_viz.py

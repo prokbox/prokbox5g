@@ -40,7 +40,7 @@
 #include <string.h>
 #include SORTKEY_H
 
-#define EXPECTED_VERSION 1
+#define EXPECTED_VERSION 2   /* 2: #146 class flags, same key order */
 #define EXPECTED_HASH    0xa0982d78u
 /* #47: the grouping rules (ui_casefold_char() over U+0000..U+1FFF,
  * ui_groupkey() and ui_casefold_cmp() over the corpus), recorded with

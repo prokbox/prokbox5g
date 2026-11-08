@@ -3091,6 +3091,354 @@ bench_vc_hsp1:
     add sp, #8
     rts
 
+/* HDRY: informational, VF3: vadd d(row 16)+r3, a(row 0), #0 with r3 = 1344 (y 21) over rows 16-47 = 0x5555; row 8 = row 37 with lanes 2-3 of row 32 and 4-5 of row 16; rows 9-11 = rows 37, 32, 16 */
+/*   predictions [mac], first 4 words of each stored row (rows 8, 9, 10, 11): */
+/*   model: the +r y is applied: row 37 = row 0 */
+/*     row 8: 3bd43039 55555555 55555555 817675db */
+/*     row 9: 3bd43039 530a476f 6a405ea5 817675db */
+/*     row 10: 55555555 55555555 55555555 55555555 */
+/*     row 11: 55555555 55555555 55555555 55555555 */
+/*   align16: the +r y aligns down to 16: row 32 = row 0 */
+/*     row 8: 55555555 530a476f 55555555 55555555 */
+/*     row 9: 55555555 55555555 55555555 55555555 */
+/*     row 10: 3bd43039 530a476f 6a405ea5 817675db */
+/*     row 11: 55555555 55555555 55555555 55555555 */
+/*   dropped: the +r is dropped: row 16 = row 0 */
+/*     row 8: 55555555 55555555 6a405ea5 55555555 */
+/*     row 9: 55555555 55555555 55555555 55555555 */
+/*     row 10: 55555555 55555555 55555555 55555555 */
+/*     row 11: 3bd43039 530a476f 6a405ea5 817675db */
+    .global bench_vc_hdry
+bench_vc_hdry:
+    mov r3, #1344
+    vld16 d00, (r0)
+    vld16 d01, (r0+32)
+    vld16 d02, (r0+64)
+    vld16 d03, (r0+96)
+    vld16 d04, (r0+128)
+    vld16 d05, (r0+160)
+    vld16 d06, (r0+192)
+    vld16 d07, (r0+224)
+    vld16 d08, (r0+256)
+    vld16 d09, (r0+288)
+    vld16 d0a, (r0+320)
+    vld16 d0b, (r0+352)
+    vld16 d0c, (r0+384)
+    vld16 d0d, (r0+416)
+    vld16 d0e, (r0+448)
+    vld16 d0f, (r0+480)
+    vld16 d20, (r0+512)
+    vld16 d21, (r0+544)
+    vld16 d22, (r0+576)
+    vld16 d23, (r0+608)
+    vld16 d24, (r0+640)
+    vld16 d25, (r0+672)
+    vld16 d26, (r0+704)
+    vld16 d27, (r0+736)
+    vld16 d28, (r0+768)
+    vld16 d29, (r0+800)
+    vld16 d2a, (r0+832)
+    vld16 d2b, (r0+864)
+    vld16 d2c, (r0+896)
+    vld16 d2d, (r0+928)
+    vld16 d2e, (r0+960)
+    vld16 d2f, (r0+992)
+    vmov.1 d40, a000, #0x5555 inc rep16
+    vmov.1 d80, a000, #0x5555 inc rep16
+    vadd.1 d40+r3, a200, #0
+    vadd.1 d09.04, a244, #0
+    vadd.1 d0a.04, a200, #0
+    vadd.1 d0b.02, a200, #0
+    vadd.1 d08.04, a244, #0
+    vbitplanes.1 d10, a000, #0x000c setf
+    vadd.1 d08.04, a200, #0 ifnz
+    vbitplanes.1 d10, a000, #0x0030 setf
+    vadd.1 d08.02, a200, #0 ifnz
+    vst16 d00, (r1+256)    /* row 8 -> +0 */
+    vst16 d01, (r1+288)    /* row 9 -> +32 */
+    vst16 d02, (r1+320)    /* row 10 -> +64 */
+    vst16 d03, (r1+352)    /* row 11 -> +96 */
+    rts
+
+/* VX15: informational, VF3: vmul discard, a V16 (column 3), #-23170 clra x15; vmulhd acc; row 32 = lo (vmov x15), row 33 = hi (vmov acc); row 8 = lo lanes 0-3, hi lanes 4-7; rows 9, 10 = rows 32, 33 */
+/*   predictions [mac], first 4 words of each stored row (rows 8, 9, 10): */
+/*   model: x15 adds lane i's low half: lane i = a(i, 3) * -23170, exact */
+/*     row 8: 258c50ec ceccfa2c 046deb91 dba31d49 */
+/*     row 9: 258c50ec ceccfa2c 780ca36c 214c4cac */
+/*     row 10: fb80e2a4 2d37145b 046deb91 dba31d49 */
+/*   x15_ignored: x15 ignored with a vertical A: lo 0, hi as modelled */
+/*     row 8: 00000000 00000000 046deb91 dba31d49 */
+/*     row 9: 00000000 00000000 00000000 00000000 */
+/*     row 10: fb80e2a4 2d37145b 046deb91 dba31d49 */
+    .global bench_vc_vx15
+bench_vc_vx15:
+    vld16 d00, (r0)
+    vld16 d01, (r0+32)
+    vld16 d02, (r0+64)
+    vld16 d03, (r0+96)
+    vld16 d04, (r0+128)
+    vld16 d05, (r0+160)
+    vld16 d06, (r0+192)
+    vld16 d07, (r0+224)
+    vld16 d08, (r0+256)
+    vld16 d09, (r0+288)
+    vld16 d0a, (r0+320)
+    vld16 d0b, (r0+352)
+    vld16 d0c, (r0+384)
+    vld16 d0d, (r0+416)
+    vld16 d0e, (r0+448)
+    vld16 d0f, (r0+480)
+    vld16 d20, (r0+512)
+    vld16 d21, (r0+544)
+    vld16 d22, (r0+576)
+    vld16 d23, (r0+608)
+    vld16 d24, (r0+640)
+    vld16 d25, (r0+672)
+    vld16 d26, (r0+704)
+    vld16 d27, (r0+736)
+    vld16 d28, (r0+768)
+    vld16 d29, (r0+800)
+    vld16 d2a, (r0+832)
+    vld16 d2b, (r0+864)
+    vld16 d2c, (r0+896)
+    vld16 d2d, (r0+928)
+    vld16 d2e, (r0+960)
+    vld16 d2f, (r0+992)
+    vmul.1 d10.10, a203, #0xa57e clra x15
+    vmulhd.1 d10.10, a203, #0xa57e acc
+    vmov.1 d80, a000, #0 x15
+    vmov.1 d81, a000, #0 acc
+    vadd.1 d09.04, a200, #0
+    vadd.1 d0a.04, a240, #0
+    vadd.1 d08.04, a200, #0
+    vbitplanes.1 d10, a000, #0x00f0 setf
+    vadd.1 d08.04, a240, #0 ifnz
+    vst16 d00, (r1+256)    /* row 8 -> +0 */
+    vst16 d01, (r1+288)    /* row 9 -> +32 */
+    vst16 d02, (r1+320)    /* row 10 -> +64 */
+    rts
+
+/* VACD: informational, VF3: vmov discard #0x1234 clra acc; vmulhd d(column 2 of rows 16-31), a(column 3 of rows 0-15), #-23170 acc; vmov row 34 #0 acc; rows 16-31 transposed into rows 0-15: row 2 = the column; row 8 = column lanes 0-3, row 34 lanes 4-7; row 10 = row 34 */
+/*   predictions [mac], first 4 words of each stored row (rows 8, 2, 10): */
+/*   model: acc applies to a V16 D: column = row 34 = 0x1234 + floor(a(i, 3) * -23170 / 2^16) */
+/*     row 8: 0db4f4d8 3f6b268f 16a1fdc5 edd72f7d */
+/*     row 2: 0db4f4d8 3f6b268f 16a1fdc5 edd72f7d */
+/*     row 10: 0db4f4d8 3f6b268f 16a1fdc5 edd72f7d */
+/*   acc_ignored: acc ignored on a V16 D: column = the floor alone, row 34 = 0x1234 */
+/*     row 8: fb80e2a4 2d37145b 12341234 12341234 */
+/*     row 2: fb80e2a4 2d37145b 046deb91 dba31d49 */
+/*     row 10: 12341234 12341234 12341234 12341234 */
+/*   plain_write: the V16 D gets the floor alone, the accumulator still adds: row 34 as modelled */
+/*     row 8: fb80e2a4 2d37145b 16a1fdc5 edd72f7d */
+/*     row 2: fb80e2a4 2d37145b 046deb91 dba31d49 */
+/*     row 10: 0db4f4d8 3f6b268f 16a1fdc5 edd72f7d */
+    .global bench_vc_vacd
+bench_vc_vacd:
+    vld16 d00, (r0)
+    vld16 d01, (r0+32)
+    vld16 d02, (r0+64)
+    vld16 d03, (r0+96)
+    vld16 d04, (r0+128)
+    vld16 d05, (r0+160)
+    vld16 d06, (r0+192)
+    vld16 d07, (r0+224)
+    vld16 d08, (r0+256)
+    vld16 d09, (r0+288)
+    vld16 d0a, (r0+320)
+    vld16 d0b, (r0+352)
+    vld16 d0c, (r0+384)
+    vld16 d0d, (r0+416)
+    vld16 d0e, (r0+448)
+    vld16 d0f, (r0+480)
+    vld16 d20, (r0+512)
+    vld16 d21, (r0+544)
+    vld16 d22, (r0+576)
+    vld16 d23, (r0+608)
+    vld16 d24, (r0+640)
+    vld16 d25, (r0+672)
+    vld16 d26, (r0+704)
+    vld16 d27, (r0+736)
+    vld16 d28, (r0+768)
+    vld16 d29, (r0+800)
+    vld16 d2a, (r0+832)
+    vld16 d2b, (r0+864)
+    vld16 d2c, (r0+896)
+    vld16 d2d, (r0+928)
+    vld16 d2e, (r0+960)
+    vld16 d2f, (r0+992)
+    vmov.1 d40, a000, #0 inc rep16
+    vmov.1 d10, a000, #0x1234 clra acc
+    vmulhd.3 d42.10, a203, #0xa57e acc
+    vmov.1 d82, a000, #0 acc
+    vmov.1 d00, a000, b40.1.t++ inc rep16
+    vadd.1 d0a.04, a280, #0
+    vadd.1 d08, a280, #0
+    vbitplanes.1 d10, a000, #0x00f0 setf
+    vadd.1 d08.04, a280, #0 ifnz
+    vst16 d00, (r1+256)    /* row 8 -> +0 */
+    vst16 d01, (r1+64)    /* row 2 -> +32 */
+    vst16 d02, (r1+320)    /* row 10 -> +64 */
+    rts
+
+/* VSTP: informational, VF3: vadd d(column 0 of rows 16-31)++, a(column 0 of rows 0-15)++, #0 rep 4 over cleared rows 16-31; rows 8, 9 = rows 16, 17 */
+/*   predictions [mac], first 4 words of each stored row (rows 8, 9): */
+/*   model: A steps a column per REP: columns 0-3 copied */
+/*     row 8: 3bd43039 530a476f 00000000 00000000 */
+/*     row 9: f584e9e9 0cba011f 00000000 00000000 */
+/*   a_unstepped: A does not step: every column = column 0 */
+/*     row 8: 30393039 30393039 00000000 00000000 */
+/*     row 9: e9e9e9e9 e9e9e9e9 00000000 00000000 */
+/*   d_unstepped: D does not step: column 0 = column 3, columns 1-3 clear */
+/*     row 8: 0000530a 00000000 00000000 00000000 */
+/*     row 9: 00000cba 00000000 00000000 00000000 */
+    .global bench_vc_vstp
+bench_vc_vstp:
+    vld16 d00, (r0)
+    vld16 d01, (r0+32)
+    vld16 d02, (r0+64)
+    vld16 d03, (r0+96)
+    vld16 d04, (r0+128)
+    vld16 d05, (r0+160)
+    vld16 d06, (r0+192)
+    vld16 d07, (r0+224)
+    vld16 d08, (r0+256)
+    vld16 d09, (r0+288)
+    vld16 d0a, (r0+320)
+    vld16 d0b, (r0+352)
+    vld16 d0c, (r0+384)
+    vld16 d0d, (r0+416)
+    vld16 d0e, (r0+448)
+    vld16 d0f, (r0+480)
+    vld16 d20, (r0+512)
+    vld16 d21, (r0+544)
+    vld16 d22, (r0+576)
+    vld16 d23, (r0+608)
+    vld16 d24, (r0+640)
+    vld16 d25, (r0+672)
+    vld16 d26, (r0+704)
+    vld16 d27, (r0+736)
+    vld16 d28, (r0+768)
+    vld16 d29, (r0+800)
+    vld16 d2a, (r0+832)
+    vld16 d2b, (r0+864)
+    vld16 d2c, (r0+896)
+    vld16 d2d, (r0+928)
+    vld16 d2e, (r0+960)
+    vld16 d2f, (r0+992)
+    vmov.1 d40, a000, #0 inc rep16
+    vadd.3 d40.10, a220, #0 inc rep4
+    vadd.1 d08.02, a200, #0
+    vadd.1 d09.02, a240, #0
+    vst16 d00, (r1+256)    /* row 8 -> +0 */
+    vst16 d01, (r1+288)    /* row 9 -> +32 */
+    rts
+
+/* HARY: informational, VF3: vadd d(row 40), a(row 0)+r3, #0 with r3 = 320 (y 5); row 8 = row 40 */
+/*   predictions [mac], first 4 words of each stored row (rows 8): */
+/*   model: the +r y is applied: row 40 = row 5 */
+/*     row 8: dc44d0a9 f37ae7df 0ab0ff15 21e6164b */
+/*   dropped: the +r is dropped (or y aligned down to 16): row 40 = row 0 */
+/*     row 8: 3bd43039 530a476f 6a405ea5 817675db */
+    .global bench_vc_hary
+bench_vc_hary:
+    mov r3, #320
+    vld16 d00, (r0)
+    vld16 d01, (r0+32)
+    vld16 d02, (r0+64)
+    vld16 d03, (r0+96)
+    vld16 d04, (r0+128)
+    vld16 d05, (r0+160)
+    vld16 d06, (r0+192)
+    vld16 d07, (r0+224)
+    vld16 d08, (r0+256)
+    vld16 d09, (r0+288)
+    vld16 d0a, (r0+320)
+    vld16 d0b, (r0+352)
+    vld16 d0c, (r0+384)
+    vld16 d0d, (r0+416)
+    vld16 d0e, (r0+448)
+    vld16 d0f, (r0+480)
+    vld16 d20, (r0+512)
+    vld16 d21, (r0+544)
+    vld16 d22, (r0+576)
+    vld16 d23, (r0+608)
+    vld16 d24, (r0+640)
+    vld16 d25, (r0+672)
+    vld16 d26, (r0+704)
+    vld16 d27, (r0+736)
+    vld16 d28, (r0+768)
+    vld16 d29, (r0+800)
+    vld16 d2a, (r0+832)
+    vld16 d2b, (r0+864)
+    vld16 d2c, (r0+896)
+    vld16 d2d, (r0+928)
+    vld16 d2e, (r0+960)
+    vld16 d2f, (r0+992)
+    vadd.1 d88, a200+r3, #0
+    vadd.1 d08.04, a208, #0
+    vst16 d00, (r1+256)    /* row 8 -> +0 */
+    rts
+
+/* MHDR: informational, VF3: vmulhd d(row 48)++, a(row 0)++, b(row 0, x 32)++ rep 16; row 8 = row 48 lanes 0-3, row 63 lanes 4-7; rows 9, 10 = rows 48, 63 */
+/*   predictions [mac], first 4 words of each stored row (rows 8, 9, 10): */
+/*   model: floor(a * b / 2^16), every operand steps */
+/*     row 8: e9db0092 f4de11b5 205ff3df dedb040c */
+/*     row 9: e9db0092 f4de11b5 0ad62dcd d539df00 */
+/*     row 10: feb905ee 0a11eea7 205ff3df dedb040c */
+/*   round: rounded (ties away from zero) instead of floored */
+/*     row 8: e9db0092 f4de11b6 205ff3df dedc040c */
+/*     row 9: e9db0092 f4de11b6 0ad62dce d539df01 */
+/*     row 10: feba05ef 0a12eea8 205ff3df dedc040c */
+/*   unstepped: A and B do not step: every row = row 48 */
+/*     row 8: e9db0092 f4de11b5 0ad62dcd d539df00 */
+/*     row 9: e9db0092 f4de11b5 0ad62dcd d539df00 */
+/*     row 10: e9db0092 f4de11b5 0ad62dcd d539df00 */
+    .global bench_vc_mhdr
+bench_vc_mhdr:
+    vld16 d00, (r0)
+    vld16 d01, (r0+32)
+    vld16 d02, (r0+64)
+    vld16 d03, (r0+96)
+    vld16 d04, (r0+128)
+    vld16 d05, (r0+160)
+    vld16 d06, (r0+192)
+    vld16 d07, (r0+224)
+    vld16 d08, (r0+256)
+    vld16 d09, (r0+288)
+    vld16 d0a, (r0+320)
+    vld16 d0b, (r0+352)
+    vld16 d0c, (r0+384)
+    vld16 d0d, (r0+416)
+    vld16 d0e, (r0+448)
+    vld16 d0f, (r0+480)
+    vld16 d20, (r0+512)
+    vld16 d21, (r0+544)
+    vld16 d22, (r0+576)
+    vld16 d23, (r0+608)
+    vld16 d24, (r0+640)
+    vld16 d25, (r0+672)
+    vld16 d26, (r0+704)
+    vld16 d27, (r0+736)
+    vld16 d28, (r0+768)
+    vld16 d29, (r0+800)
+    vld16 d2a, (r0+832)
+    vld16 d2b, (r0+864)
+    vld16 d2c, (r0+896)
+    vld16 d2d, (r0+928)
+    vld16 d2e, (r0+960)
+    vld16 d2f, (r0+992)
+    vmov.1 dc0, a000, #0 inc rep16
+    vmulhd.1 dc0, a300, b20.t++ inc rep16
+    vadd.1 d09.06, a200, #0
+    vadd.1 d0a.06, a2cc, #0
+    vadd.1 d08.06, a200, #0
+    vbitplanes.1 d10, a000, #0x00f0 setf
+    vadd.1 d08.06, a2cc, #0 ifnz
+    vst16 d00, (r1+256)    /* row 8 -> +0 */
+    vst16 d01, (r1+288)    /* row 9 -> +32 */
+    vst16 d02, (r1+320)    /* row 10 -> +64 */
+    rts
+
 bench_vc_end:
     rts
 

@@ -115,6 +115,7 @@ sim_for() {
     # the same rule as validate.sh's script_sim()
     case "$1" in
         ipodui-p14a-*) echo build/sim-ui-video ;;
+        ipodui-relvideo-*) echo build/sim-rel-video ;;
         ipodui-*) if grep -qE '^#[[:space:]]*needs:[[:space:]]*modules' "tests/ui/$1.script" 2>/dev/null
                   then echo build/sim-ui-mod; else echo build/sim-ui; fi ;;
         docs-*) echo build/sim-ui ;;

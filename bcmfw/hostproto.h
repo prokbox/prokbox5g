@@ -508,6 +508,28 @@
 #define HP_HIB_SEED_S        0x48494231  /* the patterns' seeds */
 #define HP_HIB_SEED_D        0x48494232
 #define HP_HIB_SDIDLE_POLLS  8000   /* Apple's bound on the SDRAM idle */
+/* CLOSE's flags word (P19 batch 5; power-apple-vs-ours.md row 6).
+ * HP_CLOSE_SDRAM_IDLE: once the session has ended, Apple's SDRAM idle
+ * ([apple-RE] @14892, as HIB's: the cache flushed, cache-control bits 30
+ * and 16 cleared, the controller's command register 0x1000_3420 written
+ * 0, bit 15 polled up to HP_HIB_SDIDLE_POLLS times), and the image's
+ * SDRAM-ready state cleared, so the next OPEN (or staged ALLOC) runs the
+ * bring-up again and a hibernate PARK is accepted.  The reply gets one
+ * more word after its usual ones (2, or 5 for H.264): HP_CLOSE_SD_*.
+ * Flags 0: the reply and the behaviour are as they always were.  Whether
+ * SDRAM's contents outlive the idle is open (quirks.md #55, #7): the
+ * AAC tables (placed once a boot) then fail their sum (HP_E_STATE) */
+#define HP_CLOSE_SDRAM_IDLE  0x1
+#define HP_CLOSE_SD_IDLED    0      /* idled; down until the next bring-up */
+#define HP_CLOSE_SD_STUCK    1      /* bit 15 never cleared (still marked
+                                       down: the next OPEN re-inits) */
+#define HP_CLOSE_SD_NOTUP    2      /* SDRAM was not up (or no SDRAM path
+                                       in this image): nothing done */
+/* the reply word: the HP_CLOSE_SD_* code in bits 7:0, the bit-15 polls
+ * the idle took in bits 31:8 (1 .. HP_HIB_SDIDLE_POLLS; the bound when
+ * stuck; 0 when nothing was done) */
+#define HP_CLOSE_SD_CODE(w)  ((w) & 0xFF)
+#define HP_CLOSE_SD_POLLS(w) ((w) >> 8)
 #define HP_HIB_PROGRESS      0x138  /* BCM: 'H' << 24 | phase << 16 | ms
                                        (HP_HIB_PH_*); HP_TV_PROGRESS's
                                        word, never both at once */
@@ -768,6 +790,8 @@ void hp_init(void);
 void hp_poll(void);
 /* 1 while a session owns the display (LCD updates are dropped) */
 int hp_owns_display(void);
+/* 1 while a session is open (main.c idle_wait: the 1 ms tick) */
+int hp_session_live(void);
 /* LCD_SLEEP arrived: end any session (HP_EV_LOST) */
 void hp_lcd_sleep(void);
 /* an unsolicited event to the host */

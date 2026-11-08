@@ -1,0 +1,689 @@
+# Owner report (2026-10-27): Chess was killed after about ten moves on
+# the unit (it looked like a crash). The cause: steps that overran the
+# SDK's 20 ms Class A slice on the 30 MHz PP5022 (a resume's full
+# redraw, a search slice whose last batch of 16 nodes could run 300 k
+# ARM instructions); a first overrun is a violation, the next a kill.
+# The simulator's host is several hundred times faster, so it never
+# saw one: `sdk_devclock on` times the games' code by the basic blocks
+# it runs, as on the device (apps/ipodui/sdk/sdk.c), and before the fix
+# this script was killed within a few moves.
+# Two long games against the engine (Easy, so the replies come within
+# 1.5 s) with music playing: each turn the wheel steps a few pieces on,
+# SELECT picks one up, the wheel steps to a target, SELECT plays it, and
+# the engine replies. 60 turns of ours in all (a game that ends early
+# ignores the rest), a shot every ten. The game is never killed and
+# never logs a violation; its longest step is logged at exit.
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-chess-long.script
+# needs: modules
+# needs: music
+# golden: skip
+# timeout: 900
+# reset: mainmenu
+# log: sdk chess new game side=0 level=0
+# log: sdk chess engine d=
+# log: sdk devclock chess step max_us=
+# nolog: sdk viol chess
+# nolog: sdk kill chess
+
+wait 4000
+sdk_clear            # a fresh game and default settings
+sdk_devclock on      # game code timed as on the 30 MHz device
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+repeat one
+wait 2000
+key MENU             # back to the Main Menu
+wait 1000
+wheel -20
+wait 600
+wheel +2             # Extras
+wait 600
+key SELECT
+wait 1200
+wheel +4             # Games
+wait 600
+key SELECT
+wait 1200
+wheel +1             # Chess
+wait 800
+key SELECT
+wait 1500
+hold MENU 900        # the pause menu
+wait 600
+wheel +2 300         # Settings
+wait 400
+key SELECT
+wait 1200
+wheel +1 300         # Difficulty: Medium
+wait 400
+key SELECT           # Hard
+wait 400
+key SELECT           # Easy
+wait 400
+key MENU             # back to the game
+wait 1200
+hold MENU 900        # New Game, at Easy
+wait 600
+wheel +1 300
+wait 400
+key SELECT
+wait 1500
+shot start
+wheel +1 300         # game 1, turn 1: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +3 300         # game 1, turn 2: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +1 300         # game 1, turn 3: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +2 300         # game 1, turn 4: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +4 300         # game 1, turn 5: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +1 300         # game 1, turn 6: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +1 300         # game 1, turn 7: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +2 300         # game 1, turn 8: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +3 300         # game 1, turn 9: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +1 300         # game 1, turn 10: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+shot game1_turn10
+wheel +1 300         # game 1, turn 11: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +2 300         # game 1, turn 12: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +1 300         # game 1, turn 13: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +3 300         # game 1, turn 14: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +1 300         # game 1, turn 15: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +2 300         # game 1, turn 16: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +4 300         # game 1, turn 17: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +1 300         # game 1, turn 18: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +1 300         # game 1, turn 19: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +2 300         # game 1, turn 20: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+shot game1_turn20
+wheel +3 300         # game 1, turn 21: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +1 300         # game 1, turn 22: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +1 300         # game 1, turn 23: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +2 300         # game 1, turn 24: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +1 300         # game 1, turn 25: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +3 300         # game 1, turn 26: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +1 300         # game 1, turn 27: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +2 300         # game 1, turn 28: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +4 300         # game 1, turn 29: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +1 300         # game 1, turn 30: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+shot game1_turn30
+hold MENU 900        # the second game
+wait 600
+wheel +1 300         # New Game
+wait 400
+key SELECT
+wait 1500
+wheel +3 300         # game 2, turn 1: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +1 300         # game 2, turn 2: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +2 300         # game 2, turn 3: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +4 300         # game 2, turn 4: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +1 300         # game 2, turn 5: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +1 300         # game 2, turn 6: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +2 300         # game 2, turn 7: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +3 300         # game 2, turn 8: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +1 300         # game 2, turn 9: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +1 300         # game 2, turn 10: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+shot game2_turn10
+wheel +2 300         # game 2, turn 11: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +1 300         # game 2, turn 12: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +3 300         # game 2, turn 13: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +1 300         # game 2, turn 14: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +2 300         # game 2, turn 15: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +4 300         # game 2, turn 16: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +1 300         # game 2, turn 17: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +1 300         # game 2, turn 18: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +2 300         # game 2, turn 19: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +3 300         # game 2, turn 20: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+shot game2_turn20
+wheel +1 300         # game 2, turn 21: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +1 300         # game 2, turn 22: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +2 300         # game 2, turn 23: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +1 300         # game 2, turn 24: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +3 300         # game 2, turn 25: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +1 300         # game 2, turn 26: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +2 300         # game 2, turn 27: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +4 300         # game 2, turn 28: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +1 300         # game 2, turn 29: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+wheel +1 300         # game 2, turn 30: a piece that can move
+wait 300
+key SELECT           # pick it up
+wait 300
+wheel +1 300         # its first target
+wait 300
+key SELECT           # play it (a promotion: the menu's first row)
+wait 300
+key SELECT
+wait 2000            # the engine's reply (Easy: within 1.5 s)
+shot game2_turn30
+hold MENU 900        # the pause menu
+wait 600
+wheel +3 300         # Exit: the longest step is logged
+wait 400
+key SELECT
+wait 2000
+quit

@@ -1,6 +1,6 @@
 # Brief: Phase 11, Stock 2.0.5 completeness, plus Quick Wins part 2 (#30, #31; QW2 from roadmap row 7a)
 
-*Orchestrator brief, drafted 2026-10-09; **Revision 1** (brief review) 2026-10-09, see the table at the end. Branch `p11` is cut from `main` **after** `p6` and `p8a-int` have both merged. References are anchored by **function or symbol name**; a line number, where given, is a hint tagged with its source tree (`p6:` = `b22a1d9e7b`, `8a:` = `cb8123f95e`) and moves after the merge; an untagged line number is `p6:`. Process: `docs/process.md` (brief template, device-reality checklist 1–13, lean rules 1–11). Anything still open is frozen as ⚠️ with a default (§10) and goes to the owner round. The brief is not revised mid-phase for owner answers. Issue numbers #30/#31 come from `docs/owner-questions.md`; the orchestrator confirms them on Forgejo.*
+*Orchestrator brief, drafted 2026-10-09; **Revision 1** (brief review) 2026-10-09, see the table at the end. Branch `p11` is cut from `main` **after** `p6` and `p8a-int` have both merged. References are anchored by **function or symbol name**; a line number, where given, is a hint tagged with its source tree (`p6:` = `b22a1d9e7b`, `8a:` = `cb8123f95e`) and moves after the merge; an untagged line number is `p6:`. Process: `docs/process.md` (brief template, device-reality checklist 1–13, lean rules 1–11). Anything still open is frozen as ⚠️ with a default (§10) and goes to the owner round. The brief is not revised mid-phase for owner answers. Issue numbers #30/#31 come from `docs/owner-questions.md`; the orchestrator confirms them on the tracker.*
 
 **Goal.** Fill in the stock 2.0.5 screens that are still stubs or missing, so the device that goes into P10 testing behaves like a 7G everywhere a user can reach:
 - Search, the hold-SELECT menu and a real On-The-Go;
@@ -97,7 +97,7 @@ Each group is one trip through the owner's 7G. The capture that settles it is in
 - **COMP-2.** The preset list and its spelling. *Default: Off, then the 22 iTunes presets in the catalogue's order, with the published iTunes 10-band gains.*
 
 **H. QW2**
-- **Q1.** The coordinator's art box (x 10–145, y 32–167 left / 42–162 right) disagrees with the spec and the code (x 10–147, y 34–175 / 43–167; `now-playing.md`, `np_draw.h:60–65`). *Default: keep the spec (measured from photos). QW2 overlays both on the rectified photo 1203 and reports which fits; the owner picks at the round.*
+- **Q1.** The coordinator's art box (x 10–145, y 32–167 left / 42–162 right) disagrees with the spec and the code (x 10–147, y 34–175 / 43–167; `now-playing.md`, `np_draw.h:60–65`). *Default: keep the spec (measured from photos). QW2 overlays both on the rectified photo `np-normal-b` and reports which fits; the owner picks at the round.*
 
 ---
 
@@ -307,7 +307,7 @@ Each group is one trip through the owner's 7G. The capture that settles it is in
   - **Fallback if RLE compresses badly** (Rev 1 M-6): the slanted card has a gradient on every row, so per-row RLE may not reach 16 KB. If `npph.py` reports more than 16 KB for either glyph, Q ships **no placeholder rodata** and instead renders the placeholder **once into the NP block** (`np_placeholder_render_glyph()` + `np_art_render()`, ≈ 281k instructions, once per coverless track, boosted, at the first frame), traced `np art src=ph-render`. That costs one frame's budget once, no rodata and no RAM beyond the block.
   - First frame of a track: if the art isn't in `NP_BLK_ART` yet, draw the placeholder (glyph from `is_audiobook`), then swap in the real art the frame after its read. (A compiled placeholder goes to the framebuffer, not the block, so until the swap `band_ok` is false and a band restore re-decodes the placeholder's rows 198–204 from rodata, 7 rows.) A hard swap (⚠️ Q2) in one band push.
   - **No placeholder flash** when the read finishes before the first frame's push. Q orders the read before the first compose when the disk is awake (`storage_disk_is_active()`).
-- **Geometry:** keep `NP_SLANT_*` (⚠️ Q1). Deliver a sheet overlaying both candidate boxes on rectified photo 1203.
+- **Geometry:** keep `NP_SLANT_*` (⚠️ Q1). Deliver a sheet overlaying both candidate boxes on rectified photo `np-normal-b`.
 - **Speakers:** regenerate the quiet and loud speaker tiles in `art/npglyphs.py`: 4× supersampled vector, then downsample; body 3 × 5, cone to an 11 px mouth, rim tips, 1 px slit, 2 × 3 dust cap; loud arcs at r ≈ 5 and 8, ±50°; ~4 px from the bar ends; near-black #1c1c1c.
 - **Pixel identity:** a composed bundle blitted must equal today's runtime render pixel for pixel, the same code on another thread. So **every existing NP golden with real art stays unchanged**. Only the speaker goldens and the placeholder-first frames change.
 
@@ -848,7 +848,7 @@ T adds (Rev 1 M-7): **`time_in_title on|off`** (sets `global_settings.ipodui_tim
 | Info sheet | `ipodui-p11-about*`, `-datetime*`, `-legal`, `-reset*`, `-brightness`, `-eq` | About 1–3 next to `about-1..3.jpg`; Brightness next to `brightness.jpg`; each Settings panel |
 | System sheet | `ipodui-p11-sys*` | Charging, Charged, Connect to Power, OK to Disconnect |
 | Podcast sheet | `ipodui-p11-podcasts*` | shows, episodes, dot cleared after play |
-| QW2 sheet + `qw2-trackchange.mp4` | `ipodui-qw2-*` | before/after track change (identical art), placeholder→art swap frames, the Q1 geometry overlay on rectified photo 1203, speakers at 8× next to the zoomed photo 1209/1222 |
+| QW2 sheet + `qw2-trackchange.mp4` | `ipodui-qw2-*` | before/after track change (identical art), placeholder→art swap frames, the Q1 geometry overlay on rectified photo `np-normal-b`, speakers at 8× next to the zoomed photo `np-volume-b`/`np-audiobook-volume-b` |
 | Tour video | `ipodui-p11-tour` (T) | 90 s walk through everything above for the owner round |
 
 ## 9. Device-only checks (go to ROADMAP → Device checklist (P10) at close)

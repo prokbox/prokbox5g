@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2007 Nicolas Pennequin
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -178,6 +179,8 @@ enum
                             base handle, the watermark): re-check now */
     Q_SLEEP_HOLD,        /* ProkBox P18: ends a fill under way at its next
                             chunk (buffering_sleep_hold()) */
+    Q_JOB,               /* ProkBox #175: run a caller's read here
+                            (buffering_post_job()) */
 #endif
 };
 
@@ -1733,6 +1736,14 @@ bool buffering_is_filling(void)
 {
     return fill_running;
 }
+
+bool buffering_post_job(void (*fn)(void))
+{
+    if (buffering_thread_id == 0)
+        return false;
+    queue_post(&buffering_queue, Q_JOB, (intptr_t)fn);
+    return true;
+}
 #endif
 
 static void NORETURN_ATTR buffering_thread(void)
@@ -1813,6 +1824,10 @@ static void NORETURN_ATTR buffering_thread(void)
             case Q_WATCH:
                 watch_posted = false;
                 ev.id = SYS_TIMEOUT;    /* the same check as a timeout */
+                break;
+
+            case Q_JOB:         /* #175: a fill under way goes on after */
+                ((void (*)(void))ev.data)();
                 break;
 #endif
 

@@ -43,6 +43,9 @@ enum stor_pwr_reason {
     STOR_PWR_R_DIRTY,       /* on: the cache could not be made safe (a
                              * failed FLUSH CACHE, or a write cache with
                              * no flush), so no cut */
+    STOR_PWR_R_LINGER,      /* off: a release linger ran out (AW-1: the
+                             * short hold after a fill that reached its
+                             * target, stor_pwr_linger_arm()) */
     STOR_PWR_R_COUNT
 };
 
@@ -54,6 +57,8 @@ struct stor_pwr_tune {
     long min_off;       /* an off period shorter than this wasted a cycle */
     long hold_max;      /* the backoff never makes the hold longer */
     long relax;         /* an off period this long clears the backoff */
+    long linger_rewake; /* AW-1: a power-on this soon after a linger's cut
+                         * means the linger was too short (0: never) */
 };
 
 struct stor_pwr_event {
@@ -84,8 +89,22 @@ struct stor_pwr {
     bool dirty_run;     /* refusing now (one event per run) */
     bool gave_up;       /* the run reached STOR_PWR_FAIL_MAX */
     bool on;
+    /* AW-1 (docs/pp5022-reference/apple-power-catalog.md): the release
+     * linger, Apple 1.3's 250 ms after a song-buffer read */
+    bool linger_cut;    /* the last cut was a linger's */
+    bool linger_off;    /* the fallback tripped: no lingers this session */
+    uint8_t rewake_run; /* linger cuts in a row followed by a rewake */
+    long linger_at;     /* tick of the release (a fill's end) */
+    long linger;        /* its length, ticks; 0: none armed */
+    long linger_cut_at; /* tick of the last linger cut */
+    uint32_t lingers;   /* cuts a linger made */
+    uint32_t rewakes;   /* power-ons within linger_rewake of one */
     struct stor_pwr_event ev[STOR_PWR_EVENTS];
 };
+
+/* linger cuts in a row each followed by a rewake after which the linger
+ * is off for the session (the normal hold again) */
+#define STOR_PWR_LINGER_TRIP 2
 
 void stor_pwr_init(struct stor_pwr *s, long now, bool on);
 
@@ -93,19 +112,45 @@ void stor_pwr_init(struct stor_pwr *s, long now, bool on);
 long stor_pwr_hold(const struct stor_pwr *s, const struct stor_pwr_tune *t,
                    bool lit);
 
-/* powered, and no access since last_access + the hold */
+/* AW-1: a reader is done with the drive for now (a fill that reached its
+ * target): cut the power `linger` ticks after `now` instead of after the
+ * hold, unless an access comes first. Ignored after the fallback tripped
+ * or with linger <= 0. */
+void stor_pwr_linger_arm(struct stor_pwr *s, long now, long linger);
+
+/* the armed linger decides the cut: armed, dark, no backoff (wasted
+ * cycles first lengthen the hold), no fallback, and no transfer since the
+ * release. last_xfer: the last read or write (not the driver's own
+ * standby commands, which count as activity for the hold) */
+bool stor_pwr_linger_live(const struct stor_pwr *s, long last_xfer,
+                          bool lit);
+
+/* when the power is due off: the live linger's end, else last_access +
+ * the hold, whichever is first */
+long stor_pwr_off_deadline(const struct stor_pwr *s,
+                           const struct stor_pwr_tune *t, long last_access,
+                           long last_xfer, bool lit);
+
+/* powered, and the off deadline passed (stor_pwr_off_deadline()) */
+bool stor_pwr_off_due_x(const struct stor_pwr *s,
+                        const struct stor_pwr_tune *t, long now,
+                        long last_access, long last_xfer, bool lit);
+/* the same, with last_xfer = last_access */
 bool stor_pwr_off_due(const struct stor_pwr *s,
                       const struct stor_pwr_tune *t, long now,
                       long last_access, bool lit);
 
-/* the cut happened at 'now'; returns the on period it closed (ticks) */
+/* the cut happened at 'now'; returns the on period it closed (ticks).
+ * Any cut disarms the linger; reason STOR_PWR_R_LINGER counts one. */
 long stor_pwr_note_off(struct stor_pwr *s, long now, int reason,
                        int tick_ms);
 
 /* power came back at 'now' after a re-init of reinit_ticks; returns the
  * off period it closed. A short off period doubles the backoff (the
  * hysteresis: a pattern of short gaps soon stops cycling); a long one
- * clears it. */
+ * clears it. An off period shorter than linger_rewake after a linger's
+ * cut is a rewake; STOR_PWR_LINGER_TRIP of them in a row set linger_off
+ * (the fallback to the hold). */
 long stor_pwr_note_on(struct stor_pwr *s, const struct stor_pwr_tune *t,
                       long now, long reinit_ticks, int reason, int tick_ms);
 

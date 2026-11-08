@@ -194,6 +194,10 @@
  *                        with the same <name> continues the sequence
  *                        (several non-contiguous bursts, one video); see
  *                        sim_cmd_record.c
+ *   record_start <fps> <name>, record_stop
+ *                        the same dump on a background thread while the
+ *                        script keeps driving keys and the wheel (README
+ *                        clip, scripts/readme_visuals.sh)
  *   audio_stop           #38 integration fix-up: calls audio_stop()
  *                        directly, the same stop a real "Stop" makes,
  *                        without holding a button (a held PLAY now
@@ -258,6 +262,7 @@
 #include "sim_cmd_clock.h"
 #include "sim_cmd_floor.h"
 #include "sim_cmd_maint.h"
+#include "sim_cmd_text.h"
 #include "sim_cmd_mod.h"
 #include "sim_cmd_extras.h"
 #include "sim_cmd_nav.h"
@@ -924,10 +929,14 @@ static void rm_file(char *path, int lineno)
                 lineno, path);
 }
 
+#define SIM_SCRIPT_MAX_ARGS 24
+
 /* Returns false when the script asks to quit */
 static bool run_line(char *line, int lineno)
 {
-    char *argv[4] = { NULL, NULL, NULL, NULL };
+    /* 24 words: "bench_sim expect" takes a check a word (4 dropped all
+       but its first two checks; press_hold's fifth word, its lead) */
+    char *argv[SIM_SCRIPT_MAX_ARGS] = { NULL };
     int argc = 0;
     char *save;
 
@@ -936,7 +945,8 @@ static bool run_line(char *line, int lineno)
         *hash = '\0';
 
     for (char *tok = strtok_r(line, " \t\r\n", &save);
-         tok && argc < 4; tok = strtok_r(NULL, " \t\r\n", &save))
+         tok && argc < SIM_SCRIPT_MAX_ARGS;
+         tok = strtok_r(NULL, " \t\r\n", &save))
     {
         argv[argc++] = tok;
     }
@@ -1064,6 +1074,8 @@ static bool run_line(char *line, int lineno)
         /* handled by uisimulator/common/sim_cmd_floor.c */;
     else if (sim_cmd_maint(cmd, argv, argc, lineno))
         /* handled by uisimulator/common/sim_cmd_maint.c */;
+    else if (sim_cmd_text(cmd, argv, argc, lineno))
+        /* handled by uisimulator/common/sim_cmd_text.c (p19-relvideos) */;
     else if (sim_cmd_mod(cmd, argv, argc, lineno))
         /* handled by uisimulator/common/sim_cmd_mod.c */;
     else if (sim_cmd_extras(cmd, argv, argc, lineno))

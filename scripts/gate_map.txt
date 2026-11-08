@@ -278,6 +278,18 @@ apps/ipodui/np_playback.c            ipodui-p14a-chapters ipodui-p14a-podcasts-m
 apps/ipodui/ab_speed.c               ipodui-p14a-chapters
 apps/settings_list.c                 ipodui-p14a-settings ipodui-p14a-chapters
 
+# p19-relvideos: the release shape's Videos row and a play
+# (ipodui-relvideo-*, on build/sim-rel-video). Rules accumulate.
+tests/ui/ipodui-relvideo-*.script    ipodui-relvideo-*
+tests/fixtures/videos/*              ipodui-relvideo-*
+apps/ipodui/menu.c                   ipodui-relvideo-*
+apps/ipodui/menucfg.c                ipodui-relvideo-*
+apps/ipodui/menucfg.h                ipodui-relvideo-*
+apps/ipodui/screens/videos.c         ipodui-relvideo-*
+apps/ipodui/screens/video.c          ipodui-relvideo-*
+apps/ipodui/vixpass.c                ipodui-relvideo-*
+apps/ipodui/vclass_core.c            ipodui-relvideo-*
+
 # Phase 12 Extras (docs/phase12-brief.md 6, 9; W1-T). Every new P12 file maps
 # to the ipodui-p12-* families that exercise it (script names per brief 9:
 # -extras-*, -mod-*, -modclass, -alarm-*, -sleeptimer-*, -clocks-*,

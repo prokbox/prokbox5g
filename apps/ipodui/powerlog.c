@@ -117,6 +117,9 @@ long powerlog_max = POWERLOG_MAX;
 #ifdef HAVE_STORAGE_POWEROFF
 #include "stor_pwr.h"           /* #114: the adapter's power */
 #endif
+#ifdef HAVE_PWR_AWAKE
+#include "pwr_awake.h"          /* the awake rows' records */
+#endif
 
 #define SUB_TICKS       (HZ / 4)
 #define SUBS_PER_SEC    4
@@ -130,6 +133,8 @@ typedef char pl_budget[sizeof(struct pl_ring) <= POWERLOG_RING_BYTES
 static struct pl_ring *ring;        /* in ring_h while on, else NULL */
 static int ring_h;
 static struct pl_acc acc;
+static struct pl_totals totals;     /* A11: since the log started */
+static long totals_at;              /* the last totals line */
 static struct timeout tmo;
 static int interval = POWERLOG_PERIOD;
 static bool on, idle_registered, flushing, rotate_due, mark_pending;
@@ -294,10 +299,17 @@ static int tmo_cb(struct timeout *t)
 #endif
     if (storage_disk_is_active())
         acc.disk++;
+    {
+        bool pw = true;             /* without the option: always powered */
+        int st = audio_status();
 #ifdef HAVE_STORAGE_POWEROFF
-    if (storage_powered())
+        pw = storage_powered();
 #endif
-        acc.stor++;                 /* without the option: always powered */
+        if (pw)
+            acc.stor++;
+        pl_totals_add(&totals, pw, is_backlight_on(true),
+                      (st & AUDIO_STATUS_PLAY) && !(st & AUDIO_STATUS_PAUSE));
+    }
     if (acc.n >= interval * SUBS_PER_SEC)
     {
         struct pl_row w;
@@ -705,8 +717,88 @@ static void stor_service(void)
 }
 #endif
 
+/* A11: the usage totals line (UI thread); the cores' idle summed from
+ * devstats' microsecond counters at every service pass (each wraps in
+ * 71 min, the passes come far more often) */
+#if defined(HAVE_DEVSTATS) && !defined(SIMULATOR)
+static uint32_t tot_idle_us[NUM_CORES], tot_idle_ms[NUM_CORES];
+#endif
+static void totals_sum(void)
+{
+#if defined(HAVE_DEVSTATS) && !defined(SIMULATOR)
+    int i;
+
+    for (i = 0; i < NUM_CORES; i++)
+    {
+        uint32_t u = devstats.idle_us[i];
+        tot_idle_ms[i] += (u - tot_idle_us[i]) / 1000;
+        tot_idle_us[i] = u - (u - tot_idle_us[i]) % 1000;
+    }
+#endif
+}
+
+static void totals_line(const char *why)
+{
+    char b[160];
+    uint32_t cpu = UINT32_MAX, cop = UINT32_MAX;
+
+    totals_sum();
+#if defined(HAVE_DEVSTATS) && !defined(SIMULATOR)
+    cpu = tot_idle_ms[CPU];
+#if NUM_CORES > 1
+    cop = tot_idle_ms[COP];
+#endif
+#endif
+    pl_totals_format(b, sizeof(b), &totals, SUBS_PER_SEC, cpu, cop);
+    ui_log("power", "totals %s %s", why, b);
+    totals_at = current_tick;
+}
+
+#ifdef HAVE_PWR_AWAKE
+/* The awake rows' records into ipodui.log: a line when a row acted,
+ * undid or failed; at most one a minute per row unless it failed */
+static uint32_t pw_seen[PWRAW_N][3];
+static long pw_at[PWRAW_N];
+
+static void pwraw_service(void)
+{
+    int r;
+
+    for (r = 0; r < PWRAW_N; r++)
+    {
+        const struct pwraw_rec *c = pwraw_rec(r);
+        uint32_t a = c->acts, u = c->undos, f = c->fails;
+
+        if (a == pw_seen[r][0] && u == pw_seen[r][1] && f == pw_seen[r][2])
+            continue;
+        if (f == pw_seen[r][2] && pw_at[r] &&
+            TIME_BEFORE(current_tick, pw_at[r] + 60 * HZ))
+            continue;
+        ui_log("pwraw", "%s acts=%lu undos=%lu fails=%lu a=0x%lx b=0x%lx "
+               "on=%d why=%d", pwraw_row_name(r), (unsigned long)a,
+               (unsigned long)u, (unsigned long)f, (unsigned long)c->a,
+               (unsigned long)c->b,
+               r < PWRAW_N_SWITCH ? (int)pwraw_active(r) : -1,
+               r < PWRAW_N_SWITCH ? (int)pwraw_why_now(r) : -1);
+        pw_seen[r][0] = a;
+        pw_seen[r][1] = u;
+        pw_seen[r][2] = f;
+        pw_at[r] = current_tick;
+    }
+}
+#endif
+
 void powerlog_service(void)
 {
+#ifdef HAVE_PWR_AWAKE
+    pwraw_service();
+#endif
+    if (on)
+    {
+        totals_sum();
+        if (TIME_AFTER(current_tick, totals_at + 3600 * HZ))
+            totals_line("hour");
+    }
 #ifdef HAVE_STORAGE_POWEROFF
     stor_service();
     ipodui_devmode_ab_service();    /* #114 H3: the A/B's switches */
@@ -781,6 +873,12 @@ static void start(const char *why)
     ring = core_get_data(ring_h);
     pl_ring_reset(ring);
     memset(&acc, 0, sizeof(acc));
+    memset(&totals, 0, sizeof(totals));
+    totals_at = current_tick;
+#if defined(HAVE_DEVSTATS) && !defined(SIMULATOR)
+    memset(tot_idle_ms, 0, sizeof(tot_idle_ms));
+    memcpy(tot_idle_us, (const void *)devstats.idle_us, sizeof(tot_idle_us));
+#endif
     if (!idle_registered)
         idle_registered = add_event_ex(DISK_EVENT_SPINUP, false, idle_cb,
                                        NULL);
@@ -817,6 +915,24 @@ void powerlog_boot(void)
         ui_log("stor", "pwr standby only (marker)");
     }
 #endif
+#ifdef HAVE_PWR_AWAKE
+    {
+        /* the awake rows' developer mask (one open at boot) */
+        uint32_t m = PWRAW_DEV_DEFAULT;
+
+        fd = open(POWERLOG_PWRAW, O_RDONLY);
+        if (fd >= 0)
+        {
+            n = read(fd, b, sizeof(b) - 1);
+            close(fd);
+            b[n > 0 ? n : 0] = '\0';
+            m = (uint32_t)strtoul(b, NULL, 16);
+        }
+        pwraw_set_dev_mask(m);
+        ui_log("pwraw", "dev mask=0x%lx%s", (unsigned long)m,
+               fd >= 0 ? " (file)" : "");
+    }
+#endif
     fd = open(POWERLOG_CFG, O_RDONLY);
 
     if (fd < 0)
@@ -843,6 +959,7 @@ void powerlog_set(bool want)
     powerlog_mark("off");
     on = false;
     timeout_cancel(&tmo);
+    totals_line("off");
     flush(true);                    /* a developer action: the disk may
                                      * spin up for it */
     if (idle_registered)

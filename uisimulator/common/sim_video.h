@@ -79,6 +79,26 @@ void sim_video_vcheck_faults(uint32_t vclk_fail_mask, uint32_t pic_bad,
 /* The first-use check's inconclusive path (the model's no_pic knob: each
    packet taken, no picture); off again before the film */
 void sim_video_vcheck_nopic(bool on);
+/* day 4c: the model refuses the FEED n FEEDs from now (HP_E_BUSY, as a
+   full queue), its error reply lost too if quiet (vbcm_model.h busy_at,
+   feed_err_quiet); n 0 clears.  The FIFO errors that follow count in
+   sim_video_feed_errors(), not sim_video_errors() */
+void sim_video_feed_fault(uint32_t n, bool quiet);
+uint32_t sim_video_feed_errors(void);
+uint32_t sim_video_feed_refusals(void);   /* the full-queue refusals */
+/* a CLOSE came after the refusal (a restart overtook it, #192), and the
+   last video_fault feed armed again */
+bool sim_video_feed_overtaken(void);
+void sim_video_feed_rearm(void);
+/* day 4c: from this file offset on the audio's buffer never holds the
+   video's bytes (vplayer.c src_read answers "not buffered" unless the
+   play reads the file directly); 0 none */
+void sim_video_set_hole(uint64_t off);
+uint64_t sim_video_hole(void);
+/* #175: the next play's index window in records (vpc_source's
+   window_records, so a short clip slides it); 0 the build's */
+void sim_video_set_window(uint32_t records);
+uint32_t sim_video_window(void);
 #endif
 
 #endif /* SIM_VIDEO_H */

@@ -101,11 +101,16 @@ specific albums folder art ("folder.jpg" and "cover.jpg", baseline JPEG),
 an embedded progressive JPEG (unsupported in 4b, FAILED), a folder-only
 PNG (unsupported, FAILED), and a non-square 600x400 embedded cover (OK);
 every other album keeps the default embedded baseline JPEG (ID3 APIC).
-The progressive-JPEG fixture is made with jpegtran (preferred) or cjpeg
-(libjpeg-turbo, both commonly installed alongside ffmpeg); without
-either, generate() falls back to a plain baseline copy and prints a
-warning, same as ffmpeg itself.
+The cover images are committed, not encoded at priming time
+(tests/fixtures/sim-art/, verified against its SHA256SUMS and copied byte
+for byte): an mjpeg encode differs between ffmpeg builds (the Mac's 9.0.2
+and Fedora's 8.1.3 wrote different bytes for the same cover, and every
+golden showing art failed on a Linux host by up to 9 levels per channel).
+--export-art DIR is the one place they are encoded (via
+tests/fixtures/sim-art/export.sh); it refuses without ffmpeg and
+jpegtran/cjpeg rather than writing a degraded progressive fixture.
 """
+import hashlib
 import os
 import random
 import shutil
@@ -545,10 +550,9 @@ def make_progressive(src, dst):
     ffmpeg's own mjpeg encoder can't write progressive). Tries jpegtran
     (lossless baseline->progressive transcode), then cjpeg via an
     intermediate PPM (both libjpeg-turbo, commonly installed alongside
-    ffmpeg); falls back to a plain baseline copy with a warning if
-    neither tool is on PATH (the FAILED case then won't actually
-    trigger, same spirit as the per-chapter-image art that is skipped
-    outright, docs/phase4b-brief.md item 1)."""
+    ffmpeg); refuses if
+    neither tool is on PATH (only --export-art runs this; priming copies
+    the committed result)."""
     if shutil.which('jpegtran'):
         r = subprocess.run(['jpegtran', '-progressive', '-outfile', dst,
                             src], stdout=subprocess.PIPE,
@@ -563,10 +567,10 @@ def make_progressive(src, dst):
         os.remove(ppm)
         if r.returncode == 0:
             return
-    print('setup_library: warning: no jpegtran/cjpeg on PATH; the '
-          'progressive-JPEG art fixture is a plain baseline copy (its '
-          'FAILED case will not trigger)', file=sys.stderr)
-    shutil.copyfile(src, dst)
+    raise SystemExit('setup_library: --export-art needs jpegtran or cjpeg '
+                     '(libjpeg-turbo) for the progressive-JPEG fixture; '
+                     'without it the FAILED case would not trigger, so no '
+                     'art is written')
 
 
 def tags(t):
@@ -579,6 +583,102 @@ def tags(t):
     if t.get('compilation'):
         args += ['-metadata', 'compilation=1']
     return args
+
+
+ART_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                       '..', 'fixtures', 'sim-art')
+# The committed images this generator uses (copied into its tmp dir by
+# install_art()); setup_music.sh uses music-cover.jpg from the same dir.
+ART_LIBRARY = ['cover%d.jpg' % i for i in range(6)] + [
+    'cover_nonsquare.jpg', 'cover.png', 'cover_progressive.jpg']
+
+
+def art_sums():
+    """{name: sha256} from tests/fixtures/sim-art/SHA256SUMS."""
+    sums = {}
+    with open(os.path.join(ART_DIR, 'SHA256SUMS'), encoding='utf-8') as f:
+        for line in f:
+            if line.strip():
+                h, name = line.split(None, 1)
+                sums[name.strip().lstrip('*')] = h
+    return sums
+
+
+def art_digest():
+    """Short digest of SHA256SUMS: in stamp(), so a disk primed with other
+    art is regenerated."""
+    try:
+        with open(os.path.join(ART_DIR, 'SHA256SUMS'), 'rb') as f:
+            return hashlib.sha256(f.read()).hexdigest()[:12]
+    except OSError:
+        return 'none'
+
+
+def install_art(tmp):
+    """Copies the committed covers into tmp, byte for byte, after checking
+    each against SHA256SUMS. Refuses (never re-encodes) when one is
+    missing or altered."""
+    hint = ('regenerate with tests/fixtures/sim-art/export.sh (on the '
+            'machine whose goldens are canonical) and commit the result')
+    try:
+        sums = art_sums()
+    except OSError:
+        raise SystemExit('setup_library: tests/fixtures/sim-art/SHA256SUMS '
+                         'missing; ' + hint)
+    for name in ART_LIBRARY:
+        src = os.path.join(ART_DIR, name)
+        if name not in sums:
+            raise SystemExit('setup_library: %s not in SHA256SUMS; %s'
+                             % (name, hint))
+        try:
+            with open(src, 'rb') as f:
+                data = f.read()
+        except OSError:
+            raise SystemExit('setup_library: art fixture %s missing; %s'
+                             % (name, hint))
+        if hashlib.sha256(data).hexdigest() != sums[name]:
+            raise SystemExit('setup_library: art fixture %s does not match '
+                             'SHA256SUMS; %s' % (name, hint))
+        with open(os.path.join(tmp, name), 'wb') as f:
+            f.write(data)
+
+
+def encode_art(out):
+    """The only place the covers are encoded (--export-art)."""
+    workers = min(16, (os.cpu_count() or 4) * 2)
+    jobs = []
+    for i in range(len(COVERS)):
+        cover_ppm(i, '%s/cover%d.ppm' % (out, i))
+        # setsar: a PPM carries no aspect ratio, and without one the
+        # encoder writes no JFIF APP0 (the MP4 covr check wants FFD8FFE0)
+        jobs.append(FF + ['-i', '%s/cover%d.ppm' % (out, i),
+                          '-vf', 'setsar=1,format=yuvj420p', '-frames:v', '1',
+                          '-c:v', 'mjpeg', '-q:v', '5',
+                          ] + IMG_EXACT + [
+                          '%s/cover%d.jpg' % (out, i)])
+    # Non-square (600x400, 'nonsquare') and PNG ('png-folder' folder art,
+    # and the MP4-covr-PNG audiobook) covers, original gradients as above.
+    c0, c1 = COVERS[0]
+    jobs.append(FF + ['-f', 'lavfi', '-i',
+                      'gradients=s=600x400:c0=%s:c1=%s:x0=0:y0=0:x1=600:'
+                      'y1=400:d=1:seed=90' % (c0, c1),
+                      '-vf', 'format=yuvj420p', '-frames:v', '1',
+                      '-c:v', 'mjpeg', '-q:v', '5',
+                      ] + IMG_EXACT + [
+                      '%s/cover_nonsquare.jpg' % out])
+    c0, c1 = COVERS[1]
+    jobs.append(FF + ['-f', 'lavfi', '-i',
+                      'gradients=s=240x240:c0=%s:c1=%s:x0=0:y0=0:x1=240:'
+                      'y1=240:d=1:seed=91' % (c0, c1),
+                      '-frames:v', '1', '-c:v', 'png',
+                      ] + IMG_EXACT + [
+                      '%s/cover.png' % out])
+    with ThreadPoolExecutor(workers) as ex:
+        list(ex.map(run, jobs))
+    # A genuine progressive JPEG (SOF2) for the 'progressive' album,
+    # derived from cover0.jpg (needs it to already exist, so it runs
+    # after the batch above, not inside it).
+    make_progressive('%s/cover0.jpg' % out, '%s/cover_progressive.jpg' % out)
 
 
 def generate(disk, tmp):
@@ -604,39 +704,10 @@ def generate(disk, tmp):
                           'sine=frequency=%d:sample_rate=22050:duration=%d'
                           % (freq, dur)] + MP3 + BITEXACT +
                     ['-map_metadata', '-1', '%s/base%d.mp3' % (tmp, i)])
-    for i in range(len(COVERS)):
-        cover_ppm(i, '%s/cover%d.ppm' % (tmp, i))
-        # setsar: a PPM carries no aspect ratio, and without one the
-        # encoder writes no JFIF APP0 (the MP4 covr check wants FFD8FFE0)
-        jobs.append(FF + ['-i', '%s/cover%d.ppm' % (tmp, i),
-                          '-vf', 'setsar=1,format=yuvj420p', '-frames:v', '1',
-                          '-c:v', 'mjpeg', '-q:v', '5',
-                          ] + IMG_EXACT + [
-                          '%s/cover%d.jpg' % (tmp, i)])
-    # Non-square (600x400, 'nonsquare') and PNG ('png-folder' folder art,
-    # and the MP4-covr-PNG audiobook) covers, original gradients as above.
-    c0, c1 = COVERS[0]
-    jobs.append(FF + ['-f', 'lavfi', '-i',
-                      'gradients=s=600x400:c0=%s:c1=%s:x0=0:y0=0:x1=600:'
-                      'y1=400:d=1:seed=90' % (c0, c1),
-                      '-vf', 'format=yuvj420p', '-frames:v', '1',
-                      '-c:v', 'mjpeg', '-q:v', '5',
-                      ] + IMG_EXACT + [
-                      '%s/cover_nonsquare.jpg' % tmp])
-    c0, c1 = COVERS[1]
-    jobs.append(FF + ['-f', 'lavfi', '-i',
-                      'gradients=s=240x240:c0=%s:c1=%s:x0=0:y0=0:x1=240:'
-                      'y1=240:d=1:seed=91' % (c0, c1),
-                      '-frames:v', '1', '-c:v', 'png',
-                      ] + IMG_EXACT + [
-                      '%s/cover.png' % tmp])
     workers = min(16, (os.cpu_count() or 4) * 2)
     with ThreadPoolExecutor(workers) as ex:
         list(ex.map(run, jobs))
-    # A genuine progressive JPEG (SOF2) for the 'progressive' album,
-    # derived from cover0.jpg (needs it to already exist, so it runs
-    # after the batch above, not inside it).
-    make_progressive('%s/cover0.jpg' % tmp, '%s/cover_progressive.jpg' % tmp)
+    install_art(tmp)
 
     jobs = []
     items = tracks() + podcast_files()
@@ -792,7 +863,7 @@ def write_playlists(disk):
 
 
 def stamp():
-    return '%d %d' % (VERSION, file_count())
+    return '%d-%s %d' % (VERSION, art_digest(), file_count())
 
 
 def main():
@@ -803,6 +874,9 @@ def main():
         sys.stdout.write(manifest())
     elif a == ['--art-manifest']:
         sys.stdout.write(art_manifest())
+    elif len(a) == 2 and a[0] == '--export-art':
+        os.makedirs(a[1], exist_ok=True)
+        encode_art(a[1])
     elif len(a) == 2 and a[0] == '--config':
         set_config(a[1])
     elif len(a) == 3 and a[0] == '--generate':

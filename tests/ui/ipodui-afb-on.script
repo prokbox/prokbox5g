@@ -1,0 +1,63 @@
+# #137 (the Apple fallback, developer switch on): after a USB session the
+# job makes one link per Apple-playable song in iPod_Control/Music/PKB and
+# writes Apple's music database (verified by re-parse, then renamed); the
+# next session parks the links on the ack path (before the host is given
+# the disk) and the next unplug makes them again, with the database left
+# as it is (the song set did not change). The switch is the marker the
+# developer menu writes (here copied in during a session, as a host could).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-afb-on.script
+# needs: library
+# timeout: 240
+# log: afb plan=4 state=0 links=0 when=1
+# log: afb unpark rc=0 links=
+# log: afb db ok bytes=
+# log: afb park rc=0
+# log: afb plan=4 state=2 links=0 when=1
+# log: afb db same songs=
+# log: afb off
+# nolog: afb db verify failed
+# nolog: afb unpark rc=-1
+# golden: skip
+# reset: mainmenu
+
+wait 4000
+wait_db 30000
+rm_file /.rockbox/afb/on
+rm_file /.rockbox/afb/state
+rm_file /.rockbox/afb/links.tbl
+
+usb_connect                 # session A: the switch arrives (as from a Mac)
+wait 2500
+mkdir /.rockbox/afb
+copy fixtures/notes/Welcome.txt /.rockbox/afb/on
+usb_disconnect
+wait 150
+wait_db 45000
+wait 6000
+storage_idle
+wait 1500
+
+usb_connect                 # session B: the links are parked first
+wait 2500
+usb_disconnect
+wait 150
+wait_db 45000
+wait 6000
+storage_idle
+wait 1500
+
+usb_connect                 # cleanup: switch off, the job tears down
+wait 2500
+rm_file /.rockbox/afb/on
+usb_disconnect
+wait 150
+wait_db 45000
+wait 6000
+rm_file /iPod_Control/iTunes/iTunesDB
+rm_file /iPod_Control/iTunes/iTunesDB.bak
+rm_file /iPod_Control/iTunes
+rm_file /iPod_Control/Music
+rm_file /iPod_Control
+rm_file /.rockbox/afb/links.tbl
+rm_file /.rockbox/afb
+shot after_cleanup          # the shell as it was (shots.sh needs one)

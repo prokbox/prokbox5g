@@ -195,6 +195,19 @@ case('drift_a', 1, musts=('no vclk, vbv or vgov lines',))
 case('viz_fallback', 1, musts=('== visualizer: on the chip, the swap, the CPU',
                                'starts: 1 (bcm); overlay loads: 1; cpu samples: 1'),
      tops=('visualizer: off the chip',))
+# sitting 4e's soaks: the long play's still minute and the step's
+# failure flagged; the visualiser's views summed, the fallback flagged
+case('soaks_4e', 1,
+     musts=('== long play: the test episode (vlong)',
+            'play 1: 6 lines, 7260 pictures by 420.0 s of audio',
+            'play 1: 1.00 a second (median 24.00)',
+            'watchdog at the last end: 1 stills (1 behind, 1 data), 0 FEEDs refused',
+            '== visualiser soak: frames on the chip (vizsoak)',
+            'views: 2, 180 s on screen; frames: 4500 on the chip, 600 on the PP; '
+            'holds 3, longest 2100 ms'),
+     tops=('long play: a minute fell behind', 'long play: the step failed',
+           'visualiser soak: off the chip, or a hang'))
+case('vclk', 1, musts=('no long-play lines', 'no visualiser soak lines'))
 # the driver's per-start line, one row a power-up
 case('bcm_starts', 1, musts=('== BCM starts: vpu, vpu2, load timings',
                              'start 1: vpu=0x3 expect=0x3 vpu2=0xff',

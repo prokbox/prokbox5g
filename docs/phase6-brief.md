@@ -89,7 +89,7 @@ Books become first-class, as on the 7G 2.0.5: a book list with per-book progress
 `apps/SOURCES`: additions only, inside `#ifdef HAVE_IPOD_UI`, requested from the orchestrator. `docs/hardware.md` budget table: orchestrator at close.
 
 **Read lists (≤ 3 each; contract headers are read as code, not counted)**
-- **M:** this brief §3.1–3.2, §4; `docs/design/chapter-art.md` (API + cost); issue #50 text (`scripts/forgejo.py show 50`).
+- **M:** this brief §3.1–3.2, §4; `docs/design/chapter-art.md` (API + cost); issue #50 text (development tracker).
 - **B:** this brief §3.3–3.6, §4; `docs/design/chapter-art.md` (P2/P3 sections); `docs/design/shuffle.md` (book flag, `npshuf.dat`).
 - **U:** this brief §3.4, §3.7; `docs/design/spec/audiobooks.md` + `settings.md` (Audiobooks item); `docs/design/spec/now-playing.md` (Audiobooks + 2026-10-08 counter note).
 - **T:** this brief §7–§9; `tests/ui/README.md`; `docs/phase-nav-brief.md` Revision 2 (`record`, `make_video.sh`).
@@ -234,7 +234,7 @@ Committed as real code with host round-trip tests and ONE shared stub, before fa
 **Scripts (T), adjusted for Rev 2:** `ipodui-p6-booklist` checks there are **no** dots; `-open` checks "Resume" is shown only with a saved spot; `-nochap` checks a single-file book without chapters opens its page (AB-1 changed); `-start-at-zero` (Rev 1 item 1); the rest as §8.
 
 **Read lists (≤ 3 each; the contract headers are read as code, not counted)**
-- **M:** this brief §3.1–3.2, §6, Rev 1 items 1, 3, 6, 10, 15, 16 and this section; `docs/design/chapter-art.md` (API + cost); issue #50 (`scripts/forgejo.py show 50`). Code: `chapters.h`, `np_playback.h` (slot hooks), `ab_book.h` (speed and resume hooks, `AB_TR_SLOT_*`).
+- **M:** this brief §3.1–3.2, §6, Rev 1 items 1, 3, 6, 10, 15, 16 and this section; `docs/design/chapter-art.md` (API + cost); issue #50 (development tracker). Code: `chapters.h`, `np_playback.h` (slot hooks), `ab_book.h` (speed and resume hooks, `AB_TR_SLOT_*`).
 - **B:** this brief §3.3–3.6, Revisions 1–2 and this section; `docs/design/chapter-art.md` (P2/P3); `docs/design/shuffle.md` (book flag). Code: `ab_book.h`, `ab_store.h`, `np_playback.h`, `chapters.h`, `library.h`.
 - **U:** this brief §3.4, §3.7, Revision 2 and this section; `docs/design/spec/audiobooks.md` + `settings.md` (Audiobooks item); `docs/design/spec/now-playing.md` (Audiobooks + the 2026-10-08 counter note). Code: `ab_book.h` (page API, counter source, ticks, speed), `np_playback.h`, `np_layout.h`.
 - **T:** this brief §7–§9, Revisions 1–2 and this section (scripts, trace lines); `tests/ui/README.md`; `docs/phase-nav-brief.md` Revision 2 (`record`, `make_video.sh`). Code: `ab_book.h` (`AB_TR_*`), `ab_store.h` (file layout, for `ab_pin_store` / `ab_power_cut`).

@@ -70,11 +70,14 @@ fail=0
 # the text track replaces a 'chpl'; equal UTF-8-safe cuts past the pool).
 # Their chapter lines were checked with tests/audiobook/ffprobe_chapters.py
 # (ffprobe + the pool rules in Python, independent of warble).
+# short_chpl.m4b (tests/fixtures/make_short_chpl_fixture.py) is
+# nero_chapters.m4b with a truncated 12-byte 'chpl' ahead of 'trak': it must
+# parse (no unsigned wrap skipping 'trak') and keep nero's chapter lines.
 FIXTURES="nero_chapters.m4b apple_chapters.m4b plain.mp3
           id3v24_chapters.mp3 id3v23_unsync.mp3 rich_chapters.m4b
           chapters_648.m4b chapters_648_mp4v2.m4b chapters_1100.m4b
           chapters_300.mp3 chapters_300_v24.mp3 chapters_400_long.m4b
-          chapters_450_utf8.mp3"
+          chapters_450_utf8.mp3 short_chpl.m4b"
 for fixture in $FIXTURES; do
     name=${fixture%.*}
     out="$TMP/$name.txt"

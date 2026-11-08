@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2007 by Björn Stenberg
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -171,6 +172,31 @@ struct usb_drv_stats {
     uint32_t bus[6];
 };
 void usb_drv_get_stats(struct usb_drv_stats *out);
+#endif
+#ifdef HAVE_USB_ISOPROBE
+/* #144 P1: the isochronous bench probe's hooks (usbstack/usb_isoprobe.c),
+ * in the developer bench build only.  The variants are research §7 step 4;
+ * none is on unless the probe sets it for its session. */
+#define USB_ISO_VAR_A   0x1     /* iso TR_ERR is a missed packet: no flush */
+#define USB_ISO_VAR_B   0x2     /* two-dTD ping-pong, appended with ATDTW */
+#define USB_ISO_VAR_C   0x4     /* deinit leaves the unused direction bulk */
+struct usb_drv_iso_stats {
+    uint32_t id, dciversion, dccparams, portsc; /* step 0, read at init */
+    uint32_t epctrl;            /* ENDPTCTRL of the iso endpoint, at init */
+    uint32_t done;              /* iso dTDs retired */
+    uint32_t txn_err, buf_err, halted; /* ... with each status bit */
+    uint32_t flushed;           /* iso endpoint flushed after an error */
+    uint32_t pp_append, pp_prime;   /* B: appended to a live chain / primed */
+    uint32_t pp_busy;           /* B: queue on a slot still in flight */
+    uint32_t pp_atdtw_to;       /* B: ATDTW tripwire never held */
+    uint32_t irq_n, irq_max_us; /* controller interrupts, the longest */
+};
+void usb_drv_iso_set_variant(unsigned variant);
+void usb_drv_iso_get_stats(struct usb_drv_iso_stats *out);
+uint32_t usb_drv_iso_frindex(void);         /* raw FRINDEX, microframes */
+/* B: dTD slots 0 and 1 of the endpoint, one packet each, IRQ-safe */
+int usb_drv_iso_pp_queue(int endpoint, int slot, const void *ptr, int len);
+void usb_drv_iso_pp_stop(int endpoint);
 #endif
 #ifdef USB_HAS_ISOCHRONOUS
 /* returns the last received frame number (the 11-bit number contained in the last SOF):

@@ -116,12 +116,18 @@ static int bcmfw_inject_boot;       /* debug: the next n bootstraps fail */
 #define BCMA_CLK_CORE       0x10001C28
 #define BCMA_PW(v)          (0xA5A50000u | (v))
 #define BCMFW_LEVEL_LOW     5           /* Apple's table up to 46.9 MHz */
+/* Apple waits 10 ms after every regulator write before it trusts the
+ * level ([apple-RE] @5134, @141ba, @141f0; power-apple-vs-ours.md row 2) */
+#define BCMFW_LEVEL_SETTLE_US 10000
 static bool bcmfw_res_level5;       /* the setting, read at the offer */
 static int8_t bcmfw_res_level_rb = -1;  /* the level read back last; -1 */
 static bool bcmfw_res_offered;      /* bcmres.c handed the image over */
 static uint32_t bcmfw_res_read_us;  /* its read from the disk */
 static const char *bcmfw_res_why = "no image offered";
 static uint32_t bcmfw_swap_us;      /* this boot's swap, all rungs */
+#ifdef HAVE_BCMFW_DEVTEST
+static uint32_t bcmfw_res_gen;      /* p19-vcpwr: the swap and each wake */
+#endif
 #endif
 
 static int bcmfw_read_strikes(void)
@@ -382,10 +388,14 @@ static int bcmfw_res_level(int (*rd)(uint32_t, uint32_t *),
         return -1;              /* unread, or not on the crystal */
     if (rd(BCMA_REGULATOR, &r) < 0 || (r & ~0xFFu))
         return -1;              /* a dead port reads 0xFFFF */
-    if ((int)(r & 0xF) != level &&
-        (wr(BCMA_REGULATOR, BCMA_PW((r & 0xF0) | (uint32_t)level)) < 0 ||
-         rd(BCMA_REGULATOR, &r) < 0))
-        return -1;
+    if ((int)(r & 0xF) != level)
+    {
+        if (wr(BCMA_REGULATOR, BCMA_PW((r & 0xF0) | (uint32_t)level)) < 0)
+            return -1;
+        udelay(BCMFW_LEVEL_SETTLE_US);  /* Apple's settle, then the read */
+        if (rd(BCMA_REGULATOR, &r) < 0)
+            return -1;
+    }
     bcmfw_res_level_rb = (int8_t)(r & 0xF);
     return (int)(r & 0xF);
 }
@@ -792,6 +802,9 @@ void bcm_boot_switch(void)
     if (img == &bcmfw_res_img)
     {
         bcmfw_res_why = "running";
+#ifdef HAVE_BCMFW_DEVTEST
+        bcmfw_res_gen++;
+#endif
         if (bcmfw_res_idle)
             dt_wr(BCMA_IDLE_EN, BCMA_IDLE_EN_MAGIC);
         if (bcmfw_res_level5)
@@ -942,6 +955,9 @@ static void bcmfw_woke(void)
 {
     if (bcmfw_active != &bcmfw_res_img)
         return;
+#ifdef HAVE_BCMFW_DEVTEST
+    bcmfw_res_gen++;
+#endif
     if (bcmfw_res_idle)
         bcm_write32(BCMA_IDLE_EN, BCMA_IDLE_EN_MAGIC);
     if (bcmfw_res_level5)       /* the cut reset it to 11 */
@@ -1037,6 +1053,68 @@ void bcm_boot_res_now(bool *idle, bool *level5)
     *idle = bcmfw_res_idle;
     *level5 = bcmfw_res_level5;
 }
+
+#ifdef HAVE_BCMFW_DEVTEST
+/* ---- p19-vcpwr: the developer build's watch over S1 and L5 -------------
+ * (power-apple-vs-ours.md "Auto-fallback designs"; the watch itself is
+ * apps/ipodui/devbench_vcpwr.c, on the UI thread) */
+int bcm_boot_res_state(uint32_t *gen)
+{
+    *gen = bcmfw_res_gen;
+    if (!bcm_boot_resident_active() || !lcd_state.display_on ||
+        bcm_devtest_owned)
+        return 0;
+    return bcmfw_hung ? -1 : 1;
+}
+
+void bcm_boot_res_latch(bool idle_off, bool level_off, const char *why)
+{
+    char line[96];
+
+    if (idle_off)
+    {
+        bcmfw_res_idle = false;         /* the next wakes write no gate */
+        bcm_boot_res_live(0, 0, NULL);  /* refused when not live: fine */
+        snprintf(line, sizeof(line), "chip idle: off why=%s", why);
+        dt_log(line);
+    }
+    if (level_off)
+    {
+        bcmfw_res_level5 = false;       /* the next wakes leave 11 */
+        bcm_boot_res_live(-1, 11, NULL);
+        snprintf(line, sizeof(line), "chip level: 11 why=%s", why);
+        dt_log(line);
+    }
+}
+
+void bcm_boot_res_cut(const char *why)
+{
+    char line[96];
+
+    if (!bcmfw_active)
+        return;
+    snprintf(line, sizeof(line), "boot path: cut asked (%s): the next "
+             "update restarts the chip, no strike", why);
+    dt_log(line);
+    bcmfw_deliberate = true;
+    bcmfw_hung = true;
+}
+
+int bcm_boot_res_rw(uint32_t addr, uint32_t *val, int write)
+{
+    bool locked;
+
+    if (!bcmfw_res_live_ok())
+        return -1;
+    locked = lcd_port_lock();
+    if (write)
+        bcmfw_wr_locked(addr, *val);
+    else
+        bcmfw_rd_locked(addr, val);
+    lcd_port_unlock(locked);
+    return 0;
+}
+#endif
 #endif
 
 #ifdef HAVE_BCMFW_DEVTEST

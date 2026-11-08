@@ -46,7 +46,7 @@ If you leave a menu untouched while music plays, Now Playing comes back on its o
 
 ## The visualiser
 
-The visualiser fills the screen with moving pictures that follow the music. To use it, press **Select** on Now Playing until the extra controls reach the visualiser step. The screen stays lit while it shows.
+The visualiser fills the screen with moving pictures that follow the music. To use it, press **Select** on Now Playing until the extra controls reach the visualiser step. The screen stays lit while it shows. The visualiser never interrupts the music.
 
 - **Change the style:** press and hold **Select** to pick one of five: Bars, Mirror, Scope, Spectrogram and Radial. The player remembers your choice.
 - **Volume:** turn the wheel; a volume bar shows for a moment.

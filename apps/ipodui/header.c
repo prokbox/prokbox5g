@@ -647,8 +647,8 @@ const char *ui_header_clock(int *ticks_to_minute)
 
 /* -- Dark header (USB, and later the other dark screens) ------------------ */
 
-/* The battery of the 7G's dark screens (usb.png, owner photos 1165 /
- * photo 1226): a light 22 x 11 outline at x 290..311, y 5..15 (on the
+/* The battery of the 7G's dark screens (usb.png, owner photos `usb-connected` /
+ * photo `usb-connected-b`): a light 22 x 11 outline at x 290..311, y 5..15 (on the
  * 320 px header), a hollow 3 x 5 nub sharing its right edge, a 1 px gap
  * and a light fill. While charging a bolt is knocked out of the fill; on
  * power but not charging (full) a small plug. */

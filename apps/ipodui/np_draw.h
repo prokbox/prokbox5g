@@ -277,7 +277,7 @@ int  np_atlas_update(const struct np_canvas *cv, const struct np_atlas *a,
                      int x, int y, const char *old, const char *s);
 
 /* ---- the bar row layout ------------------------------------------------- */
-/* Measured on the owner's 2.0.5 photos (photo 1203, 1222, rectified): the
+/* Measured on the owner's 2.0.5 photos (photo `np-normal-b`, `np-audiobook-volume-b`, rectified): the
  * remaining time's ink ends at x 308 (its advance, one column of
  * bearing, at NP_TIME_R_X) and the bar is centred, each end
  * NP_TIME_GAP from a slot as wide as the remaining-time label at the

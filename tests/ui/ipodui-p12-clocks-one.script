@@ -3,7 +3,7 @@
 # blue city band (city left, a light face by day, "15:05" over "Today"
 # right), the world map under it (the panel's map is its right half);
 # MENU comes back to the Extras list. Compare: owner photo clocks.jpg
-# (photo 1193; Boston, same zone).
+# (photo `clocks`; Boston, same zone).
 #   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p12-clocks-one.script
 # needs: modules
 # reset: clocks

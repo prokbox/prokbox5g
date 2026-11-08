@@ -9,6 +9,7 @@
  * Copyright (C) 2006 by Nicolas Pitre <nico@cam.org>
  * Copyright (C) 2006-2007 by Stéphane Doyon <s.doyon@videotron.ca>
  * Copyright (C) 2012 Michael Sevakis
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License

@@ -7,6 +7,7 @@
     </a>
     <nav class="top-nav" aria-label="Main">
       {{ with $guide }}<a href="{{ .RelPermalink }}"{{ if or (eq $.Section "guide") }} aria-current="true"{{ end }}>Guide</a>{{ end }}
+      {{ with site.GetPage "/developers" }}<a href="{{ .RelPermalink }}"{{ if eq $.Section "developers" }} aria-current="true"{{ end }}>Developers</a>{{ end }}
       {{ with site.GetPage "/releases" }}<a href="{{ .RelPermalink }}"{{ if eq $.Section "releases" }} aria-current="true"{{ end }}>Releases</a>{{ end }}
       <a class="nav-source" href="{{ site.Params.repo }}">Source</a>
     </nav>

@@ -8,6 +8,7 @@
  *
  * Copyright (C) 2009 by Jens Arnold
  * Copyright (C) 2011 by Thomas Martitz
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * Rockbox simulator specific tasks
  *

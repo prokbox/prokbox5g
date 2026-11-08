@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (c) 2002 by Greg Haerr <greg@censoft.com>
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -139,5 +140,8 @@ int font_getstringnsize(const unsigned char *str, size_t maxbytes, int *w, int *
 int font_getstringsize(const unsigned char *str, int *w, int *h, int fontnumber);
 int font_get_width(struct font* ft, ucschar_t ch);
 const unsigned char * font_get_bits(struct font* ft, ucschar_t ch);
+#ifdef HAVE_IPOD_UI
+bool font_has_glyph(struct font *pf, ucschar_t c);
+#endif
 
 #endif

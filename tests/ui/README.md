@@ -252,6 +252,19 @@ does not block the UI thread (unlike `wait`), so calling it right after a
 `key`/`wheel`/`hold` command captures whatever that command set in motion
 (a push/pop slide, a glide) as it actually plays out.
 
+    record_start <fps> <name>
+    record_stop
+
+The same frame dump as `record`, on a thread of its own: it runs from
+`record_start` until `record_stop` while the script goes on with `key`,
+`wheel` and `wait`, so a clip shows pushes, pops and wheel glides as they
+play out (`record` itself blocks the script thread). Frame *i* is due at
+start + *i*/fps on the tick, so pick an fps whose period is whole ticks
+(10, 20 or 25 at HZ 100); a slot the host overslept repeats the previous
+frame (a hard link) rather than shifting the rest, so the clip keeps real
+time. Same `<name>_frames/frame%05d.bmp` naming and numbering as `record`.
+Used by `tests/ui/readme/readme-nav.script` (`scripts/readme_visuals.sh`).
+
     np_pin <ms|off> [<vol%>|off]
     np_seq_bump
     charger on|off
@@ -1015,6 +1028,17 @@ is always the very next boosted animation after the key that triggers it,
 so a dedicated timing script like `ipodui-nav-transitions.script` needs
 no screen-name bookkeeping to match them up in order.
 
+## Hang rule (`# expect: hang <slot>`)
+
+`scripts/shots.sh` runs `scripts/check_hang_rule.py` on every script (so a
+single run and the gate both apply it): a `hang recovered <slot> after Ns`
+or `panic hang record thread=<name>` line in the run's `sim.log` fails the
+script, unless it declares `# expect: hang <slot>` (slots `ui`, `be`, `art`,
+`sto`). Only a deliberate hang gets one (`ipodui-hang-record`). Otherwise a
+thread slept or blocked without marking itself idle: wrap the wait in
+`hang_idle_begin()`/`hang_idle_end()` (`firmware/export/hang_watch.h`). A
+missing or empty log fails as "inspected nothing". Self-test: `tests/gate/run.sh`.
+
 ## Fonts
 
 `scripts/check_fonts.sh build/sim-ui` (run by `validate.sh` after the
@@ -1211,6 +1235,10 @@ it), including a priming `build_db` boot.
 
 **Runtime native illusion (`check_trace.py` rule "illusion", P12 close).** In a simulator shell build every string the LCD draws passes `sim_text_drawn()` (one call in `firmware/drivers/lcd-bitmap-common.c`'s `putsxyofs`, where `lcd_putsxy`, list rows, header titles, splashes and scrolling lines all end) and `str()` passes `sim_lang_str()` (the generated `lang.h`, `tools/genlang`). Both live in `uisimulator/common/sim_cmd_text.c` and log only problems: `sim text: forbidden x= y= text="..."` once per distinct text containing "rockbox" in any case (".rockbox" too; x/y are screen coordinates for direct draws, strip coordinates for list rows drawn off screen), and `lang: str id=<n> zero|out-of-range at apps/ipodui/<file>:<line>` once per call site in the shell's own files (an unlabeled LANG id reads id 0, "Rockbox"; an out-of-range id returns "" instead of reading past the array). Every `ipodui-*` script FAILS on either. Exceptions: `tests/ui/illusion_allow.txt` lists sentences that may name Rockbox (the Legal credit), matched as fragments of four words or more; `# illusion: devmenu <why>` makes drawn text a note for a script that opens stock developer menus (str() warnings still fail). The first draw logs `sim text: watch on`; the gate fails a run in which an `ipodui-*` log lacks it. Self-test: `tests/trace/test_illusion_rules.py`. Device developer builds have no such hook yet (it needs an `apps/` edit; see the P12 close notes).
 
+**What was drawn (p19-relvideos).** The same hook records every distinct drawn string (shell builds; list rows drawn off screen count too). `text_mark` forgets the record; `expect_drawn <text>` passes when a string drawn since the mark (or since boot) contains `<text>` (case-sensitive, the words joined by one space), `expect_not_drawn <text>` when none does; either logs `expect_drawn failed` / `expect_not_drawn failed`, which fails the run, and fails rather than guesses once over 512 distinct strings were drawn since the mark (`uisimulator/common/sim_cmd_text.h`).
+
+**The release shape with the player (`sim-rel-video`, p19-relvideos).** `ipodui-relvideo-*` scripts run on `build/sim-rel-video` (`--target=22 --type=s --ipodui --ipodui-release --bcmfw-video --bcmfw-merged`: the shipping shape of `scripts/release_flags.sh` as a simulator, developer mode compiled out; `--bcmfw`, `--bcmfw-default` and `--bcmfw-l1` are firmware-only). `validate.sh` builds it with `sim-ui-video` (the full gate always; `--quick` under the same rule, `GATE_SIM_VIDEO=0` drops both) and skips the scripts with a note when it was not built; `shots.sh` and `golden_capture.sh` default to it for those names. `ipodui-relvideo-play`: the main menu draws Videos, Videos opens (Movies, TV Shows), Short Film plays (`expect_video 30 playing`), and no "Developer", "Bench", "Probe", "Lab" or "MHz" text is drawn in the whole run. The device side has its own check: `apps/ipodui/menucfg.c` fails to compile a build with the player that does not offer Videos on by default (the old gate offered it in every simulator, so a sim script alone could not see the 0.7.0-alpha release without the row).
+
 **`# reset: mainmenu`** (header line, `shots.sh`): the script starts from the default Main and Music Menus (the `ipodui main menu:` and `ipodui music menu:` lines leave `config.cfg` before boot). Every script that counts wheel steps from the Main Menu needs it: a checklist script that ticked a row moves every row below it (P12 integration). `# reset: clocks` and `# reset: books` work the same way for the Clocks list and the per-book resume store.
 
 **`# keep: alarms`** (header line, `shots.sh`): every run otherwise starts with no alarms (`.rockbox/ipodui/alarms.dat`, `.tmp`, `.old` deleted before boot, as the sim PMU state is), so an alarm one script made never rings in the next.
@@ -1250,6 +1278,17 @@ by Fixture Singer: Fixture Author is an audiobook author in
 
     video_screen <path> [tc]
     setvideos
+
+`video_wait_refusal [ms]` blocks until the model has refused the FEED armed by
+`video_fault feed <n>`, then until the player has handled it (its `FEED refused`
+lines logged, the session restarted), each within the limit (default 15000 ms).
+It waits on the events, not a window, so gate load can't race it; use it instead
+of a fixed `wait` before the mark. A refusal that a restart overtook (a CLOSE
+after it read its reply and the new session dropped it, e.g. the seek for the
+slow sim audio's 1.5 s snap back; the player never sees it, #192) means the
+scenario didn't run: the same fault is armed again, at most 3 times, and a
+`video_wait_refusal: refusal overtaken by a restart, armed again (N)` line is
+logged.
 
 `video_screen` calls `ui_video_play(path, tc)`: the shell's video screen on a
 sim path, without the Movies list (`tc` is the 0-based tagcache master index,
@@ -1590,3 +1629,17 @@ every SELECT that missed its line, so a desynced script shows where.
 The scripts are written by `scripts/bench_sim_script.py` (the screen order
 is the runner's; a step or screen added to the run needs a line there).
 About 4-5 minutes each.
+
+## Generated numbers in rules
+
+A rule line (`# log:`, `# logbetween:` and the other comment rules) may
+name a generated number instead of pinning it: `{NAME}` is a numeric
+`#define` of `apps/video/bcmvideo_image.h`, `apps/video/bcmprobe_image.h`
+or `bcmfw/jobs/bcmjob.h`; `{EXPR}` combines names and integers with
+`+ - * // %` and parentheses; `{EXPR:08x}` formats it. A regenerated
+image then moves the rule with it (batch 5's viz overlay went from
+19,380 to 22,432 bytes). `scripts/check_trace.py` expands them; an unknown
+name fails the run. Examples (`ipodui-p19-ovlpass`, `-relviz`):
+
+    # logbetween: start c0 bcmjob overlay load k=0 bytes={BCMVIDEO_VIZOVL_BYTES} at={BCMVIDEO_VIZOVL_BASE:08x}
+    # logbetween: start c0 art bcm overlay piece k=0 off={(BCMVIDEO_VIZOVL_BYTES - 1) // BCMJOB_DEC_PIECE * BCMJOB_DEC_PIECE} n={BCMVIDEO_VIZOVL_BYTES % BCMJOB_DEC_PIECE} rc=0

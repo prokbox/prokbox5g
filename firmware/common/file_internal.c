@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2014 by Michael Sevakis
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -49,6 +50,15 @@ struct fat_direntry dir_fatent IBSS_ATTR;
 #endif
 
 struct mrsw_lock file_internal_mrsw SHAREDBSS_ATTR;
+
+#ifdef XCORE_CHECKS
+/* ProkBox p19-copfileio (xcore.h): the file layer entered on the COP.  The
+ * message names the entry's caller (lr); the panic record keeps it */
+void xcore_fs_offcore(const char *what, void *lr)
+{
+    panicf("fs %s off the CPU lr=%08lx", what, (unsigned long)lr);
+}
+#endif
 
 
 /** File stream sector caching **/
@@ -702,9 +712,28 @@ int remove_stream_internal(const char *path, struct filestr_base *stream,
     if (!stream)
         stream = &opened_stream;
 
+#ifdef HAVE_IPOD_UI
+    /* ProkBox (#137): a link (FAT_ATTR_LINK, fat.h, inside the link
+     * folder FAT_LINK_DIR) shares the chain of an original: removing it
+     * drops its entry only. Anything else removes as upstream does. */
+    bool link = false;
+#endif
     if (stream == &opened_stream)
     {
         /* no stream provided so open local one */
+#ifdef HAVE_IPOD_UI
+        if (!(callflags & FF_DIR)
+            && !strncasecmp(path, FAT_LINK_DIR "/",
+                            sizeof(FAT_LINK_DIR "/") - 1))
+        {
+            /* a probe for the attributes first: the open below stays the
+             * plain one (its info must not be the probe's) */
+            struct path_component_info ci;
+            link = open_stream_internal(path, callflags | FF_PROBE | FF_INFO,
+                                        stream, &ci) >= 0
+                   && (ci.attr & FAT_ATTR_LINK) == FAT_ATTR_LINK;
+        }
+#endif
         rc = open_stream_internal(path, callflags, stream, NULL);
         if (rc < 0)
         {
@@ -732,6 +761,10 @@ int remove_stream_internal(const char *path, struct filestr_base *stream,
     }
 
     fileop_onremove_internal(stream, &oldinfo);
+#ifdef HAVE_IPOD_UI
+    if (link)
+        stream->infop->fatfile.firstcluster = 0;  /* the close frees none */
+#endif
 
     rc = 0;
 file_error:
@@ -748,6 +781,35 @@ file_error:
 
     return rc;
 }
+
+#if defined(HAVE_IPOD_UI_DEVMODE) && !defined(BOOTLOADER)
+/* ProkBox (#137, the park): drop a directory with whatever entries it
+ * holds; frees the directory's own clusters, never a chain one of its
+ * entries names (the links' chains are the originals'). Takes the
+ * writer lock. 0 done, -1 absent or failed. */
+int rmdir_shallow(const char *path)
+{
+    struct filestr_base stream;
+    int rc;
+
+    file_internal_lock_WRITER();
+    rc = open_stream_internal(path, FF_DIR, &stream, NULL);
+    if (rc >= 0)
+    {
+        struct file_base_info oldinfo = *stream.infop;
+        int rc2;
+
+        rc = fat_remove(&stream.infop->fatfile, FAT_RM_DIRENTRIES);
+        if (rc >= 0)
+            fileop_onremove_internal(&stream, &oldinfo);
+        rc2 = close_stream_internal(&stream);   /* frees the dir's chain */
+        if (rc >= 0)
+            rc = rc2;
+    }
+    file_internal_unlock_WRITER();
+    return rc < 0 ? -1 : 0;
+}
+#endif
 
 /* test file/directory existence with constraints */
 int test_stream_exists_internal(const char *path, unsigned int callflags)

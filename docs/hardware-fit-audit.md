@@ -71,7 +71,7 @@ Fields: **Now** (file:line), **Fact**, **Proposal**, **Gain**, **Risk**, **Cost*
   - The codec rises to priority 5–14 whenever pcmbuf is under 70 % of 3 s (`pcmbuf.c:395–421`).
   - Aging is count-based (`thread.c:1084`).
   - The video player works around both by following the codec's priority, plus a floor (dev33/dev39).
-- **Fact:** underruns happen only when the ring runs dry. Raising priority above about 0.5 s of PCM just steals from the UI and video (E2; `quirks.md` #41).
+- **Fact:** underruns happen only when the ring runs dry. Raising priority above about 0.5 s of PCM just steals from the UI and video (E2; `pp5022-reference/quirks.md` #85).
 - **Proposal:**
   - The codec stays at `PRIORITY_PLAYBACK`.
   - It steps to 8 only below 0.5 s of PCM, with hysteresis.

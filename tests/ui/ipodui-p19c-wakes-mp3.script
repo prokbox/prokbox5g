@@ -2,9 +2,9 @@
 # old HZ/20 poll on a full PCM buffer, "fullwait legacy") and after (the
 # low-watermark sleep, "fullwait on"), 20 s each with the panel asleep;
 # then the boundary into a FLAC well into the dark (a codec change, no
-# underrun). The default decodes on the CPU with MP3's synthesis inline
-# (pinned, owner 2026-10-24; host test tests/mpainline); the simulator
-# has one core. Read
+# underrun). The device decodes on the COP (owner 2026-11-07); the
+# simulator has one core, so no load is bound and MP3's synthesis runs
+# inline (host test tests/mpainline covers both paths). Read
 # the "sim_script: wakes" lines.
 #   sh tests/fixtures/p19c/make_p19c_fixtures.sh
 #   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p19c-wakes-mp3.script

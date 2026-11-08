@@ -203,7 +203,7 @@
 #define BENCH_HDR       32      /* header words (bcmfw/bench/bench.h) */
 #define BENCH_EW        8       /* words per timing entry */
 #define BENCH_VREC_W    12      /* words per vector check record (bench.h) */
-#define BENCH_MAX_V     64      /* sanity bound on the vector check count */
+#define BENCH_MAX_V     80      /* sanity bound on the vector check count (bench.h BENCH_MAX_VCASES) */
 #define BENCH_MAX_K     128     /* sanity bound on the kernel count */
 #define BENCH_TAG_ALU1  0x414C5531      /* the clock reference */
 #define BRF_TIMER_OK    0x1

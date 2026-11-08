@@ -924,6 +924,8 @@ static void sort_prefix(struct tagcache_context *ctx, struct rec *r, int group, 
         key_prefix(label_of(ctx, G_ALBUM, r->idx), &r->k1, &r->k2);
         break;
     case O_NEWEST:
+        /* newest first; equal mtimes fall to the title (cmp_tie's default),
+         * never to folder order */
         s = tagcache_ui_seeks_ctx(ctx, r->idx, NULL);  /* never queued: no block */
         r->k1 = ~(uint32_t)(s ? s[tag_mtime] : -1);
         r->k2 = 0;

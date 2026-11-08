@@ -159,6 +159,21 @@ Ordered roughly by how much they block someone programming the chip. Each says w
 
 76. **The first-use check's figures on silicon.** Unknown: whether it ends PASS with 30 sums (or INCONCLUSIVE `addr`, which would put the picture readback, not the unit, under suspicion), the port's real read cost for the planes (the model gives 0.8–1.2 s on a [estimate] of 0.5–1 µs a word), whether the check's polling needs a pause between `STATUS` calls (compare its `FEED` times with the play's), and which bands below 150 MHz hold on the owner's unit (the ladder is marked pending). *Settle:* the next sitting's first video play; `host-driver.md` §10.
 
+77. **Why the visualizer overlay's FFT start-up check fails on silicon.** [silicon] Sitting 4e: with `viz-ovl-m.bin` loaded, `bcmjob overlay ok … vpu=0x53` (session log `ipodui.log`): the merged image's 3 plus the overlay's `J_VPU_BARS` and `J_VPU_FLIP`, `J_VPU_FFT` clear. Sitting 4f (2026-11-05): the jvpu step's overlay line read "FFT 0, BARS 1, FLIP 1" (the owner's report). So the overlay loads and runs (question 74, in part), the vector bars agree with their C, and `viz_vpu_init` (`jv_fft256`/`jv_fft512` against `jviz_raw_ref_t` on the BCM) disagrees: `SPECTRUM` runs its C FFT on the BCM, about 4.2 ms a frame at 27 MHz [sim]. Unknown: whether the kernel (31 forms filed `guard`, never run on silicon: the V16 column stages, the vector-B accumulator chains, a stepped H16 A at `+r`, the REP 16 `vmulhd`) or the C (no golden on the chip) is wrong. A replacement kernel from proven forms only is designed in `docs/design/viz-fft-vc.md`.
+
+**Most likely a misread instruction, not the method** [sim, 2026-11-05; `viz-fft-vc.md` §6.7]:
+- Today's kernel (46 operand forms) passes its check in vc2sim under every alternative reading the simulator models that silicon hasn't refuted (36 of them).
+- It fails under each of five unmeasured readings, ranked:
+  1. `x15` with a vertical A operand: neither Apple's code nor our silicon has run it;
+  2. a V16 A stepping across a REP: [apple-RE] @103258 h264dec;
+  3. `acc` into a V16 D through `vmulhd`;
+  4. an H16 D's `+r` y: [apple-RE] 216 sites;
+  5. the REP 16 stepped `vmulhd`.
+- `J_VPU_BARS` passing in the same load rules out the overlay load, the stack, vector loads seeing scalar stores, and the REP 16 loads and stores.
+- The proposal uses none of the five.
+
+*Settle:* bench row VFFT. VF0 checks the C against Mac goldens, VF1 runs today's kernel, and VF2 runs the new kernel phase by phase. **VF3 probes each suspect alone** (VX15, VSTP, VACD, HDRY, HARY, MHDR), with the logged words expected under each reading listed in `viz-fft-vc.md` §10. Their words then go into `isa-vector.md` ("Open readings") and vc2sim.
+
 ## How to settle most of these
 
 A small test image that runs one instruction or register access per check, records the result in SRAM, and is read back by the host has answered every silicon question in this manual so far. Keep each check independent (its own inputs, a fresh fill pattern on its output), place a guard around low SRAM, and compare against a model that is itself checked against Apple's code.

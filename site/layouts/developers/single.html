@@ -1,0 +1,14 @@
+{{ define "main" }}
+<div class="doc with-nav">
+  {{ partial "dev-nav.html" . }}
+  <main id="main" class="article" data-pagefind-body>
+    <p class="crumb">{{ with .Parent }}<a href="{{ .RelPermalink }}">{{ .Title }}</a>{{ end }}</p>
+    <h1>{{ .Title }}</h1>
+    {{ if gt (len .TableOfContents) 40 }}
+    <details class="toc"><summary>On this page</summary>{{ .TableOfContents }}</details>
+    {{ end }}
+    {{ .Content }}
+    {{ partial "dev-prevnext.html" . }}
+  </main>
+</div>
+{{ end }}

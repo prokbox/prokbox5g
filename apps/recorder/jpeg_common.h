@@ -11,6 +11,7 @@
 *
 * File scrolling addition (C) 2005 Alexander Spyridakis
 * Copyright (C) 2004 Jörg Hohensohn aka [IDC]Dragon
+* Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
 * Heavily borrowed from the IJG implementation (C) Thomas G. Lane
 * Small & fast downscaling IDCT (C) 2002 by Guido Vollbeding  JPEGclub.org
 *

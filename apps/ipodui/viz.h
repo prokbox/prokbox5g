@@ -72,10 +72,39 @@ bool viz_start(void);
  * BCM's rect is handed back (FENCE waited), the backlight timeouts are
  * restored.  The arena memory stays until viz_forget(). */
 void viz_stop(void);
+/* The same, saying why for the view's "viz soak" line (sitting 4e: views
+ * of 5-9 s with no record of what closed them): "mode" (SELECT, the
+ * state machine), "style" (the style list), "dark", "leave" (Now Playing
+ * went), "tap" (the tap would not reopen) */
+void viz_stop_why(const char *why);
 /* Now Playing leaves: viz_stop(), and the arena pointer is dropped (the
  * stack resets the arena after leave()) */
 void viz_forget(void);
 bool viz_on(void);
+/* Day 4e: the views' "viz soak" figures summed since viz_soak_reset()
+ * (the bench's visualiser soak reads them on return): the views closed,
+ * their seconds, frames by who drew them, the overlay holds and the
+ * longest, and whether any view fell back to the CPU.  RAM only; the
+ * view and the bench both run on the shell's thread. */
+struct viz_soak
+{
+    uint32_t views;
+    uint32_t secs;
+    uint32_t bcm, cpu;
+    uint32_t holds;
+    uint32_t hold_max_ms;
+    bool fb;
+    /* sitting 4f: why the views closed (viz_stop_why()): those the
+     * screen going dark closed (the owner did not), and the last one's */
+    uint32_t dark;
+    const char *last_why;
+    /* the frames' cadence (sitting 4e's "Stuttered"): frames that came
+     * more than two periods after the last, and the longest gap */
+    uint32_t late;
+    uint32_t gap_max_ms;
+};
+void viz_soak_get(struct viz_soak *s);
+void viz_soak_reset(void);
 /* The view's background colour (RGB565, the dark theme), for Now
  * Playing's volume overlay over the bars */
 unsigned viz_bg(void);

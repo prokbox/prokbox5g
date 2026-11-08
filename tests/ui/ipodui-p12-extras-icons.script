@@ -1,9 +1,9 @@
 # P12 icons (owner, 2026-10-24): every Extras row shows its own art in the
-# split screen's panel, as on the 7G (owner photos 1191, photo 1196,
-# photo 1197, photo 1202): Clocks the map and clock, Calendars the page,
+# split screen's panel, as on the 7G (owner photos `extras-1`, photo `extras-calendars`,
+# photo `extras-menu-b`, photo `extras-stopwatch`): Clocks the map and clock, Calendars the page,
 # Contacts a contacts book, Alarms an alarm clock, Games a pair of dice,
 # Notes a note pad, Screen Lock a padlock, Stopwatch the dial. Then
-# Extras > Alarms, split like the 7G's (photo 1198), the alarm clock in the
+# Extras > Alarms, split like the 7G's (photo `extras-alarms`), the alarm clock in the
 # panel on every row (Create Alarm, Sleep Timer). Then Extras > Games,
 # split too (owner, 2026-10-24): each game's cover (box art) in the panel,
 # the test game the plain dice. A module build, so the Games row is

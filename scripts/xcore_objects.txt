@@ -7,7 +7,8 @@
 #   need  FILE:SYMBOL?     uncached where present; present in at least one
 #                          ELF of the run
 #   allow FILE:SYMBOL      a cached kernel-like name, proven single-core
-#                          (the reason after #)
+#                          (the reason after #); a function-local static
+#                          without GCC's ".N" (it renumbers: allow_key())
 #
 # FILE is the source file's basename as the symbol table names it (a file
 # #included into another, bcmjob-dev.c into lcd-video.c, takes the
@@ -38,6 +39,9 @@ need vplayer.c:ovl_done if *:lcd_fb_publish
 need vplayer.c:ovl_rect if *:lcd_fb_publish
 need vplayer.c:ovl_rc if *:lcd_fb_publish
 need vplayer.c:ovl_slide if *:lcd_fb_publish
+# day 4e: the last play's long-play record (the player's thread writes,
+# the bench's vlong step reads on the shell's core)
+need vplayer.c:prog if *:lcd_fb_publish
 need lcd-video.c:bcm_port_mtx if *:bcmjob_init
 need lcd-video.c:jd_req if *:bcmjob_init
 need lcd-video.c:jd_ack if *:bcmjob_init
@@ -82,8 +86,8 @@ need system-pp502x.c:cpufreq_cl
 allow *:pcf50605_wakeup_flags        # not a kernel object: a flags word
 allow ata-pp5020.c:dma_sem           # ATA DMA completion: storage thread and its IRQ, CPU only
 allow tagcache.c:command_queue       # not a kernel object: the tagcache command array (tagcache thread)
-allow tagcache.c:wakeup_tick.6       # not a kernel object: a tick stamp
-allow modload.c:done.1               # not a kernel object: rt_init_once()'s flag (UI thread)
+allow tagcache.c:wakeup_tick         # not a kernel object: do_timed_yield()'s tick stamp, CPU only (tagcache.c runs on CPU threads; the shell's tagcache_* calls, #154's tagcache_ui_save_spot too, cross by remote call; febe_reach_check.py reaches no tagcache.o code from the ui thread)
+allow modload.c:done                 # not a kernel object: rt_init_once()'s flag (UI thread)
 allow modload.c:work                 # not a kernel object: the module arena's working-block table (UI thread; module builds)
 allow iap-core.c:iap_queue           # the dock's iAP queue (stock, --dock30), CPU only: posted by its timeout (CPU tick), the serial IRQ, iap_reset_state (usb thread) and queue_broadcast (CPU threads; the shell's power/storage calls cross by remote call); read by the iap thread (IF_COP(, CPU)). Its stack and RX/TX buffers are the iap thread's and the serial IRQ's, CPU only too
 

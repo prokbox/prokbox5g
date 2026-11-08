@@ -38,6 +38,7 @@ Every fact carries one tag. A fact with two parts (a value and its meaning) may 
 |---|---|
 | **[silicon]** | Measured on a real PP5022 in an iPod Video 5.5G with our own code. Cited by session (`sources.md`). |
 | **[apple]** | Read from Apple's code (the flash boot ROM's bootloader, `osos`), statically. Says what Apple's code *does*; meanings attached to it are separately tagged. |
+| **[apple-RE]** | Same evidence class as [apple]; the tag used by the 2026-11 studies (`apple-power.md`, `apple-dual-core.md`) and `usb.md`. |
 | **[rockbox]** | From the Rockbox source tree or its tracker. Rockbox works on this hardware, so a value Rockbox writes is known to work; the *meaning* Rockbox gives it is only as good as its comment. |
 | **[external]** | Other public sources: the iPodLinux project, the siggifly emulator notes, freemyipod. Never redistributed; cited in `sources.md`. |
 | **[hypothesis]** | Our inference, not verified. Never promoted without new evidence. |
@@ -63,6 +64,11 @@ When silicon contradicts an earlier reading, the silicon result is stated and th
 | [`audio.md`](audio.md) | The I2S block, its FIFO formats, clocking, the WM8758 over I2C, the I2S bus shared with the BCM2722 |
 | [`input.md`](input.md) | The clickwheel controller's serial interface and packet, buttons, the hold switch, the click |
 | [`mac-and-dvs.md`](mac-and-dvs.md) | The brief's "integrated MAC" (the cores' multiplier), the PMU's regulator layout and formula candidates, Apple's PP5022 clock driver (125 MHz ceiling, speed grade, the 90 ns `DEV_TIMING1` rule), and the voltage and 100 MHz probes |
+| [`apple-power.md`](apple-power.md) | How Apple's firmware sleeps and saves power: the light sleep (SDRAM self-refresh, clock gating, regulator sleep modes), suspend-to-disk through the `hibe` slot, power-off, wake sources, the idle loop, an adopt list and a "meet or beat" table |
+| [`apple-power-catalog.md`](apple-power-catalog.md) | Every PP-side battery behaviour in Apple's firmware 1.3 (the clock governor, per-client disk lingers, display, block gating, USB on a charger, the codec, the PMU, inputs, 1.2.x → 1.3 changes), one row each against ProkBox, ranked by gain per effort, with bench test specs |
+| [`apple-disk.md`](apple-disk.md) | Apple's drive spin-up and spin-down (1.3 against 1.2.x): the 45 disk channels and their lingers, the play-time and rapid-skip pre-spins, write batching, the ATA commands and power sequences, recovery; against ProkBox, with the HDD and flash storage profiles and their tests |
+| [`apple-dual-core.md`](apple-dual-core.md) | How Apple split work between the CPU and the COP (mailbox semaphores, the queue doorbell, the COP work engine, IRAM overlays, shared memory), and a feature-by-feature comparison with ProkBox |
+| [`apple-cop-audio.md`](apple-cop-audio.md) | Apple's audio DMA interrupt step by step: a CPU FIQ, not the COP's; the mechanisms (per-core CPSR, routing, refill timing, device ownership), stop and sleep, why our P-1 probe read 0, alternatives and the retest |
 | [`quirks.md`](quirks.md) | Every gotcha in one list |
 | [`open-questions.md`](open-questions.md) | What is not known, and how each could be settled |
 | [`sources.md`](sources.md) | Bibliography and device sessions |

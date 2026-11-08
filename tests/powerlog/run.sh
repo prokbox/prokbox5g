@@ -48,7 +48,7 @@ if ! "$HOSTCC" -std=gnu99 -O1 -g -Wall -Wextra -Werror ${EXTRA_CFLAGS:-} \
     exit 1
 fi
 if "$TMP/test_powerlog"; then
-    echo "ok   power log (powerlog_core.c: ring, overflow, marks, CSV rows)"
+    echo "ok   power log (powerlog_core.c: ring, overflow, marks, CSV rows, usage totals)"
 else
     echo "FAIL: power log"
     exit 1

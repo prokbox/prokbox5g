@@ -200,6 +200,10 @@ void art_bcm_viz_serve(void);
  *  - art_bcm_viz_defer(): the art thread turned work away for it (a
  *    count; the first of a view traced "art bcm viz defer what=...") */
 void art_bcm_viz_view(bool open);
+/* The overlay piece buffer for the session (art_bcm.c): allocated once at
+ * the BCM's init (ui_main.c), before the audio buffer exists, so no
+ * overlay load ever takes memory from playing audio */
+void art_bcm_ovl_buf_init(void);
 bool art_bcm_viz_holds(void);
 void art_bcm_viz_defer(const char *what);
 /* The UI pass's time in BCM work (sitting 4c: the Now Playing counter

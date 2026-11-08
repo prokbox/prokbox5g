@@ -42,7 +42,8 @@ bool sim_cmd_extras(const char *cmd, char *argv[], int argc, int lineno)
         && strcmp(cmd, "rtc_at") && strcmp(cmd, "piezo_mark")
         && strcmp(cmd, "expect_piezo") && strcmp(cmd, "press_hold")
         && strcmp(cmd, "piezo_test") && strcmp(cmd, "sdk_bad")
-        && strcmp(cmd, "sdk_clear") && strcmp(cmd, "wheel_at"))
+        && strcmp(cmd, "sdk_clear") && strcmp(cmd, "wheel_at")
+        && strcmp(cmd, "sdk_devclock"))
         return false;
     fprintf(stderr, "sim_script:%d: %s unavailable\n", lineno, cmd);
     return true;
@@ -605,6 +606,16 @@ bool sim_cmd_extras(const char *cmd, char *argv[], int argc, int lineno)
     {
         sdk_sim_clear();
         fprintf(stderr, "sim_script: sdk_clear\n");
+        return true;
+    }
+    /* `sdk_devclock on|off`: games' code timed as on the 30 MHz device
+     * (sdk.c's device clock model, from the basic blocks it runs), so a
+     * slice the device would overrun is judged so here */
+    if (!strcmp(cmd, "sdk_devclock") && argc >= 2)
+    {
+        sdk_sim_devclock(!strcmp(argv[1], "on"));
+        fprintf(stderr, "sim_script: sdk_devclock %s\n",
+                sdk_sim_devclock_on() ? "on" : "off");
         return true;
     }
     if (!strcmp(cmd, "press_hold") && argc >= 4)

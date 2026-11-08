@@ -24,7 +24,7 @@
 /* Host test: the Phase 5 memory layout (apps/ipodui/np_layout.h: the
  * strip offsets under UI_STRIP_OWNER_NP and the "np" block) and the art
  * cache's fit rectangle for non-square Now Playing art (artfmt.h,
- * Revision 1 item 3; owner photo 1222). */
+ * Revision 1 item 3; owner photo `np-audiobook-volume-b`). */
 #include <stdio.h>
 #include <stdbool.h>
 #include "np_layout.h"

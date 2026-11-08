@@ -28,6 +28,8 @@ playlist_randomise
 playlist_sort
 playlist_reorder_ipodui
 playlist_reserve_ipodui
+playlist_play_video_ipodui
+playlist_end_video_ipodui
 playlist_save
 playlist_remove_all_tracks
 playlist_update_resume_info

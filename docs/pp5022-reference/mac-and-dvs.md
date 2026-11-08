@@ -91,7 +91,7 @@ That band, `0xEB`–`0xEE`, is the hard limit for every probe in §5. Settling t
 
 ### 2.4 Apple does not scale the PP5022's core voltage [apple]
 
-On the PP5022 path, Apple's power-state routine writes only LDO registers (`0x23`–`0x27`, for example the accessory supply `D2REGC1` = code 21, 3.0 V) and skips DCDC1. No other writer of register `0x1B` exists: the only routine that writes it is the one above, and its two callers are in that routine. **Apple ran the PP5022 at a fixed core voltage**, presumably the boot value `0xEC`, at every clock up to its speed grade. The brief's "system-enabled dynamic voltage scaling" was not used on the iPod Video.
+On the PP5022 path, Apple's power-state routine writes only LDO registers (`0x23`–`0x27`, for example code 21, 3.0 V, on LDO index 3, which on our PMU type is `D3REGC1` (`0x26`), not `D2REGC1`: corrected by `apple-power.md` §3.3) and skips DCDC1. No other writer of register `0x1B` exists: the only routine that writes it is the one above, and its two callers are in that routine. **Apple ran the PP5022 at a fixed core voltage**, presumably the boot value `0xEC`, at every clock up to its speed grade. The brief's "system-enabled dynamic voltage scaling" was not used on the iPod Video.
 
 ## 3. Clocks: what Apple's PP5022 driver reveals
 
@@ -114,7 +114,7 @@ Apple picks one of three clock-driver classes by the chip-ID byte (`PP_VER1[23:1
 
 ### 3.2 A speed grade in the strap register [apple]
 
-The PP5022 class's constructor reads `STRAP_OPT_A` (`0x7000_0008`) bits `[6:5]` and stores a maximum frequency: **0 → 133 MHz, 1 → 100 MHz, 2 → 80 MHz, 3 → 66 MHz** (`osos 0x101B_85A4`). The meaning "maximum rated clock of this die" is [hypothesis]. It is the natural reading of a per-chip field that becomes a frequency ceiling. Our unit's value is unknown. Reading it is the first gate for any 100 MHz test (§5.2).
+The PP5022 class's constructor reads `STRAP_OPT_A` (`0x7000_0008`) bits `[6:5]` and stores a maximum frequency: **0 → 133 MHz, 1 → 100 MHz, 2 → 80 MHz, 3 → 66 MHz** (`osos 0x101B_85A4`). The meaning "maximum rated clock of this die" is [hypothesis]. It is the natural reading of a per-chip field that becomes a frequency ceiling. Our unit's value **[silicon]** (sitting 4gh, 2026-11-06): `STRAP_OPT_A` = `0x003F_008C`, `[6:5]` = 0, **grade 0 (133 MHz in Apple's table)**; `STRAP_OPT_B` = `0x0000_EAFF`. The meaning stays [hypothesis]; the gate below (grade 0 or 1) is met. Reading it is the first gate for any 100 MHz test (§5.2).
 
 ### 3.3 Memory wait states follow a 90 ns rule [apple]
 
@@ -211,7 +211,7 @@ Goal: find any live register block that Apple's code does not use (the last plac
 |---|---|---|
 | Integrated MAC | The ARM7TDMI's long multiply-accumulate. No peripheral, no coprocessor in Apple's code. Rockbox already uses it | 5.1 (read-only) only to close the last gap |
 | `0x6000_3000` | An unmapped 4-register permutation table, probably bus arbitration | 5.2 readout; open question #34 |
-| Speed grade `STRAP_OPT_A[6:5]` | Apple reads a per-chip maximum of 66–133 MHz | 5.2 readout; open question #35 |
+| Speed grade `STRAP_OPT_A[6:5]` | Apple reads a per-chip maximum of 66–133 MHz; **ours reads grade 0 (133 MHz) [silicon, 4gh]** | the meaning: open question #35; 5.5 is no longer blocked by the grade |
 | PMU formula | Field layout solid. LDOs 0.9 + 0.1 × code (measured by Rockbox). Core converter 0.6 + 0.05 × code (A) favoured over 0.9 + 0.025 × code (B), low-to-medium confidence | 5.3, then a meter reading during 5.4 |
 | Core DVS | Not used by Apple on the PP5022. One step down is inside the brief's window under either formula | 5.4 with the owner's go |
 | 100 MHz | Apple's PP5022 driver allows 125 MHz, with `DEV_TIMING1` `0x0808` at 100 MHz | 5.5 with the owner's go, gated on the grade |

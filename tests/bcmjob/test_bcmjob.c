@@ -1158,6 +1158,65 @@ static void t_ring_full(void)
           "resync: the panel equals the CPU frame");
 }
 
+/* Sitting 4e: after a USB session the heartbeat and the LCD contract ran
+ * on but J_DONE froze with jobs queued; every wait timed out and the
+ * drift left the chip.  A J_DONE frozen past STALL_MS (4 s) is a wedged
+ * executor: our image starts again (no counted failure), the jobs come
+ * back on a new epoch.  The old driver only timed out, again and again */
+/* a FILL, then its fence: the fence's sequence, or 0 */
+static uint32_t fill_fence(void)
+{
+    uint32_t fill[4] = { J_SURF_FRONT, J_XY(0, 0), J_XY(8, 8), 0x1F }, seq;
+
+    if (bcmjob_submit(J_OP_FILL, 0, fill, 4) != BCMJOB_OK ||
+        bcmjob_fence(&seq) != BCMJOB_OK)
+        return 0;
+    return seq;
+}
+
+static void t_stall_restart(void)
+{
+    uint32_t seq, e0, k;
+
+    fresh();
+    restarts = 0;
+    CHECK(bcmjob_have(J_OP_FILL), "up");
+    e0 = bcmjob_epoch();
+    stalled = true;             /* alive, the ring not consumed */
+    seq = fill_fence();
+    CHECK(seq && bcmjob_wait(seq, 20) == BCMJOB_TIMEOUT, "first timeout");
+    CHECK(restarts == 0 && bcmjob_have(J_OP_FILL), "one timeout: kept");
+    CHECK(bcmjob_resync(0, 0, W, H) == BCMJOB_OK && restarts == 0,
+          "a resync soon after: forced, still kept");
+    now_us_ += 2000000;         /* 2 s on: under STALL_MS */
+    seq = fill_fence();
+    CHECK(seq && bcmjob_wait(seq, 20) == BCMJOB_TIMEOUT && restarts == 0,
+          "2 s frozen: kept");
+    CHECK(!bcmjob_have(J_OP_FILL), "FILL marked slow by the wedge (twice)");
+    now_us_ += 3000000;         /* the drift's next resync, 5 s frozen */
+    CHECK(bcmjob_resync(0, 0, W, H) == BCMJOB_OK, "5 s frozen: resync");
+    CHECK(restarts == 1, "restarted (%u)", restarts);
+    CHECK(logged("bcmjob stall ms=") && logged("bcmjob restart why=stall n=1"),
+          "the stall's record and the restart logged");
+    CHECK(!logged("bcmjob fault op=0x00 why=stall"), "not a counted failure");
+    CHECK(bcmjob_have(J_OP_FILL) && bjc_state() != 3,
+          "jobs on again, FILL's wedge marks forgiven");
+    CHECK(bcmjob_epoch() > e0, "a new epoch");
+    seq = fill_fence();
+    CHECK(seq && bcmjob_wait(seq, 500) == BCMJOB_OK, "the new ring runs");
+    /* a slow job that recovers is never a stall: J_DONE moves */
+    for (k = 0; k < 2; k++)     /* (a third: FILL marked slow) */
+    {
+        slow_until = now_us_ + 100000;
+        seq = fill_fence();
+        CHECK(seq != 0, "fence");
+        (void)bcmjob_wait(seq, 5);
+        now_us_ += 3000000;
+    }
+    slow_until = 0;
+    CHECK(restarts == 1, "slow but moving: no restart (%u)", restarts);
+}
+
 static void t_dead_twice(void)
 {
     uint32_t seq;
@@ -4462,6 +4521,7 @@ int main(void)
     t_death_mid_slide();
     t_ring_full();
     t_dead_twice();
+    t_stall_restart();
     t_slow();
     t_dark_hour();
     t_requests();

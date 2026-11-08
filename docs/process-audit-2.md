@@ -2,7 +2,7 @@
 
 Date: 2026-10-07. Scope: where wall-clock time and agent tokens went in Phase 4 (old process) and Phase 4b (the `docs/process.md` lifecycle adopted after audit #1), and what to change next. The goal is unchanged: **less time and fewer tokens for the same or higher fidelity.**
 
-Sources: `docs/process.md`, `CLAUDE.md`, `docs/ROADMAP.md`, the Phase 4, 4b and nav briefs, `git log` for `eab82807b1..df20b24cad`, Forgejo #3, #24, #38, #41, #42, `scripts/validate.sh`, `scripts/shots.sh`, `.claude/agents/*`, and orchestrator figures (not in the repo).
+Sources: `docs/process.md`, `CLAUDE.md`, `docs/ROADMAP.md`, the Phase 4, 4b and nav briefs, `git log` for `eab82807b1..df20b24cad`, tracker issues #3, #24, #38, #41, #42, `scripts/validate.sh`, `scripts/shots.sh`, `.claude/agents/*`, and orchestrator figures (not in the repo).
 
 ## 1. What the new process fixed
 

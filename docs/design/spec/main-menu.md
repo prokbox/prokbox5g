@@ -11,7 +11,7 @@
     2. **Fixed → slideshow:** the slideshow **slides back in from the right** over the fixed panel, which stays put.
     3. **Slideshow → slideshow of another image group** (Music ↔ Audiobooks): a **cross-fade** to the target's current cover (kept in the second slot when present), then that drift continues.
     4. **Fixed → fixed:** the cross-fade, unchanged. Rows of the **same** slideshow: no transition, the drift just continues.
-    - ≈200 ms (`UI_PANEL_SLIDE_TICKS`), quadratic ease-out; the moving image carries its split shadow at its left edge (as the parting's panel does), the panel underneath keeps its own at the seam. A fast spin retargets to the newest row, as the cross-fade does. `UI_PANEL_SLIDE 0` (preview.c) restores the cross-fade everywhere. *(Was "≈0.5 s, switches in place", from `photo 1190.mov`.)*
+    - ≈200 ms (`UI_PANEL_SLIDE_TICKS`), quadratic ease-out; the moving image carries its split shadow at its left edge (as the parting's panel does), the panel underneath keeps its own at the seam. A fast spin retargets to the newest row, as the cross-fade does. `UI_PANEL_SLIDE 0` (preview.c) restores the cross-fade everywhere. *(Was "≈0.5 s, switches in place", from `mov-main-menu`.)*
   - **Art drift (Music and the other art panels; ✅ owner video `VIDEO-2.md` §C, 10.5–31.4 s):**
     - Each cover **dwells ≈7 s** (6.8 and 7.3 s measured), then **cross-fades (≈400 ms)** to the next cover. The next cover starts at its own new framing.
     - During the dwell the cover **pans linearly at ≈5–8 px/s**, in a direction that changes per cover (seen: left; right+down; up), with **at most ≈5 % zoom** over the dwell. There is no ease at the ends.
@@ -22,7 +22,8 @@
 ## Menu trees
 
 - **Main:** Music, Videos\*, Photos\*, Podcasts, Extras, Settings, Shuffle Songs, Now Playing (only while something is playing).
-  - \* Video and photo playback is not planned. These items are hidden unless that changes. *Photo shows* stock 2.0.5 keeps Videos and Photos in the main menu even with nothing synced (Videos panel "No Videos", video frame `mov-main-panel-videos.jpg`); owner to decide.
+  - Now Playing is only ever **audio** (music, audiobooks, audio podcasts; owner, 2026-11-06, #154): a video never shows as the row or behind it. After a video, the row stays hidden until PLAY resumes the music where it stopped.
+  - \* Videos is back (Phase 14a; see [videos.md](videos.md)). Photos is still hidden until its own phase. *Photo shows* stock 2.0.5 keeps Videos and Photos in the main menu even with nothing synced (Videos panel "No Videos", video frame `mov-main-panel-videos.jpg`); owner to decide.
   - Items added via Settings › Main Menu take fixed slots (Audiobooks after Music, Alarms after Extras).
 
 - **Split-screen depth (owner, 2026-10-09):** the left list panel casts a **soft shadow onto the right art panel**, as if the list were a window floating above a backdrop. Draw a soft vertical shadow a few px wide, falling from the list's right edge onto the panel. Pre-render it as a per-column alpha table (lean rules 1 and 2) and apply it on every panel draw, including drift, cross-fades and the Settings tiles. Measure its width and strength from owner photos at polish time. **Set (owner, 2026-10-20, after the 8b-3 shots): 10 px, 36 % black at the seam, quadratic falloff** (`art/materials.py`; was 6 px at 30 %).

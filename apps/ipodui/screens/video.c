@@ -28,8 +28,17 @@
  * HAVE_BCMFW_VIDEO (apps/SOURCES).
  *
  * Start: vplayer_start(path) FIRST (its core_alloc would shrink the audio
- * buffer if taken after), then the audio as a one-item playlist at the
- * resume position, then this screen.
+ * buffer if taken after), then the audio as a one-item video queue at the
+ * file's own resume position (playlist_play_video_ipodui(), #154), then
+ * this screen.
+ *
+ * Audio only (#154, owner 2026-11-06): Play, the resume point and Now
+ * Playing are only ever audio. The video queue leaves the audio queue's
+ * control file and spot alone, and every way off this screen (MENU, hold
+ * MENU, the end, a failure, another screen pushed over it) ends the
+ * session: picture and sound stop together, never playing on behind the
+ * menus, and PLAY then resumes the music where it stopped. A video starts
+ * and resumes only from the Videos lists, at its own database spot.
  *
  * Failure (owner, 2026-10-13, overriding CLAUDE.md rule 1's "logged, not
  * shown" for this case): a video that can't play fails entirely. The
@@ -47,7 +56,9 @@
  * pushes are suspended and the player sets the backlight itself. The tick
  * (every HZ/10) only polls vplayer_info() and the audio status.
  *
- *   PLAY          audio_pause() / audio_resume(); the player follows.
+ *   PLAY          audio_pause() / audio_resume(); the player follows. A
+ *                 pause writes the file's spot (spot_tick(), #154), so
+ *                 it survives any power-off.
  *   strip         slides up from the bottom when the first picture comes,
  *                 on PLAY, a chapter tap, a held NEXT/PREV and a finger
  *                 set on the wheel (the driver's touch count, polled by
@@ -65,8 +76,9 @@
  *                 NEXT ends the video. Held: rw / ff on the shell's curve
  *                 (ui_seek_span_ms), the strip's diamond running; the
  *                 release lands it.
- *   MENU          vplayer_stop(), audio_stop() (the resume point is kept
- *                 by the track-finish handler), back to the list.
+ *   MENU          video_end(): the player and the sound stop (the file's
+ *                 spot is kept by the track-finish handler), back to the
+ *                 list.
  *
  * The overlay: while the video owns the panel, lcd_update() reaches
  * nothing, so the strip is drawn into the frame and handed to the image
@@ -150,6 +162,8 @@ static struct {
     unsigned long hold_from;    /* elapsed ms at the hold */
     long shown_sec;             /* the second the strip's times show */
     int shown_px;               /* the bar's fill the strip shows */
+    bool spot_kept;             /* this pause's spot is written (#154) */
+    long spot_at;               /* paused: the spot is written after this */
 #ifdef SIMULATOR
     short sim_fail;             /* tests: a fail_why to fake, 0 none */
 #endif
@@ -304,9 +318,8 @@ static void verr_page(struct ui_screen *s)
  * is forgotten, and this screen becomes the prompt (a push slide). */
 static void verr_show(struct ui_screen *s, int e)
 {
-    video_end();
-    audio_stop();
-    playlist_update_resume_info(NULL);  /* no Now Playing row for it */
+    video_end();        /* stopped: no Now Playing row for it, and the
+                           audio queue's spot stays (#154) */
     vs.err = e;
     verr_page(s);
     ui_restage();
@@ -471,10 +484,9 @@ static bool strip_up(void)
 static void video_end(void)
 {
     if (vs.owned)
-    {
         vplayer_stop();
-        vs.owned = false;
-    }
+    playlist_end_video_ipodui();    /* its sound stops with it (#154) */
+    vs.owned = false;               /* after: no Now Playing row for it */
     if (vs.strip != ST_NONE)
     {
         /* the strip lives in the shell's own frame too (the image only
@@ -488,6 +500,11 @@ static void video_end(void)
         lcd_set_drawmode(DRMODE_SOLID);
         vs.strip = ST_NONE;
     }
+}
+
+bool ui_video_session(void)
+{
+    return vs.owned;
 }
 
 /* Chapter skip over playback's table. 1: done; 0: nothing to skip to (no
@@ -514,8 +531,44 @@ static int chapter_skip(int dir)
     return 1;
 }
 
+/* #154 (owner, 2026-11-06): a paused video keeps its place through any
+ * power-off (idle, sleep timer, low battery, a reboot) and the battery
+ * dying, with no shutdown path at all. Half a second into a pause (PLAY,
+ * or any other pause: a quick toggle writes nothing), its spot is written
+ * once: one journal append, forced (the drive is usually still awake
+ * from the picture's reads; on a hard disk it may spin up). A seek while paused owes it again. Playing, nothing is written;
+ * every stop writes the spot through the track-finish event as before. */
+static void spot_owe(void)
+{
+    vs.spot_kept = false;
+    vs.spot_at = 0;
+}
+
+static void spot_tick(void)
+{
+    if (!vs.paused)
+    {
+        spot_owe();
+        return;
+    }
+    if (vs.spot_kept || vs.hold_dir || vs.seek_due)
+        return;
+    if (!vs.spot_at)
+        vs.spot_at = current_tick + HZ / 2;
+    else if (TIME_AFTER(current_tick, vs.spot_at))
+    {
+        struct mp3entry *id3 = audio_current_track();
+        bool ok = tagcache_ui_save_spot(id3);
+
+        vs.spot_kept = true;    /* once: under 3 s, nothing to keep */
+        UPDATE_TRACE("video paused: spot %lu ms kept=%d",
+                     id3 ? (unsigned long)id3->elapsed : 0UL, (int)ok);
+    }
+}
+
 static void skip_key(int dir)
 {
+    spot_owe();
     if (chapter_skip(dir))
         return;
     if (dir < 0)
@@ -573,6 +626,7 @@ static void hold_land(void)
     UPDATE_TRACE("video hold %s to %lu ms", vs.hold_dir > 0 ? "fwd" : "back",
                  pos);
     vs.hold_dir = 0;
+    spot_owe();
     audio_ff_rewind(pos);
     vplayer_seek(pos);
     vs.ov_until = current_tick + OV_SHOW;
@@ -582,6 +636,7 @@ static void hold_land(void)
 static void scrub_apply(void)
 {
     vs.seek_due = false;
+    spot_owe();
     if (np_pb_seek(vs.scrub_ms, np_pb_seq()))
         vplayer_seek(vs.scrub_ms);
 }
@@ -606,6 +661,7 @@ void ui_video_play(const char *path, int tc_idx)
 
         elapsed = e > 0 ? (unsigned long)e : 0;
         offset = (e > 0 && o > 0) ? (unsigned long)o : 0;
+        UPDATE_TRACE("video resume idx=%d e=%ld o=%ld", tc_idx, e, o);
     }
     /* the player's block and its index build must not run under other
      * audio (a core_alloc while playing shrinks the buffer: a gap, a
@@ -629,10 +685,13 @@ void ui_video_play(const char *path, int tc_idx)
             vs.err = VE_NONE;
         return;
     }
-    playlist_create(NULL, NULL);
-    playlist_insert_track(NULL, path, PLAYLIST_INSERT_LAST, false, true);
-    playlist_start(0, elapsed, offset);
     vs.owned = true;
+    if (playlist_play_video_ipodui(path, elapsed, offset) < 0)
+    {
+        video_end();                        /* logged; nothing plays */
+        audio_buffer_regrow();
+        return;
+    }
     vs.start = current_tick;
 #ifdef SIMULATOR
     {
@@ -654,11 +713,8 @@ void ui_video_play(const char *path, int tc_idx)
     if (elapsed)
         vplayer_seek(elapsed);
     if (ui_push(&video_ops, NULL) < 0)
-    {
-        video_end();                        /* fail entirely: no picture, */
-        audio_stop();                       /* no sound */
-        playlist_update_resume_info(NULL);
-    }
+        video_end();                        /* fail entirely: no picture,
+                                               no sound */
 }
 
 /* -- the screen ---------------------------------------------------------- */
@@ -689,7 +745,21 @@ static void video_leave(struct ui_screen *s)
     if (vs.hold_dir)
         hold_land();
     video_end();                        /* hold MENU, a failure, the end */
+    UPDATE_TRACE("video leave audio=%d", audio_status());   /* 0: #154 */
     vs.err = VE_NONE;
+}
+
+/* Another screen came over this one (the USB screen, an alarm, the
+ * developer combo, ...): the session ends as on MENU; back on top, the
+ * tick sees nothing owned and pops to the list (#154) */
+static void video_covered(struct ui_screen *s)
+{
+    (void)s;
+    if (vs.err || !vs.owned)
+        return;
+    UPDATE_TRACE("video covered: session ends audio=%d", audio_status());
+    vs.hold_dir = 0;
+    video_end();
 }
 
 static void video_draw(struct ui_screen *s, unsigned dirty)
@@ -748,8 +818,7 @@ static enum ui_result video_input(struct ui_screen *s,
         case UI_KEY_MENU:
             if (!in->release || in->long_press)
                 return UI_HANDLED;      /* hold MENU: the shell's */
-            video_end();
-            audio_stop();               /* the resume point is kept */
+            video_end();                /* the file's spot is kept */
             return UI_POP;
         case UI_KEY_PLAY:
             if (!in->release || in->long_press)
@@ -867,6 +936,7 @@ static int video_tick(struct ui_screen *s)
     if (st & AUDIO_STATUS_PLAY)
         vs.seen_play = true;
     vs.paused = (st & AUDIO_STATUS_PAUSE) != 0;
+    spot_tick();
     if (vplayer_info(&vi))
     {
 #ifdef SIMULATOR
@@ -952,4 +1022,5 @@ static const struct ui_screen_ops video_ops = {
     .input   = video_input,
     .timeout = video_timeout,
     .tick    = video_tick,
+    .covered = video_covered,
 };

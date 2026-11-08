@@ -50,8 +50,10 @@
  * whose keys sort differently rebuilds the database (play counts and
  * resume points come back through the changelog). Bump it whenever
  * ui_sortkey() output changes: tests/ipodui/test_sortkey_version.c fails
- * until the version and the corpus hash stored there are updated. 1..95. */
-#define SORTKEY_VERSION 1
+ * until the version and the corpus hash stored there are updated. Bump it
+ * too when the class flags stored at scan time change meaning (2: #146,
+ * books by genre and folder, ipodui/bookclass.h). 1..95. */
+#define SORTKEY_VERSION 2
 
 /* Fills 'key' with a collation key for 'name': lower-cased, accents folded
  * (é->e), leading "the " removed, the "#" group (digits/symbols) after 'z'.

@@ -122,11 +122,11 @@ Reset pulse idiom: `DEV_RS |= bit; DEV_RS &= ~bit` (optionally with a few µs be
 | `0x7000_0010` | `DEV_INIT1` | pin-mux/peripheral init: bit 18 `INIT_BUTTONS`; bits `[25:24]` cleared for I2S; bits `[3:2]` cleared for the piezo | [rockbox] |
 | `0x7000_0018` | – | bits `[3:2]` cleared = "external device clock 24 MHz" (audio) | [rockbox] `wmcodec-pp.c` |
 | `0x7000_0020` | `DEV_INIT2` | bit 30 `INIT_PLL` (PLL power), bit 31 `INIT_USB`, bits `[9:8]` cleared = normal CDI/I2S pin groups | [rockbox] |
-| `0x7000_0028` | – | USB PHY status/control: bit 7 polled ready, bit 1 set (`usb.md`) | [rockbox] |
+| `0x7000_0028` | – | USB PHY status/control: bit 7 polled ready, bit 1 set (`usb.md`) [rockbox]. Apple reads bit 2 as "cable or session present" before sleeping, and suspends the PHY by pulsing bit 16, waiting for bit 7 to clear and setting bits 8–9 (`apple-power.md` §2.2) [apple-RE]; the meanings are [hypothesis] | [rockbox]; [apple-RE] |
 | `0x7000_002C` | – | bits `[25:24]` set to enable the USB module | [rockbox] |
 | `0x7000_0034` | `DEV_TIMING1` | `0x0303` below 66 MHz, `0x0808` at 80 MHz (wait states; `clocks-power.md`) | [rockbox] |
 | `0x7000_0038` | `XMB_NOR_CFG` | name only | [rockbox] |
-| `0x7000_003C` | `XMB_RAM_CFG` | `|= 0x47A` during USB init | [rockbox] |
+| `0x7000_003C` | `XMB_RAM_CFG` | `|= 0x47A` during USB init [rockbox]. Apple's light sleep sets bit 22 and waits for bit 30 to set, then reverses it at wake (a self-refresh request and acknowledge [hypothesis]; `apple-power.md` §2.3) [apple-RE] | [rockbox]; [apple-RE] |
 | `0x7000_0040` | – | `0x1313` written before the BCM bootstrap | [rockbox] `lcd-video.c` |
 | `0x7000_008C` | – | bits `0x0C` cleared to route the dock UART | [rockbox] `uart-pp.c` |
 
@@ -152,6 +152,20 @@ A simple byte-oriented master that moves **1 to 4 bytes per transaction**. [rock
 Rockbox never sees a NAK or error indication; only a busy timeout (1 s) is detected. Bus speed is unknown.
 
 **Gotcha:** the wheel interface (`input.md`) raises the same interrupt line as I2C (source 40); Rockbox's I2C driver polls and never enables that interrupt for itself.
+
+### 6.1 The data registers' layout
+
+Rockbox's `i2c-pp.c` writes the data bytes one by one, with byte stores at `0x7000_C00C`, `C010`, `C014` and `C018`. Apple's boot driver packs them into one word store at `0x7000_C00C` [apple-RE]. Both drive the bus correctly on this unit [silicon: every boot, both firmwares].
+
+**A byte read at `0x7000_C00D` data-aborts** [silicon, sitting 4gh-b7, 2026-11-07]. A developer bench row read the registers with the driver's lock held and the controller idle.
+- The fault was a byte read at `C00D`: byte lane 1 of the first data word.
+- These had completed just before it without a fault: byte reads at the lane-0 addresses `C00C`, `C010`, `C014` and `C018`, a word store of `0x44332211` at `C00C`, and a byte read at `C00C`.
+
+So the bytes at `C010`–`C018` are not the byte lanes of one 32-bit register at `C00C`. The data registers are 8 bits wide on a 4-byte stride, and only lane 0 decodes. Lanes 2–3 and the upper lanes of `C010`–`C018` are untested, but presumably fault the same way [hypothesis]. Quirk 91.
+
+**A word store most likely fans out to the four byte registers** [apple-RE, emulator trace]. The video5g emulator traced Apple's 1.3 boot: every WM8758 register write was a 2-byte transfer from one word store at `C00C`, with no store to `C010` (45 sends). Those writes work on silicon, so the word's second byte must reach the second register. Confirming it takes one lane-0 byte read at `C010` after a word store: a bench row for a later sitting.
+
+Keep Rockbox's lane-0 byte stores.
 
 ### Devices on the bus (iPod Video)
 

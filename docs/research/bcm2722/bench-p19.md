@@ -1172,18 +1172,25 @@ Generated from `apps/ipodui/devbench.c`, `devbench_power.c` and `devbench.h` by 
 Which session?
 
 Full session: every check,
-about 87 min. The first time
+about 101 min. The first time
 on a build.
 Re-verify the video image:
-about 18 min, for a new video
+about 81 min, for a new video
 image after a full session.
 Port write check: about 3 min.
+Core layout probe: about 15
+min, mostly hands off.
+Chip update checks: about 63
+min, before the re-verify on a
+new video image.
 
 Pick with SELECT. MENU:
 cancel.
 ( ) Full session
 ( ) Re-verify the video image
 ( ) Port write check
+( ) Core layout probe
+( ) Chip update checks
 ```
 
 If a session is open, this comes first instead:
@@ -1207,11 +1214,13 @@ Cancel (or MENU): leave.
 
 ("Go on: <step>" replaces the first answer when a step you left, or the restart, is waiting for its question.)
 
-### Full session: 48 steps, about 87 min
+### Full session: 59 steps: about 79 min of your time, plus about 22 min hands-off
 
 ```
 [Bench session]
-48 steps, about 87 min.
+59 steps: about 79 min of your
+time, plus about 22 min
+hands-off.
 Wave 2 at the end only if you
 say yes there: about 15 min
 more.
@@ -1240,9 +1249,9 @@ Scroll here, SELECT: start
 
 | # | Step | Kind | Time | Question |
 |---|---|---|---|---|
-| 1 | `s05` Test pictures | watched | ~5 min | Did the test pictures look right? |
-| 2 | `s4b` Fast clock check | hands off | ~3 min | — |
-| 3 | `s4c` Fast clock pictures | watched | ~1 min | Did the 3 pictures look right? |
+| 1 | `s05` Test pictures | watched | ~4 min | Did the test pictures look right? |
+| 2 | `s4b` Fast clock check | hands off | ~5 s | — |
+| 3 | `s4c` Fast clock pictures | watched | ~32 s | Did the 3 pictures look right? |
 | 4 | `c1` Second core check | hands off | ~2 min | — |
 | 5 | `c2` COP row C2 | hands off | ~1 min | — |
 | 6 | `c3` COP row C3 | hands off | ~1 min | — |
@@ -1252,50 +1261,61 @@ Scroll here, SELECT: start
 | 10 | `pw2` Probe PW2 | hands off | ~2 min | — |
 | 11 | `pw7` Probe PW7 | hands off | ~2 min | — |
 | 12 | `pw8` Probe PW8 | hands off | ~2 min | — |
-| 13 | `jobs` Chip self-test | hands off | ~30 s | — |
-| 14 | `jvpu` Chip maths check | hands off | ~30 s | — |
+| 13 | `jobs` Chip self-test | hands off | ~1 s | — |
+| 14 | `jvpu` Chip maths check | hands off | ~1 s | — |
 | 15 | `port` Port speed | hands off | ~10 s | — |
 | 16 | `pb2` Probe PB-2 | watched | ~5 min | — |
 | 17 | `pb3` Probe PB-3 | watched | ~1 min | — |
-| 18 | `s6` Test clips | watched | ~1 min | How did the clips play? |
+| 18 | `s6` Test clips | watched | ~43 s | How did the clips play? |
 | 19 | `s7` Video controls | watched | ~3 min | The test closes and reopens the video a few times. Did it come back and keep playing each time? |
 | 20 | `vfeed` Video pace | watched | ~2 min | How did the two videos play? |
 | 21 | `vbv` Clock bands | watched | ~2 min | Did any play show a garbled picture? |
 | 22 | `vgov` Clock governor | watched | ~4 min | Did the clips keep playing smoothly, after each jump and pause too? |
-| 23 | `b13` Program swap | watched | ~1 min | Did it blink, blank or flicker before the last dark moment? |
-| 24 | `b5` Window test | watched | ~45 s | Was the white frame straight and whole? |
-| 25 | `cr1` COMMIT readback | hands off | ~2 min | — |
-| 26 | `boot` Display program | watched | ~1 min | — |
-| 27 | `rstat` Driver status | hands off | ~30 s | — |
-| 28 | `jobs2` Chip self-test | hands off | ~30 s | — |
-| 29 | `jvpu2` Chip maths check | hands off | ~30 s | — |
-| 30 | `slp` Chip idle sleep | watched | ~2 min | Did the screen stay right? |
-| 31 | `lvl5` Chip core level 5 | watched | ~2 min | Did the screen stay right? |
-| 32 | `lit24` Lit clock 24 MHz | watched | ~2 min | — |
-| 33 | `lit24ui` Menus at 24 MHz | watched | ~3 min | Did the menus stay smooth at 24 MHz? |
-| 34 | `ucop` Screens on second core | watched | ~30 s | — |
-| 35 | `uck1` Clicks, music stopped | done outside the session | ~1 min | Besides the clicks, did you hear a tone or hum? |
-| 36 | `uck2` Clicks with music | done outside the session | ~1 min | Did the music glitch, pop or crackle while you scrolled? |
-| 37 | `ufeel` Scrolling feel | done outside the session | ~1 min | Compared with the normal UI, scrolling felt: |
-| 38 | `upanel` Panel keeping up | done outside the session | ~45 s | Did the right-hand panel keep up with the highlighted row? |
-| 39 | `ucop2` Second core, everyday use | watched | ~3 min | How did the iPod feel on the second core? |
-| 40 | `b3` Drift on the chip | done outside the session | ~3 min | Did the covers drift smoothly? |
-| 41 | `uviz` Visualiser on the chip | done outside the session | ~2 min | How did the visualiser look? |
-| 42 | `respanel` Cover on the chip | done outside the session | ~2 min | How did the album cover look? |
-| 43 | `b3ab` Drift A/B | done outside the session | ~12 min | Did both halves run to the end? |
-| 44 | `drill1` Drill: restart | done outside the session | ~2 min | Did the screen recover? |
-| 45 | `drill2` Drill: job failure | watched | ~2 min | What showed after it? |
-| 46 | `drill3` Drill: backlight | done outside the session | ~2 min | Did the drift resume cleanly? |
-| 47 | `scroll` Scroll over drift | done outside the session | ~1 min | Was the scroll smooth? |
-| 48 | `wave2` Wave 2 | go question | ~10 s | Run wave 2: TV out, voltage, hibernate? Some need the AV cable and a TV; each has its own screens. |
-| 49 | `pb6` Probe PB-6 | wave 2 (its own screens) | ~1 min | — |
-| 50 | `pb7` Probe PB-7 | wave 2 (its own screens) | ~30 s | — |
-| 51 | `pb8` Probe PB-8 | wave 2 (its own screens) | ~2 min | — |
-| 52 | `pb9` Probe PB-9 | wave 2 (its own screens) | ~2 min | — |
-| 53 | `pw3` Probe PW3 | wave 2 (its own screens) | ~2 min | — |
-| 54 | `pw4` Probe PW4 | wave 2 (its own screens) | ~3 min | — |
-| 55 | `pw5` Probe PW5 | wave 2 (its own screens) | ~3 min | — |
-| 56 | `pw6` Probe PW6 | wave 2 (its own screens) | ~1 min | — |
+| 23 | `clc` Music and screens, A | watched | ~3 min | Did the music play without a break the whole time? |
+| 24 | `clf` Music and screens, B | watched | ~3 min | Did the music play without a break the whole time? |
+| 25 | `b13` Program swap | watched | ~8 s | Did it blink, blank or flicker before the last dark moment? |
+| 26 | `b5` Window test | watched | ~9 s | Was the white frame straight and whole? |
+| 27 | `cr1` COMMIT readback | hands off | ~2 min | — |
+| 28 | `boot` Display program | watched | ~1 min | — |
+| 29 | `rstat` Driver status | hands off | ~30 s | — |
+| 30 | `jobs2` Chip self-test | hands off | ~30 s | — |
+| 31 | `jvpu2` Chip maths check | hands off | ~30 s | — |
+| 32 | `slp` Chip idle sleep | watched | ~2 min | Did the screen stay right? |
+| 33 | `lvl5` Chip core level 5 | watched | ~2 min | Did the screen stay right? |
+| 34 | `lit24` Lit clock 24 MHz | watched | ~2 min | — |
+| 35 | `lit24ui` Menus at 24 MHz | watched | ~3 min | Did the menus stay smooth at 24 MHz? |
+| 36 | `s1` Chip sleeps when idle | watched | ~2 min | Did the screen stay right? |
+| 37 | `l5` Chip low core level | watched | ~2 min | Did the screen stay right? |
+| 38 | `ck` Chip block clocks | watched | ~3 min | Did the screen stay right? |
+| 39 | `vs` Video with chip sleep | watched | ~6 min | Did any play show a garbled picture? |
+| 40 | `sd` Chip memory idle | watched | ~1 min | — |
+| 41 | `ucop` Screens on second core | watched | ~2 min | — |
+| 42 | `uck1` Clicks, music stopped | done outside the session | ~1 min | Besides the clicks, did you hear a tone or hum? |
+| 43 | `uck2` Clicks with music | done outside the session | ~1 min | Did the music glitch, pop or crackle while you scrolled? |
+| 44 | `ufeel` Scrolling feel | done outside the session | ~1 min | Compared with the normal UI, scrolling felt: |
+| 45 | `upanel` Panel keeping up | done outside the session | ~45 s | Did the right-hand panel keep up with the highlighted row? |
+| 46 | `ucusb` USB on second core | done outside the session | ~2 min | How did USB go? |
+| 47 | `ucmod` Notes on second core | done outside the session | ~45 s | Did Notes (or Alarms) open and close normally? |
+| 48 | `ucop2` Second core, everyday use | watched | ~3 min | How did the iPod feel on the second core? |
+| 49 | `ucoff` Power off on second core | done outside the session | ~1 min | Did the iPod turn off and start again normally? |
+| 50 | `b3` Drift on the chip | done outside the session | ~3 min | Did the covers drift smoothly? |
+| 51 | `uviz` Visualiser on the chip | watched | ~3 min | How did the visualiser look? |
+| 52 | `vf0` Visualiser maths check | hands off | ~1 s | — |
+| 53 | `respanel` Cover on the chip | done outside the session | ~2 min | How did the album cover look? |
+| 54 | `b3ab` Drift A/B | done outside the session | ~12 min | Did both halves run to the end? |
+| 55 | `drill1` Drill: restart | done outside the session | ~2 min | Did the screen recover? |
+| 56 | `drill2` Drill: job failure | watched | ~2 min | What showed after it? |
+| 57 | `drill3` Drill: backlight | done outside the session | ~2 min | Did the drift resume cleanly? |
+| 58 | `scroll` Scroll over drift | done outside the session | ~1 min | Was the scroll smooth? |
+| 59 | `wave2` Wave 2 | go question | ~10 s | Run wave 2: TV out, voltage, hibernate? Some need the AV cable and a TV; each has its own screens. |
+| 60 | `pb6` Probe PB-6 | wave 2 (its own screens) | ~1 min | — |
+| 61 | `pb7` Probe PB-7 | wave 2 (its own screens) | ~30 s | — |
+| 62 | `pb8` Probe PB-8 | wave 2 (its own screens) | ~2 min | — |
+| 63 | `pb9` Probe PB-9 | wave 2 (its own screens) | ~2 min | — |
+| 64 | `pw3` Probe PW3 | wave 2 (its own screens) | ~2 min | — |
+| 65 | `pw4` Probe PW4 | wave 2 (its own screens) | ~3 min | — |
+| 66 | `pw5` Probe PW5 | wave 2 (its own screens) | ~3 min | — |
+| 67 | `pw6` Probe PW6 | wave 2 (its own screens) | ~1 min | — |
 
 The screens between steps, in this run:
 
@@ -1303,7 +1323,7 @@ Before `s4b`:
 
 ```
 [Hands off now]
-Automatic checks next, about 3
+Automatic checks next, about 1
 min. Put the iPod down: no
 buttons are needed.
 
@@ -1340,7 +1360,7 @@ Before `c1`:
 ```
 [Hands off now]
 Automatic checks next, about
-14 min. Put the iPod down: no
+13 min. Put the iPod down: no
 buttons are needed.
 
 The screen will flash, show
@@ -1443,63 +1463,7 @@ Scroll here, SELECT: go on
 
 (the counts are the session's so far)
 
-### Re-verify the video image: 16 steps, about 18 min
-
-```
-[Bench session]
-16 steps, about 18 min.
-Plus about 6 min if this iPod
-needs its test pictures and a
-restart first.
-
-Re-verifies a new video image
-on this iPod (a full session
-ran before). Have ready:
-battery charged; nothing to
-plug in.
-
-All read-only or put back. The
-session picks what to run by
-itself: if a step fails, the
-steps that need it are
-skipped, with one line saying
-why.
-
-Each step's first screen says
-what to do, how long it takes
-and what is normal.
-
-If the iPod restarts by
-itself: open Bench session
-again and pick Resume.
-MENU: cancel
-Scroll here, SELECT: start
-```
-
-| # | Step | Kind | Time | Needs | Question |
-|---|---|---|---|---|---|
-| 1 | `pre` Start-up check | automatic, no screen, a moment | ~5 s | — | — |
-| 2 | `s05` Test pictures | watched; only without the stage 5 flag | ~5 min | — | Did the test pictures look right? |
-| 3 | `boot` Display program | watched; only without the stage 5 flag or without the display driver in this start | ~1 min | — | — |
-| 4 | `jobs` Chip self-test | hands off; must pass (a restart offered if it cannot run) | ~30 s | — | — |
-| 5 | `respanel` Cover on the chip | done outside the session; not needed for the verified line | ~2 min | `jobs` | How did the album cover look? |
-| 6 | `uviz` Visualiser on the chip | done outside the session; not needed for the verified line | ~2 min | `jobs` | How did the visualiser look? |
-| 7 | `jvpu` Chip maths check | hands off; must pass (a restart offered if it cannot run) | ~30 s | — | — |
-| 8 | `c1` Second core check | hands off; not needed for the verified line | ~2 min | — | — |
-| 9 | `b13` Program swap | watched; not needed for the verified line | ~1 min | — | Did it blink, blank or flicker before the last dark moment? |
-| 10 | `b5` Window test | watched; must pass | ~45 s | — | Was the white frame straight and whole? |
-| 11 | `s6` Test clips | watched; must pass | ~1 min | — | How did the clips play? |
-| 12 | `vplay` Play a video | watched; not needed for the verified line | ~1 min | `s6` | Did "Preparing Video..." show briefly, then the video play? |
-| 13 | `ucop` Screens on second core | watched; not needed for the verified line | ~30 s | `c1` | — |
-| 14 | `uck1` Clicks, music stopped | done outside the session; not needed for the verified line | ~1 min | `ucop` | Besides the clicks, did you hear a tone or hum? |
-| 15 | `uck2` Clicks with music | done outside the session; not needed for the verified line | ~1 min | `ucop` | Did the music glitch, pop or crackle while you scrolled? |
-| 16 | `ufeel` Scrolling feel | done outside the session; not needed for the verified line | ~1 min | `ucop` | Compared with the normal UI, scrolling felt: |
-| 17 | `upanel` Panel keeping up | done outside the session; not needed for the verified line | ~45 s | `ucop` | Did the right-hand panel keep up with the highlighted row? |
-| 18 | `ucop2` Second core, everyday use | watched; not needed for the verified line | ~3 min | `ucop` | How did the iPod feel on the second core? |
-
-The screens between steps, in this run:
-
-Before `jobs`:
+Before `vf0`:
 
 ```
 [Hands off now]
@@ -1535,11 +1499,85 @@ Scroll here, SELECT: go on
 
 (the counts are the session's so far)
 
-Before `jvpu`:
+### Re-verify the video image: 34 steps: about 22 min of your time, plus about 59 min hands-off
+
+```
+[Bench session]
+34 steps: about 22 min of your
+time, plus about 59 min
+hands-off.
+Plus about 5 min if this iPod
+needs its test pictures and a
+restart first.
+
+Re-verifies a new video image
+(a full session ran before).
+Have ready: battery charged,
+headphones.
+
+All read-only or put back. The
+session picks what to run: if
+a step fails, the steps that
+need it are skipped, with one
+line saying why.
+
+Each step's first screen says
+what to do, how long it takes
+and what is normal.
+
+If the iPod restarts by
+itself: open Bench session
+again and pick Resume.
+MENU: cancel
+Scroll here, SELECT: start
+```
+
+| # | Step | Kind | Time | Needs | Question |
+|---|---|---|---|---|---|
+| 1 | `pre` Start-up check | automatic, no screen, a moment | ~5 s | — | — |
+| 2 | `pgrd` Speed grade | hands off; not needed for the verified line | ~10 s | — | — |
+| 3 | `preg` Power registers | hands off; not needed for the verified line | ~1 s | — | — |
+| 4 | `awxm` Memory setting log | hands off; not needed for the verified line | ~10 s | — | — |
+| 5 | `prtc` Seconds counter | hands off; not needed for the verified line | ~15 s | — | — |
+| 6 | `s05` Test pictures | watched; only without the stage 5 flag | ~4 min | — | Did the test pictures look right? |
+| 7 | `boot` Display program | watched; only without the stage 5 flag or without the display driver in this start | ~1 min | — | — |
+| 8 | `jobs` Chip self-test | hands off; must pass (a restart offered if it cannot run) | ~1 s | — | — |
+| 9 | `uviz` Visualiser on the chip | watched; not needed for the verified line | ~3 min | `jobs` | How did the visualiser look? |
+| 10 | `vf0` Visualiser maths check | hands off; not needed for the verified line | ~1 s | `jobs` | — |
+| 11 | `s1` Chip sleeps when idle | watched; not needed for the verified line | ~2 min | `jobs` | Did the screen stay right? |
+| 12 | `l5` Chip low core level | watched; not needed for the verified line | ~2 min | `jobs` | Did the screen stay right? |
+| 13 | `ck` Chip block clocks | watched; not needed for the verified line | ~3 min | `jobs` | Did the screen stay right? |
+| 14 | `pldo` Screen and sound supply | watched; not needed for the verified line | ~20 s | — | — |
+| 15 | `awld` Screen supply at rest | watched; not needed for the verified line | ~2 min | — | Did the screen come back normal each time? |
+| 16 | `jvpu` Chip maths check | hands off; must pass (a restart offered if it cannot run) | ~1 s | — | — |
+| 17 | `b13` Program swap | watched; not needed for the verified line | ~8 s | — | Did it blink, blank or flicker before the last dark moment? |
+| 18 | `b5` Window test | watched; must pass | ~9 s | — | Was the white frame straight and whole? |
+| 19 | `s6` Test clips | watched; must pass | ~43 s | — | How did the clips play? |
+| 20 | `awd2` Accessory supply | watched; not needed for the verified line | ~25 s | — | Did the music keep playing? |
+| 21 | `awd2c` Accessory supply, USB-C sound | watched; not needed for the verified line | ~45 s | `awd2` | If you have a passive USB-C audio adapter, plug it in: do you hear music from it? |
+| 22 | `awus` Charger only | watched; not needed for the verified line | ~2 min | — | Did the drive appear on the computer as usual? |
+| 23 | `vs` Video with chip sleep | watched; not needed for the verified line | ~6 min | `s6` | Did any play show a garbled picture? |
+| 24 | `p2` Second core timer | hands off; not needed for the verified line | ~15 s | — | — |
+| 25 | `p1` Tone on the second core | watched; not needed for the verified line | ~17 s | — | Did the tone sound clean? |
+| 26 | `pcop` Driver on the second core | watched; not needed for the verified line | ~2 min | `p1` | Did the tone sound clean? |
+| 27 | `awi2` Sound clock at rest | watched; not needed for the verified line | ~3 min | — | Did the music resume cleanly each time? |
+| 28 | `pstl` Timed pauses | hands off; not needed for the verified line | ~5 s | — | — |
+| 29 | `pden` Unused blocks off | watched; not needed for the verified line | ~45 s | `preg` | — |
+| 30 | `psrf` Memory rest | watched; not needed for the verified line | ~6 s | `preg` | — |
+| 31 | `vplay` Play a video | watched; not needed for the verified line | ~2 min | `s6` | Did "Preparing Video..." show briefly, then the video play? |
+| 32 | `vlong` Long video play | watched; not needed for the verified line | ~11 min | `s6` | When you came back, were the pictures still moving with the sound? |
+| 33 | `awlg` Drive rest after reading | watched; not needed for the verified line | ~21 min | — | — |
+| 34 | `k1` Second core parked | hands off; not needed for the verified line | ~7 min | — | — |
+| 35 | `duty` Dark play, both cores | hands off; not needed for the verified line | ~15 min | — | — |
+| 36 | `sd` Chip memory idle | watched; not needed for the verified line | ~1 min | `jobs` | — |
+
+The screens between steps, in this run:
+
+Before `pgrd`:
 
 ```
 [Hands off now]
-Automatic checks next, about 2
+Automatic checks next, about 1
 min. Put the iPod down: no
 buttons are needed.
 
@@ -1551,7 +1589,115 @@ If the iPod restarts by
 itself: open Bench session
 again and pick Resume.
 
-Screen frozen for over 2 min:
+Screen frozen for over 1 min:
+hold MENU and SELECT 6 to 8 s,
+then the same.
+Scroll here, SELECT: start
+```
+
+Before `s05`:
+
+```
+[Automatic checks done]
+Automatic checks done: 0
+passed, 0 failed, 0 skipped so
+far.
+
+Next: a step that needs you.
+Scroll here, SELECT: go on
+```
+
+(the counts are the session's so far)
+
+Before `jobs`:
+
+```
+[Hands off now]
+Automatic checks next, about 1
+min. Put the iPod down: no
+buttons are needed.
+
+The screen will flash, show
+test pictures or lists, and
+may go dark: that's normal.
+
+If the iPod restarts by
+itself: open Bench session
+again and pick Resume.
+
+Screen frozen for over 1 min:
+hold MENU and SELECT 6 to 8 s,
+then the same.
+Scroll here, SELECT: start
+```
+
+Before `uviz`:
+
+```
+[Automatic checks done]
+Automatic checks done: 0
+passed, 0 failed, 0 skipped so
+far.
+
+Next: a step that needs you.
+Scroll here, SELECT: go on
+```
+
+(the counts are the session's so far)
+
+Before `vf0`:
+
+```
+[Hands off now]
+Automatic checks next, about 1
+min. Put the iPod down: no
+buttons are needed.
+
+The screen will flash, show
+test pictures or lists, and
+may go dark: that's normal.
+
+If the iPod restarts by
+itself: open Bench session
+again and pick Resume.
+
+Screen frozen for over 1 min:
+hold MENU and SELECT 6 to 8 s,
+then the same.
+Scroll here, SELECT: start
+```
+
+Before `s1`:
+
+```
+[Automatic checks done]
+Automatic checks done: 0
+passed, 0 failed, 0 skipped so
+far.
+
+Next: a step that needs you.
+Scroll here, SELECT: go on
+```
+
+(the counts are the session's so far)
+
+Before `jvpu`:
+
+```
+[Hands off now]
+Automatic checks next, about 1
+min. Put the iPod down: no
+buttons are needed.
+
+The screen will flash, show
+test pictures or lists, and
+may go dark: that's normal.
+
+If the iPod restarts by
+itself: open Bench session
+again and pick Resume.
+
+Screen frozen for over 1 min:
 hold MENU and SELECT 6 to 8 s,
 then the same.
 Scroll here, SELECT: start
@@ -1571,17 +1717,125 @@ Scroll here, SELECT: go on
 
 (the counts are the session's so far)
 
+Before `p2`:
+
+```
+[Hands off now]
+Automatic checks next, about 1
+min. Put the iPod down: no
+buttons are needed.
+
+The screen will flash, show
+test pictures or lists, and
+may go dark: that's normal.
+
+If the iPod restarts by
+itself: open Bench session
+again and pick Resume.
+
+Screen frozen for over 1 min:
+hold MENU and SELECT 6 to 8 s,
+then the same.
+Scroll here, SELECT: start
+```
+
+Before `p1`:
+
+```
+[Automatic checks done]
+Automatic checks done: 0
+passed, 0 failed, 0 skipped so
+far.
+
+Next: a step that needs you.
+Scroll here, SELECT: go on
+```
+
+(the counts are the session's so far)
+
+Before `pstl`:
+
+```
+[Hands off now]
+Automatic checks next, about 1
+min. Put the iPod down: no
+buttons are needed.
+
+The screen will flash, show
+test pictures or lists, and
+may go dark: that's normal.
+
+If the iPod restarts by
+itself: open Bench session
+again and pick Resume.
+
+Screen frozen for over 1 min:
+hold MENU and SELECT 6 to 8 s,
+then the same.
+Scroll here, SELECT: start
+```
+
+Before `pden`:
+
+```
+[Automatic checks done]
+Automatic checks done: 0
+passed, 0 failed, 0 skipped so
+far.
+
+Next: a step that needs you.
+Scroll here, SELECT: go on
+```
+
+(the counts are the session's so far)
+
+Before `k1`:
+
+```
+[Hands off now]
+Automatic checks next, about
+22 min. Put the iPod down: no
+buttons are needed.
+
+The screen will flash, show
+test pictures or lists, and
+may go dark: that's normal.
+
+If the iPod restarts by
+itself: open Bench session
+again and pick Resume.
+
+Screen frozen for over 17 min:
+hold MENU and SELECT 6 to 8 s,
+then the same.
+Scroll here, SELECT: start
+```
+
+Before `sd`:
+
+```
+[Automatic checks done]
+Automatic checks done: 0
+passed, 0 failed, 0 skipped so
+far.
+
+Next: a step that needs you.
+Scroll here, SELECT: go on
+```
+
+(the counts are the session's so far)
+
 **When a step fails** (the gates, `bench_gates[]`): the steps that need it skip by themselves, recorded with `note=auto-skip: needs <id> (<result>)`, and this screen shows once a gate. A gate that ends the session skips every later step. A must-pass step that fails never stops the session by itself: what does not need it still runs, and the summary closes it.
 
 | Gate | Ends the session | Skipped after it |
 |---|---|---|
 | `s05` | yes | every later step |
-| `jobs` | no | `respanel`, `uviz` |
+| `jobs` | no | `uviz`, `vf0`, `s1`, `l5`, `ck`, `sd` |
 | `s4b` | no | — |
 | `s4c` | no | — |
-| `s6` | no | `vplay` |
-| `c1` | no | `ucop` |
-| `ucop` | no | `uck1`, `uck2`, `ufeel`, `upanel`, `ucop2` |
+| `s6` | no | `vs`, `vplay`, `vlong` |
+| `c1` | no | — |
+| `ucop` | no | — |
 
 ```
 [Skipping ahead]
@@ -1690,12 +1944,14 @@ Resume.
 MENU: leave this screen
 ```
 
-### Port write check: 2 steps, about 3 min
+### Port write check: 2 steps: about 1 min of your time, plus about 2 min hands-off
 
 ```
 [Bench session]
-2 steps, about 3 min.
-Plus about 5 min if this iPod
+2 steps: about 1 min of your
+time, plus about 2 min
+hands-off.
+Plus about 4 min if this iPod
 needs its test pictures and a
 restart first.
 
@@ -1717,7 +1973,7 @@ Scroll here, SELECT: start
 | # | Step | Kind | Time | Question |
 |---|---|---|---|---|
 | 1 | `pre` Start-up check | automatic, no screen, a moment | ~5 s | — |
-| 2 | `s05` Test pictures | watched; only without the stage 5 flag | ~5 min | Did the test pictures look right? |
+| 2 | `s05` Test pictures | watched; only without the stage 5 flag | ~4 min | Did the test pictures look right? |
 | 3 | `cr1` COMMIT readback | hands off; must pass | ~2 min | — |
 
 The screens between steps, in this run:
@@ -1744,6 +2000,358 @@ then the same.
 Scroll here, SELECT: start
 ```
 
+### Core layout probe: 3 steps: about 1 min of your time, plus about 15 min hands-off
+
+```
+[Bench session]
+3 steps: about 1 min of your
+time, plus about 15 min
+hands-off.
+
+Checks whether the second core
+can run the music on its own.
+Before you start: play an
+album for a few seconds, then
+come back here. Have ready:
+headphones.
+
+Nothing is changed for good:
+every step puts things back.
+
+Each step's first screen says
+what to do, how long it takes
+and what is normal.
+
+If the iPod restarts by
+itself: open Bench session
+again and pick Resume.
+MENU: cancel
+Scroll here, SELECT: start
+```
+
+| # | Step | Kind | Time | Question |
+|---|---|---|---|---|
+| 1 | `p2` Second core timer | hands off; must pass | ~15 s | — |
+| 2 | `p1` Tone on the second core | watched; must pass | ~17 s | Did the tone sound clean? |
+| 3 | `duty` Dark play, both cores | hands off; a reading, no verdict | ~15 min | — |
+
+The screens between steps, in this run:
+
+Before `p1`:
+
+```
+[Automatic checks done]
+Automatic checks done: 0
+passed, 0 failed, 0 skipped so
+far.
+
+Next: a step that needs you.
+Scroll here, SELECT: go on
+```
+
+(the counts are the session's so far)
+
+Before `duty`:
+
+```
+[Hands off now]
+Automatic checks next, about
+15 min. Put the iPod down: no
+buttons are needed.
+
+The screen will flash, show
+test pictures or lists, and
+may go dark: that's normal.
+
+If the iPod restarts by
+itself: open Bench session
+again and pick Resume.
+
+Screen frozen for over 17 min:
+hold MENU and SELECT 6 to 8 s,
+then the same.
+Scroll here, SELECT: start
+```
+
+### Chip update checks: 25 steps: about 19 min of your time, plus about 43 min hands-off
+
+```
+[Bench session]
+25 steps: about 19 min of your
+time, plus about 43 min
+hands-off.
+
+Checks a new video image (test
+pictures, the fast clock, the
+chip's power savings, the
+program swap, test clips, a
+video play), then the second
+core and the battery savings
+with an album playing. Have
+ready: battery charged,
+headphones.
+
+A few steps may freeze the
+iPod; each says so first: a
+restart puts it right.
+
+Each step's first screen says
+what to do, how long it takes
+and what is normal.
+
+If the iPod restarts by
+itself: open Bench session
+again and pick Resume.
+MENU: cancel
+Scroll here, SELECT: start
+```
+
+| # | Step | Kind | Time | Question |
+|---|---|---|---|---|
+| 1 | `pre` Start-up check | automatic, no screen, a moment | ~5 s | — |
+| 2 | `preg` Power registers | hands off; a reading, no verdict | ~1 s | — |
+| 3 | `s05` Test pictures | watched; must pass | ~4 min | Did the test pictures look right? |
+| 4 | `s4b` Fast clock check | hands off; a reading, no verdict | ~5 s | — |
+| 5 | `s4c` Fast clock pictures | watched; a reading, no verdict | ~32 s | Did the 3 pictures look right? |
+| 6 | `boot` Display program | watched; a reading, no verdict | ~1 min | — |
+| 7 | `jobs` Chip self-test | hands off; must pass | ~1 s | — |
+| 8 | `b3` Drift on the chip | done outside the session; may skip, never fail | ~3 min | Did the covers drift smoothly? |
+| 9 | `vf0` Visualiser maths check | hands off; a reading, no verdict | ~1 s | — |
+| 10 | `s1` Chip sleeps when idle | watched; a reading, no verdict | ~2 min | Did the screen stay right? |
+| 11 | `pldo` Screen and sound supply | watched; a reading, no verdict | ~20 s | — |
+| 12 | `jvpu` Chip maths check | hands off; must pass | ~1 s | — |
+| 13 | `b13` Program swap | watched; a reading, no verdict | ~8 s | Did it blink, blank or flicker before the last dark moment? |
+| 14 | `b5` Window test | watched; must pass | ~9 s | Was the white frame straight and whole? |
+| 15 | `s6` Test clips | watched; must pass | ~43 s | How did the clips play? |
+| 16 | `vs` Video with chip sleep | watched; a reading, no verdict | ~6 min | Did any play show a garbled picture? |
+| 17 | `sdc` Video memory rest | watched; a reading, no verdict | ~2 min | Did the video play normally, with no skips? |
+| 18 | `p1` Tone on the second core | watched; a reading, no verdict | ~17 s | Did the tone sound clean? |
+| 19 | `pcop` Driver on the second core | watched; a reading, no verdict | ~2 min | Did the tone sound clean? |
+| 20 | `psrf` Memory rest | watched; a reading, no verdict | ~6 s | — |
+| 21 | `alb` Play an album | watched; a reading, no verdict | ~1 min | Is an album playing? |
+| 22 | `awlg` Drive rest after reading | watched; a reading, no verdict | ~21 min | — |
+| 23 | `duty` Dark play, both cores | hands off; a reading, no verdict | ~15 min | — |
+| 24 | `heap` Memory check, both cores | hands off; a reading, no verdict | ~7 min | — |
+| 25 | `sd` Chip memory idle | watched; a reading, no verdict | ~1 min | — |
+
+The screens between steps, in this run:
+
+Before `preg`:
+
+```
+[Hands off now]
+Automatic checks next, about 1
+min. Put the iPod down: no
+buttons are needed.
+
+The screen will flash, show
+test pictures or lists, and
+may go dark: that's normal.
+
+If the iPod restarts by
+itself: open Bench session
+again and pick Resume.
+
+Screen frozen for over 1 min:
+hold MENU and SELECT 6 to 8 s,
+then the same.
+Scroll here, SELECT: start
+```
+
+Before `s05`:
+
+```
+[Automatic checks done]
+Automatic checks done: 0
+passed, 0 failed, 0 skipped so
+far.
+
+Next: a step that needs you.
+Scroll here, SELECT: go on
+```
+
+(the counts are the session's so far)
+
+Before `s4b`:
+
+```
+[Hands off now]
+Automatic checks next, about 1
+min. Put the iPod down: no
+buttons are needed.
+
+The screen will flash, show
+test pictures or lists, and
+may go dark: that's normal.
+
+If the iPod restarts by
+itself: open Bench session
+again and pick Resume.
+
+Screen frozen for over 4 min:
+hold MENU and SELECT 6 to 8 s,
+then the same.
+Scroll here, SELECT: start
+```
+
+Before `s4c`:
+
+```
+[Automatic checks done]
+Automatic checks done: 0
+passed, 0 failed, 0 skipped so
+far.
+
+Next: a step that needs you.
+Scroll here, SELECT: go on
+```
+
+(the counts are the session's so far)
+
+Before `jobs`:
+
+```
+[Hands off now]
+Automatic checks next, about 1
+min. Put the iPod down: no
+buttons are needed.
+
+The screen will flash, show
+test pictures or lists, and
+may go dark: that's normal.
+
+If the iPod restarts by
+itself: open Bench session
+again and pick Resume.
+
+Screen frozen for over 1 min:
+hold MENU and SELECT 6 to 8 s,
+then the same.
+Scroll here, SELECT: start
+```
+
+Before `b3`:
+
+```
+[Automatic checks done]
+Automatic checks done: 0
+passed, 0 failed, 0 skipped so
+far.
+
+Next: a step that needs you.
+Scroll here, SELECT: go on
+```
+
+(the counts are the session's so far)
+
+Before `vf0`:
+
+```
+[Hands off now]
+Automatic checks next, about 1
+min. Put the iPod down: no
+buttons are needed.
+
+The screen will flash, show
+test pictures or lists, and
+may go dark: that's normal.
+
+If the iPod restarts by
+itself: open Bench session
+again and pick Resume.
+
+Screen frozen for over 1 min:
+hold MENU and SELECT 6 to 8 s,
+then the same.
+Scroll here, SELECT: start
+```
+
+Before `s1`:
+
+```
+[Automatic checks done]
+Automatic checks done: 0
+passed, 0 failed, 0 skipped so
+far.
+
+Next: a step that needs you.
+Scroll here, SELECT: go on
+```
+
+(the counts are the session's so far)
+
+Before `jvpu`:
+
+```
+[Hands off now]
+Automatic checks next, about 1
+min. Put the iPod down: no
+buttons are needed.
+
+The screen will flash, show
+test pictures or lists, and
+may go dark: that's normal.
+
+If the iPod restarts by
+itself: open Bench session
+again and pick Resume.
+
+Screen frozen for over 1 min:
+hold MENU and SELECT 6 to 8 s,
+then the same.
+Scroll here, SELECT: start
+```
+
+Before `b13`:
+
+```
+[Automatic checks done]
+Automatic checks done: 0
+passed, 0 failed, 0 skipped so
+far.
+
+Next: a step that needs you.
+Scroll here, SELECT: go on
+```
+
+(the counts are the session's so far)
+
+Before `duty`:
+
+```
+[Hands off now]
+Automatic checks next, about
+21 min. Put the iPod down: no
+buttons are needed.
+
+The screen will flash, show
+test pictures or lists, and
+may go dark: that's normal.
+
+If the iPod restarts by
+itself: open Bench session
+again and pick Resume.
+
+Screen frozen for over 17 min:
+hold MENU and SELECT 6 to 8 s,
+then the same.
+Scroll here, SELECT: start
+```
+
+Before `sd`:
+
+```
+[Automatic checks done]
+Automatic checks done: 0
+passed, 0 failed, 0 skipped so
+far.
+
+Next: a step that needs you.
+Scroll here, SELECT: go on
+```
+
+(the counts are the session's so far)
+
 ### Every step
 
 #### `pre` Start-up check
@@ -1755,7 +2363,7 @@ No screen of its own.
 
 #### `s05` Test pictures
 
-- **Kind:** watched. **Time:** ~5 min.
+- **Kind:** watched. **Time:** ~4 min.
 - **MENU and SELECT:** start screen: SELECT on the last line starts it (no MENU line: MENU still stops the session quietly, and this step comes back at the next Resume); question: SELECT picks; MENU skips it.
 
 ```
@@ -1801,14 +2409,14 @@ MENU: no answer.
 
 #### `s4b` Fast clock check
 
-- **Kind:** hands off. **Time:** ~3 min.
+- **Kind:** hands off. **Time:** ~5 s.
 - **MENU and SELECT:** none of its own: the "Hands off now" screen comes first (SELECT starts the checks); buttons do nothing while it runs.
 
 No screen of its own.
 
 #### `s4c` Fast clock pictures
 
-- **Kind:** watched. **Time:** ~1 min.
+- **Kind:** watched. **Time:** ~32 s.
 - **MENU and SELECT:** start screen: SELECT on the last line starts it (no MENU line: MENU still stops the session quietly, and this step comes back at the next Resume); question: SELECT picks; MENU skips it.
 
 ```
@@ -1922,14 +2530,14 @@ No screen of its own.
 
 #### `jobs` Chip self-test
 
-- **Kind:** hands off. **Time:** ~30 s.
+- **Kind:** hands off. **Time:** ~1 s.
 - **MENU and SELECT:** none of its own: the "Hands off now" screen comes first (SELECT starts the checks); buttons do nothing while it runs.
 
 No screen of its own.
 
 #### `jvpu` Chip maths check
 
-- **Kind:** hands off. **Time:** ~30 s.
+- **Kind:** hands off. **Time:** ~1 s.
 - **MENU and SELECT:** none of its own: the "Hands off now" screen comes first (SELECT starts the checks); buttons do nothing while it runs.
 
 No screen of its own.
@@ -1989,7 +2597,7 @@ Scroll here, SELECT: start
 
 #### `s6` Test clips
 
-- **Kind:** watched. **Time:** ~1 min.
+- **Kind:** watched. **Time:** ~43 s.
 - **MENU and SELECT:** start screen: SELECT on the last line starts it (no MENU line: MENU still stops the session quietly, and this step comes back at the next Resume); question: SELECT picks; MENU skips it.
 
 ```
@@ -2213,7 +2821,7 @@ MENU: no answer.
 
 #### `vplay` Play a video
 
-- **Kind:** watched. **Time:** ~1 min.
+- **Kind:** watched. **Time:** ~2 min.
 - **MENU and SELECT:** start screen: SELECT on the last line starts it (no MENU line: MENU still stops the session quietly, and this step comes back at the next Resume); after arming, MENU or SELECT closes the screen; question: SELECT picks; MENU skips it.
 
 ```
@@ -2270,9 +2878,303 @@ MENU: no answer.
 ( ) No video
 ```
 
-#### `b13` Program swap
+#### `alb` Play an album
 
 - **Kind:** watched. **Time:** ~1 min.
+- **MENU and SELECT:** start screen: SELECT on the last line starts it (no MENU line: MENU still stops the session quietly, and this step comes back at the next Resume); after arming, MENU or SELECT closes the screen; question: SELECT picks; MENU skips it.
+
+```
+[Play an album]
+Done outside the session,
+under 1 min. The next steps
+need music playing: an album
+of songs, not a video.
+
+SELECT here leaves the
+session. Open Music, pick an
+album and play it, then open
+Bench session again and pick
+Go on; the question comes
+first.
+Scroll here, SELECT: start
+```
+
+After it (the session leaves):
+
+```
+[Play an album]
+Set. Do the rest outside the
+session, as the first screen
+said.
+
+Then: Developer > Bench
+session, and pick Go on: Play
+an album. The question comes
+first.
+MENU: close
+Scroll here, SELECT: close
+```
+
+The question (when you come back and pick Go on):
+
+```
+[Play an album]
+Is an album playing?
+Yes: songs from an album play.
+No: nothing plays, or a
+video's sound.
+Pick an answer with SELECT.
+MENU: no answer.
+( ) Yes
+( ) No
+```
+
+#### `sdc` Video memory rest
+
+- **Kind:** watched. **Time:** ~2 min.
+- **MENU and SELECT:** start screen: SELECT on the last line starts it (no MENU line: MENU still stops the session quietly, and this step comes back at the next Resume); after arming, MENU or SELECT closes the screen; question: SELECT picks; MENU skips it.
+
+```
+[Video memory rest]
+Done outside the session,
+under 1 min. The video chip's
+memory is put to rest after
+its quick check, then woken
+for the play. Heads-up: this
+may freeze the video; if it
+does, hold MENU and SELECT to
+restart.
+
+SELECT here leaves the
+session. Play any video from
+Videos, then open Bench
+session again and pick Go on;
+the question comes first.
+Scroll here, SELECT: start
+```
+
+After it (the session leaves):
+
+```
+[Video memory rest]
+Set. Do the rest outside the
+session, as the first screen
+said.
+
+Then: Developer > Bench
+session, and pick Go on: Video
+memory rest. The question
+comes first.
+MENU: close
+Scroll here, SELECT: close
+```
+
+The question (when you come back and pick Go on):
+
+```
+[Video memory rest]
+Did the video play normally,
+with no skips?
+Yes: it played smoothly.
+Skips: it jumped or stuttered.
+Frozen: the screen or the
+video froze.
+No video: it didn't play.
+Pick an answer with SELECT.
+MENU: no answer.
+( ) Yes
+( ) Skips
+( ) Frozen
+( ) No video
+```
+
+#### `vlong` Long video play
+
+- **Kind:** watched. **Time:** ~11 min.
+- **MENU and SELECT:** start screen: SELECT on the last line starts it (no MENU line: MENU still stops the session quietly, and this step comes back at the next Resume); after arming, MENU or SELECT closes the screen; question: SELECT picks; MENU skips it.
+
+```
+[Long video play]
+About 11 min, 10 of them hands
+off. From the main menu open
+Videos > Movies and play
+Sintel from the start. If it
+isn't listed, the library is
+still updating after the
+install: wait until "Updating
+Library..." is gone, then look
+again. Put the iPod down and
+leave it playing for at least
+10 min (to the end is fine).
+The screen stays on while it
+plays: that's normal.
+
+SELECT here leaves the
+session. When you come back,
+press MENU to leave the video,
+then open Bench session again
+and pick Go on: Long video
+play; the question comes
+first.
+Scroll here, SELECT: start
+```
+
+After it (the session leaves):
+
+```
+[Long video play]
+Set. Do the rest outside the
+session, as the first screen
+said.
+
+Then: Developer > Bench
+session, and pick Go on: Long
+video play. The question comes
+first.
+MENU: close
+Scroll here, SELECT: close
+```
+
+The question (when you come back and pick Go on):
+
+```
+[Long video play]
+When you came back, were the
+pictures still moving with the
+sound?
+Yes: moving, in step with the
+sound.
+Still picture: it stood while
+the sound played on.
+No video: it didn't play.
+Pick an answer with SELECT.
+MENU: no answer.
+( ) Yes
+( ) Still picture
+( ) No video
+```
+
+#### `clc` Music and screens, A
+
+- **Kind:** watched. **Time:** ~3 min.
+- **MENU and SELECT:** start screen: SELECT on the last line starts it (no MENU line: MENU still stops the session quietly, and this step comes back at the next Resume); after arming, MENU or SELECT closes the screen; question: SELECT picks; MENU skips it.
+
+```
+[Music and screens, A]
+Done outside the session,
+under 3 min. Play an album of
+320 kbps MP3s and press Next
+once. Open Now Playing and
+turn the volume up and down
+with the wheel for 1 min. Then
+scroll Music > Songs fast for
+30 s.
+
+Then from the main menu:
+scroll fast 20 s; open the
+visualiser in Now Playing and
+close it; plug the iPod into
+the Mac and unplug it once.
+SELECT here leaves the
+session; then Bench session,
+Go on: Music and screens, A.
+Scroll here, SELECT: start
+```
+
+After it (the session leaves):
+
+```
+[Music and screens, A]
+Set. Do the rest outside the
+session, as the first screen
+said.
+
+Then: Developer > Bench
+session, and pick Go on: Music
+and screens, A. The question
+comes first.
+MENU: close
+Scroll here, SELECT: close
+```
+
+The question (when you come back and pick Go on):
+
+```
+[Music and screens, A]
+Did the music play without a
+break the whole time?
+Yes: no break.
+Once: one short break.
+Often: breaks again and again.
+Pick an answer with SELECT.
+MENU: no answer.
+( ) Yes
+( ) Once
+( ) Often
+```
+
+#### `clf` Music and screens, B
+
+- **Kind:** watched. **Time:** ~3 min.
+- **MENU and SELECT:** start screen: SELECT on the last line starts it (no MENU line: MENU still stops the session quietly, and this step comes back at the next Resume); after arming, MENU or SELECT closes the screen; question: SELECT picks; MENU skips it.
+
+```
+[Music and screens, B]
+Done outside the session,
+under 3 min, the same as the
+last step. Keep the album
+playing and press Next once.
+Open Now Playing and turn the
+volume up and down with the
+wheel for 1 min. Then scroll
+Music > Songs fast for 30 s.
+
+Then from the main menu:
+scroll fast 20 s; open the
+visualiser in Now Playing and
+close it; plug the iPod into
+the Mac and unplug it once.
+SELECT here leaves the
+session; then Bench session,
+Go on: Music and screens, B.
+Scroll here, SELECT: start
+```
+
+After it (the session leaves):
+
+```
+[Music and screens, B]
+Set. Do the rest outside the
+session, as the first screen
+said.
+
+Then: Developer > Bench
+session, and pick Go on: Music
+and screens, B. The question
+comes first.
+MENU: close
+Scroll here, SELECT: close
+```
+
+The question (when you come back and pick Go on):
+
+```
+[Music and screens, B]
+Did the music play without a
+break the whole time?
+Yes: no break.
+Once: one short break.
+Often: breaks again and again.
+Pick an answer with SELECT.
+MENU: no answer.
+( ) Yes
+( ) Once
+( ) Often
+```
+
+#### `b13` Program swap
+
+- **Kind:** watched. **Time:** ~8 s.
 - **MENU and SELECT:** start screen: SELECT on the last line starts it (no MENU line: MENU still stops the session quietly, and this step comes back at the next Resume); question: SELECT picks; MENU skips it.
 
 ```
@@ -2281,15 +3183,16 @@ The screen will go dark once
 at the end, under 1 min from
 now: that's normal.
 
-The video chip swaps between
-its video and display programs
-up to 20 times (10 each way)
-with the screen on, and stops
-at the first swap that fails.
-Each swap back adds one small
-square, green then red in
-turn, a step to the right near
-the bottom. No video plays.
+The video chip swaps into its
+video program and back to its
+display program with the
+screen on, each swap in a
+different way. The swap back
+adds one small green square
+near the bottom. No video
+plays. If a swap fails, the
+screen may go dark a moment
+longer while it restarts.
 
 No buttons. Normal: no blink,
 blank or flicker before that
@@ -2315,7 +3218,7 @@ MENU: no answer.
 
 #### `b5` Window test
 
-- **Kind:** watched. **Time:** ~45 s.
+- **Kind:** watched. **Time:** ~9 s.
 - **MENU and SELECT:** start screen: SELECT on the last line starts it (no MENU line: MENU still stops the session quietly, and this step comes back at the next Resume); question: SELECT picks; MENU skips it.
 
 ```
@@ -2684,9 +3587,200 @@ MENU: no answer.
 ( ) Hung
 ```
 
+#### `s1` Chip sleeps when idle
+
+- **Kind:** watched. **Time:** ~2 min.
+- **MENU and SELECT:** start screen: SELECT on the last line starts it (no MENU line: MENU still stops the session quietly, and this step comes back at the next Resume); question: SELECT picks; MENU skips it.
+
+```
+[Chip sleeps when idle]
+About 80 s, on battery. 4
+phases of 20 s, A B A B. A:
+the video chip polls (today).
+B: it sleeps when it has
+nothing to do. The screen
+stays still. Leave it alone
+until the question appears.
+
+It checks itself: in B the
+chip wakes on every tick,
+sleeps and still answers. A
+pass turns this on from the
+next start.
+MENU in a phase: ends the row
+early (skipped, no question).
+Scroll here, SELECT: start
+```
+
+The question (asked only if the step ran; a skipped step asks nothing):
+
+```
+[Chip sleeps when idle]
+Did the screen stay right?
+Yes: still and clean.
+Garbled: noise or wrong
+pixels.
+Froze: stuck after the row.
+Pick an answer with SELECT.
+MENU: no answer.
+( ) Yes
+( ) Garbled
+( ) Froze
+```
+
+#### `l5` Chip low core level
+
+- **Kind:** watched. **Time:** ~2 min.
+- **MENU and SELECT:** start screen: SELECT on the last line starts it (no MENU line: MENU still stops the session quietly, and this step comes back at the next Resume); question: SELECT picks; MENU skips it.
+
+```
+[Chip low core level]
+About 80 s after a go
+question, on battery. 4 phases
+of 20 s, A B A B. A: the video
+chip's core at level 11
+(today). B: level 5. The
+screen stays still. Leave it
+alone until the question
+appears.
+
+It checks itself: level 5
+holds, the chip's self-test
+passes and it keeps answering.
+A pass turns this on from the
+next start.
+MENU in a phase: ends the row
+early (skipped, no question).
+Scroll here, SELECT: start
+```
+
+The question (asked only if the step ran; a skipped step asks nothing):
+
+```
+[Chip low core level]
+Did the screen stay right?
+Yes: still and clean.
+Garbled: noise or wrong
+pixels.
+Froze: stuck after the row.
+Pick an answer with SELECT.
+MENU: no answer.
+( ) Yes
+( ) Garbled
+( ) Froze
+```
+
+#### `ck` Chip block clocks
+
+- **Kind:** watched. **Time:** ~3 min.
+- **MENU and SELECT:** start screen: SELECT on the last line starts it (no MENU line: MENU still stops the session quietly, and this step comes back at the next Resume); question: SELECT picks; MENU skips it.
+
+```
+[Chip block clocks]
+About 3 min, hands off. The
+video chip's clock settings
+are read, then two of its
+unused clocks are turned off
+for 40 s, then a third. Each
+goes back as it was. The
+screen stays still.
+
+It checks itself: the chip
+keeps answering as fast as
+before.
+MENU in a phase: ends the row
+early (skipped, no question).
+Scroll here, SELECT: start
+```
+
+The question (asked only if the step ran; a skipped step asks nothing):
+
+```
+[Chip block clocks]
+Did the screen stay right?
+Yes: still and clean.
+Garbled: noise or wrong
+pixels.
+Froze: stuck after the row.
+Pick an answer with SELECT.
+MENU: no answer.
+( ) Yes
+( ) Garbled
+( ) Froze
+```
+
+#### `vs` Video with chip sleep
+
+- **Kind:** watched. **Time:** ~6 min.
+- **MENU and SELECT:** start screen: SELECT on the last line starts it (no MENU line: MENU still stops the session quietly, and this step comes back at the next Resume); question: SELECT picks; MENU skips it.
+
+```
+[Video with chip sleep]
+The screen will go dark, then
+clips play for about 4 min
+(about 6 on a new video image:
+a clock check comes first):
+that's normal. Music stops.
+
+Each clip plays four times for
+20 s, the video chip sleeping
+between pictures in every
+second play. Every play jumps
+back once at 5 s and pauses
+for 1 s at 10 s.
+
+No buttons. Normal: all plays
+of a clip look and sound the
+same: smooth, in step, a short
+jump and a short pause.
+Scroll here, SELECT: start
+```
+
+The question (asked only if the step ran; a skipped step asks nothing):
+
+```
+[Video with chip sleep]
+Did any play show a garbled
+picture?
+No: normal.
+Yes, garbled: broken or wrong
+picture.
+No picture at all: a play
+stayed blank.
+Pick an answer with SELECT.
+MENU: no answer.
+( ) No
+( ) Yes, garbled
+( ) No picture at all
+```
+
+#### `sd` Chip memory idle
+
+- **Kind:** watched. **Time:** ~1 min.
+- **MENU and SELECT:** start screen: SELECT on the last line starts it (no MENU line: MENU still stops the session quietly, and this step comes back at the next Resume).
+
+```
+[Chip memory idle]
+About 1 min, hands off. A clip
+plays for a few seconds, then
+the video chip's memory is put
+to idle for 11 s. The screen
+goes dark once while the chip
+restarts, then the clip plays
+again.
+
+It may freeze: hold MENU and
+SELECT to restart the iPod.
+
+No buttons. MENU while the
+memory is idle: ends the row
+early.
+Scroll here, SELECT: start
+```
+
 #### `ucop` Screens on second core
 
-- **Kind:** watched. **Time:** ~30 s.
+- **Kind:** watched. **Time:** ~2 min.
 - **MENU and SELECT:** start screen: SELECT on the last line starts it (no MENU line: MENU still stops the session quietly, and this step comes back at the next Resume); then MENU or SELECT closes the restart screen.
 
 ```
@@ -2906,6 +4000,89 @@ MENU: no answer.
 ( ) Far behind
 ```
 
+#### `ucusb` USB on second core
+
+- **Kind:** done outside the session. **Time:** ~2 min.
+- **MENU and SELECT:** start screen: SELECT on the last line leaves the session to do it (no MENU line: MENU still stops the session quietly, and this step comes back at the next Resume); question: SELECT picks; MENU skips it.
+
+```
+[USB on second core]
+Done outside the session,
+about 1 min. Plug the iPod
+into the Mac with the USB-C
+cable. Check the USB screen
+appears. Then eject it on the
+Mac, unplug it and check you
+are back in the menus.
+
+SELECT here leaves the
+session. Then open Bench
+session again and pick Go on:
+USB on second core; the
+question comes first. Normal:
+the USB screen, then the menus
+again within a few seconds.
+Scroll here, SELECT: leave
+```
+
+The question (when you come back and pick Go on):
+
+```
+[USB on second core]
+How did USB go?
+Fine: the USB screen, then
+back to the menus.
+No USB screen: it never
+showed.
+Stuck: it didn't come back
+from USB.
+Pick an answer with SELECT.
+MENU: no answer.
+( ) Fine
+( ) No USB screen
+( ) Stuck
+```
+
+#### `ucmod` Notes on second core
+
+- **Kind:** done outside the session. **Time:** ~45 s.
+- **MENU and SELECT:** start screen: SELECT on the last line leaves the session to do it (no MENU line: MENU still stops the session quietly, and this step comes back at the next Resume); question: SELECT picks; MENU skips it.
+
+```
+[Notes on second core]
+Done outside the session,
+under 1 min. Open Extras >
+Notes (or Alarms), look at it
+for a few seconds, then press
+MENU to go back.
+
+SELECT here leaves the
+session. Then open Bench
+session again and pick Go on:
+Notes on second core; the
+question comes first. Normal:
+it opens quickly and closes
+cleanly.
+Scroll here, SELECT: leave
+```
+
+The question (when you come back and pick Go on):
+
+```
+[Notes on second core]
+Did Notes (or Alarms) open and
+close normally?
+Yes: opened and closed.
+Wrong: odd text or pictures.
+Stuck: it froze; you restarted
+it.
+Pick an answer with SELECT.
+MENU: no answer.
+( ) Yes
+( ) Wrong
+( ) Stuck
+```
+
 #### `ucop2` Second core, everyday use
 
 - **Kind:** watched. **Time:** ~3 min.
@@ -2967,6 +4144,49 @@ MENU: no answer.
 ( ) Hung
 ```
 
+#### `ucoff` Power off on second core
+
+- **Kind:** done outside the session. **Time:** ~1 min.
+- **MENU and SELECT:** start screen: SELECT on the last line leaves the session to do it (no MENU line: MENU still stops the session quietly, and this step comes back at the next Resume); question: SELECT picks; MENU skips it.
+
+```
+[Power off on second core]
+Done outside the session,
+about 1 min. From the main
+menu, hold Play/Pause until
+the screen goes dark: the iPod
+turns off. Wait 5 s, then
+press any button to turn it on
+again.
+
+SELECT here leaves the
+session. After the start:
+Developer > Bench session,
+then pick Go on: Power off on
+second core; the question
+comes first. Normal: it turns
+off cleanly and starts again
+as usual.
+Scroll here, SELECT: leave
+```
+
+The question (when you come back and pick Go on):
+
+```
+[Power off on second core]
+Did the iPod turn off and
+start again normally?
+Yes: off, then a normal start.
+Didn't turn off: the screen
+stayed on.
+Hung: stuck; you reset it.
+Pick an answer with SELECT.
+MENU: no answer.
+( ) Yes
+( ) Didn't turn off
+( ) Hung
+```
+
 #### `b3` Drift on the chip
 
 - **Kind:** done outside the session. **Time:** ~3 min.
@@ -2977,10 +4197,10 @@ MENU: no answer.
 Done outside the session,
 about 3 min. In Developer >
 Advanced > Video chip, press
-BCM jobs: drift on video chip
-until its screen says on. Then
-go to the main menu and watch
-the covers drift for 2 min.
+Drift on video chip until its
+row says On. Then go to the
+main menu and watch the covers
+drift for 2 min.
 
 SELECT here leaves the
 session. Then open Bench
@@ -3013,8 +4233,8 @@ MENU: no answer.
 
 #### `uviz` Visualiser on the chip
 
-- **Kind:** done outside the session. **Time:** ~2 min.
-- **MENU and SELECT:** start screen: SELECT on the last line leaves the session to do it (no MENU line: MENU still stops the session quietly, and this step comes back at the next Resume); question: SELECT picks; MENU skips it.
+- **Kind:** watched. **Time:** ~3 min.
+- **MENU and SELECT:** start screen: SELECT on the last line starts it (no MENU line: MENU still stops the session quietly, and this step comes back at the next Resume); after arming, MENU or SELECT closes the screen; question: SELECT picks; MENU skips it.
 
 ```
 [Visualiser on the chip]
@@ -3035,7 +4255,23 @@ question comes first. Normal:
 smooth motion, a short pause
 at the new song, then moving
 again.
-Scroll here, SELECT: leave
+Scroll here, SELECT: start
+```
+
+After it (the session leaves):
+
+```
+[Visualiser on the chip]
+Set. Do the rest outside the
+session, as the first screen
+said.
+
+Then: Developer > Bench
+session, and pick Go on:
+Visualiser on the chip. The
+question comes first.
+MENU: close
+Scroll here, SELECT: close
 ```
 
 The question (when you come back and pick Go on):
@@ -3056,6 +4292,52 @@ MENU: no answer.
 ( ) Stuttered
 ( ) Stuck after Next
 ( ) Never showed
+```
+
+#### `vf0` Visualiser maths check
+
+- **Kind:** hands off. **Time:** ~1 s.
+- **MENU and SELECT:** none of its own: the "Hands off now" screen comes first (SELECT starts the checks); buttons do nothing while it runs.
+
+No screen of its own.
+
+#### `vizsoak` Visualiser, a few minutes
+
+- **Kind:** watched. **Time:** ~4 min.
+- **MENU and SELECT:** start screen: SELECT on the last line starts it (no MENU line: MENU still stops the session quietly, and this step comes back at the next Resume); question: SELECT picks; MENU skips it.
+
+```
+[Visualiser, a few minutes]
+Hands off, about 3 min. Keep
+the song from the last step
+playing. The visualiser fills
+the screen by itself and runs
+for 3 min; you can put the
+iPod down and just watch now
+and then. Any button ends it
+early.
+
+SELECT here starts it. When it
+ends, the question comes.
+Normal: moving smoothly all
+the time.
+Scroll here, SELECT: start
+```
+
+The question (asked only if the step ran; a skipped step asks nothing):
+
+```
+[Visualiser, a few minutes]
+Did the visualiser keep moving
+the whole time?
+Yes: smooth all along.
+Stuttered: jerky at times.
+Froze: it stopped moving.
+Pick an answer with SELECT.
+MENU: no answer.
+( ) Yes
+( ) Stuttered
+( ) Froze
 ```
 
 #### `respanel` Cover on the chip
@@ -3481,6 +4763,502 @@ there cancels just this check.
 Scroll here, SELECT: start
 ```
 
+#### `awxm` Memory setting log
+
+- **Kind:** hands off. **Time:** ~10 s.
+- **MENU and SELECT:** none of its own: the "Hands off now" screen comes first (SELECT starts the checks); buttons do nothing while it runs.
+
+No screen of its own.
+
+#### `awd2` Accessory supply
+
+- **Kind:** watched. **Time:** ~25 s.
+- **MENU and SELECT:** start screen: SELECT on the last line starts it (no MENU line: MENU still stops the session quietly, and this step comes back at the next Resume); question: SELECT picks; MENU skips it.
+
+```
+[Accessory supply]
+About 30 s. Headphones on the
+headphone socket; the album
+you played last plays. The
+supply for accessories goes
+off for 5 s and comes back.
+
+Listen for the 5 s; the
+question follows.
+Scroll here, SELECT: start
+```
+
+The question (asked only if the step ran; a skipped step asks nothing):
+
+```
+[Accessory supply]
+Did the music keep playing?
+Yes: no change at all.
+It stopped: silent for a
+moment.
+It crackled: noise or clicks.
+Pick an answer with SELECT.
+MENU: no answer.
+( ) Yes
+( ) It stopped
+( ) It crackled
+```
+
+#### `awd2c` Accessory supply, USB-C sound
+
+- **Kind:** watched. **Time:** ~45 s.
+- **MENU and SELECT:** start screen: SELECT on the last line starts it (no MENU line: MENU still stops the session quietly, and this step comes back at the next Resume); question: SELECT picks; MENU skips it.
+
+```
+[Accessory supply, USB-C sound]
+Only if you have a passive
+USB-C audio adapter: plug it
+in with headphones on it and
+press SELECT. The supply goes
+off for 5 s and comes back
+while the album plays.
+
+Listen to the adapter for the
+5 s; the question follows. No
+adapter: choose Skip.
+Scroll here, SELECT: start
+```
+
+The question (asked only if the step ran; a skipped step asks nothing):
+
+```
+[Accessory supply, USB-C sound]
+If you have a passive USB-C
+audio adapter, plug it in: do
+you hear music from it?
+Yes: music all the way
+through.
+It stopped: silent while the
+supply was off.
+No sound: nothing from the
+adapter at all.
+Pick an answer with SELECT.
+MENU: no answer.
+( ) Yes
+( ) It stopped
+( ) No sound
+```
+
+#### `awlg` Drive rest after reading
+
+- **Kind:** watched. **Time:** ~21 min.
+- **MENU and SELECT:** start screen: SELECT on the last line starts it (no MENU line: MENU still stops the session quietly, and this step comes back at the next Resume).
+
+```
+[Drive rest after reading]
+Hands off, about 20 min, in
+the dark. It plays the album
+you played last. The screen
+goes dark: switch Hold on and
+leave the iPod alone until the
+screen lights again.
+
+Nothing to watch. At the end,
+switch Hold off and press
+SELECT.
+Scroll here, SELECT: start
+```
+
+#### `awus` Charger only
+
+- **Kind:** watched. **Time:** ~2 min.
+- **MENU and SELECT:** start screen: SELECT on the last line starts it (no MENU line: MENU still stops the session quietly, and this step comes back at the next Resume); after arming, MENU or SELECT closes the screen; question: SELECT picks; MENU skips it.
+
+```
+[Charger only]
+About 1 min. Plug the iPod
+into a wall charger (not a
+computer) and press SELECT.
+Leave it for about 30 s.
+
+Then unplug it and plug it
+into the computer. When the
+drive has appeared (or after a
+minute), unplug, open Bench
+session and pick Go on: the
+question comes first.
+Scroll here, SELECT: start
+```
+
+After it (the session leaves):
+
+```
+[Charger only]
+Set. Do the rest outside the
+session, as the first screen
+said.
+
+Then: Developer > Bench
+session, and pick Go on:
+Charger only. The question
+comes first.
+MENU: close
+Scroll here, SELECT: close
+```
+
+The question (when you come back and pick Go on):
+
+```
+[Charger only]
+Did the drive appear on the
+computer as usual?
+Yes: it appeared and opened.
+Late: only after a minute or a
+replug.
+No: it never appeared.
+Pick an answer with SELECT.
+MENU: no answer.
+( ) Yes
+( ) Late
+( ) No
+```
+
+#### `awld` Screen supply at rest
+
+- **Kind:** watched. **Time:** ~2 min.
+- **MENU and SELECT:** start screen: SELECT on the last line starts it (no MENU line: MENU still stops the session quietly, and this step comes back at the next Resume); question: SELECT picks; MENU skips it.
+
+```
+[Screen supply at rest]
+About 90 s. The screen goes
+dark for 12 s and comes back,
+five times. If it stays dark,
+hold MENU+SELECT to restart.
+
+Watch the screen each time it
+comes back; the question
+follows.
+Scroll here, SELECT: start
+```
+
+The question (asked only if the step ran; a skipped step asks nothing):
+
+```
+[Screen supply at rest]
+Did the screen come back
+normal each time?
+Yes: normal every time.
+Marks: lines, colours or
+noise.
+Slow: it took longer to light.
+Pick an answer with SELECT.
+MENU: no answer.
+( ) Yes
+( ) Marks
+( ) Slow
+```
+
+#### `awi2` Sound clock at rest
+
+- **Kind:** watched. **Time:** ~3 min.
+- **MENU and SELECT:** start screen: SELECT on the last line starts it (no MENU line: MENU still stops the session quietly, and this step comes back at the next Resume); question: SELECT picks; MENU skips it.
+
+```
+[Sound clock at rest]
+About 3 min. Headphones on;
+the album you played last
+plays. The music pauses and
+plays again, six times, about
+20 s apart. The iPod may
+freeze; if so, hold
+MENU+SELECT to restart.
+
+Listen at each restart of the
+music; the question follows.
+Scroll here, SELECT: start
+```
+
+The question (asked only if the step ran; a skipped step asks nothing):
+
+```
+[Sound clock at rest]
+Did the music resume cleanly
+each time?
+Yes: clean every time.
+A pop: a click or pop at a
+restart.
+No sound: it stayed silent
+once.
+Pick an answer with SELECT.
+MENU: no answer.
+( ) Yes
+( ) A pop
+( ) No sound
+```
+
+#### `pgrd` Speed grade
+
+- **Kind:** hands off. **Time:** ~10 s.
+- **MENU and SELECT:** none of its own: the "Hands off now" screen comes first (SELECT starts the checks); buttons do nothing while it runs.
+
+No screen of its own.
+
+#### `preg` Power registers
+
+- **Kind:** hands off. **Time:** ~1 s.
+- **MENU and SELECT:** none of its own: the "Hands off now" screen comes first (SELECT starts the checks); buttons do nothing while it runs.
+
+No screen of its own.
+
+#### `prtc` Seconds counter
+
+- **Kind:** hands off. **Time:** ~15 s.
+- **MENU and SELECT:** none of its own: the "Hands off now" screen comes first (SELECT starts the checks); buttons do nothing while it runs.
+
+```
+[Seconds counter]
+Hands off, about 15 s. The
+iPod compares three of its
+clocks for about 12 s.
+
+Nothing to watch: the next
+step follows by itself.
+Scroll here, SELECT: start
+```
+
+#### `pstl` Timed pauses
+
+- **Kind:** hands off. **Time:** ~5 s.
+- **MENU and SELECT:** none of its own: the "Hands off now" screen comes first (SELECT starts the checks); buttons do nothing while it runs.
+
+```
+[Timed pauses]
+Hands off, a few seconds. The
+iPod's main core pauses itself
+for short timed moments, the
+longest 10 ms; the music
+pauses for them. The screen
+may freeze; if so, hold
+MENU+SELECT to restart.
+
+Nothing to watch: the next
+step follows by itself.
+Scroll here, SELECT: start
+```
+
+#### `pldo` Screen and sound supply
+
+- **Kind:** watched. **Time:** ~20 s.
+- **MENU and SELECT:** start screen: SELECT on the last line starts it (no MENU line: MENU still stops the session quietly, and this step comes back at the next Resume).
+
+```
+[Screen and sound supply]
+About 1 min. Headphones on;
+the album you played last
+plays. The screen goes dark
+for about 6 s and comes back;
+then a question. Then the
+music pauses for about 12 s
+and plays again; then a second
+question.
+
+Leave the iPod alone until
+each question. If the sound
+stays silent at the end, a
+restart brings it back.
+Scroll here, SELECT: start
+```
+
+#### `pden` Unused blocks off
+
+- **Kind:** watched. **Time:** ~45 s.
+- **MENU and SELECT:** start screen: SELECT on the last line starts it (no MENU line: MENU still stops the session quietly, and this step comes back at the next Resume).
+
+```
+[Unused blocks off]
+Under 1 min. The iPod switches
+off parts of its chip that
+nothing uses, one at a time.
+For each it asks you to press
+SELECT. The screen may freeze;
+if so, hold MENU+SELECT to
+restart.
+
+Press SELECT whenever asked.
+If nothing is switched on to
+test, the step ends by itself.
+Scroll here, SELECT: start
+```
+
+#### `psrf` Memory rest
+
+- **Kind:** watched. **Time:** ~6 s.
+- **MENU and SELECT:** start screen: SELECT on the last line starts it (no MENU line: MENU still stops the session quietly, and this step comes back at the next Resume).
+
+```
+[Memory rest]
+Hands off, about 5 s. The
+music stops and the iPod's
+memory rests for 1 s. The
+screen may freeze; if so, hold
+MENU+SELECT to restart.
+
+Nothing to watch: the next
+step follows by itself, and
+the music plays again.
+Scroll here, SELECT: start
+```
+
+#### `pcop` Driver on the second core
+
+- **Kind:** watched. **Time:** ~2 min.
+- **MENU and SELECT:** start screen: SELECT on the last line starts it (no MENU line: MENU still stops the session quietly, and this step comes back at the next Resume); question: SELECT picks; MENU skips it.
+
+```
+[Driver on the second core]
+Headphones on, volume low. The
+music stops and a steady beep
+plays for about 1 min, through
+the normal sound driver run by
+the second core. Normal: one
+clean, steady beep.
+
+Leave the iPod alone while it
+plays; the question follows.
+The music comes back after.
+Scroll here, SELECT: start
+```
+
+The question (asked only if the step ran; a skipped step asks nothing):
+
+```
+[Driver on the second core]
+Did the tone sound clean?
+Yes: one steady beep, no
+clicks.
+Clicks or gaps: it crackled or
+broke up.
+Silent: nothing played.
+Wrong pitch: far higher or
+lower than a beep.
+Pick an answer with SELECT.
+MENU: no answer.
+( ) Yes
+( ) Clicks or gaps
+( ) Silent
+( ) Wrong pitch
+```
+
+#### `k1` Second core parked
+
+- **Kind:** hands off. **Time:** ~7 min.
+- **MENU and SELECT:** none of its own: the "Hands off now" screen comes first (SELECT starts the checks); buttons do nothing while it runs.
+
+```
+[Second core parked]
+Hands off, about 7 min, in the
+dark. The album you played
+last plays. The screen goes
+dark: switch Hold on and leave
+the iPod alone until the
+screen lights again.
+
+Nothing to watch. At the end,
+switch Hold off; the next
+screen follows.
+Scroll here, SELECT: start
+```
+
+#### `p2` Second core timer
+
+- **Kind:** hands off. **Time:** ~15 s.
+- **MENU and SELECT:** none of its own: the "Hands off now" screen comes first (SELECT starts the checks); buttons do nothing while it runs.
+
+```
+[Second core timer]
+Hands off, about 15 s, silent.
+The second core counts its own
+timer for 10 s.
+
+Nothing to watch: the next
+step follows by itself.
+Scroll here, SELECT: start
+```
+
+#### `p1` Tone on the second core
+
+- **Kind:** watched. **Time:** ~17 s.
+- **MENU and SELECT:** start screen: SELECT on the last line starts it (no MENU line: MENU still stops the session quietly, and this step comes back at the next Resume); question: SELECT picks; MENU skips it.
+
+```
+[Tone on the second core]
+Headphones on, volume low. A
+steady beep plays for 10 s,
+driven by the second core. The
+music stops first and comes
+back after. Normal: one clean,
+steady beep.
+
+Leave the iPod alone while it
+plays; the question follows.
+Scroll here, SELECT: start
+```
+
+The question (asked only if the step ran; a skipped step asks nothing):
+
+```
+[Tone on the second core]
+Did the tone sound clean?
+Yes: one steady beep, no
+clicks.
+Clicks or gaps: it crackled or
+broke up.
+Silent: nothing played.
+Wrong pitch: far higher or
+lower than a beep.
+Pick an answer with SELECT.
+MENU: no answer.
+( ) Yes
+( ) Clicks or gaps
+( ) Silent
+( ) Wrong pitch
+```
+
+#### `duty` Dark play, both cores
+
+- **Kind:** hands off. **Time:** ~15 min.
+- **MENU and SELECT:** none of its own: the "Hands off now" screen comes first (SELECT starts the checks); buttons do nothing while it runs.
+
+```
+[Dark play, both cores]
+Hands off, about 15 min, in
+the dark. It plays the album
+you played last, from where it
+stopped. The screen goes dark:
+switch Hold on and leave the
+iPod alone until the screen
+lights again.
+
+The music restarts three times
+on the way: a short gap each
+time is normal. At the end,
+switch Hold off and press
+SELECT.
+Scroll here, SELECT: start
+```
+
+#### `heap` Memory check, both cores
+
+- **Kind:** hands off. **Time:** ~7 min.
+- **MENU and SELECT:** none of its own: the "Hands off now" screen comes first (SELECT starts the checks); buttons do nothing while it runs.
+
+```
+[Memory check, both cores]
+Hands off, about 7 min. The
+album keeps playing; the music
+may stop and start again every
+few seconds: that's normal.
+
+Nothing to watch: the next
+step follows by itself.
+Scroll here, SELECT: start
+```
+
 **Fit:** the longest screen has 27 rows (one screen shows 28); every line is at most 30 characters.
 
 <!-- owner-script: end -->
@@ -3580,6 +5358,22 @@ Pulled to `session log, bench-20261025` (session `20261025-224345-799ff0f8d7-261
 **What it decides:** which bands the governor may use on this unit (`vbv`'s flags), and whether the governor goes on for regular use (`vgov` PASS); then the long-run battery log (`batt session` lines) confirms or not over the following weeks (`power-contract.md` §8).
 
 **Ingest:** `scripts/bench_ingest.py` prints a "video clock" section (every `vclk`/`vbv`/`vgov` line, the changes by why, each play's means) and flags a fallback, a failed row or a governed play with misses.
+
+## The VC power rows: s1, l5, ck, vs, sd (branch `p19-vcpwr`)
+
+**What:** the five awake-time levers of [`power-apple-vs-ours.md`](../../bcm2722-reference/power-apple-vs-ours.md) ("The top five"), owner's decision 2026-11-05: all five built, S1 and L5 with an auto-fallback in developer builds. Rows in `apps/ipodui/devbench_vcpwr.c` (rules in `devbench_vcpwr.h`, host-tested in `tests/autochecks`). **No current is measured** (no meter): each row logs its readings, marks `power.csv` per phase and passes on its own read-backs. **None writes the merged image** (`23693ff4` stays frozen): every write goes through the port (registers, SDRAM words) or the `0x16C` gate word. In the simulator every row says `Not run (sim)`; `bench_sim set fail_<id>` fails it (the runner's paths). The rows are in the full table; the re-verify run gets them when the integrator splices `bench_vcpwr_picks[]` into `bench_reverify_picks` (after `vizsoak`: `s1`, `l5`, `ck`; after `vgov`: `vs`; after `vlong`: `sd`, whose restore is a cut).
+
+| Row | What runs | Pass (automatic) | Lines | Owner's time | Restore | May freeze the chip? |
+|---|---|---|---|---|---|---|
+| `s1` Chip sleeps when idle | 80 s, A B A B of 20 s: A the gate cleared (polling), B `"SLP1"` at `0x16C`; a FENCE every 500 ms. Question: "Did the screen stay right?" | both B: `bad` 0, ticks within 10 % of ms, sleeps > 0, no FENCE lost, the image never marked stopped | `s1 A1 ms= ticks= bells= sleeps= bad= fences= lost=` (B adds `why=`); `s1: PASS\|FAIL …; idle sleep saved on\|off` | about 2 min | the gate back as found on MENU; on PASS `idle on` saved in `bcmres.cfg` (the daily build's switch) and on now; on FAIL saved off and latched off for the boot | very unlikely (the tick is proven, `slp` sitting 1); the heartbeat watchdog and the cut cover it |
+| `l5` Chip low core level | a go question, then 80 s, A B A B: A level 11, B level 5 written with Apple's 10 ms settle before the read-back ([apple-RE] @5134, @141ba, @141f0), then the job self-test and a FENCE every 500 ms | both B: level 5 read back, self-test ≥ 0 (1, jobs not up, is not a fail), no FENCE lost, no chip failure counted, the image never stopped | `l5 B1 level 5 (write to read N us) self-test 0 fences= lost= stopped=` ; `l5: PASS\|FAIL …; level 5 saved on\|off` | about 2 min | level and gate back as found on MENU; on PASS `level 5` saved and on now; on FAIL saved off, latched (the next wakes leave 11) and, if the image stopped, the cut (the ladder restarts it at 11) | yes, rarely: Apple's chip runs this exact point [silicon PW1 A] but our image never has. The cut cures it |
+| `ck` Chip block clocks | census (PLL dividers `+00`–`+0C`, controls `+14`–`+20`, clock words `+28`–`+58`, the regulator; read only), a 40 s unwritten baseline (a FENCE every 100 ms), then `+34`/`+38` (ids 2, 3, audio) to `pw 0` for 40 s with the self-test, then, only if that passed, `+3C` (id 6, the USB-side gate) the same; every word written back as found | the census reads all complete; each step: read-back 0, self-test ≥ 0, no FENCE lost, FENCEs ≥ 95 % of the baseline, the image never stopped, each word back as found | `ck found +2C = 0000 (none / 0) off`, `ck found regulator …; N clock words off`, `ck base fences N`, `ck +34 found … wrote 0 read …`, `ck step +34/+38 selftest … fences N of base M …: ok\|fail`, `ck: PASS\|FAIL` | about 3 min hands-off (the design's 2 min with 60 s holds became 40 s holds) | each word written back and read back; the cut resets every clock word | unlikely for ids 2, 3 (no user in the UI path); possible for id 6 (reset meaning unknown): last and conditional |
+| `vs` Video with chip sleep | clips 1 and 2, each A B A B of 20 s under the governor (top-of-band), a seek at 5 s and a 1 s pause at 10 s; B sets the gate after OPEN through `bcm_video_idle_gate()`, every phase clears it at its end | every B phase: `bad` 0, ticks within 10 %, slept, nothing skipped or dropped, late ≤ A's + 1, A/V ≤ 50 ms, ≤ 20 band moves a minute, the top band again after the seek. B's idle share ≥ A's + 100 ‰ or the line says "no effect" (a reading). Bells are a reading | `vs clip1 B1 mhz= idle= ticks= ms= sleeps= bad= bells= skipped= dropped= late= av_us= moves= top=`; `vs clip1: PASS\|FAIL <why> (idle B …)`; `vs: PASS\|FAIL: n of m clips` | about 4 min hands-off, one question ("Did any play show a garbled picture?") | the gate cleared at every phase end, the take clears it at the next OPEN, the hand-back puts the boot's setting back | yes, rarely (a sleep never woken); the tick re-arms itself; the cut cures it |
+| `sd` Chip memory idle | a 4 s play (OPEN brings SDRAM up; after CLOSE it refreshes), a 4 KB pattern written and read back through the port at `0xFE3F_6000`, then Apple's idle ([apple-RE] @14892): command register `0x1000_3420` = 0, bit 15 polled up to 8,000 times; holds of 1 s and 10 s with a FENCE every 100 ms; the cut; a second 4 s play | bit 15 clears within the bound; both holds keep FENCEs answering (no loss, never stopped); the play after the cut shows pictures with nothing skipped or dropped | `sd idle polls=N bit15=clear\|stuck`, `sd hold=1 s fences= lost= stopped=`, `sd hold=10 s …`, `sd back bringup=ok\|fail shown=N pattern=n/a …`, `sd: PASS\|FAIL why=` | about 1 min hands-off, no question; the start screen says "It may freeze: hold MENU and SELECT to restart the iPod" | the cut: the image thinks SDRAM is still up, so the next OPEN after an in-place restore would use it idled; the cut (one rung down for the boot) and the next session's OPEN bring it up fresh | yes (the controller may hang the bus); nothing else touches SDRAM meanwhile. The cut cures it |
+
+**The watch** (developer builds only, `vcpwr_service()` on the UI thread after the back end's pass): while idle sleep or level 5 runs, every second it reads the four idle counters and applies S1's rule over the window (`bad`, ticks within 10 %, slept); two failed reads in a row (or a stopped image) count as a failure. After the swap and every wake with level 5 on it checks the read-back (after the firmware's settle), runs the self-test, and watches 2 s (no chip failure, never stopped, a FENCE answers). A failure latches the lever off for the boot (`bcm_boot_res_latch`: `chip idle: off why=…` / `chip level: 11 why=…` in `bcmtest.log`); L5 is saved off at once and, for a heartbeat or self-test failure, cut; S1 counts a strike in `bcmvcpwr.txt` and is saved off at the third failing start. A release build has no watch: it honours `bcmres.cfg` as before.
+
+**What it decides:** `s1` and `l5` PASS turn the levers on for this unit's daily builds (`bcmres.cfg`); `vs` PASS is the evidence for a later change that leaves the gate on in sessions behind the watch; `ck` says which clock words the merged image leaves running and whether ids 2, 3, 6 can go; `sd` PASS is the evidence for a CLOSE-time SDRAM idle, which needs an image op for its in-place wake (next batch, `power-apple-vs-ours.md` "Built").
 
 ## Planned silicon row: the release hibernate (HW1)
 

@@ -29,6 +29,8 @@ Choose **Settings** on the main menu. Turn the wheel to pick a row; the right si
 | **Legal** | Reads the licence notice again. |
 | **Reset Settings** | Puts every setting back to how it started. Your music is not touched. |
 
+On a fresh set of settings, **Backlight** is 10 seconds and **Clicker** is on. These defaults apply only until you change them; settings you already have are not altered by an update.
+
 Video options are under **Videos › Settings** (see [Video](video.md)).
 
 ## The screen when idle

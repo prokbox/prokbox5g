@@ -9,6 +9,11 @@
 # come back in one full redraw.  Dark theme (owner, 2026-10-25).  VC
 # first: all five draw on the BCM: Bars, Mirror (J_BARS_FLIP), Scope
 # (POLYLINE), Spectrogram (SCROLL + PALROW) and Radial (SEGMENTS).
+# The view's overlay piece buffer is the session's (art_bcm.c, allocated at
+# the BCM's init): opening it never takes memory from playing audio (it
+# did: "audio shrink want=8240", a stop and restart, and on Linux Now
+# Playing popped before the view could draw).
+# logbetween: v_in v_out no audio shrink|fade dir=out|np pop stopped
 # log: np viz full=1
 # np: viz-full
 # log: viz clip h=198
@@ -57,6 +62,8 @@ key SELECT          # Rating
 wait 600
 key SELECT          # Shuffle
 wait 600
+heap_tight          # no slack left: the view must not need a new allocation
+ab_mark v_in
 key SELECT          # Visualizer
 wait 1500
 shot bars
@@ -98,4 +105,5 @@ wait 1800
 shot radial
 key SELECT          # back to Normal
 wait 1200
+ab_mark v_out
 shot back_normal

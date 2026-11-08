@@ -48,7 +48,7 @@ if ! "$HOSTCC" -std=gnu99 -O1 -g -Wall -Wextra -Werror ${EXTRA_CFLAGS:-} \
     exit 1
 fi
 if "$TMP/test_storpwr"; then
-    echo "ok   drive power policy (stor_pwr_core.c: hold, backoff, events, refill margin, failed power-ups, cut safety)"
+    echo "ok   drive power policy (stor_pwr_core.c: hold, release linger and its fallback, backoff, events, refill margin, failed power-ups, cut safety)"
 else
     echo "FAIL: drive power policy"
     exit 1

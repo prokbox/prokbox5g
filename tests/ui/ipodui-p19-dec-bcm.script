@@ -22,7 +22,11 @@
 # needs: video
 # golden: skip
 # fulls-extra: 1 the main menu's Now Playing row appears (play_files)
-# logbetween: start m1 bcmjob overlay load k=1 bytes=23884 at=0012b000
+# The overlay loads (DECODE's and the visualizer's) use the session's piece
+# buffer (art_bcm.c, allocated at the BCM's init): none takes memory from
+# audio again (its size, 8,208 B + buflib's header, was "want=8240")
+# nolog: audio shrink want=8240
+# logbetween: start m1 bcmjob overlay load k=1 bytes={BCMVIDEO_DECOVL_BYTES} at={BCMVIDEO_DECOVL_BASE:08x}
 # logbetween: start m1 art bcm overlay wait ms=\d+ decode=1 res=0
 # logbetween: start m1 art bcm box key=d041e5ce04cedfc7 w=142 h=142 reads=1
 # logbetween: start m1 art bcm box key=6a1b2f700f283f50 w=142 h=80 reads=1

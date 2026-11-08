@@ -44,6 +44,7 @@
 #include "ipodui/viz.h"
 #include "ipodui/viz_core.h"
 #include "ipodui/viz_tap.h"
+#include "ipodui/uilat.h"     /* the views' CPU split */
 #include "jviz.h"
 /* The BCM path (VC first: the owner, 2026-10-26, for 0.8.0): SPECTRUM,
  * BARS and the line ops come from an overlay, the merged image's
@@ -140,6 +141,17 @@ static struct {
     unsigned spec_acc;              /* Spectrogram: row time, px x 1000 */
     unsigned n;                     /* the tap's window */
     long next, last, idle;
+    /* day 4c: the view's summary at its close ("viz soak", the bench's
+     * visualiser soak reads it): frames by who drew them, the holds */
+    long t0;
+    uint32_t n_bcm, n_cpu, n_holds;
+    uint32_t n_late;                /* a frame over two periods late */
+    long gap_max;                   /* the longest gap between frames,
+                                       ticks (holds included) */
+    long hold_max;                  /* ticks */
+#ifdef UILAT_CPU
+    struct uilat_cpu cpu0;          /* sitting 4g: the view's CPU split */
+#endif
 #ifdef VIZ_BCM
     bool owned, slot_ok, rslot_ok, lslot_ok;
     bool quiet, window_now;         /* this frame: no samples; the window
@@ -341,7 +353,10 @@ bool viz_start(void)
     }
     vz.on = true;
     vz.spec_clear = true;
-    vz.next = vz.last = vz.idle = current_tick;
+    vz.next = vz.last = vz.idle = vz.t0 = current_tick;
+#ifdef UILAT_CPU
+    uilat_cpu_mark(&vz.cpu0);
+#endif
     hold_light(true);
 #ifdef VIZ_BCM
     UPDATE_TRACE("viz start style=%d path=%s n=%u%s", viz_style(),
@@ -358,7 +373,25 @@ bool viz_start(void)
     return true;
 }
 
+/* day 4e: the closed views' sums (viz_soak_get) */
+static struct viz_soak soak;
+
+void viz_soak_get(struct viz_soak *s)
+{
+    *s = soak;
+}
+
+void viz_soak_reset(void)
+{
+    memset(&soak, 0, sizeof(soak));
+}
+
 void viz_stop(void)
+{
+    viz_stop_why("other");
+}
+
+void viz_stop_why(const char *why)
 {
 #ifdef VIZ_BCM
     art_bcm_viz_view(false);        /* the art's chip work resumes */
@@ -366,6 +399,32 @@ void viz_stop(void)
     if (vz.on)
     {
         vz.on = false;
+        ui_log("viz", "soak s=%ld bcm=%lu cpu=%lu hold=%lu/%ldms fb=%d why=%s "
+               "late=%lu gap=%ldms",
+               (long)(current_tick - vz.t0) / HZ, (unsigned long)vz.n_bcm,
+               (unsigned long)vz.n_cpu, (unsigned long)vz.n_holds,
+               vz.hold_max * (1000 / HZ), (int)vz.cpu_logged, why,
+               (unsigned long)vz.n_late, vz.gap_max * (1000 / HZ));
+#ifdef UILAT_CPU
+        /* sitting 4f: 19.5 fps in the owner's views, 28.7 hands-off, the
+           same overlay: the PP's share or the VideoCore's */
+        uilat_cpu_log("viz", &vz.cpu0);
+#endif
+        soak.late += vz.n_late;
+        if ((uint32_t)(vz.gap_max * (1000 / HZ)) > soak.gap_max_ms)
+            soak.gap_max_ms = (uint32_t)(vz.gap_max * (1000 / HZ));
+        soak.views++;
+        soak.last_why = why;
+        if (!strcmp(why, "dark"))
+            soak.dark++;
+        soak.secs += (uint32_t)((current_tick - vz.t0) / HZ);
+        soak.bcm += vz.n_bcm;
+        soak.cpu += vz.n_cpu;
+        soak.holds += vz.n_holds;
+        if ((uint32_t)(vz.hold_max * (1000 / HZ)) > soak.hold_max_ms)
+            soak.hold_max_ms = (uint32_t)(vz.hold_max * (1000 / HZ));
+        if (vz.cpu_logged)
+            soak.fb = true;
 #ifdef VIZ_BCM
         bcm_release();
 #endif
@@ -390,7 +449,7 @@ bool viz_on(void)
 void viz_forget(void)
 {
     /* Now Playing leaves: the stack resets the arena after leave() */
-    viz_stop();
+    viz_stop_why("leave");
 }
 
 unsigned viz_bg(void)
@@ -1194,6 +1253,7 @@ int viz_frame(bool *lost)
             if (!vz.wait_since)
             {
                 vz.wait_since = now;
+                vz.n_holds++;
                 UPDATE_TRACE("viz hold why=%s", vz.wait ? "owed" : "decode");
             }
             if (TIME_BEFORE(now, vz.wait_since + VIZ_WAIT_MAX))
@@ -1206,6 +1266,8 @@ int viz_frame(bool *lost)
         }
         else if (vz.wait_since)
         {
+            if (now - vz.wait_since > vz.hold_max)
+                vz.hold_max = now - vz.wait_since;
             UPDATE_TRACE("viz hold end ms=%ld",
                          (long)(now - vz.wait_since) * (1000 / HZ));
             vz.wait_since = 0;
@@ -1217,7 +1279,7 @@ int viz_frame(bool *lost)
                 cpu_fallback("lost");
             if (!tap_open(want ? N_BCM : N_CPU))
             {
-                viz_stop();
+                viz_stop_why("tap");
                 return TIMEOUT_BLOCK;
             }
         }
@@ -1241,6 +1303,14 @@ int viz_frame(bool *lost)
     period = HZ / (on_bcm ? FPS_BCM : FPS_CPU);
     step = 0;                       /* below: the Spectrogram's new rows */
     ms = (unsigned)(now - vz.last) * (1000 / HZ);
+    if (vz.n_bcm + vz.n_cpu)
+    {
+        /* the cadence the eye sees: the UI pass's delays and the holds */
+        if (now - vz.last > vz.gap_max)
+            vz.gap_max = now - vz.last;
+        if (now - vz.last > 2 * period)
+            vz.n_late++;
+    }
     vz.last = now;
     vz.next = now + period;
     strip = ui_strip_claim(UI_STRIP_OWNER_NP, &kept);
@@ -1318,6 +1388,10 @@ int viz_frame(bool *lost)
     if (!drawn_bcm)
         bcm_release();
 #endif
+    if (drawn_bcm)
+        vz.n_bcm++;
+    else
+        vz.n_cpu++;
     if (!drawn_bcm)
         if (!(style == VIZ_STYLE_SCOPE && vz.hold))  /* held: the frame stays */
             draw_cpu(style, quiet ? NULL : pcm, step);

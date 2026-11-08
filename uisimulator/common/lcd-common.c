@@ -10,6 +10,7 @@
  *
  * Windows Copyright (C) 2002 by Felix Arends
  * X11 Copyright (C) 2002 by Daniel Stenberg <daniel@haxx.se>
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License

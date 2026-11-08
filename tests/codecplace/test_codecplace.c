@@ -53,13 +53,16 @@ long current_tick;
 static bool bl_on = true, panel_on = true, cross = true, in_worker;
 static unsigned char slot[0x10000];
 static int worker_starts, posts;
+static bool start_fails, post_fails;    /* the COP will not take the run */
+static int cop_fail_logs;               /* "codec" lines saying so */
 
 void commit_dcache(void) { }
 void yield(void) { }
 void panicf(const char *fmt, ...) { (void)fmt; abort(); }
 void ui_log(const char *tag, const char *fmt, ...)
 {
-    (void)tag; (void)fmt;
+    if (!strcmp(tag, "codec") && strstr(fmt, "COP FAILED"))
+        cop_fail_logs++;
 }
 bool is_backlight_on(bool ignore_always_off)
 {
@@ -72,6 +75,8 @@ bool cop_worker_start(struct cop_worker *w, void *stack, size_t size,
                       const char *name, int prio)
 {
     (void)stack; (void)size; (void)name; (void)prio;
+    if (start_fails)
+        return false;
     w->started = 1;
     worker_starts++;
     return true;
@@ -81,7 +86,7 @@ int cop_job_post(struct cop_worker *w, cop_job_fn fn, void *arg,
                  unsigned flags)
 {
     (void)flags;
-    if (!w->started)
+    if (!w->started || post_fails)
         return -1;
     posts++;
     in_worker = true;
@@ -277,25 +282,60 @@ static void test_full_wait(void)
 static void test_cop_runs(void)
 {
     uint32_t cop, cpu;
-    int starts;
+    int starts, n;
 
-    /* the default (owner, 2026-10-24): decoding pinned to the CPU, the
-     * plain path: the real api, nothing reserved, synthesis inline, no
-     * worker, lit or dark */
-    CHECK(codec_cop_place() == CPL_MODE_CPU);
+    /* the default (owner, 2026-11-07, Apple's core layout): decoding on
+     * the COP in every shell build, lit or dark: bound, the stack kept
+     * back, the run in the worker, MP3's synthesis on the COP too */
+    CHECK(codec_cop_place() == CPL_MODE_COP);
     at(10, true, true);
+    load();
+    CHECK(seen != &real);
+    CHECK(codec_cop_reserve() > 0);
+    codec_cop_run(true);
+    CHECK(last.in_worker && codec_cop_active() && last.assist);
+    CHECK(last.fields_ok && !last.id3_cached);
+    at(20, false, false);
+    current_tick = 20 + 10 * CPL_HOLD_S * HZ;
+    codec_cop_run(true);                /* dark held: still the COP */
+    CHECK(last.in_worker && last.assist);
+    codec_cop_run(false);               /* a seek's re-run: the COP */
+    CHECK(last.in_worker && last.fields_ok);
+    codec_cop_unload();
+    CHECK(worker_starts == 1 && posts == 3);
+    CHECK(cop_fail_logs == 0);
+
+    /* the worker started but would not take the job: the CPU, through
+     * the same struct, with a loud log line, never silently; the next
+     * load goes to the COP again */
+    post_fails = true;
+    load();
+    codec_cop_run(true);
+    CHECK(!last.in_worker && !codec_cop_active() && last.fields_ok);
+    CHECK(!last.assist);                /* MP3's synthesis inline */
+    CHECK(cop_fail_logs == 1);
+    codec_cop_unload();
+    post_fails = false;
+    load();
+    codec_cop_run(true);
+    CHECK(last.in_worker && last.assist);
+    codec_cop_unload();
+    CHECK(cop_fail_logs == 1);
+
+    /* the developer A/B arm: decoding pinned to the CPU (the 0.8.0-rc
+     * default until 2026-11-07), the plain path: the real api, nothing
+     * reserved, synthesis inline, no worker, lit or dark */
+    codec_cop_set_place(CPL_MODE_CPU);
+    starts = worker_starts;
+    at(30, true, true);
     load();
     CHECK(seen == &real);
     CHECK(codec_cop_reserve() == 0);
     codec_cop_run(true);
     CHECK(!last.in_worker && !codec_cop_active() && !last.assist);
     CHECK(last.fields_ok);
-    at(20, false, false);
-    current_tick = 20 + 10 * CPL_HOLD_S * HZ;
-    codec_cop_run(true);
-    CHECK(!last.in_worker && !last.assist);
     codec_cop_unload();
-    CHECK(worker_starts == 0 && posts == 0);
+    CHECK(worker_starts == starts);
 
     /* the A/B mode: by the screen */
     codec_cop_set_place(CPL_MODE_SCREEN);
@@ -349,7 +389,9 @@ static void test_cop_runs(void)
     codec_cop_set_place(CPL_MODE_SCREEN);
 
     codec_cop_place_stats(&cop, &cpu);
-    CHECK(cop == 4 && cpu == 5);
+    /* COP: 3 default + 1 after the refusal + 4 by screen; CPU: the
+     * refusal + 1 CPU arm + 3 by screen */
+    CHECK(cop == 8 && cpu == 5);
     codec_cop_unload();
     CHECK(codec_cop_reserve() == 0);
 
@@ -369,6 +411,30 @@ static void test_cop_runs(void)
     CHECK(!last.in_worker && last.fields_ok);
     codec_cop_unload();
     cross = true;
+
+    /* last (it latches for the boot): the COP will not start. This run
+     * on the CPU, synthesis inline, a loud line; every later load the
+     * plain path with nothing kept back, no new start (no second's
+     * stall), and a loud line each load */
+    codec_cop_set_place(CPL_MODE_COP);
+    n = cop_fail_logs;
+    starts = worker_starts;
+    start_fails = true;
+    load();
+    CHECK(seen != &real);
+    codec_cop_run(true);
+    CHECK(!last.in_worker && !codec_cop_active() && last.fields_ok);
+    CHECK(!last.assist);
+    CHECK(cop_fail_logs == n + 1);
+    codec_cop_unload();
+    load();
+    CHECK(seen == &real && codec_cop_reserve() == 0);
+    CHECK(cop_fail_logs == n + 2);
+    codec_cop_run(true);
+    CHECK(!last.in_worker && !last.assist && last.fields_ok);
+    codec_cop_unload();
+    CHECK(worker_starts == starts);
+    start_fails = false;
 }
 
 int main(void)

@@ -27,9 +27,9 @@
  * and the player from /.rockbox/bcmvideo.bin unless the build has
  * HAVE_BCMFW_MERGED_VIDEO (bcmvideo_image.h); a file whose size or
  * FNV-1a differs is refused.
- * sha256 aa29857fdb32c4e709a66f1aea84a1971a9d0751f331b69fd9d50e7d4bdc3fec */
+ * sha256 9b21cc820c2ad73f5edd4b72767ae57d209ddb6d59244eb0c4ef4069506e343d */
 #ifndef BCMPROBE_IMAGE_H
 #define BCMPROBE_IMAGE_H
-#define BCMPROBE_IMAGE_BYTES 213476
-#define BCMPROBE_IMAGE_FNV   0xca2228ddu
+#define BCMPROBE_IMAGE_BYTES 213736
+#define BCMPROBE_IMAGE_FNV   0xb7997d39u
 #endif

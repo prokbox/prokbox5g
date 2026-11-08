@@ -1,0 +1,39 @@
+# Font coverage: tags with music notes, curly quotes, dashes, signs,
+# accented Latin and ligatures (tests/ui/fixtures/glyphs, made by make.sh)
+# drawn by the shell fonts: the artist name in the header (Bold 12), the
+# album and song rows (Bold 15), and Now Playing (Bold 15 / Bold 12).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-font-coverage.script
+# golden: skip
+# timeout: 180
+
+wait 3000
+wait_db 30000
+mkdir /Music/Glyphs
+copy ../../tests/ui/fixtures/glyphs/glyphs1.mp3 /Music/Glyphs/glyphs1.mp3
+copy ../../tests/ui/fixtures/glyphs/glyphs2.mp3 /Music/Glyphs/glyphs2.mp3
+update_db_wait_change 60000
+wait 1000
+shot main
+key SELECT          # Music
+wait 800
+shot music
+wheel +1            # Artists
+key SELECT
+wait 800
+shot artists
+wheel +2            # the fixture artist (sorts last)
+key SELECT
+wait 800
+shot albums         # header: the artist (Bold 12); row: the album (Bold 15)
+key SELECT
+wait 800
+shot songs          # header: the album; rows: the two titles
+key SELECT
+wait 2000
+shot nowplaying
+key MENU
+wait 800
+wheel +1
+wait 400
+shot songs2         # the second title selected
+quit

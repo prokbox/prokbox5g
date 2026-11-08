@@ -42,6 +42,7 @@
 #include "ipodui/uilog.h"
 #include "ipodui/unlit.h"           /* ui_unlit_active() */
 #include "core_alloc.h"             /* the overlay's piece buffer */
+#include "audio.h"                  /* audio_status(): no buffer taken playing */
 #include "system.h"
 #include "xcore.h"                  /* the piece's hand-off across cores */
 #include "video/bcmvideo_image.h"   /* BCMVIDEO_DECOVL_*: dec-ovl.bin's record */
@@ -115,6 +116,17 @@ static volatile bool ovl_due;
 static volatile uint32_t ovl_post, ovl_take, ovl_done; /* piece numbers */
 static uint32_t ovl_seq;                /* the art thread's last */
 static const void *volatile ovl_buf;
+/* The piece buffer is the session's: allocated once, pinned, by
+ * art_bcm_ovl_buf_init() at the BCM's init, before the audio buffer exists
+ * (the heap's low end, nothing large fragmented). A load used to core_alloc
+ * it: with no slack left that shrank the audio buffer, and playing that
+ * means a stop and restart (playback.c shrink_callback): opening the
+ * visualizer stopped the music, on the Mac and on Linux alike, and Now
+ * Playing could pop before the view drew. A timed-out piece (the pass may
+ * still read it) retires the block: kept pinned and unfreed, as before,
+ * and never refilled; a later load takes a fresh one only while audio is
+ * stopped, else the visualizer takes the CPU face. */
+static int ovl_sess_h = -1;
 static volatile uint32_t ovl_off, ovl_n, ovl_size;
 static volatile int ovl_rc;             /* the pass's answer to ovl_done */
 static volatile unsigned int ovl_core;  /* the reader's core */
@@ -504,6 +516,44 @@ static void ovl_net(int why)
     ui_log("art", "FAULT bcm decode overlay why=%s: the PP decodes", name[why]);
 }
 
+/* At the BCM's init (ui_main.c, after bcmjob_init()): the session's piece
+ * buffer, while the audio buffer does not exist yet */
+void art_bcm_ovl_buf_init(void)
+{
+    if (ovl_sess_h > 0)
+        return;
+    ovl_sess_h = core_alloc(BCMJOB_DEC_PIECE + XCORE_LINE);
+    if (ovl_sess_h > 0)
+        core_pin(ovl_sess_h);       /* the pass reads it across yields */
+    ui_log("art", "bcm overlay buf session h=%d at=%08lx bytes=%u",
+           ovl_sess_h, ovl_sess_h > 0
+           ? (unsigned long)(uintptr_t)core_get_data(ovl_sess_h) : 0ul,
+           (unsigned)(BCMJOB_DEC_PIECE + XCORE_LINE));
+}
+
+/* True if a load has the session's buffer: a fresh block after a
+ * retirement only while audio is stopped (an allocation then never stops
+ * the music); playing, false and logged (the caller's CPU path) */
+static bool art_bcm_ovl_buf_take(void)
+{
+    static bool said;
+
+    if (ovl_sess_h > 0)
+        return true;
+    if (audio_status() != 0)
+    {
+        if (!said)
+        {
+            said = true;
+            /* short: ui_log keeps about 64 characters */
+            ui_log("art", "FAULT bcm ovl buf retired, playing: CPU path");
+        }
+        return false;
+    }
+    art_bcm_ovl_buf_init();
+    return ovl_sess_h > 0;
+}
+
 /* The art thread: the kind's file (f: its record) read and posted a
  * piece at a time, each put by the owner's pass, within OVL_WAIT in all.
  * OVL_OK, an OVL_NET_* cause, or OVL_CANCELLED; *pieces: those the pass
@@ -518,10 +568,15 @@ static int ovl_load(int kind, const struct bcmjob_ovl_file *f,
     void *buf;
 
     *pieces = 0;
-    h = core_alloc(BCMJOB_DEC_PIECE + XCORE_LINE);
-    if (h <= 0)
-        return OVL_NET_BUF;
-    core_pin(h);                    /* the pass reads it across yields */
+    /* sitting 4e (session log ipodui.log lines 119-122): paused music
+       held the whole heap; playback refused the shrink inside buflib's
+       walk and posted its give instead ("give=posted", done 80 ms
+       later), so the first try failed and the cover went to the PP.  The
+       give frees the bytes for a retry: tried again until it lands,
+       within the load's own bound */
+    if (!art_bcm_ovl_buf_take())
+        return OVL_NET_BUF;         /* playing, the block retired: logged */
+    h = ovl_sess_h;                 /* pinned since its allocation */
     buf = (void *)ALIGN_UP((uintptr_t)core_get_data(h), XCORE_LINE);
     for (;;)
     {
@@ -586,6 +641,8 @@ static int ovl_load(int kind, const struct bcmjob_ovl_file *f,
                 }
                 leak = ovl_done != s;
             }
+            if (leak)
+                ovl_sess_h = -1;    /* retired: pinned, never refilled */
             if (leak && !leak_said)
             {
                 leak_said = true;
@@ -611,12 +668,7 @@ static int ovl_load(int kind, const struct bcmjob_ovl_file *f,
             break;
         }
     }
-    if (!leak)
-    {
-        core_unpin(h);
-        core_free(h);
-    }
-    return res;
+    return res;                     /* the block stays the session's */
 }
 
 bool art_bcm_ready_ovl(bool (*cancel)(void *ctx), void *ctx)
@@ -703,6 +755,9 @@ int art_bcm_viz_ask(void)
         return ART_VIZ_WAIT;            /* the art thread has it */
     if (viz_bad_ep && viz_bad_ep == bcmjob_epoch() && viz_bad_n >= 2)
         return ART_VIZ_NONE;            /* refused in this epoch */
+    if (!art_bcm_ovl_buf_take())
+        return ART_VIZ_NONE;            /* no piece buffer, playing: the
+                                           CPU face (none taken; logged) */
     if (!bcmjob_ovl_due(BCMJOB_OVL_VIZ, &f))
         return ART_VIZ_NONE;            /* no region for it, tries spent */
     viz_req = f;

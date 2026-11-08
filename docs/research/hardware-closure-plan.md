@@ -79,7 +79,7 @@ Each item has an id, what is known (with tags), whether tonight changed it, and 
 | S-18 | Display jobs on the chip (b3, drill 2, b5, jobs self-test) | pass. B5 pushes windows at pitches 320/300/400 from rows 31 and 41 at 185 ns a pixel [silicon]. Merged `80bc8611` is recorded as verified on branch `p19-reverify-fix` (owner-accepted: B13 gates only the swap path) | `COMMIT` failing (quirks #33, #34) |
 | S-19 | Interrupts on silicon (oq #3), part | `slp` (sitting 1): the 1 ms timer compare wakes the core from `sleep`, and doorbells wake it; 0 lost over two 60 s phases [silicon, indirect: the image's own tick and doorbell counters; no per-source entry count yet]. DMA-completion and other sources stay open (V-8). The programming guide still lists interrupts as unconfirmed: fold this | none confirmed |
 | S-20 | PP DMA into the port (oq #41, pp #11, #12; DP-2) | already closed by S37 (engine 2 works, the general engine moves nothing even memory to memory) [silicon]. The text of oq #41 is stale: point it at `data-paths.md` D1 | — |
-| S-21 | PP cores' caches (pp quirks #51, #53; rows C1–C3) | sitting 1: C2 shows separate arrays and no coherency; C3 shows the COP stays awake under `yield()` polling; C1 shows engine 2 runs from the COP [silicon]. `pp5022-reference/quirks.md` still says [hypothesis] | — |
+| S-21 | PP cores' caches (pp quirks #87, #53; rows C1–C3) | sitting 1: C2 shows separate arrays and no coherency; C3 shows the COP stays awake under `yield()` polling; C1 shows engine 2 runs from the COP [silicon]. `pp5022-reference/quirks.md` still says [hypothesis] | — |
 
 ### 1.2 Open, and software depends on it
 
@@ -166,7 +166,7 @@ Each item has an id, what is known (with tags), whether tonight changed it, and 
 - oq #41 (PP DMA into the port): closed by S37. Point it at `data-paths.md` D1 and DP-2, and keep only "IRQ 27" and "fields `[26:24]`" open, under pp #11.
 - oq #43: the lone halfword is answered (S-16). Auto-increment stays open (V-5).
 - oq #0b (loop filters, intra 16×16): answered in S24 to S27 (quirks #18–#20). Strike it.
-- pp quirks #51, #53: answered by C2 and C3 (S-21). Fold them.
+- pp quirks #87, #53: answered by C2 and C3 (S-21). Fold them.
 
 ---
 
@@ -211,7 +211,7 @@ The owner's rule, in order:
 - `memory-access.md` §11: every row ALGN answered moves from Unknown to its reading.
 - `isa-vector.md`: ASHX, ACSA and HWLD.
 - `open-questions.md`: #2, #5, #21, #43 (half), #68, #69, #70 and #3 (half) answered; #0b and #41 struck (§1.6).
-- `pp5022-reference/quirks.md` #51 and #53, from C2 and C3.
+- `pp5022-reference/quirks.md` #87 and #53, from C2 and C3.
 - `data-paths.md` D4 and the port rows.
 
 **vc2sim changes**, each with a regression test that replays tonight's words (§6.2):
@@ -694,7 +694,7 @@ Each of these stays tagged in the manual as it is today.
 
 ### 6.3 Stale-knowledge checks [proposed, small]
 
-- **`scripts/oq_lint.py`:** every open-question item that names a bench row whose fixture exists is reported as "answered on silicon, fold it". Every item tagged [hypothesis] that cites a fixture is reported too. This would have caught oq #41's stale text and pp quirks #51/#53.
+- **`scripts/oq_lint.py`:** every open-question item that names a bench row whose fixture exists is reported as "answered on silicon, fold it". Every item tagged [hypothesis] that cites a fixture is reported too. This would have caught oq #41's stale text and pp quirks #87/#53.
 - **The PP/BCM port rules in one module:** `tests/bcmjob`'s model and vc2sim's port model import one rule file, so E1's strict port is defined once (`sim-fidelity.md` #9).
 - **`bench_ingest`'s "stale" label:** a FAIL flag over a reading the model now has (branch `p19-sitting2-docs`). Merge it, so the ingest stops listing settled words as anomalies.
 

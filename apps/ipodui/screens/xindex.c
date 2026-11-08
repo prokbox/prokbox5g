@@ -52,6 +52,7 @@
 #include "ipodui/sortkey.h"
 #include "ipodui/safefile.h"
 #include "ipodui/xindex.h"
+#include "ipodui/afb.h"                 /* #137: the Apple fallback job */
 #include "ipodui/xcontact_core.h"
 
 #define B_SRC   0
@@ -397,4 +398,7 @@ const struct xidx_ops xidx_ops = {
     .notes = build_notes,
     .contacts = build_contacts,
     .cal   = xcal_build_job,
+#ifdef HAVE_IPOD_UI_DEVMODE
+    .afb   = afb_job,                   /* #137 */
+#endif
 };

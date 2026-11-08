@@ -10,14 +10,15 @@
  * Not affiliated with or endorsed by Apple Inc.
  *
  * ipod-automount: mounts a ProkBox iPod's FAT32 volume (label IPOD) at
- * /private/tmp/ipod_mount with mount_msdos.
+ * MNT (default /tmp/ipod_mount; build with -DMNT='"/some/dir"' to change it)
+ * with mount_msdos.
  *
  * macOS's own automount gives up on the iPod's 1 TB volume: its FAT driver
  * reads the whole allocation table (~250 MB) before mounting, and the
  * iPod's USB is too slow to finish inside the time limit. mount_msdos
  * doesn't read the table, so it mounts at once.
  *
- * Runs as root under launchd (dev.prokopto.ipod-automount.plist). It is a
+ * Runs as root under launchd (org.prokbox.automount.plist). It is a
  * compiled program rather than a script so that Full Disk Access can be
  * granted to it alone: macOS refuses background mounts without it.
  * Checks every 3 s; it only mounts, never writes, unmounts or repairs.
@@ -46,11 +47,18 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <sys/mount.h>
+#include <limits.h>
 
-#define MNT     "/private/tmp/ipod_mount"
+#ifndef MNT
+#define MNT     "/tmp/ipod_mount"
+#endif
 #define PAUSE   "/tmp/ipod-automount.pause"
 
 extern char **environ;
+
+/* MNT with symlinks resolved (on macOS /tmp is a symlink): the mount
+   table names the real path */
+static char mnt_real[PATH_MAX];
 
 static void logmsg(const char *fmt, const char *arg)
 {
@@ -76,7 +84,7 @@ static int mounted(const char *dev, int *mnt_busy)
     {
         if (!strcmp(m[i].f_mntfromname, path))
             hit = 1;
-        if (!strcmp(m[i].f_mntonname, MNT))
+        if (!strcmp(m[i].f_mntonname, mnt_real))
             *mnt_busy = 1;
     }
     return hit;
@@ -121,6 +129,9 @@ int main(void)
 {
     char dev[32];
 
+    mkdir(MNT, 0755);
+    if (!realpath(MNT, mnt_real))
+        snprintf(mnt_real, sizeof(mnt_real), "%s", MNT);
     for (;;)
     {
         int busy;

@@ -28,7 +28,7 @@ only).
     apps/ipodui/art/extrasart.py > apps/ipodui/extrasart.h
 
 Owner, 2026-10-24: on the 7G every Extras row shows its own large icon in
-the split screen's panel (owner photos 1197, photo 1198). These are
+the split screen's panel (owner photos `extras-menu-b`, photo `extras-alarms`). These are
 original drawings in that glossy style, no reference pixels used:
 
   alarm      a modern round alarm clock: a slim glossy red case, a thin

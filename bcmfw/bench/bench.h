@@ -105,6 +105,10 @@ void bench_run(int timer_ok);
  * after BENCH_LATE_SPIN spin iterations (a posted vector store shows as
  * a late pass).  bringup.md, "Vector diagnostics". */
 #define BR_VREC_AT      0x800   /* word offset: past both timing tables */
+/* At most 80 checks (records up to BR_SLOC_AT).  The pass masks hold 64:
+ * checks 64 on are informational, their verdict only in the record's
+ * flags (gen_bench.py asserts it; VF3's probes, P19). */
+#define BENCH_MAX_VCASES 80
 #define BENCH_LATE_SPIN 20000   /* about 2 ms at 27 MHz */
 #define BV_TAG          0
 #define BV_FLAGS        1   /* BVF_*, words checked << 8, first bad word << 16 */
@@ -116,6 +120,13 @@ void bench_run(int timer_ok);
 #define BVF_PASS        0x1 /* every word matched at once */
 #define BVF_LATE_PASS   0x2 /* every word matched after the delay */
 #define BVF_NONE        0xFFFF  /* first bad word field: no mismatch */
+#define BVF_OVERRUN     0x4 /* a store landed past out[]'s BENCH_OUT_WORDS
+                               (the guard words changed): never a pass */
+/* bench.c's out[]: the largest check stores 16 rows (GTHR, 128 words;
+   gen_bench.py asserts every check fits), then BENCH_GUARD_WORDS words
+   that no check may write */
+#define BENCH_OUT_WORDS 128
+#define BENCH_GUARD_WORDS 8
 
 /* Store-locating records (BR_SLOC, BS_WORDS each, dev4, sources dev5;
  * isa.md "Vector stores on silicon"): the sources in gen_bench.py's
@@ -125,7 +136,8 @@ void bench_run(int timer_ok);
  * after BENCH_LATE_SPIN, every word of
  * bench_vbuf (bench_vbuf_bytes) that is not the fill.  Offsets are bytes from
  * the target, signed. */
-#define BR_SLOC_AT      0xB00   /* word offset: past 64 vector records */
+#define BR_SLOC_AT      0xBC0   /* word offset: past 80 vector records; 8 records
+                                   end at 0xC00, ALGN_RESULTS */
 #define BS_ROW          0   /* 0x534C0000 ('SL') | source: y | x << 8,
                                | 0x8000 for the old load-style encoding */
 #define BS_CHANGED      1   /* words in the buffer that changed */

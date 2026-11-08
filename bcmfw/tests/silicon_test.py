@@ -348,7 +348,7 @@ def gate_rows(r):
     sil = next(k for (d, k), (c, _) in table.items() if d == 'vector' and c == 'silicon')
     cases = [
         (('vector', sil, 'h264_vidct4_add', 0, '', False), 'proven'),
-        (('vector', guard, 'jv_fft256', 0, '', False), 'guarded'),
+        (('vector', guard, 'jv_vfft512', 0, '', False), 'guarded'),
         (('vector', guard, 'h264_vidct4_add', 0, '', False), 'UNPROVEN'),
         (('vector', 'vfoo DH16 AH16 Bimm - 80', 'h264_x', 0, '', False), 'trapped'),
         (('vector', 'x', 'jv_q', 0, '', True), 'trapped'),

@@ -12,6 +12,7 @@
  * Adapted for Rockbox in January 2006
  * Original file: podzilla/usb.c
  * Copyright (C) 2005 Adam Johnston
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -32,6 +33,9 @@
 #include "ata.h"
 #include "string.h"
 #include "usb_core.h"
+#ifdef HAVE_PWR_AWAKE
+#include "pwr_awake.h"
+#endif
 #include "usb_drv.h"
 
 #if defined(IPOD_4G) || defined(IPOD_COLOR) \
@@ -120,7 +124,18 @@ static void usb_reset_controller(void)
     while ((inl(0x70000028) & 0x80) == 0);
     outl(inl(0x70000028) | 0x2, 0x70000028);
     udelay(100000);
+#if defined(HAVE_PWR_AWAKE) && defined(HAVE_IPOD_UI_DEVMODE)
+    {
+        /* ProkBox AW-8 (apple-power-catalog.md, T-XMBCFG), read-only:
+         * Apple never writes this register while awake; the values
+         * around Rockbox's OR go to the log, nothing else changes */
+        unsigned long before = XMB_RAM_CFG;
+        XMB_RAM_CFG |= 0x47A;
+        pwraw_note(PWRAW_XMB, true, before, XMB_RAM_CFG);
+    }
+#else
     XMB_RAM_CFG |= 0x47A;
+#endif
 
     /* disable USB-devices until USB is detected via GPIO */
 #ifndef BOOTLOADER

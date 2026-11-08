@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2002 by Daniel Stenberg
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -1421,6 +1422,12 @@ Lyre prototype 1 */
 
 #if defined(USB_HAS_ISOCHRONOUS) && !defined(IPODUI_TRIM_USB_CLASSES)
 #define USB_ENABLE_AUDIO
+#endif
+
+/* ProkBox #144 P1: the isochronous bench probe (tools/configure
+ * --usb-isoprobe, a developer bench build only) */
+#if defined(HAVE_USB_ISOPROBE) && defined(USB_HAS_ISOCHRONOUS)
+#define USB_ENABLE_ISOPROBE
 #endif
 
 #if defined(USB_HAS_INTERRUPT) && defined(USB_HAS_ISOCHRONOUS) && USB_VENDOR_ID == 0x05ac \

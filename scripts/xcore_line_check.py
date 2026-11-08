@@ -27,7 +27,8 @@
 usage: scripts/xcore_line_check.py [--strict] [--list] MAPFILE
 
 With the shell on the COP, a 16-byte cache line that holds both a shell
-(apps/ipodui) static and any other static is written back whole by
+(apps/ipodui, FE_MEMBERS) static and any other static, or both a file-layer
+(FS_MEMBERS) static and any other, is written back whole by
 whichever core evicts it last: a write by the other core to its half is
 lost (no coherency, write-back caches; tests/febe/cachemodel.c shows the
 mechanism).  This reads the linker map's input sections in the cached
@@ -47,12 +48,24 @@ CACHED_MAX = 0x10000000     # the uncached alias starts here (PP5022)
 
 
 # the front end's data: the shell's objects and the drawing code it runs
-# (the font cache, the framebuffer and the LCD's viewport state)
-FE_MEMBERS = ('(font.o)', '(lcd-16bit.o)')
+# (the font cache, the framebuffer and the LCD's viewport state, the text
+# drawing's scratch: bidi.c, diacritic.c; p19-copfileio)
+FE_MEMBERS = ('(font.o)', '(lcd-16bit.o)', '(bidi.o)', '(diacritic.o)')
+
+# the file layer and the storage driver (p19-copfileio, bench 4f: a COP
+# write-back of a line shared with disk_cache.c's LRU head lost the CPU's
+# list): on lines of their own, apart from every other object's data
+FS_MEMBERS = ('(file.o)', '(dir.o)', '(file_internal.o)', '(disk_cache.o)',
+              '(fat.o)', '(fileobj_mgr.o)', '(disk.o)', '(rb_namespace.o)',
+              '(ata.o)', '(ata-pp5020.o)', '(storage.o)')
 
 
 def shell(obj):
     return '/apps/ipodui/' in obj or obj.endswith(FE_MEMBERS)
+
+
+def fslayer(obj):
+    return obj.endswith(FS_MEMBERS)
 
 
 def main(argv):
@@ -89,8 +102,12 @@ def main(argv):
     for ln, objs in lines.items():
         if any(shell(o) for o in objs) and any(not shell(o) for o in objs):
             shared.append((ln * LINE, sorted(objs)))
+        elif any(fslayer(o) for o in objs) and \
+                any(not fslayer(o) for o in objs):
+            shared.append((ln * LINE, sorted(objs)))
     shell_bytes = sum(e - a for a, e, o in ranges if shell(o))
-    print('xcore lines: %d cache lines shared between shell and other data '
+    print('xcore lines: %d cache lines shared between shell or file-layer '
+          'and other data '
           '(%d B of cached shell data) (%s)'
           % (len(shared), shell_bytes, 'strict' if strict else 'warn'))
     if listing:

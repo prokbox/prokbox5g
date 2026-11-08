@@ -41,7 +41,11 @@
  *
  * scripts/check_trace.py fails a script on either line (rule "illusion").
  * The first draw logs "sim text: watch on", so a log without it is a build
- * without the watch (a note, not a pass). */
+ * without the watch (a note, not a pass).
+ *
+ * p19-relvideos: sim_text_drawn() also records every distinct drawn string
+ * (up to TEXT_REC strings, TEXT_LEN bytes each) for three script commands
+ * (sim_cmd_text.h): text_mark, expect_drawn, expect_not_drawn. */
 
 #include <stdbool.h>
 #include <stdio.h>
@@ -49,6 +53,7 @@
 #include <strings.h>
 #include <ctype.h>
 #include "config.h"
+#include "sim_cmd_text.h"
 
 #ifdef HAVE_IPOD_UI
 #include "lang.h"
@@ -60,6 +65,14 @@ static unsigned text_hash[SITES];
 static int text_n;
 static struct { const char *file; int line; } lang_site[SITES];
 static int lang_n;
+
+/* every distinct string drawn since the last text_mark */
+#define TEXT_REC 512
+#define TEXT_LEN 96
+static char text_rec[TEXT_REC][TEXT_LEN];
+static unsigned text_rec_hash[TEXT_REC];
+static int text_rec_n;
+static bool text_rec_full;
 
 static unsigned hash_str(const unsigned char *s)
 {
@@ -90,9 +103,30 @@ void sim_text_drawn(int x, int y, const unsigned char *str)
         watch_on = true;
         fprintf(stderr, "sim text: watch on\n");
     }
-    if (!str || !has_rockbox(str))
+    if (!str)
         return;
     unsigned h = hash_str(str);
+    if (!text_rec_full)
+    {
+        int i;
+        for (i = 0; i < text_rec_n; i++)
+            if (text_rec_hash[i] == h)
+                break;
+        if (i == text_rec_n)
+        {
+            if (text_rec_n < TEXT_REC)
+            {
+                text_rec_hash[text_rec_n] = h;
+                snprintf(text_rec[text_rec_n], TEXT_LEN, "%s",
+                         (const char *)str);
+                text_rec_n++;
+            }
+            else
+                text_rec_full = true;
+        }
+    }
+    if (!has_rockbox(str))
+        return;
     for (int i = 0; i < text_n; i++)
         if (text_hash[i] == h)
             return;
@@ -126,5 +160,64 @@ unsigned char *sim_lang_str(int id, const char *file, int line)
         }
     }
     return oob ? (unsigned char *)"" : language_strings[id];
+}
+
+/* the first recorded string containing needle, or NULL */
+static const char *text_find(const char *needle)
+{
+    for (int i = 0; i < text_rec_n; i++)
+        if (strstr(text_rec[i], needle))
+            return text_rec[i];
+    return NULL;
+}
+
+bool sim_cmd_text(const char *cmd, char *argv[], int argc, int lineno)
+{
+    char needle[TEXT_LEN] = "";
+    const char *hit;
+    bool want;
+
+    if (!strcmp(cmd, "text_mark"))
+    {
+        text_rec_n = 0;
+        text_rec_full = false;
+        fprintf(stderr, "sim_script: text_mark\n");
+        return true;
+    }
+    if (strcmp(cmd, "expect_drawn") && strcmp(cmd, "expect_not_drawn"))
+        return false;
+    want = !strcmp(cmd, "expect_drawn");
+    for (int i = 1; i < argc; i++)      /* the words, joined by one space */
+    {
+        size_t n = strlen(needle);
+        snprintf(needle + n, sizeof(needle) - n, "%s%s", i > 1 ? " " : "",
+                 argv[i]);
+    }
+    if (!needle[0])
+    {
+        fprintf(stderr, "sim_script:%d: %s failed: no text given\n",
+                lineno, cmd);
+        return true;
+    }
+    hit = text_find(needle);
+    if (!hit && text_rec_full)
+        fprintf(stderr, "sim_script:%d: %s failed: \"%s\": over %d distinct "
+                "strings drawn (text_mark sooner)\n", lineno, cmd, needle,
+                TEXT_REC);
+    else if (!!hit == want)
+        fprintf(stderr, "sim_script: %s ok \"%s\"%s%s%s\n", cmd, needle,
+                hit ? " in \"" : "", hit ? hit : "", hit ? "\"" : "");
+    else
+        fprintf(stderr, "sim_script:%d: %s failed: \"%s\"%s%s%s (%d strings "
+                "since text_mark)\n", lineno, cmd, needle,
+                hit ? " drawn in \"" : " never drawn", hit ? hit : "",
+                hit ? "\"" : "", text_rec_n);
+    return true;
+}
+#else /* !HAVE_IPOD_UI */
+bool sim_cmd_text(const char *cmd, char *argv[], int argc, int lineno)
+{
+    (void)cmd; (void)argv; (void)argc; (void)lineno;
+    return false;
 }
 #endif /* HAVE_IPOD_UI */

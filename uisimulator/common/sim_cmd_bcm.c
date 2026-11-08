@@ -82,7 +82,7 @@ bool sim_cmd_bcm(const char *cmd, char *argv[], int argc, int lineno)
         && strcmp(cmd, "bcm_drift") && strcmp(cmd, "bcm_decode")
         && strcmp(cmd, "bcm_minor") && strcmp(cmd, "bcm_flip")
         && strcmp(cmd, "bcm_viz") && strcmp(cmd, "bcm_suspend")
-        && strcmp(cmd, "bcm_jobfail"))
+        && strcmp(cmd, "bcm_jobfail") && strcmp(cmd, "bcm_ovl_stall"))
         return false;
 #ifndef HAVE_BCM_JOBS_MODEL
     (void)argv; (void)argc;
@@ -91,6 +91,14 @@ bool sim_cmd_bcm(const char *cmd, char *argv[], int argc, int lineno)
 #else
     struct sim_bcm_stats st;
 
+    if (!strcmp(cmd, "bcm_ovl_stall"))
+    {
+        if (argc < 2)
+            fprintf(stderr, "sim_script:%d: bcm_ovl_stall <ms>\n", lineno);
+        else
+            sim_bcm_ovl_stall(num(argv[1]));
+        return true;
+    }
     if (!strcmp(cmd, "bcm_jobfail"))
     {
         /* the developer rows' hook (Video chip > Fault injection): the

@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2005 by Dave Chapman
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * Rockbox driver for 16-bit colour LCDs
  *

@@ -43,8 +43,12 @@
  *     the split step X[k] = E[k] + W_n^k O[k];
  *   - the power |X[k]|^2 of bins 0 .. m-1 as 32-bit values, exact from
  *     the 16-bit X (the vector unit's 32-bit accumulator).
- * Every product that is summed is summed exactly in 32 bits (wrapping as
- * the accumulator does) and rounded once, by flooring its high half.
+ * At 256 samples every product that is summed is summed exactly in 32
+ * bits (wrapping as the accumulator does) and rounded once, by flooring
+ * its high half.  At 512 (the BCM's SPECTRUM, batch 5) step 2's and the
+ * split's products are each floored on their own (jviz_raw_sep512): the
+ * vector kernel's arithmetic from silicon-proven forms, 3.5 dB more error
+ * floor, far below what the bars show (docs/design/viz-fft-vc.md 5.3).
  * Bands: the largest power in each band's bins, as a log2 in 1/16 steps
  * (jviz_l2: 0.19 dB a step, 0..511). */
 
@@ -96,6 +100,27 @@ void jviz_raw_ref(uint16_t *raw, const int16_t *pcm, uint32_t n);
  * limits (viz_vpu.c's start-up check) */
 void jviz_raw_ref_t(uint16_t *raw, const int16_t *pcm, uint32_t n,
                     const struct jviz_tabs *t);
+/* The 512-sample definition (#126, docs/design/viz-fft-vc.md section 5.3:
+ * step 2's and the split's products each floored on its own, "SEP"; the
+ * 256-sample FFT keeps the exact sums): its raw powers in natural order,
+ * as the vector kernel jv_vfft512 stores them: raw[k] the low half of bin
+ * k's power, raw[256 + k] its high half.  jviz_power_ref(p, pcm, 512)
+ * gives the same powers.  Not in the PP's build (JVIZ_N256_ONLY) */
+void jviz_raw_sep512(uint16_t *raw, const int16_t *pcm);
+/* The vector kernel's tables (jviz_tab.h, gen_viz.py; viz_vpu.c
+ * jv_vfft512 reads the four pointers in this order): the 512-sample
+ * window and four-step twiddles, the split's W_512^k in natural order
+ * (row k >> 4, lane k & 15) and the lane-0 flag row (-1, then 15 zeros) */
+struct jviz_vtabs
+{
+    const int16_t *win, *tw, *wsn, *lane0;
+};
+extern const struct jviz_vtabs jviz_vfft_tabs;
+/* The start-up check's frames (viz_vpu.c; scripts/gen_vf0.py computes
+ * their goldens on the Mac from this same code): s 0 a full-scale square,
+ * 1 noise, 2 a loud mix; 512 samples in split order's buffer */
+#define JVIZ_CHECK_FRAMES   3
+void jviz_check_frame(int16_t *pcm, uint32_t s);
 /* Raw output to the powers p[k], k < n / 2 */
 void jviz_raw_power(uint32_t *p, const uint16_t *raw, uint32_t n);
 /* The powers p[k], k < n / 2, of n samples (split order) by the C: the

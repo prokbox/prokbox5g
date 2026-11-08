@@ -321,11 +321,11 @@
 #define HAVE_VIZ_TAP
 /* ProkBox P19 MF-4: the pixel hand-off across cores (xcore.h,
  * lcd-fb-xcore.c): a CPU push of the frame the shell drew on the COP asks
- * for the COP's write-back (fe_fb_publish()) and reads uncached.  Every
- * shell firmware, release included, since the UI may run on the COP
- * there too (HAVE_UI_THREAD_SPLIT); the shell's fe_cop_refusal() keys on
- * it */
-#ifndef SIMULATOR
+ * for the COP's write-back (fe_fb_publish()) and reads uncached.  With
+ * the UI thread split, so developer builds only (HAVE_UI_THREAD_SPLIT;
+ * the release runs the UI inline on the CPU, #148); the shell's
+ * fe_cop_refusal() keys on it */
+#if !defined(SIMULATOR) && defined(HAVE_IPOD_UI_DEVMODE)
 #define HAVE_FE_FB_HANDOFF
 #endif
 #endif
@@ -415,6 +415,15 @@
  * the battery filter from the sleep's raw reading */
 #define HAVE_POWER_SLEEP
 #endif
+/* ProkBox heap check (sitting 4gh-b5's "handle unaligned" panic in a
+ * compaction): each buflib header carries a CRC word, the core heap can be
+ * walked (core_heap_walk(), apps/ipodui/heapchk.c) and buflib's panic names
+ * the block before the bad one.  Developer builds only: a release build
+ * keeps upstream's 16-byte header (firmware/buflib_mempool.c); the
+ * developer simulator too, so its scripts walk the heap at each step */
+#if defined(HAVE_IPOD_UI_DEVMODE) && !defined(BOOTLOADER)
+#define HAVE_BUFLIB_HEAPCHECK
+#endif
 #ifndef BOOTLOADER
 /* the wake path (above) and the simulator's battery pin
  * (powermgmt-sim.c) restart the battery filter from a reading */
@@ -479,6 +488,49 @@
 #define IAP_LAZY_THREAD
 #define IAP_RX_BUFLEN 4096
 #define IAP_STACK_SIZE (DEFAULT_STACK_SIZE*8)
+#endif
+#endif
+
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+/* ProkBox P19 pwr-awake: the awake battery rows taken from Apple 1.3
+ * (firmware/export/pwr_awake.h; apple-power-catalog.md AW-1..AW-9): each
+ * on by its bench token, or in developer builds by the developer mask,
+ * off after any failure signal. The gate and records are compiled in the
+ * simulator too (the shell's log drain); the hardware hooks are not */
+#define HAVE_PWR_AWAKE
+/* Each switch row's code: in developer builds always (off until the
+ * developer mask or its token turns it on), in a release only once its
+ * bench token is set (pwr_awake_tokens.h), so the release carries no
+ * code that cannot run */
+#include "../pwr_awake_tokens.h"
+#if defined(HAVE_IPOD_UI_DEVMODE) || PWRAW_TOKEN_LINGER
+#define HAVE_PWR_LINGER         /* AW-1: the drive's release linger */
+#endif
+#if !defined(SIMULATOR) && \
+    (defined(HAVE_IPOD_UI_DEVMODE) || PWRAW_TOKEN_USBOFF)
+/* AW-2: on a charger with no host, the USB controller is parked after the
+ * host window (firmware/export/usbpark_core.h) */
+#define HAVE_USB_CHARGER_PARK
+#endif
+#if defined(HAVE_IPOD_UI_DEVMODE) || PWRAW_TOKEN_LCDLDO
+#define HAVE_PWR_LCDLDO         /* AW-4: the LCD LDO while the LCD sleeps */
+#endif
+#if defined(HAVE_IPOD_UI_DEVMODE) || PWRAW_TOKEN_I2SGATE
+#define HAVE_PWR_I2SGATE        /* AW-5: the codec clock gate in standby */
+#endif
+/* AW-3, a per-unit fact (CLAUDE.md rule 7; docs/hardware.md): the unit's
+ * mod board may draw from the accessory supply (D2REGC1, 3.3 V). The USB-C
+ * mod (no 30-pin dock) powers its audio multiplexer from a "PMIC 4 V"
+ * rail that may be this one [hypothesis until T-D2REG], so it stays on
+ * there; a 30-pin unit keeps it on for its accessories (no accessory
+ * manager switches it yet). A unit with neither may default it off. */
+#ifndef HAVE_IPOD_DOCK30
+#define HAVE_ACCESSORY_RAIL_LOAD
+#endif
+#if defined(HAVE_ACCESSORY_RAIL_LOAD) || defined(HAVE_IPOD_DOCK30)
+#define ACCESSORY_SUPPLY_DEFAULT true
+#else
+#define ACCESSORY_SUPPLY_DEFAULT false
 #endif
 #endif
 

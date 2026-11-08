@@ -176,6 +176,32 @@ fi
     cat "$TMP/vpcore.log"; exit 1; }
 grep -v '^ok  ' "$TMP/vpcore.log" | grep -v '^     ' || true
 
+# sitting 4g: the index window's slides against storage that powers off
+# (vpcore.c win_ahead), on a 48 s clip with a 512-record window
+# shellcheck disable=SC2086
+if ! "$HOSTCC" -std=gnu99 -O1 -g -Wall -Wextra -Werror ${EXTRA_CFLAGS:-} \
+        -DVPC_WINDOW_RECORDS=512 -Iapps -Iapps/video -o "$TMP/test_vpcore_win" \
+        tests/video/test_vpcore.c apps/video/vpcore.c apps/video/bcmvp.c \
+        apps/video/vbcm_model.c apps/video/vplay.c apps/video/vix.c \
+        apps/video/mp4demux.c apps/video/vtrace.c apps/video/vclk.c \
+        2>"$TMP/cc.log"; then
+    echo "FAIL: compiling test_vpcore_win ($HOSTCC)"
+    cat "$TMP/cc.log"
+    exit 1
+fi
+LONG4=build/video/mp4/long4_ipod.mp4
+if [ ! -f "$LONG4" ] || [ "$LONG4" -ot build/video/corpus/d_ipod_768k.264 ]; then
+    for i in 1 2 3 4; do cat "$TMP/long.264" 2>/dev/null || \
+        for j in 1 2 3 4 5 6; do cat build/video/corpus/d_ipod_768k.264; done
+    done >"$TMP/long4.264"
+    ffmpeg -v error -y -framerate 30 -i "$TMP/long4.264" -f lavfi -t 48 \
+        -i sine=frequency=440:sample_rate=44100 -map 0:v -map 1:a -c:v copy \
+        -c:a aac -b:a 128k "$LONG4"
+fi
+"$TMP/test_vpcore_win" "$LONG4" >"$TMP/vpcore_win.log" 2>&1 || {
+    cat "$TMP/vpcore_win.log"; exit 1; }
+grep -v '^ok  ' "$TMP/vpcore_win.log" | grep -v '^     ' || true
+
 # the ok lines run to hundreds: print only the failures and the total
 rc=0
 python3 -I tests/video/mp4demux_c_test.py "$TMP/test_mp4demux" \

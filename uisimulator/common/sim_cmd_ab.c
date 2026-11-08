@@ -380,6 +380,25 @@ bool sim_cmd_ab(const char *cmd, char *argv[], int argc, int lineno)
         fprintf(stderr, "sim_script: ab_mark %s\n", argv[1]);
         return true;
     }
+    if (!strcmp(cmd, "heap_tight"))
+    {
+        /* Takes the heap's free slack (no shrink for this one), held to
+         * the end of the run: the next allocation must take memory from
+         * the audio buffer. Whether one did depended on timing (art loads
+         * in flight); this makes "an allocation while playing shrinks
+         * audio" deterministic (p19-viz: the view's overlay buffer) */
+        static int tight_h = -1;
+        size_t avail = core_available();
+
+        /* less buflib's own block header (a few words; 256 B is ample):
+         * asking for all of core_available() itself needed a shrink */
+        if (tight_h <= 0 && avail > 256)
+            tight_h = core_alloc(avail - 256);
+        fprintf(stderr, "sim_script: heap_tight held=%lu handle=%d left=%lu\n",
+                (unsigned long)avail, tight_h,
+                (unsigned long)core_available());
+        return true;
+    }
     if (!strcmp(cmd, "ab_mem_mark"))
     {
         mem_mark = core_available();

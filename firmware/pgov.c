@@ -57,8 +57,7 @@
 #endif
 
 /* Per core, one writer each (core_sleep(), thread-pp.c); uncached */
-uint32_t pgov_idle_us[2] SHAREDBSS_ATTR;
-uint32_t pgov_sleep_t0[2] SHAREDBSS_ATTR;   /* nonzero while asleep */
+struct pgov_idle pgov_idle[2] SHAREDBSS_ATTR;
 
 /* Review B1: the decisions are read by a boost on either core (the COP
  * under FE_COP) and written only on the CPU (its tick, its threads): so
@@ -128,17 +127,13 @@ static struct pgov_core *applied(void)
 #endif
 
 /* A core's idle time so far, the sleep in progress included (a parked
- * COP is asleep throughout and reads idle) */
-static uint32_t idle_now(unsigned int c, uint32_t now)
+ * COP is asleep throughout and reads idle): one consistent snapshot
+ * (pgov_idle.h), so a wake between the reads is never counted twice */
+static uint32_t idle_now(unsigned int c)
 {
-    uint32_t t0, idle;
+    uint32_t t;
 
-    do
-    {
-        t0 = pgov_sleep_t0[c];
-        idle = pgov_idle_us[c];
-    } while (t0 != pgov_sleep_t0[c]);   /* it woke between the reads */
-    return t0 ? idle + (now - t0) : idle;
+    return pgov_idle_read(&pgov_idle[c], &t);
 }
 
 static unsigned int floor_of(unsigned int holds)
@@ -215,7 +210,7 @@ static void pgov_tick(void)
 
     for (unsigned int c = 0; c < NUM_CORES; c++)
     {
-        uint32_t idle = idle_now(c, now);
+        uint32_t idle = idle_now(c);
         uint32_t d = idle - last_idle[c];
 
         if ((int32_t)d < 0)
@@ -279,7 +274,7 @@ void pgov_enable(bool en)
         logged_mhz = core.mhz;
         last_us = USEC_TIMER;
         for (unsigned int c = 0; c < NUM_CORES; c++)
-            last_idle[c] = idle_now(c, last_us);
+            last_idle[c] = idle_now(c);
         restore_irq(irq);
         on = true;
         tick_add_task(pgov_tick);

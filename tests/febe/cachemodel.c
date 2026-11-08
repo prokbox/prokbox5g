@@ -322,6 +322,49 @@ static void c_fe(int variant)
     }
 }
 
+/* ---- protocol D: false sharing (bench 4f, p19-copfileio).  The BE owns a
+ * cached word nobody else touches (disk_cache.c's cache_lru, the LRU
+ * list's head) and updates it all the time; the FE writes a cached static
+ * of its own (bidi.c's bidi_buf, the COP's text drawing) and writes its
+ * cache back at every remote call.  variant 0: the FE's static on a line
+ * of its own (the linker's regions, app-pp.lds).  variant 1: on the BE
+ * word's line, as linked in the bench build: the FE's write-back puts its
+ * stale copy of the BE word over the BE's (the LRU head lost: "OOM"). */
+#define OWN     640                 /* the BE's word: cview[640] */
+#define NEAR0   (OWN + LW)          /* variant 0: the next line */
+#define NEAR1   (OWN + 1)           /* variant 1: the same line */
+#define D_DONE  mem[200]
+
+static void d_be(int variant)
+{
+    uint32_t v;
+    (void)variant;
+    for (v = 1; v <= 80; v++)
+    {
+        FEBE_ST(cview[OWN], FEBE_LD(cview[OWN]) + 1);
+        if (v % 8 == 0)             /* be_svc's sync point at each call */
+            cache_ops(COPJ_C_COMMIT_DISCARD);
+    }
+    WAIT_UNTIL(FEBE_LD(D_DONE));
+    cache_ops(COPJ_C_COMMIT_DISCARD);
+    if (mem[OWN] != 80)
+        stale++;
+}
+
+static void d_fe(int variant)
+{
+    unsigned near = variant ? NEAR1 : NEAR0;
+    uint32_t k;
+    for (k = 0; k < 40; k++)
+    {
+        FEBE_ST(cview[near], k);    /* draws text */
+        if (k % 4 == 3)
+            cache_ops(COPJ_C_COMMIT);   /* a remote call's sync point */
+    }
+    cache_ops(COPJ_C_COMMIT);
+    FEBE_ST(D_DONE, 1);
+}
+
 static int check(const char *name, side_fn be, side_fn fe, int variant,
                  bool expect_stale)
 {
@@ -355,5 +398,7 @@ int main(void)
     f += check("generation", b_be, b_fe, 1, true);         /* no publish */
     f += check("generation", b_be, b_fe, 2, true);         /* no acquire */
     f += check("now seqlock", c_be, c_fe, 0, false);
+    f += check("false sharing", d_be, d_fe, 0, false);
+    f += check("false sharing", d_be, d_fe, 1, true);      /* one line */
     return f ? 1 : 0;
 }

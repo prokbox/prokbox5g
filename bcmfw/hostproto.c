@@ -302,9 +302,26 @@ static void end_session(void)
 #endif
 }
 
+int hp_session_live(void)
+{
+    return session != 0;
+}
+
+/* CLOSE's flags (HP_CLOSE_SDRAM_IDLE): after the session ends, Apple's
+ * SDRAM idle (video.c video_sdram_idle); the next OPEN or staged ALLOC
+ * brings it up again.  HP_CLOSE_SD_* */
+static uint32_t close_sdram(void)
+{
+#if BCMFW_VIDEO
+    if (video_sdram_ready())
+        return video_sdram_down();
+#endif
+    return HP_CLOSE_SD_NOTUP;
+}
+
 static void cmd_close(uint32_t tag, const uint32_t *a, uint32_t n)
 {
-    uint32_t r[5];
+    uint32_t r[6], k = 2;
 
     if (!check_session(HP_OP_CLOSE, tag, a, n))
         return;
@@ -318,13 +335,19 @@ static void cmd_close(uint32_t tag, const uint32_t *a, uint32_t n)
         r[2] = v->decoded;              /* minor 1 */
         r[3] = v->shown;
         r[4] = v->errors;
-        end_session();
-        reply(HP_OP_CLOSE, tag, HP_OK, r, 5);
-        return;
+        k = 5;
     }
 #endif
+    /* the session's end (video_close: no blit or transfer left running)
+     * before any SDRAM idle; the idle's word only when asked for, after
+     * the words a flags-0 CLOSE has always had.  n >= 1 here
+     * (check_session), so n != 1 is n >= 2: an equality test, not an
+     * unsigned branch (bls), a kind the VP image's self-test doesn't
+     * exercise (hostproto_test.py) */
     end_session();
-    reply(HP_OP_CLOSE, tag, HP_OK, r, 2);
+    if (n != 1 && a[1] & HP_CLOSE_SDRAM_IDLE)
+        r[k++] = close_sdram();
+    reply(HP_OP_CLOSE, tag, HP_OK, r, k);
 }
 
 /* ---- The warm swap (HP_OP_PARK; jobs.md G9, bench row B13) ----
@@ -2464,6 +2487,13 @@ static void cmd_audio(uint32_t tag, const uint32_t *a, uint32_t n)
 
     if (!check_session(HP_OP_AUDIO, tag, a, n))
         return;
+    /* both rings are in SDRAM: refused while it is down (a session
+     * without an H.264 OPEN, or after a CLOSE that idled it) */
+    if (!video_sdram_ready())
+    {
+        reply(HP_OP_AUDIO, tag, HP_E_STATE, 0, 0);
+        return;
+    }
     if (n == 5 && a[1] == HP_AUDIO_CONFIG)
     {
         /* both rings inside the free SDRAM (video.h VIDEO_AUDIO_*) */

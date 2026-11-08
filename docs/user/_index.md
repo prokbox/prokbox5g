@@ -16,6 +16,12 @@ features:
     text: "GPL-licensed, with the full source code. Built on Rockbox."
 ---
 
+## Download
+
+Get the latest release from the [releases page]({{< param releases >}}). There are eight downloads, one for each combination of stock or modded hardware, hard drive or flash, and 32 or 64 MB of memory. Each release also carries ready-to-run copies of the install tool for macOS, Windows and Linux (`ProkBox5g-<version>-ipodpatcher-macos-universal`, `-windows-x86_64.exe` and `-linux-x86_64`), and a `SHA256SUMS` file to check them against.
+
+In 0.8.0 only the flash-modded, 64 MB, USB-C-and-haptics player has been tested on real hardware. The other seven downloads are untested. [Getting started](guide/getting-started.md) shows how to choose and install.
+
 ## The road to 1.0
 
 **0.8**, the first pre-release: music, audiobooks, drag-and-drop over USB, basic video and a music visualiser. Later 0.8 updates add Photos and wider hardware testing.

@@ -12,6 +12,7 @@
  * Adapted for Rockbox in December 2005
  * Original file: linux/arch/armnommu/mach-ipod/keyboard.c
  * Copyright (c) 2003-2005 Bernard Leach (leachbj@bouncycastle.org)
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  *
  * This program is free software; you can redistribute it and/or

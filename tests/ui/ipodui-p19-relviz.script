@@ -12,16 +12,16 @@
 #            again, never the CPU.
 # Runs on sim-ui-video (the gate) and on the release-config sim:
 #   SIM_BUILD=build/sim-rel-bcm scripts/shots.sh tests/ui/ipodui-p19-relviz.script
-# log: art bcm viz ask base=0012b000 bytes=19380
+# log: art bcm viz ask base={BCMVIDEO_VIZOVL_BASE:08x} bytes={BCMVIDEO_VIZOVL_BYTES}
 # log: viz start style=0 path=bcm n=512 owed
 # log: viz hold why=owed
-# logbetween: start c0 bcmjob overlay load k=0 bytes=19380 at=0012b000
+# logbetween: start c0 bcmjob overlay load k=0 bytes={BCMVIDEO_VIZOVL_BYTES} at={BCMVIDEO_VIZOVL_BASE:08x}
 # logbetween: start c0 bcmjob overlay ok ops=01e3bfff
-# logbetween: start c0 art bcm viz load pieces=3 res=0
+# logbetween: start c0 art bcm viz load pieces={(BCMVIDEO_VIZOVL_BYTES + BCMJOB_DEC_PIECE - 1) // BCMJOB_DEC_PIECE} res=0
 # logbetween: start c0 viz hold end ms=
 # logbetween: start c0 bcmjob submit op=0x34
-# logbetween: c0 c1 bcmjob overlay load k=0 bytes=19380
-# logbetween: c0 c1 art bcm viz load pieces=3 res=0
+# logbetween: c0 c1 bcmjob overlay load k=0 bytes={BCMVIDEO_VIZOVL_BYTES}
+# logbetween: c0 c1 art bcm viz load pieces={(BCMVIDEO_VIZOVL_BYTES + BCMJOB_DEC_PIECE - 1) // BCMJOB_DEC_PIECE} res=0
 # logbetween: c0 c1 viz hold end ms=
 # logbetween: c0 c1 bcmjob submit op=0x34
 # nolog: CPU FALLBACK

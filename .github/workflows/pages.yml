@@ -1,5 +1,5 @@
 # The ProkBox5g site and user guide on GitHub Pages (docs/release-plan.md
-# section 3.4): docs/user/ (Markdown) through Hugo with our own layouts in
+# section 3.4): docs/user/ and the developer reference docs/manual/ (Markdown) through Hugo with our own layouts in
 # site/, a Pagefind search index and the PDF guide, all built in the docs
 # image (ci/docs/Dockerfile, a private package pulled by digest) by
 # scripts/docs_build.sh, then deployed to
@@ -9,7 +9,7 @@ name: pages
 on:
   push:
     branches: [main]
-    paths: ["docs/user/**", "site/**", "scripts/docs_build.sh", ".github/workflows/pages.yml"]
+    paths: ["docs/user/**", "docs/manual/**", "site/**", "scripts/docs_build.sh", ".github/workflows/pages.yml"]
   workflow_dispatch:
 
 permissions:

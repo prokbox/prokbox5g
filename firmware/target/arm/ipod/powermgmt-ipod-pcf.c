@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2002 by Heikki Hannikainen, Uwe Freese
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  * Revisions copyright (C) 2005 by Gerald Van Baren
  *
  * This program is free software; you can redistribute it and/or
@@ -25,6 +26,10 @@
 #include "powermgmt.h"
 #include "pcf5060x.h"
 #include "pcf50605.h"
+#ifdef HAVE_PWR_AWAKE
+#include "kernel.h"
+#include "pwr_awake.h"
+#endif
 #include "audiohw.h"
 
 unsigned short battery_level_disksafe =
@@ -158,6 +163,55 @@ void accessory_supply_set(bool enable)
     
     /* Write to register. */
     pcf50605_write(PCF5060X_D2REGC1, value);
+}
+#endif
+
+#ifdef HAVE_PWR_LCDLDO
+/* ProkBox AW-4 (apple-power-catalog.md, T-LCDLDO = S-4): Apple 1.3 puts
+ * the LCD LDO in mode 010 (the same voltage code) only in sleep
+ * (apple-power.md section 2.2 step 12); ProkBox does it whenever the LCD
+ * sleeps, and puts the value it found back 10 ms before the BCM wakes.
+ * Applied only when the register is in mode 111 (the start-up form); a
+ * read-back that doesn't match, either way, is the failure signal (the
+ * found value written back, the row off). UI or backlight thread. */
+static int ldo_found = -1;          /* the value to put back; -1: none */
+
+void pwraw_lcd_ldo(bool dark)
+{
+    int v;
+
+    if (dark)
+    {
+        if (ldo_found >= 0 || !pwraw_active(PWRAW_LCDLDO))
+            return;
+        v = pcf50605_read(PCF5060X_D3REGC1);
+        if (v < 0 || (v >> 5) != 7)
+            return;                 /* not mode 111: left alone */
+        pcf50605_write(PCF5060X_D3REGC1, (unsigned char)((v & 0x1f) | 0x40));
+        ldo_found = v;
+        if (pcf50605_read(PCF5060X_D3REGC1) != ((v & 0x1f) | 0x40))
+        {
+            pcf50605_write(PCF5060X_D3REGC1, (unsigned char)v);
+            ldo_found = -1;
+            pwraw_fail(PWRAW_LCDLDO, (uint32_t)v, 0);
+            return;
+        }
+        pwraw_note(PWRAW_LCDLDO, true, (uint32_t)v, (v & 0x1f) | 0x40);
+        return;
+    }
+    if (ldo_found < 0)
+        return;
+    v = ldo_found;
+    ldo_found = -1;
+    pcf50605_write(PCF5060X_D3REGC1, (unsigned char)v);
+    sleep(2);                       /* T-LCDLDO: >= 10 ms before the BCM */
+    if (pcf50605_read(PCF5060X_D3REGC1) != v)
+    {
+        pcf50605_write(PCF5060X_D3REGC1, (unsigned char)v);
+        pwraw_fail(PWRAW_LCDLDO, (uint32_t)v, 1);
+        return;
+    }
+    pwraw_note(PWRAW_LCDLDO, false, (uint32_t)v, 0);
 }
 #endif
 

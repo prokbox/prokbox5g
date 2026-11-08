@@ -178,7 +178,7 @@ static void commit(const struct vl_state *v, int code)
 /* -- drawing ------------------------------------------------------------ */
 
 /* The frosted body and the padlock are Screen Lock's art (lock.c; owner
- * photo 1201), shared. Body rows y0..y1-1 from x0: the limit bar
+ * photo `extras-screenlock-new-combination`), shared. Body rows y0..y1-1 from x0: the limit bar
  * keeps the dark body (its white speakers and pointer, VL_TEXT_FG, were
  * designed on it), the combination phases the frosted one. */
 static void body_rows(const struct vl_state *v, int x0, int y0, int y1)

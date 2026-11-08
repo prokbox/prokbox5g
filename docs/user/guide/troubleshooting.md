@@ -6,7 +6,7 @@ description: "Common fixes, and how to send us a diagnostics report."
 
 ## Quick fixes
 
-**The player is frozen or acting strangely.** Slide the **Hold** switch on and off, then hold **Menu** and **Select** together for about 8 seconds until it restarts. Your music and settings are safe.
+**The player is frozen or acting strangely.** Slide the **Hold** switch off (with Hold on at start-up, Apple's software starts instead), then hold **Menu** and **Select** together for about 8 seconds until it restarts. Your music and settings are safe.
 
 **A song or book I copied doesn't appear.**
 1. Make sure you ejected the drive on your computer before unplugging.
@@ -17,6 +17,10 @@ description: "Common fixes, and how to send us a diagnostics report."
 **Cover pictures are missing.** They are made after the songs show up. Give it a little while, and leave the player alone on its own for a bit.
 
 **A video won't play.** Read the reason on the **Can't Play Video** screen, then see [Making videos that play well](video-converter.md).
+
+**A video starts from the wrong place, or Play won't start it.** Videos start only from **Videos**, at their own saved place. **Play** and **Now Playing** are for sound only.
+
+**A video stutters for a moment, or the screen flashes white when you wake it.** These are known issues in 0.8.0; see the release notes. Nothing is wrong with your files.
 
 **The battery runs down fast.** The visualiser and a backlight set to Always On use the most power. Shorten **Settings › Backlight**.
 

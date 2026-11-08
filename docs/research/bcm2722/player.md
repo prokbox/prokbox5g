@@ -325,7 +325,8 @@ Each piece can be tested on the host before the next one exists. That's the orde
 | `uisimulator/common/sim_video.c` | The simulator side: `apps/video/vbcm_model.c` answers, `bcmfw/h264` decodes, the pictures go on the sim's panel |
 
 **Memory** (core_alloc, pinned while playing; `vplayer_start()` before the audio starts, so the audio buffer is sized after it):
-- the player's block: about 32 KB (the core, the index window and pieces) plus the thread's stack;
+- the player's block: about 56 KB (the core, the index window of 4,096 records, 48 KB, and pieces) plus the thread's stack;
+- the index window slides early, from the player's thread, only while a read costs no power-up: past half when another thread's transfer is under way, and in its last eighth (21 s at 24 fps) after a power-up asked of the storage thread (`storage_post_job`). The window's end is read in the player's thread only if both failed. Sitting 4f: the window's end met the drive off twice in a 24 fps film (610-765 ms in the player's thread, GOPs dropped). The same on HDD and flash, 32 and 64 MB (`storage_power_warm()`: a drive spinning, or a solid one powered); the doubled window halves the power-ups a film asks for (one per 2.8 min at 24 fps, when no refill came first);
 - the key table, 16 bytes per key: 11.5 KB for a 2-hour film at GOP 300, 115 KB at GOP 30;
 - the image, its own size (up to 512 KB; the stage A image is about 72 KB).
 

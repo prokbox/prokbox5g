@@ -302,6 +302,10 @@ static int games_enter(struct ui_screen *s, const void *arg)
     /* split, like Extras (owner, 2026-10-24): the list at the left, the
      * highlighted game's cover at the right */
     s->header_w = ui_theme->split_x;
+    /* day 4c: the pack's index still owed (Extras entered with no module
+     * loaded since boot): the rows come from it */
+    if (mod_index_state() == 0)
+        mod_index_wait(HZ * 6);
     games_rows(gs);
     memset(&vp, 0, sizeof(vp));
     vp.y = ui_theme->header_h;

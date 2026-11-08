@@ -1,4 +1,5 @@
 #!/bin/sh
+# Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
 #             __________               __   ___.
 #   Open      \______   \ ____   ____ |  | _\_ |__   _______  ___
 #   Source     |       _//  _ \_/ ___\|  |/ /| __ \ /  _ \  \/  /
@@ -1579,6 +1580,10 @@ help() {
     --bcmfw-devtest   With --ipodui, iPod Video only: the BCM2722 device test
                       in the developer debug menu (defines HAVE_BCMFW_DEVTEST;
                       a test build, never a release; issue #60)
+    --usb-isoprobe    With --ipodui, iPod Video developer firmware only: the
+                      USB isochronous bench probe in Developer > Advanced >
+                      Labs (defines HAVE_USB_ISOPROBE; a bench build, never
+                      a release; issue #144, docs/research/usb-digital-audio.md)
     --bcmfw           iPod Video firmware: the boot path to our own VideoCore
                       image (defines HAVE_BCMFW).  With --bcmfw-devtest it is
                       opt-in: off at run time until the debug menu's toggle
@@ -1691,6 +1696,7 @@ for arg in "$@"; do
         --thumb-cold) ARG_THUMB_COLD=1;;
         --no-thumb-cold) ARG_THUMB_COLD=0;;
         --bcmfw-devtest) ARG_BCMFW_DEVTEST=1;;
+        --usb-isoprobe) ARG_USB_ISOPROBE=1;;
         --bcmfw)      ARG_BCMFW=1;;
         --bcmfw-default) ARG_BCMFW_DEFAULT=1;;
         --bcmfw-video) ARG_BCMFW_VIDEO=1;;
@@ -4911,6 +4917,15 @@ if test "$ARG_IPODUI" = "1"; then
     echo "  BCM2722 device test in the debug menu (HAVE_BCMFW_DEVTEST)"
     extradefines="$extradefines -DHAVE_BCMFW_DEVTEST"
   fi
+  if test "$ARG_USB_ISOPROBE" = "1"; then
+    if test "$modelname" != "ipodvideo" || test "$ARG_IPODUI_RELEASE" = "1" || \
+       test "$bootloader" = "1" || test "$simulator" = "yes"; then
+      echo "[ERROR] --usb-isoprobe is for an iPod Video developer build only"
+      exit 1
+    fi
+    echo "  USB isochronous bench probe in the developer menu (HAVE_USB_ISOPROBE)"
+    extradefines="$extradefines -DHAVE_USB_ISOPROBE"
+  fi
   if test "$ARG_BCMFW" = "1"; then
     if test "$modelname" != "ipodvideo" || test "$bootloader" = "1" || \
        test "$simulator" = "yes"; then
@@ -5033,11 +5048,11 @@ elif test "$ARG_IPODUI_RELEASE" = "1" || test "$ARG_DOCK30" = "1" \
      || test -n "$ARG_THUMB_COLD" || test "$ARG_BCMFW_DEVTEST" = "1" \
      || test "$ARG_BCMFW" = "1" || test "$ARG_BCMFW_DEFAULT" = "1" \
      || test "$ARG_BCMFW_VIDEO" = "1" || test "$ARG_BCMFW_L1" = "1" \
-     || test "$ARG_BCMFW_MERGED" = "1"; then
+     || test "$ARG_BCMFW_MERGED" = "1" || test "$ARG_USB_ISOPROBE" = "1"; then
   echo "[ERROR] --ipodui-release, --dock30, --[no-]haptics, --ipodui-trim,"
   echo "        --ipodui-plugins, --core-sections, --thumb-cold,"
   echo "        --bcmfw-devtest, --bcmfw, --bcmfw-default, --bcmfw-video,"
-  echo "        --bcmfw-l1 and --bcmfw-merged need --ipodui"
+  echo "        --bcmfw-l1, --bcmfw-merged and --usb-isoprobe need --ipodui"
   exit 1
 fi
 

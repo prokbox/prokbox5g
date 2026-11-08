@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (c) 2011 Michael Sevakis
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -21,6 +22,7 @@
 #include "system.h"
 #include "settings.h"
 #include "pcm.h"
+#include "xcore.h"
 #include "pcm_mixer.h"
 #include "misc.h"
 #include "fixedpoint.h"
@@ -28,15 +30,17 @@
 /** Beep generation, CPU optimized **/
 #include "asm/beep.c"
 
-static uint32_t beep_phase;     /* Phase of square wave generator */
-static uint32_t beep_step;      /* Step of square wave generator on each sample */
+/* rc.6 (layout A): beep_get_more() runs in the PCM's FIQ on the COP; the
+   generator's state and the callback table are uncached (xcore.h) */
+static uint32_t beep_phase XCORE_BSS;  /* Phase of square wave generator */
+static uint32_t beep_step XCORE_BSS;   /* Step of square wave generator on each sample */
 #ifdef BEEP_GENERIC
-static int16_t  beep_amplitude; /* Amplitude of square wave generator */
+static int16_t  beep_amplitude XCORE_BSS; /* Amplitude of square wave generator */
 #else
 /* Optimized routines do XOR with phase sign bit in both channels at once */
-static uint32_t beep_amplitude; /* Amplitude of square wave generator */
+static uint32_t beep_amplitude XCORE_BSS; /* Amplitude of square wave generator */
 #endif
-static int beep_count;          /* Number of samples remaining to generate */
+static int beep_count XCORE_BSS;       /* Number of samples remaining to generate */
 
 #define BEEP_COUNT(fs, duration) ((fs) / 1000 * (duration))
 
@@ -96,7 +100,7 @@ void beep_play(unsigned int frequency, unsigned int duration,
     beep_get_more(&start, &size);
 
     mixer_channel_set_amplitude(PCM_MIXER_CHAN_BEEP, MIX_AMP_UNITY);
-    static struct mixer_play_cbs cbs;
+    static struct mixer_play_cbs cbs XCORE_BSS;  /* the COP's mix reads it */
     cbs.get_more = beep_count ? beep_get_more : NULL;
     mixer_channel_play_data(PCM_MIXER_CHAN_BEEP, &cbs, start, size);
 }

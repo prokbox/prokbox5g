@@ -118,7 +118,7 @@ const struct ui_theme *ui_theme = &theme;
  * license, converted with tools/convttf -A). font_load_ex(path, 0, 0)
  * keeps the whole file (up to MAX_FONT_SIZE, 60000 B) in one movable
  * buflib allocation: no glyph cache, no .gc file and no disk access while
- * drawing. RAM = the file sizes, 91,570 B for the three. */
+ * drawing. RAM = the file sizes, 102,114 B for the three (2026-11-06). */
 static int load_font(const char *name, int cur)
 {
     char path[64];

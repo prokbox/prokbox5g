@@ -6,6 +6,16 @@ description: "Chapters, a saved place in every book, and a listening speed you c
 
 Audiobooks have their own list, and ProkBox remembers where you are in every book separately.
 
+## What counts as a book
+
+The player files a track under **Audiobooks** if any one of these is true:
+
+- the file is an `.m4b`;
+- its genre is a book genre, such as Audiobook, Audio Book, Books, Spoken Word, or the Dutch and German equivalents (for example Luisterboek or Hörbuch);
+- it sits in a folder called `Audiobooks` or `Audio Books`, at any depth (capital letters don't matter).
+
+Audio podcasts are kept apart, in **Podcasts**. If a file is both, Podcasts wins. A track in an Audiobooks folder is treated as a book even if it is really music, so keep music out of that folder.
+
 ## Listening
 
 1. Choose **Music**, then **Audiobooks**. (You can also add Audiobooks to the main menu in **Settings › Main Menu**.)
@@ -31,6 +41,8 @@ Starting a book plays only that book, not the whole list.
 - Turn the wheel in the normal view for volume.
 
 ## Resume
+
+Play and Now Playing are for sound only (music, audiobooks and audio podcasts), so a book resumes just as music does. Videos are separate; see [Video](video.md).
 
 Close the book, play music, switch the player off: your place in each book is kept. Open the book again and choose **Resume**.
 

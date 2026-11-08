@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2007 Jonas Hurrelmann
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * A command-line tool to convert ttf file to bitmap fonts
  *

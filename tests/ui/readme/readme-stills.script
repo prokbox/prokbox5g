@@ -1,0 +1,67 @@
+# README stills (scripts/readme_visuals.sh): the main menu with its art
+# panel, the Videos menu with its poster panel, the Albums list, Now
+# Playing, Settings and the USB screen. Synthetic library and video fixtures only
+# (tests/ui/setup_library.py, tests/fixtures/videos/mkvideos.sh): no owner
+# media. Runs on the release-shaped sim with the video player:
+#   SIM_BUILD=build/sim-rel-video scripts/shots.sh tests/ui/readme/readme-stills.script
+# needs: library
+# needs: video
+# golden: skip
+# timeout: 180
+wait 4000
+wait_db 45000
+art_wait 60000
+sim_clock 9:41
+clock_format 12
+battery 100
+wait 1600
+shot main_menu
+wheel +1 300         # Videos
+wait 1200
+key SELECT
+wait 1200
+shot videos          # Movies / TV Shows / Settings, the poster panel
+key MENU
+wait 800
+wheel -1 300         # Music
+wait 600
+key SELECT
+wait 1200
+shot music_menu
+wheel +2 300         # Albums
+key SELECT
+wait 1000
+wheel +31 120        # "Night Train", mid-list (rows Meanders .. Night Train)
+wait 1200
+shot albums
+key SELECT
+wait 1000
+shot album_tracks
+key SELECT           # first song: plays, Now Playing opens
+wait 2500
+np_pin 2000 50       # the synthetic songs are 5 s long
+wait 1200
+shot now_playing
+key MENU
+wait 600
+key MENU
+wait 600
+key MENU
+wait 600
+key MENU
+wait 1200
+wheel +4 300         # Settings
+wait 1200
+shot settings_panel
+key SELECT
+wait 1200
+shot settings
+key MENU
+wait 1000
+usb_glyph usbc
+usb_connect
+wait 1500
+shot usb
+usb_disconnect
+wait 1000
+quit

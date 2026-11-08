@@ -244,6 +244,13 @@ const void *mod_export(enum mod_id id, int slot);
 /* Entering the menu that leads to a module (Settings): start its load,
  * spinning the disk up if need be (#104) */
 void mod_warm(enum mod_id id);
+/* The pack's index (day 4c, the Games row): 1 read this boot, 0 not yet,
+ * <0 refused (a static build: 1).  _warm(): entering Extras, read it now
+ * if not yet (spins the disk up if need be); _wait(): the Games list's
+ * entry, up to ticks for it (the UI thread sleeps) */
+int mod_index_state(void);
+void mod_index_warm(void);
+void mod_index_wait(long ticks);
 
 /* -- P12 class ABI (docs/phase12-brief.md 3.1; W1-F implements) ------- */
 struct mod_rt;

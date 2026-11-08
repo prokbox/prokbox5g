@@ -15,7 +15,7 @@ shot before
 usb_glyph usbc
 usb_connect
 wait 1500
-shot connected       # "Connected" / "Eject before disconnecting."
+shot connected       # "Connected" / "Eject it from your computer before you unplug it."
 usb_eject
 wait 1500            # the screen's 0.5 s idle wake notices it
 shot ok_to_disconnect

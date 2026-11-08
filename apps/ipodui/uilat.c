@@ -81,6 +81,28 @@ static uint32_t thread_us(const char *name)
     return us;
 }
 
+void uilat_cpu_mark(struct uilat_cpu *m)
+{
+    m->us = USEC_TIMER;
+    m->codec = thread_us("codec");
+    m->ui = thread_us(ui_name());
+    m->idle = devstats.idle_us[CPU];
+    m->cidle = devstats.idle_us[COP];
+}
+
+static unsigned pct(uint32_t part, uint32_t whole);
+
+void uilat_cpu_log(const char *tag, const struct uilat_cpu *m)
+{
+    uint32_t el = USEC_TIMER - m->us;
+
+    ui_log(tag, "cpu codec=%u%% ui=%u%% idle=%u%% cop_idle=%u%%",
+           pct(thread_us("codec") - m->codec, el),
+           pct(thread_us(ui_name()) - m->ui, el),
+           pct(devstats.idle_us[CPU] - m->idle, el),
+           pct(devstats.idle_us[COP] - m->cidle, el));
+}
+
 static void win_start(void)
 {
     memset(&w, 0, sizeof(w));

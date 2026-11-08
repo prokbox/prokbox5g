@@ -113,3 +113,104 @@ apps/ipodui/modload_core.c     # optional: only with -DIPODUI_WITH_MODULES
 apps/ipodui/sdk/sdk_cold.c
 apps/ipodui/sdk/sdk_state.c
 apps/ipodui/sdk/sdk_games.c
+
+# #147 (budget, 2026-11-05): the rest of the cold shell services and
+# screens, the cold upstream apps files and the dock and video files that
+# run once. Each passes the rule above (a press, a minute tick on a thread,
+# a boot, a sync step or a file write), with the exceptions argued below;
+# no inline asm: disable_irq_save() is ARM-only, so ab_store.c,
+# maint.c, batcal.c and iap-core.c stay ARM, as does misc.c for its tick
+# task). Left ARM on purpose: np_playback.c (audio-thread events), npmark.c
+# and mq_jobs.c (per frame), xindex_core.c (the paged lists' browse-time reader), vix.c
+# (per video sample), cuesheet.c (per-tick cue lookups), uilog.c (an
+# ARM-only inline asm from a header).
+apps/ipodui/ab_store_core.c
+apps/ipodui/ab_speed.c
+# alarm.c: alarm_poll() runs once per UI pass (ui_main.c) and returns after
+# a few compares unless an alarm is due: tens of instructions, < 0.05 % of
+# the frame budget.
+apps/ipodui/alarm.c
+apps/ipodui/alarm_core.c
+# batcal_core.c: bc_tick() runs in the tick interrupt, called once a second
+# from batcal.c's timeout callback (ARM). Thumb code there is fine on the
+# ARM7TDMI: interworking is on for every object, it returns with bx, and it
+# is loop-free (~30-60 instructions per second).
+apps/ipodui/batcal_core.c
+# battlog.c: battlog_service() runs once per UI pass (BE_PASS, fe_be.c) and
+# returns after a few compares: tens of instructions per pass.
+apps/ipodui/battlog.c
+# bootbatt.c: zero_tmo_cb() is a timeout callback (tick interrupt, every
+# 10 s): loop-free, interworking return with bx, as bc_tick() above.
+# bootbatt_service() and bb_zero_due() (bootbatt_core.c) run once per UI
+# pass (BE_PASS) and return after a few compares.
+apps/ipodui/bootbatt.c
+apps/ipodui/bootbatt_core.c
+apps/ipodui/bootstamp.c
+apps/ipodui/bootstamp_core.c
+apps/ipodui/cfgsafe.c
+apps/ipodui/diag.c
+apps/ipodui/diag_core.c
+apps/ipodui/extras.c
+apps/ipodui/lock.c
+apps/ipodui/lock_core.c
+apps/ipodui/maint_core.c
+apps/ipodui/modclass.c
+apps/ipodui/notice.c
+# np_lyrics.c: np_lyrics_wrap() loops per character over at most
+# NP_LYRICS_MAX (8 KB), once per lyrics open (boosted): ~1 ms more at most,
+# against the file read it follows.
+apps/ipodui/np_lyrics.c
+apps/ipodui/safefile.c
+apps/ipodui/sleep.c
+apps/ipodui/sleep_core.c
+apps/ipodui/stopwatch.c
+apps/ipodui/stopwatch_core.c
+apps/ipodui/tzpick.c
+apps/ipodui/tzpick_core.c
+apps/ipodui/usbbusy.c
+apps/ipodui/vclass_core.c      # optional: only with --bcmfw-video
+apps/ipodui/vixpass.c          # optional: only with --bcmfw-video
+apps/ipodui/vixpass_core.c     # optional: only with --bcmfw-video
+apps/ipodui/xindex.c
+apps/ipodui/screens/alarmring.c
+apps/ipodui/screens/extras.c
+apps/ipodui/screens/setvideos.c # optional: only with --bcmfw-video
+apps/ipodui/screens/videos.c   # optional: only with --bcmfw-video
+# ab_book.c, ab_book_core.c: the book block (load at a book's start) and
+# its pure rules; per frame Now Playing calls only the getter and
+# ab_book_entry_at() (loop-free, ~15 instructions); ab_book_ticks()'s
+# loop over the chapters runs once per track layout. The audio-thread
+# events (np_playback.c) call the checkpoint and getter, loop-free, once
+# per track event. sum_more()/pak_chunk() sum the book blob in 512 B
+# chunks once per book load, each beside its read: read-dominated.
+apps/ipodui/ab_book.c
+apps/ipodui/ab_book_core.c
+# menu.c: the shell's menu screens, the four list screens' argument
+# (row callbacks per visible row, the text work in ARM).
+apps/ipodui/menu.c
+# dbjournal.c: replays and appends the library journal at a sync step;
+# its loops go one frame header (or one chunk) per pass, the bytes through
+# crc_32r() and read()/write() in firmware/ (ARM), as dbgen.c above.
+apps/ipodui/dbjournal.c
+# upstream: settings load/save/apply, the settings table's callbacks, the
+# language loader (once per boot or language change). settings.c's config
+# parse loops per line once per boot, beside the file read;
+# settings_save_service() runs once per UI pass (BE_PASS) and returns after
+# a few compares.
+apps/settings.c
+apps/settings_list.c
+apps/language.c
+# gui/line.c: put_line(), called only by the stock list (T2 above) and
+# the diagnostics screen (diag.c, above)
+apps/gui/line.c
+# the iAP lingoes: one handler call per dock packet (serial speeds); the
+# serial IRQ and its ring stay in firmware/ and iap-core.c (ARM)
+apps/iap/iap-lingo0.c          # optional: only with --dock30
+apps/iap/iap-lingo2.c          # optional: only with --dock30
+apps/iap/iap-lingo3.c          # optional: only with --dock30
+apps/iap/iap-lingo4.c          # optional: only with --dock30
+# video: the first-use check, its record, the image files (once per boot
+# or per first play); the player's per-frame code stays ARM
+apps/video/vcheck.c            # optional: only with --bcmfw-video
+apps/video/vcheck_store.c      # optional: only with --bcmfw-video
+apps/video/bcmres.c            # optional: only with --bcmfw-video or --bcmfw-merged

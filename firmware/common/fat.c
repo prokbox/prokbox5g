@@ -8,6 +8,7 @@
  *
  * Copyright (C) 2002 by Linus Nielsen Feltzing
  * Copyright (C) 2014 by Michael Sevakis
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -3735,6 +3736,149 @@ void fat_empty_fat_direntry(struct fat_direntry *entry)
     entry->filesize     = 0;
     entry->firstcluster = 0;
 }
+
+#if defined(HAVE_IPOD_UI_DEVMODE) && !defined(BOOTLOADER)
+/* ProkBox (#137, the Apple fallback; developer builds only): the few
+ * steps on the volume a "link" needs that the file layer has no word
+ * for. A link is a second directory entry naming an original's chain;
+ * nothing here ever frees a cluster (docs/research/apple-fallback-links.md,
+ * "Recommended design"). FAT32 only (the iPod's volume); callers hold the
+ * file layer's writer lock. */
+
+/* the raw FAT32 entry of cluster c (0 free, >= FAT_EOF_MARK the end), or
+ * -1: unreadable or out of range */
+static long link_fat_entry(struct bpb *fat_bpb, unsigned long c)
+{
+    long v = -1;
+
+    if (c < 2 || c > fat_bpb->dataclusters + 1)
+        return -1;
+    dc_lock_cache();
+    uint32_t *sec = cache_sector(fat_bpb, c / CLUSTERS_PER_FAT_SECTOR
+                                          + fat_bpb->fatrgnstart);
+    if (sec)
+        v = letoh32(sec[c % CLUSTERS_PER_FAT_SECTOR]) & 0x0fffffff;
+    dc_unlock_cache();
+    return v;
+}
+
+static struct bpb *link_bpb(IF_MV_NONVOID(int volume))
+{
+    struct bpb *fat_bpb = FAT_BPB(volume);
+#ifdef HAVE_FAT16SUPPORT
+    if (fat_bpb && fat_bpb->is_fat16)
+        return NULL;
+#endif
+    return fat_bpb;
+}
+
+/* fst's chain is healthy for size: every cluster allocated, the end mark
+ * exactly at ceil(size / cluster). 1 healthy (runs: start,count pairs;
+ * *nruns -1 when more than maxruns), 0 not, -1 unreadable */
+int fat_link_chain(IF_MV(int volume,) long fst, uint32_t size,
+                   uint32_t *runs, int maxruns, int *nruns)
+{
+    struct bpb *fat_bpb = link_bpb(IF_MV(volume));
+    unsigned long bpc, want, n = 0, c = fst;
+    int r = 0;
+    bool over = false;
+
+    *nruns = 0;
+    if (!fat_bpb)
+        return -1;
+    bpc = fat_bpb->bpb_secperclus * LOG_SECTOR_SIZE(fat_bpb);
+    want = (size + bpc - 1) / bpc;
+    if (!want || fst < 2)
+        return 0;                       /* nothing a link could name */
+    while (1)
+    {
+        long v = link_fat_entry(fat_bpb, c);
+
+        if (v < 0)
+            return -1;
+        if (v < 2)
+            return 0;                   /* free or reserved: broken */
+        if (r && runs[2 * (r - 1)] + runs[2 * (r - 1) + 1] == c)
+            runs[2 * (r - 1) + 1]++;
+        else if (r < maxruns)
+        {
+            runs[2 * r] = c;
+            runs[2 * r + 1] = 1;
+            r++;
+        }
+        else
+            over = true;                /* too fragmented to record */
+        if (++n > want)
+            return 0;                   /* longer than its size */
+        if (v >= FAT_EOF_MARK)
+            break;
+        if ((unsigned long)v > fat_bpb->dataclusters + 1)
+            return 0;
+        c = v;
+    }
+    *nruns = over ? -1 : r;
+    return n == want;
+}
+
+/* 1: every cluster of the runs is free, 0 not, -1 error */
+int fat_link_runs_free(IF_MV(int volume,) const uint32_t *runs, int nruns)
+{
+    struct bpb *fat_bpb = link_bpb(IF_MV(volume));
+
+    if (!fat_bpb || nruns <= 0)
+        return -1;
+    for (int i = 0; i < nruns; i++)
+        for (uint32_t k = 0; k < runs[2 * i + 1]; k++)
+        {
+            long v = link_fat_entry(fat_bpb, runs[2 * i] + k);
+            if (v)
+                return v < 0 ? -1 : 0;
+        }
+    return 1;
+}
+
+/* FREED: a host deleted a link and so freed the original's clusters;
+ * while every one of them is still free, the chain is written again from
+ * the recorded runs. Never onto a cluster in use. */
+int fat_link_rechain(IF_MV(int volume,) const uint32_t *runs, int nruns)
+{
+    struct bpb *fat_bpb = link_bpb(IF_MV(volume));
+
+    if (fat_link_runs_free(IF_MV(volume,) runs, nruns) != 1)
+        return -1;
+    for (int i = 0; i < nruns; i++)
+        for (uint32_t k = 0; k < runs[2 * i + 1]; k++)
+        {
+            unsigned long c = runs[2 * i] + k, next;
+
+            if (k + 1 < runs[2 * i + 1])
+                next = c + 1;
+            else if (i + 1 < nruns)
+                next = runs[2 * (i + 1)];
+            else
+                next = 0x0fffffff;
+            if (update_fat_entry(fat_bpb, c, next) < 0)
+                return -2;
+        }
+    cache_commit(fat_bpb);
+    return 0;
+}
+
+/* The entry of file names fst and size (a new link's, or an original a
+ * disk checker emptied); no FAT change, no cluster freed */
+int fat_link_set(struct fat_file *file, long fst, uint32_t size)
+{
+    struct bpb *fat_bpb = link_bpb(IF_MV(file->volume));
+    int rc;
+
+    if (!fat_bpb || !file->dircluster)
+        return -1;
+    file->firstcluster = fst;
+    rc = update_short_entry(fat_bpb, file, size, NULL);
+    cache_commit(fat_bpb);
+    return rc;
+}
+#endif /* HAVE_IPOD_UI_DEVMODE && !BOOTLOADER */
 
 void fat_init(void)
 {

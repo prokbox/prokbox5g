@@ -56,6 +56,8 @@
 #include "ipodui/xindex.h"
 #include "ipodui/xcontact_core.h"       /* XCONTACT_ROOT_DIR (W3-K) */
 #include "ipodui/xical_core.h"          /* XCAL_ROOT_DIR (W3-C) */
+#include "ipodui/afb.h"                 /* #137 */
+#include "ipodui/afb_core.h"
 #include "ipodui/tzpick.h"              /* tz_rtc_split */
 #include "timefuncs.h"
 
@@ -86,6 +88,9 @@ static struct {
     int month;
     long month_due;
     bool month_set;
+#ifdef HAVE_IPOD_UI_DEVMODE
+    int afb_when;                       /* #137: enum afb_when */
+#endif
 } xs;
 
 #ifndef IPODUI_MODLOAD
@@ -201,6 +206,13 @@ static int run_kind(int (*fn)(struct xidx_job *), int kind, const char *dir,
     return rc;
 }
 
+#ifdef HAVE_IPOD_UI_DEVMODE
+static int afb_kind(struct xidx_job *j)
+{
+    return xs.ops->afb(j, xs.afb_when);
+}
+#endif
+
 static void job_run(void)
 {
     int rc;
@@ -213,6 +225,12 @@ static void job_run(void)
     rc = run_kind(xs.ops->contacts, XIDX_CONTACTS, XCONTACT_ROOT_DIR, rc,
                   &built);
     rc = run_kind(xs.ops->cal, XIDX_CAL, XCAL_ROOT_DIR, rc, &built);
+#ifdef HAVE_IPOD_UI_DEVMODE
+    /* #137: the Apple fallback, after the library scan (the post-USB
+     * moment) or in the boot window; its own plan decides */
+    rc = run_kind(xs.ops->afb && afb_wanted() ? afb_kind : NULL, 4,
+                  AFB_LINK_DIR, rc, &built);
+#endif
     cpu_boost(false);
     finish(rc, built);
 }
@@ -350,7 +368,12 @@ void xindex_sync(enum xidx_when when)
         start("month");
         return;
     }
+#ifdef HAVE_IPOD_UI_DEVMODE
+    xs.afb_when = when == XIDX_AT_BOOT ? AFB_AT_BOOT : AFB_AT_USB;
+    if (when == XIDX_AT_BOOT && boot_trusted() && !afb_wanted())
+#else
     if (when == XIDX_AT_BOOT && boot_trusted())
+#endif
     {
         XLOG("skip trusted kind=%d", XIDX_NOTES);
         return;
@@ -406,6 +429,9 @@ void xindex_poll(void)
         || !mod_room_for(MOD_XINDEX))
         return;
     xs.retry = current_tick + RETRY_TICKS;
+#ifdef HAVE_IPOD_UI_DEVMODE
+    xs.afb_when = AFB_AT_OWED;
+#endif
     start("owed");
 }
 

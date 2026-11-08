@@ -31,6 +31,7 @@
 set -u
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 SOURCE=$ROOT/build/sim-50k/simdisk
+"$ROOT/tests/perf/ensure50k.sh" "$SOURCE" || exit 1
 # #47: measure the steady state, not the one-time re-sort (settle50k.sh)
 SETTLED=$("$ROOT/tests/perf/settle50k.sh" "$SOURCE") || exit 1
 if [ "$SETTLED" != "$SOURCE" ]; then

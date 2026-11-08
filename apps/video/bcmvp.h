@@ -141,6 +141,13 @@ struct bvp
     uint32_t evt_torn, evt_raw; /* polls in a row that found HP_EVT_WR
                                    torn, and the word (dev14) */
     uint32_t errors, events;
+    /* FEEDs the image refused (their error replies; day 4c): the packet
+       is never consumed, so FIFO_RD stops and every later FEED is out of
+       place (HP_E_FIFO).  The count and the first refusal's status and
+       the image's expected offset, for vpcore's restart */
+    uint32_t feed_refused;
+    int32_t feed_err;
+    uint32_t feed_want;
 
     /* liveness */
     uint32_t beat, beat_at_us, beat_same;
@@ -192,6 +199,10 @@ int bvp_overlay(struct bvp *v, uint32_t x, uint32_t y, uint32_t w,
    slide up on at once */
 int bvp_overlay_slide(struct bvp *v, uint32_t x, uint32_t y, uint32_t w,
                       uint32_t h, uint32_t slide);
+/* flags: 0, or HP_CLOSE_SDRAM_IDLE (bcmfw/hostproto.h): the image idles
+   SDRAM after the session (Apple's sequence) and the next OPEN brings it
+   up again; its reply gains one HP_CLOSE_SD_* word.  No caller sends it
+   yet: silicon checks it first (power.md section 3) */
 int bvp_close(struct bvp *v, uint32_t flags);
 
 /* Starts a packet of len bytes in the FIFO: 0, or BVP_AGAIN when the FIFO

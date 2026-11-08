@@ -79,6 +79,11 @@ bool dbs_row_rstat(void);
 bool dbs_boot_dma(void);
 int dbs_vclk_verify(void);
 int dbs_vclk_gov(void);
+/* sitting 4h: the core layout probe (devbench_cop.h): refused, a skip */
+int dbs_cop_t2(void);
+int dbs_cop_fiq(void);
+int dbs_cop_duty(void);
+int dbs_cop_heap(void);
 
 
 /* devbcm.c's session helpers: the same screens (simplelist, SELECT on the
@@ -171,6 +176,10 @@ int dbs_open(const char *path, int flags, ...);
 #define devbcm_boot_dma         dbs_boot_dma
 #define devbench_vclk_verify    dbs_vclk_verify
 #define devbench_vclk_gov       dbs_vclk_gov
+#define devbench_cop_t2         dbs_cop_t2
+#define devbench_cop_fiq        dbs_cop_fiq
+#define devbench_cop_duty       dbs_cop_duty
+#define devbench_cop_heap       dbs_cop_heap
 #define devbcm_bench_mode       dbs_bench_mode
 #define devbcm_bench_stages     dbs_bench_stages
 #define devbcm_log              dbs_log
@@ -225,5 +234,12 @@ int dbs_open(const char *path, int flags, ...);
 
 /* the soak the sim can afford (the device's: 100 s) */
 #define UCOP_MIN_S              5
+/* sitting 4e's soaks, scaled to the sim's clips: vlong plays the 12 s
+   test episode, left after about 8 s (the device's: 10 min of
+   Sintel), vizsoak a few seconds of the visualiser (the device's:
+   150 s) */
+#define VLONG_MIN_S             5
+#define VIZSOAK_MIN_S           4
+#define VIZSOAK_RUN_S           6   /* the self-driving soak (the device: 180) */
 
 #endif /* _IPODUI_DEVBENCH_SIM_CALLS_H_ */

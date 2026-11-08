@@ -1,0 +1,117 @@
+# #154 (owner, 2026-11-06): Play, the resume point and Now Playing are only ever audio
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p19-audio-resume.script
+# (ipodui-p19-* default to build/sim-ui-video; the gate runs them there)
+# needs: video
+#
+# Music plays, a video plays from Videos, the video is left: PLAY resumes
+# the music where it stopped (never the video), and Now Playing shows the
+# music. The video's sound stops with its screen (MENU and hold MENU),
+# and the video resumes at its own spot, only from the Videos list.
+#
+# Disk: tests/fixtures/videos/mkvideos.sh (installed by the gate's prime
+# step, or by shots.sh for a standalone run): Movies/ Audio First, High
+# Profile, Late Chapter, Short Film (13 s). Main menu with Videos on:
+# Music, Videos, Podcasts, Extras, Settings, Shuffle Songs (+ Now Playing).
+
+# golden: skip
+# trace: video
+# log: video leave audio=0
+# nolog: video leave audio=1
+# nolog: video leave audio=3
+# logafter: menu video leave audio=0
+# logafter: held video leave audio=0
+wait 4000
+wait_db 45000
+art_wait 60000
+repeat off
+# the music: paused at a known spot, so the resume can be checked
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3 /Music/Tone%20Collective/Sine%20Studies/02%20Low%20E.mp3
+wait_pos 3000 20000 Concert
+key PLAY            # pause the music
+wait 600
+expect_paused 300
+
+# Short Film on the video screen from its start (video_screen: tc -1, no
+# list; other scripts leave its database spot anywhere): the music stops
+video_screen /Movies/Short%20Film.m4v
+wait_pos 3000 30000 Film.m4v
+expect_video 20 playing
+ab_mark menu
+key MENU            # the video and its sound stop: back to the main menu
+wait 1500
+expect_video 0 none
+shot main_after_video   # no Now Playing row: the music is stopped
+
+# PLAY resumes the music at its spot, not the video
+key PLAY
+wait_pos 3200 20000 Concert
+expect_pos 3000 9000
+wait 1200
+shot main_menu_music
+wheel +10 300       # Now Playing (the last row)
+wait 600
+key SELECT
+wait 1500
+shot now_playing_music
+wait_pos 3500 20000 Concert
+key MENU
+wait 1200
+
+# from the Videos list it resumes at its own spot (about 3-4 s, kept at
+# the MENU above); hold MENU leaves every screen and its sound stops too
+wheel -10 300       # Music
+wait 400
+wheel +1 300        # Videos
+wait 600
+key SELECT
+wait 900
+key SELECT          # Movies
+wait 1200
+wheel -10 300
+wheel +3 300        # Short Film
+wait 400
+key SELECT
+wait 700
+expect_pos 2800 8000        # its own spot, not the music's nor 0
+wait_pos 4000 30000 Film.m4v
+ab_mark held
+hold MENU 1500      # to the main menu: the session ends
+wait 1500
+expect_video 0 none
+shot main_after_hold
+
+# PLAY resumes the music again
+key PLAY
+wait_pos 3500 20000 Concert
+expect_playing 500
+
+# a cut while a video plays: the next start's PLAY still resumes the music
+# (the video never reached the control file or the resume point)
+key SELECT          # Videos (still selected)
+wait 900
+key SELECT          # Movies
+wait 1200
+wheel -10 300
+wheel +3 300        # Short Film
+wait 400
+key SELECT
+wait_pos 2000 30000 Film.m4v
+wait 2000           # its slides done
+power_cut
+reboot
+
+wait 4000
+wait_db 45000
+key PLAY
+wait_pos 1000 20000 Concert
+expect_playing 500
+shot after_cut
+
+# leave Short Film's spot as other scripts expect it (none): played to
+# its end, which resets the spot to 0; the screen goes by itself
+video_screen /Movies/Short%20Film.m4v
+wait_pos 12000 40000 Film.m4v
+wait 3000
+expect_video 0 none
+key PLAY            # the music again, not the video
+wait_pos 2000 20000 Concert

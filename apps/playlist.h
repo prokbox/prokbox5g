@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2002 by wavey@wavey.org
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -183,6 +184,11 @@ int playlist_delete_range_ipodui(struct playlist_info* playlist,
 int playlist_reserve_ipodui(int n, bool keep);
 int playlist_insert_dbq_ipodui(struct playlist_info *pl, uint32_t first_k,
                                int count, uint32_t tag);
+/* #154: a video's one-item queue, kept apart from the audio queue's
+ * control file and resume point (playlist.c) */
+int playlist_play_video_ipodui(const char *path, unsigned long elapsed,
+                               unsigned long offset);
+void playlist_end_video_ipodui(void);
 #endif
 bool playlist_modified(const struct playlist_info* playlist);
 void playlist_set_modified(struct playlist_info* playlist, bool modified);

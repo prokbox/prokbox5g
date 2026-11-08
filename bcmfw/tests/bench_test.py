@@ -92,7 +92,7 @@ BR = dict(magic=0, state=1, nk=2, iters=3, runs=4, flags=5, vpass=6, vall=7,
           ew=22, nvec=23, vrec=24, vrec_words=25, vlate=26,
           vpass_hi=27, vall_hi=28, vlate_hi=29, sloc=30, nsloc=31)
 VREC_AT, BV_WORDS = 0x800, 12      # bench.h: the vector check records
-SLOC_AT = 0xB00                    # bench.h: the store-locating records
+SLOC_AT = 0xBC0                    # bench.h: the store-locating records
 
 # vmcs.bin 1.3's clock switch (hardware.md, "Clocks, PLL and regulator"):
 # the device writes from the first run-control write to the core clock
@@ -339,7 +339,9 @@ class Suite:
         info = [c.tag for c in self.cases if c.info]
         r = self.row('vector checks: all %d pass (%s informational)' % (
             len(self.cases), ', '.join(info)))
-        allv = (1 << len(self.cases)) - 1
+        # the header's masks hold checks 0-63; later ones (informational,
+        # VF3) pass or fail in their records only (bench.h BENCH_MAX_VCASES)
+        allv = (1 << min(len(self.cases), 64)) - 1
         req = allv & ~sum(1 << k for k, c in enumerate(self.cases) if c.info)
         r.check(run.hdr('nvec') == len(self.cases), 'count %d' % run.hdr('nvec'))
         r.check(run.hdr('vall') == req and run.hdr('vpass') == req,
@@ -370,6 +372,19 @@ class Suite:
         got = [run.w(VREC_AT + BV_WORDS * k + 2 + i) for i in range(4)]
         line = RL.x15_verdicts({'REPA': {'got': got, 'flags': 3}})
         r.check(line == ['REP 8 with acc %s (REPA)' % RL.REPA_TH[0][0]], 'readlog: %s' % line)
+        r = self.row('VF3: readlog\'s readings are the generator\'s predictions; vc2sim '
+                     'reads as modelled')
+        for p in G.vf3_probes():
+            pred = p.predictions()
+            r.check([(h, [int(x, 16) for x in w.split()]) for h, w, _ in
+                     RL.VARIANT_WORDS[p.tag]] == [(h, rows[0]) for h, rows in pred.items()],
+                    '%s: readlog %s, generator %s' % (p.tag, RL.VARIANT_WORDS[p.tag], pred))
+            r.check(len({tuple(rows[0]) for rows in pred.values()}) == len(pred),
+                    '%s: two hypotheses share their first words' % p.tag)
+            k = [c.tag for c in self.cases].index(p.tag)
+            got = [run.w(VREC_AT + BV_WORDS * k + 2 + i) for i in range(4)]
+            name = RL.variant_verdict(p.tag, got)
+            r.check(name.startswith('model:'), '%s: readlog says %s' % (p.tag, name))
         r = self.row('store-locating check: each source lands where the silicon layout puts it')
         self.sloc_check(r, run, G.sloc_expect)
         r = self.row('scalar checks (9) and the probe\'s nine required pass')
@@ -443,7 +458,7 @@ class Suite:
         run = self.profile_run('round_up', v_mulhr_round='up')
         lost = base.hdr('vlate') & ~run.hdr('vlate')
         want = sum(1 << tags.index(t) for t in ('MHRN', 'CLRQ', 'RNDT', 'RNDU'))
-        r.check(base.hdr('vlate') == (1 << len(tags)) - 1 and lost == want,
+        r.check(base.hdr('vlate') == (1 << min(len(tags), 64)) - 1 and lost == want,
                 'late %x, lost %x, want %x' % (base.hdr('vlate'), lost, want))
 
     def t_negative(self):
@@ -456,7 +471,7 @@ class Suite:
         w = struct.unpack_from('<I', img, sym)[0]
         struct.pack_into('<I', img, sym, w ^ 0x00010000)
         run = Run(bytes(img))
-        allv = (1 << len(self.cases)) - 1
+        allv = (1 << min(len(self.cases), 64)) - 1
         req = allv & ~sum(1 << j for j, c in enumerate(self.cases) if c.info)
         r.check(run.hdr('vpass') == req & ~(1 << k), 'pass %05x' % run.hdr('vpass'))
         v = [run.w(VREC_AT + BV_WORDS * k + i) for i in range(BV_WORDS)]
@@ -611,11 +626,36 @@ class Suite:
         S.COVER = collections.Counter()
         r.check(all(x.n == x.ok for x in rows), 'self-test failed')
         targets = 0
+        # VF3's probes test operand readings (direction, step, +r), which
+        # these semantic keys don't tell apart: no new-form rule.  Their
+        # harness is silicon-proven bench forms (the copies, the clear, the
+        # transpose; proven_forms.txt), not necessarily Apple's.
+        import proven_table as PT
+
+        def sem_of(key):        # an operand key of the table, as a semantic key
+            f = key.split()
+            if len(f) < 6 or f[0] == 'mem48':
+                return None
+            opd = [x[0] + x[1:].lstrip('HV').replace('++', '').replace('+r', '')
+                   for x in f[1:4]]
+            mods = ' '.join(f[4:-1])
+            return (f[0], *opd, '' if mods == '-' else mods, f[-1])
+        benched = {form_of(t) for c in self.cases if c.tag not in G.VF3_TAGS
+                   for t in c.test if t.startswith('v')} | set(sem) | {
+            sem_of(k) for (d, k), (cls, _) in PT.load().items()
+            if d == 'vector' and cls == 'silicon'}
         for c in self.cases:
             tested = [form_of(t) for t in c.test if t.startswith('v')]
             harness = [form_of(t) for t in c.pre + c.post if t.startswith('v')]
             harness += [('mem48', 'vld16', 'single'), ('mem48', 'vst16', 'single')]
             new = [f for f in tested if f not in sem]
+            if c.tag in G.VF3_TAGS:
+                r.check(c.form.split()[0] == tested[0][0] or
+                        c.form.split()[0] == tested[1][0],
+                        '%s: tested %s, named %s' % (c.tag, tested, c.form))
+                bad = [f for f in harness if f not in benched]
+                r.check(not bad, '%s: harness uses unproven %s' % (c.tag, bad))
+                continue
             # R48E: operand addressing (a 48-bit op's +r enables) in a form
             # the self-test runs (jhoz's pair sums)
             if c.tag not in DIAG + ('COPY', 'MHRN', 'MNEG', 'CLRQ', 'MLSC', 'R48E') + \

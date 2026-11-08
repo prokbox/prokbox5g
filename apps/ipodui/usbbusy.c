@@ -30,6 +30,7 @@
 #include "tagcache.h"
 #include "ipodui/uilog.h"
 #include "ipodui/usbbusy.h"
+#include "ipodui/modclass.h"
 #include "ipodui/xindex.h"
 #include "ipodui/dbqueue.h"
 #include "ipodui/artcache.h"
@@ -63,6 +64,11 @@ static void housekeeping(bool scan_ran)
     unsigned long fc = 0, nf = 0, cl = 0;
     int sc = tagcache_ui_sidecars();
 
+    /* the firmware's own reads (the index sync walks the library on the
+     * UI thread), not those of a module still on top: a game resumed
+     * after the session was booked 10 of them as its steady-state
+     * reads whenever the play before had few saves (p19-solflake) */
+    modclass_save(true);
     /* -1: the scan did not run to its end in the window (deferred while
      * audio holds the memory, or cut): no count to report */
     ui_log("usb", "housekeeping sidecars=%d", sc);
@@ -93,6 +99,7 @@ static void housekeeping(bool scan_ran)
      * but never wake a sleeping one. */
     if (scan_ran || storage_disk_is_active())
         ui_log_flush();
+    modclass_save(false);
 }
 
 /* 3.20 (owner, device, 2026-10-25): any library update shows the glyph,

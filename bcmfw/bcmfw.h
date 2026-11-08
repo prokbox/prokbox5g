@@ -133,6 +133,8 @@ void jobs_dispatch(uint32_t op, uint32_t tag, const uint32_t *a, uint32_t n,
                    uint32_t *rep, uint32_t *nrep);
 void jobs_mode(uint32_t mode);
 int jobs_tick(void);
+/* 1 while a BCM-timed animation runs (main.c idle_wait: the 1 ms tick) */
+int jobs_anim_live(void);
 /* BCMFW_JOBS_OVL builds: an overlay is loaded (its ops offered), so its
  * region is in use (the merged image's TONE buffer overlaps it) */
 int jobs_ovl_live(void);

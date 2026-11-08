@@ -19,7 +19,7 @@
 | USB screen | dark header, slate-to-navy gradient, glossy orange disc, a connector glyph when idle, sync arrows spinning during I/O, "Connected" / "Eject before disconnecting." | owner 2026-10-06/08; `docs/design/spec/system-screens.md` |
 | Connector glyph | `HAVE_IPOD_DOCK30` set: the 30-pin pictogram. Unset (this unit): a USB-C plug pictogram | owner 2026-10-08; #54 |
 
-**Captures used (local only, never committed):** `XCShMisR6KMNUYmB.webp` (7G boot), `unlit-clock-2.webp` (7G unlit), `usb-connected.jpg` / `usb-connected-b.jpg` (photo 1165 / photo 1226). **Wanted, not blocking:** a video of a 7G going from backlight timeout to the unlit face to a button wake (it would settle ⚠️ U3 and U4).
+**Captures used (local only, never committed):** `XCShMisR6KMNUYmB.webp` (7G boot), `unlit-clock-2.webp` (7G unlit), `usb-connected.jpg` / `usb-connected-b.jpg` (photo `usb-connected` / photo `usb-connected-b`). **Wanted, not blocking:** a video of a 7G going from backlight timeout to the unlit face to a button wake (it would settle ⚠️ U3 and U4).
 
 **Still open (frozen in §10):** POL-4, whether the shipped build keeps devmode (default: yes). Plus the per-item ⚠️ below.
 
@@ -613,7 +613,7 @@ Rev 1 adds these trace lines:
   - **P:** this brief §3.1, §3.3, §4.2, §4.6; `docs/design/boot-logo.md` §"Format decision" and §"Integration plan"; `bootloader/ipod.c` + `bootloader/common.c` `printf()`.
   - **U1:** this brief §3.2; `docs/design/spec/system-screens.md` (USB, dark screens); `docs/reference/7g/MEASUREMENTS.md` rows "USB/charge header" to "USB text", plus `docs/design/fidelity-audit-1.md` §USB.
   - **U2:** this brief §3.3 (log), §3.4, §3.5; `docs/design/unlit.md` (stock variant, cost plan, state machine); `docs/design/devmode.md` §1–3 (with its MINIMAL note).
-  - **S:** this brief §3.6, §4.7; issue #56 (`scripts/forgejo.py show 56`); one existing `LANG_IPODUI_*` phrase in `english.lang` as the format example.
+  - **S:** this brief §3.6, §4.7; issue #56 (development tracker); one existing `LANG_IPODUI_*` phrase in `english.lang` as the format example.
   - **T:** this brief §4.8, §7, §8; `tests/ui/README.md`; `docs/phase-nav-brief.md` Revision 2 (`record`, `make_video.sh`).
 
 ## 6. Device-reality checklist (numbers; the builds are `build/boot`, `build/fw`, `build/fw-ui` as of 2026-10-07; agents re-measure on their branch)
@@ -710,7 +710,7 @@ Rev 1 adds these trace lines:
    - Idle shots for both glyphs, plus ≥ 3 distinct I/O frames.
    - After `usb_disconnect`, the previous screen is pixel-identical to the shot before `usb_connect`.
    - Trace rules pass (`boost=0` at exit, only `usb:*` pushes inside).
-   - A side-by-side with photo 1226 and photo 1165 for the owner round.
+   - A side-by-side with photo `usb-connected-b` and photo `usb-connected` for the owner round.
 4. **Unlit:**
    - The 4 scenes (12 h playing 4:01 55 %, 24 h paused 09:41 100 %, 24 h stopped 15:03 8 %, 12 h Hold charging 12:58 45 %) are pixel-identical to `docs/design/unlit/stock-*-lit.png`. U2 lists any deviation pixel by pixel with its reason; this needs orchestrator sign-off.
    - A minute step pushes exactly one digits band.
@@ -743,7 +743,7 @@ Boot hooks:
 | Artifact | Script | Content |
 |---|---|---|
 | Boot hand-off sheet | `ipodui-p8a-boot` | `[boot-bl (host) \| boot-fw (sim) \| diff (must be empty) \| first shell frame]`, plus `boot.mp4` (the sim boot recorded from power-on) |
-| USB sheet | `ipodui-p8a-usb` | idle USB-C, idle 30-pin, I/O frames 0/3/6/9, after disconnect; `usb-io.mp4` (2 s at 10 fps); side-by-side with photo 1226 / photo 1165 |
+| USB sheet | `ipodui-p8a-usb` | idle USB-C, idle 30-pin, I/O frames 0/3/6/9, after disconnect; `usb-io.mp4` (2 s at 10 fps); side-by-side with photo `usb-connected-b` / photo `usb-connected` |
 | Unlit sheet | `ipodui-p8a-unlit`, `-unlit-sleep` | 4 scenes lit; the same tone-mapped to "unlit" (paper → (182,177,165), ink → (60,58,52), as `unlit.py`), next to `stock-*-unlit.png`; the Hold scene; before-face / after-dismiss pair |
 | Devmode sheet | `ipodui-p8a-devmode`, `-devmode-boot` | About stub, Developer list, Debug, back on About; boot escape |
 | Splash pair | `ipodui-p8a-splash` | before and after the probe (identical) plus the log excerpt |

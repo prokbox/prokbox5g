@@ -81,10 +81,46 @@ TESTS=${BCMFW_TESTS:-bcmfw/tests}
 # benches on a loaded machine; the heartbeat below shows them): a bench that
 # never ends fails as a TIMEOUT instead of holding the gate at its wait
 # (a --quick gate hung over 30 min, 2026-10-26, with no trace of which
-# bench).  perl's alarm: macOS has no timeout(1).  A failed or timed-out
-# bench's log is kept in build/bench-logs/ (TMP goes at exit).
+# bench).  macOS has no timeout(1) or setsid(1): bench_run (perl) starts the
+# bench in its own process group and, at the limit, sends the whole group
+# TERM, then KILL after BENCH_GRACE seconds, and exits 142.  (An alarm set
+# before exec reached only the bench's own process, never its children: a
+# devtest_test.py ran 1 h 45 in a gate, 2026-10-28.)  Whatever of the group
+# outlives a bench that ended by itself is killed too.
+# tests/bench_timeout/run.sh proves it.  A failed or timed-out bench's log
+# is kept in build/bench-logs/ (TMP goes at exit).
 BENCH_TIMEOUT=${BENCH_TIMEOUT:-2400}
+BENCH_GRACE=${BENCH_GRACE:-10}
 LOGS=build/bench-logs
+bench_run() { # limit, command...
+    lim_=$1; shift
+    perl -MPOSIX=:sys_wait_h -e '
+        my ($lim, $grace) = (shift, shift);
+        my $pid = fork;
+        defined $pid or exit 127;
+        if (!$pid) { setpgrp(0, 0); exec @ARGV or exit 127 }
+        setpgrp($pid, $pid);            # either side may win the race
+        my $end = time + $lim;
+        my $st;
+        while (1) {
+            if (waitpid($pid, WNOHANG) == $pid) { $st = $?; last }
+            last if time >= $end;
+            select(undef, undef, undef, 0.25);
+        }
+        if (defined $st) {
+            kill "KILL", -$pid;         # stragglers of a bench that ended
+            exit($st & 127 ? 128 + ($st & 127) : $st >> 8);
+        }
+        kill "TERM", -$pid;
+        my $gend = time + $grace;
+        while (time < $gend && kill(0, -$pid)) {
+            waitpid($pid, WNOHANG);
+            select(undef, undef, undef, 0.25);
+        }
+        kill "KILL", -$pid;
+        waitpid($pid, 0);
+        exit 142' "$lim_" "$BENCH_GRACE" "$@"
+}
 run() { # name, command...
     n=$1; shift
     while [ "$(jobs -rp | wc -l)" -ge "$BCM_JOBS" ]; do
@@ -96,8 +132,7 @@ run() { # name, command...
     lim=$(python3 -I scripts/bench_cache.py limit "$n" "$BENCH_TIMEOUT" 2>/dev/null) \
         || lim=$BENCH_TIMEOUT
     ( start=$(date +%s)
-      perl -e 'alarm shift; exec @ARGV or exit 127' "$lim" "$@" \
-          >"$TMP/$n.log" 2>&1
+      bench_run "$lim" "$@" >"$TMP/$n.log" 2>&1
       echo "$? $(( $(date +%s) - start ))" >"$TMP/$n.rc" ) 2>/dev/null &
 }
 # Wait for every bench, saying every 2 min which still run and for how long

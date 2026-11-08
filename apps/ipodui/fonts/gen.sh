@@ -24,10 +24,15 @@
 
 # Regenerate the shell's bitmap fonts from TeX Gyre Heros.
 #
-#   apps/ipodui/fonts/gen.sh <dir with texgyreheros-{bold,regular}.otf> [outdir]
+#   apps/ipodui/fonts/gen.sh <source dir> [outdir]
 #
-# Source: https://mirrors.ctan.org/fonts/tex-gyre.zip
-#         (tex-gyre/opentype/texgyreheros-{bold,regular}.otf, version 2.004)
+# The source dir holds the main font and the fallback face for the ten
+# glyphs Heros lacks (README.md, "Glyph sources"):
+#   texgyreheros-{bold,regular}.otf  TeX Gyre Heros 2.004, GUST licence
+#     https://mirrors.ctan.org/fonts/tex-gyre.zip (tex-gyre/opentype/)
+#   DejaVuSans{-Bold,}.ttf           DejaVu Sans 2.37, Bitstream Vera
+#                                    licence (DejaVu changes public domain)
+#     https://github.com/dejavu-fonts/dejavu-fonts/releases/download/version_2_37/dejavu-fonts-ttf-2.37.zip (ttf/)
 # Needs Homebrew freetype + pkg-config to build tools/convttf.c (through
 # convttf-shell.c, which adds resolution, tracking and weight knobs; see
 # README.md).
@@ -35,7 +40,7 @@
 # by rerunning this and comparing.
 set -e
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
-SRC=${1:?usage: $0 <heros-otf-dir> [outdir]}
+SRC=${1:?usage: $0 <source dir> [outdir]}
 OUT=${2:-"$ROOT/apps/ipodui/fonts"}
 TMP=${TMPDIR:-/tmp}/ipodui-convttf.$$
 
@@ -53,8 +58,11 @@ cc -std=c99 -O2 -w "$ROOT/apps/ipodui/fonts/convttf-shell.c" -o "$TMP" -lm \
 #   the 7G; owner pick 2026-10-08, was -0.15)
 # CONVTTF_GAP=soft: i/j dots and accents kept clear of the letter, soft edges
 #   (CONVTTF_GAP=1: snapped, a clean empty row); LIST_WEIGHT overrides 0.1
-# CONVTTF_CP1252=1: curly quotes, en/em dash, ellipsis in the C1 slots
-#   (mapped by firmware/font.c, HAVE_IPOD_UI)
+# CONVTTF_CP1252=1: the 31 characters of font_shell_slot[] (quotes, dashes,
+#   music notes, euro, ...) in the C1 slots (firmware/include/
+#   font_shell_map.h, mapped by firmware/font.c, HAVE_IPOD_UI)
+# CONVTTF_FB: DejaVu Sans, the same weight, for the glyphs Heros lacks
+#   (shell_fallback[] in convttf-shell.c)
 # CONVTTF_LSB=clip: ink left of the pen origin is dropped rather than the
 #   glyph shifted right ("E ject" in Regular 12); the letters font has no
 #   -A (cells cropped to the ink), so it is unaffected
@@ -62,11 +70,16 @@ C="$TMP -A -X 72 -s 32 -l 591"
 export CONVTTF_HDPI=73 CONVTTF_VDPI=73 CONVTTF_CP1252=1
 export CONVTTF_LSB=clip      # negative left bearings: stems stay in place
 export CONVTTF_GAP=${CONVTTF_GAP:-soft}  # variants: CONVTTF_GAP=1 (snapped), CONVTTF_HINT=...
-CONVTTF_TRACK=0.4 CONVTTF_WEIGHT=${LIST_WEIGHT:-0.1} \
+for f in texgyreheros-bold.otf texgyreheros-regular.otf DejaVuSans-Bold.ttf \
+         DejaVuSans.ttf; do
+    [ -r "$SRC/$f" ] || { echo "gen.sh: missing $SRC/$f" >&2; exit 1; }
+done
+CONVTTF_FB="$SRC/DejaVuSans-Bold.ttf" CONVTTF_TRACK=0.4 \
+CONVTTF_WEIGHT=${LIST_WEIGHT:-0.1} \
 $C -p 15 -o "$OUT/15-ShellSans-Bold.fnt" "$SRC/texgyreheros-bold.otf"    >/dev/null
-CONVTTF_TRACK=0.45 \
+CONVTTF_FB="$SRC/DejaVuSans-Bold.ttf" CONVTTF_TRACK=0.45 \
 $C -p 12 -o "$OUT/12-ShellSans-Bold.fnt" "$SRC/texgyreheros-bold.otf"    >/dev/null
-CONVTTF_TRACK=0.45 \
+CONVTTF_FB="$SRC/DejaVuSans.ttf" CONVTTF_TRACK=0.45 \
 $C -p 12 -o "$OUT/12-ShellSans.fnt"      "$SRC/texgyreheros-regular.otf" >/dev/null
 # Quick-scroll letter (qscroll.c): A-Z only, cap 26 px, which qscroll.c
 # scales to 35 px (bilinear) when drawing; cells cropped to the ink (no

@@ -22,7 +22,7 @@
  ****************************************************************************/
 
 /* iPod UI shell: Extras > Notes (P12 W1-N, MOD_NOTES, Class A; spec
- * extras.md, owner photo 1200). A full-width list of the /Notes
+ * extras.md, owner photo `extras-notes`). A full-width list of the /Notes
  * folder (notes and folders mixed, by name; a folder row has the chevron,
  * a note none), a folder's list (one level, stock) and the note reader:
  * light, under the normal header titled with the note's name, its first
@@ -909,16 +909,14 @@ static int next_cp(const struct notes_work *w, int *i)
     }
 }
 
-/* What the shell type draws: its range, without the C1 slots, plus the
- * punctuation firmware/font.c maps onto them */
+/* What the shell type draws (firmware/font.c: its range and the
+ * characters it maps onto the C1 slots, font_shell_map.h). A C1 code
+ * point here is a real control, not Windows-1252 text. */
 static bool has_glyph(const struct font *pf, uint32_t cp)
 {
-    if (cp >= 0x2013 && cp <= 0x2026)
-        return cp == 0x2013 || cp == 0x2014 || cp == 0x2018 || cp == 0x2019
-               || cp == 0x201c || cp == 0x201d || cp == 0x2026;
     if (cp >= 0x80 && cp < 0xa0)
         return false;
-    return cp >= pf->firstchar && cp < pf->firstchar + (uint32_t)pf->size;
+    return font_has_glyph((struct font *)pf, cp);
 }
 
 static bool is_break(int c)

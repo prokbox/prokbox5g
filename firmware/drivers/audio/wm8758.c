@@ -37,6 +37,9 @@
 
 #ifdef HAVE_IPOD_UI
 #include "xcore.h"                     /* ProkBox P19 S0: XCORE_BSS */
+#ifdef HAVE_PWR_AWAKE
+#include "pwr_awake.h"                 /* ProkBox AW-5 */
+#endif
 /* ProkBox P19 (ucop-fix, 2026-10-26): every shadow and every word of the
  * standby state machine is uncached. Both cores drive this driver under
  * dac_mtx (the volume and the EQ from the UI, which may run on the COP;
@@ -635,6 +638,10 @@ static void dac_standby_enter(void)
     wm_write_raw(PWRMGMT3, standby_mask(PWRMGMT3, pwr_reg[2]));
     /* 5. PLL off: BCLK/LRCLK stop, safe only with PCM stopped */
     wm_write_raw(PWRMGMT1, standby_mask(PWRMGMT1, pwr_reg[0]));
+#ifdef HAVE_PWR_I2SGATE
+    /* 6. ProkBox AW-5: the codec's clock and I2S gated (wmcodec-pp.c) */
+    wmcodec_clocks_gate(true);
+#endif
     dac_state.sleeps++;
 }
 
@@ -646,6 +653,10 @@ static void dac_standby_wake(void)
     unsigned short r3 = standby_mask(PWRMGMT3, pwr_reg[2]);
     unsigned long t0 = USEC_TIMER;
 
+#ifdef HAVE_PWR_I2SGATE
+    /* 0. ProkBox AW-5: the clocks back before the PLL needs MCLK */
+    wmcodec_clocks_gate(false);
+#endif
     /* 1. PLL on, then let it lock */
     wm_write_raw(PWRMGMT1, pwr_reg[0]);
     udelay(DAC_PLL_SETTLE_US);

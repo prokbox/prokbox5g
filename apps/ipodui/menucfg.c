@@ -32,6 +32,15 @@
 #include "settings.h"
 #include "ipodui/menucfg.h"
 
+#ifdef HAVE_BCMFW_VIDEO
+/* p19-relvideos: a build with the player offers Videos and has it on by
+ * default, the release too. The device build checks it here: the old gate
+ * offered it in every simulator, so a sim script alone never saw a release
+ * without the row (tests/ui/ipodui-relvideo-play.script). */
+typedef char ui_mm_videos_offered[((UI_MM_OFFERED & UI_MM_DEFAULT)
+                                   >> UI_MM_VIDEOS) & 1u ? 1 : -1];
+#endif
+
 bool ui_mm_visible(enum ui_mm_bit b)
 {
     if (b == UI_MM_SETTINGS)

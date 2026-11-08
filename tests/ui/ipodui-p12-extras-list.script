@@ -1,7 +1,7 @@
 # P12 W1-F (docs/phase12-brief.md 3.2, 9 "-extras-list"): Main Menu >
 # Extras opens the resident Extras list: split, the eight Extras in stock
 # order (Clocks, Calendars, Contacts, Alarms, Games, Notes, Screen Lock,
-# Stopwatch; owner photos 1191/1197), each row's panel arriving after
+# Stopwatch; owner photos `extras-1`/`extras-menu-b`), each row's panel arriving after
 # the icon rest (Clocks: map + clock + date; Calendars: time, calendar
 # page, weekday; Contacts, Alarms, Notes, Screen Lock their icons,
 # -extras-icons; Stopwatch the dial). On

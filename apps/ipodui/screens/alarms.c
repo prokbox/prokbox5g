@@ -828,7 +828,7 @@ static int list_enter(struct ui_screen *s, const void *arg)
     }
     if (any)
         alarm_seen();
-    /* split, like the 7G's (owner photo 1198): the list at the left,
+    /* split, like the 7G's (owner photo `extras-alarms`): the list at the left,
      * the alarm clock in the panel on every row */
     s->header_w = t->split_x;
     memset(&vp, 0, sizeof(vp));
@@ -909,7 +909,7 @@ static enum ui_result list_input(struct ui_screen *s, const struct ui_input *in)
     }
 }
 
-/* the panel: the same alarm clock on every row (photo 1198) */
+/* the panel: the same alarm clock on every row (photo `extras-alarms`) */
 static void list_panel(struct ui_screen *s, const struct ui_panel *p)
 {
     (void)s;

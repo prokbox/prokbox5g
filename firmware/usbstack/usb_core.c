@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2007 by Björn Stenberg
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -53,6 +54,10 @@
 
 #ifdef USB_ENABLE_IAP
 #include "usb_iap.h"
+#endif
+
+#ifdef USB_ENABLE_ISOPROBE
+#include "usb_isoprobe.h"       /* ProkBox #144 P1, bench build only */
 #endif
 
 /* include order matters, include driver header before usb_drv.h */
@@ -318,6 +323,9 @@ static struct usb_class_driver* drivers[USB_NUM_DRIVERS] =
 #endif
 #ifdef USB_ENABLE_IAP
     [USB_DRIVER_IAP] = &usb_cdrv_iap,
+#endif
+#ifdef USB_ENABLE_ISOPROBE
+    [USB_DRIVER_ISOPROBE] = &usb_cdrv_isoprobe,
 #endif
 };
 

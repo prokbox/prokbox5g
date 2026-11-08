@@ -57,6 +57,11 @@ bool sim_bcm_ready(void);
 /* the model's clock caught up with the sim's first */
 bool sim_bcm_stats(struct sim_bcm_stats *out);
 bool sim_bcm_fault(int kind, uint32_t op);
+/* The next overlay's last piece blocks the pass inside its put for ms,
+ * then is refused: the piece stays taken past the art thread's waits, its
+ * leak path (art_bcm.c: the session's piece buffer retired, never
+ * refilled), and the overlay stays due for the next ask */
+void sim_bcm_ovl_stall(long ms);
 bool sim_bcm_charger(bool on);
 /* model time moves on by ms (a scripted jump, on top of the sim's clock) */
 bool sim_bcm_advance(uint32_t ms);

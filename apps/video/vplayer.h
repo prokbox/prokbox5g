@@ -110,6 +110,7 @@ struct vplayer_info
        bcmfw/h264/h264_int.h) and NAL type; still-picture restarts */
     int open_why, open_err;
     uint32_t refused_at, refused_nal, stills, reloads;
+    uint32_t feed_refusals;     /* FEEDs refused, sessions restarted */
     /* P19 PW4: the chip's clock governor (vclk.h), this play: on, the
        time-weighted MHz, level x 10 and idle permille, ms governed, band
        and level changes, fallbacks, the chip's misses (skips, dropped
@@ -168,9 +169,40 @@ void vplayer_bench_play(bool on);
    the next play checks again.  vcheck_store_drop's return: > 0 dropped,
    0 none there, < 0 the drop failed */
 int vplayer_check_reset(void);
+/* Bench row sdc (batch 5, docs/research/bcm2722/merged-image-batch.md 8):
+   the next first-use check's passing band closes with
+   HP_CLOSE_SDRAM_IDLE (the image idles SDRAM; the play's OPEN brings it
+   up again), once; logged as "sdc: idle code C polls P" */
+void vplayer_sd_idle_arm(void);
 /* The last check's verdict in one line ("" before any this boot), and
    the unit's token as last read, for Save Diagnostics */
 void vplayer_check_summary(char *buf, size_t n);
+
+/* Day 4e: the last play's long-play record, the figures of its "video
+   prog" lines (the bench's vlong step reads it on return from the
+   owner's play from Videos).  RAM only, this start; uncached, so the
+   shell's core reads what the player's thread wrote. */
+struct vplayer_prog
+{
+    bool valid;                 /* a play since vplayer_prog_reset() */
+    bool running;               /* it still plays: the figures so far */
+    uint32_t pics;              /* pictures shown over the play */
+    uint32_t played_ms;         /* audio time played (seeks and jumps
+                                   left out) */
+    uint32_t fps_x100;          /* the file's pictures a second x 100
+                                   (samples over the track's length);
+                                   0 unknown */
+    uint32_t tail_pics;         /* the same over the play's last one to */
+    uint32_t tail_ms;           /* two minutes (the minute lines' marks) */
+    uint32_t stills;            /* still restarts (the watchdog) */
+    uint32_t behind;            /*   of them, no posts and the stream
+                                     behind the audio */
+    uint32_t data;              /*   of them, the data never came */
+    uint32_t refused;           /* sessions restarted on a refused FEED */
+    bool decode_err;            /* a decode error was logged */
+};
+void vplayer_prog_get(struct vplayer_prog *p);
+void vplayer_prog_reset(void);
 
 /* Starts the video of path (an MP4/M4V the audio is about to play).
    false, logged, if it can't (no index and none can be built, no image,
@@ -239,13 +271,17 @@ int vplayer_tone(uint32_t ms, uint32_t div, uint32_t layout, uint32_t step,
    read back, with the word-0 rewrite off and on; a line a case to log(). */
 int vplayer_dma_lab(void (*log)(const char *line));
 
-/* Bench row B13, the warm swap (docs/research/bcm2722/warm-swap.md): the
-   display-only image (disp, the device test's jobs_display) booted cold,
-   then VPLAYER_WARM_ROUNDS swaps between it and the video image, each by
-   HP_OP_PARK, an upload and the go word, the panel kept lit; then one
-   swap without the go word and the cold restart that must follow.  A
-   line a step to log ("warm ..."). */
-#define VPLAYER_WARM_ROUNDS 20
+/* Bench row B13, the warm swap (docs/research/bcm2722/warm-swap.md,
+   docs/bcm2722-reference/program-swap.md): the display-only image (disp,
+   the device test's jobs_display) booted cold, then VPLAYER_WARM_ROUNDS
+   swaps, each by HP_OP_PARK, an upload, the host's cache flush and the go
+   word, the panel kept lit; then one swap without the go word and the
+   cold restart that must follow.  The host's flush is the cold start's
+   form (bits 31 and 30, wait for bit 0, then 0) in every round: sitting
+   4gh's A/B (quirk #56) passed it and failed @25a's.  A failed round is
+   restarted cold and the next round still runs.  panel_off counts passed
+   swaps only.  A line a step to log ("warm ..."). */
+#define VPLAYER_WARM_ROUNDS 2
 struct vplayer_warm_result
 {
     uint32_t rounds, ok;        /* swaps made, swaps that passed */
@@ -253,7 +289,7 @@ struct vplayer_warm_result
     uint32_t up_us_max[2];      /* the video image's upload: [CPU, engine 2] */
     uint32_t ready_us_max;      /* go -> the new image's ready word */
     uint32_t swap_us_max[2];    /* PARK -> ready, into the video image */
-    uint32_t panel_off;         /* swaps whose info word lacked PANEL_ON */
+    uint32_t panel_off;         /* passed swaps whose info lacked PANEL_ON */
     uint32_t no_go_ready;       /* 1: an image started without the go word */
     uint32_t cold_us;           /* the cold restart after the injected fault */
     int first_fail;             /* the round that first failed, -1 none */

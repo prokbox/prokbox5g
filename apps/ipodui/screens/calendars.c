@@ -22,7 +22,7 @@
  ****************************************************************************/
 
 /* iPod UI shell: Extras > Calendars (P12 W3-C, MOD_CALENDARS, Class A;
- * spec extras.md, owner photo 1196). The split list (All Calendars,
+ * spec extras.md, owner photo `extras-calendars`). The split list (All Calendars,
  * each calendar when there are several, To Do's) with the calendar-page
  * panel; the month grid (full screen: weekday letters, six weeks, a dot
  * on each day with events, the selection on the blue gel); a day's

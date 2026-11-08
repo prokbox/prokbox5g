@@ -1,0 +1,3 @@
+    10 boot path: active: bcmvideo (default), first frame 30100 us; marker cleared
+400001 auto: vlong fail answer=Still picture ms=0 
+400002 vlong: FAIL: pictures fell behind the audio

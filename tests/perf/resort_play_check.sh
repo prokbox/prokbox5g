@@ -46,6 +46,7 @@ set -u
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 SOURCE=${FLOOR_SOURCE:-$ROOT/build/sim-50k/simdisk}
 RC=0
+"$ROOT/tests/perf/ensure50k.sh" "$SOURCE" || exit 1
 for RAM in ${*:-32 64}; do
     case "$RAM" in
         32) BUILD=$ROOT/build/sim-ui32 ;;

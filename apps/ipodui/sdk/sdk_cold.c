@@ -287,6 +287,20 @@ static void reclaim(struct sdk_ctx *c)
     modclass_top(-1);                   /* the visit ends here: the Games
                                            list's redraw is not the game's */
     mod_unpin((enum mod_id)c->mod);     /* the arena frees the block */
+#ifdef SIMULATOR
+    if (sdk_sim_devclock_on())
+    {
+        ui_log("sdk", "devclock %s step max_us=%lu", c->name,
+               (unsigned long)c->sim_step_max_us);
+        ui_log("sdk", "devclock %s entries i=%lu b=%lu s=%lu "
+               "r=%lu x=%lu", c->name,
+               (unsigned long)c->sim_entry_max_us[0],
+               (unsigned long)c->sim_entry_max_us[2],
+               (unsigned long)c->sim_entry_max_us[3],
+               (unsigned long)c->sim_entry_max_us[4],
+               (unsigned long)c->sim_entry_max_us[5]);
+    }
+#endif
     UPDATE_TRACE("sdk reclaim %s killed=%d", c->name, (int)c->killed);
     c->phase = P_DONE;
     sdk_cur = NULL;

@@ -41,8 +41,8 @@
 # logbetween: m1 m2 panel nowplaying resident key=6a1b2f700f283f50 how=fade step=6
 # logbetween: m3 m4 panel nowplaying resident key=6a1b2f700f283f50 how=swap
 # logbetween: m4 m5 nowplaying resident lost epoch=\d+
-# logbetween: start m1 bcmjob overlay load k=1 bytes=23884 at=0012b000
-# logbetween: m4 m5 bcmjob overlay load k=1 bytes=23884 at=0012b000 epoch=\d+
+# logbetween: start m1 bcmjob overlay load k=1 bytes={BCMVIDEO_DECOVL_BYTES} at={BCMVIDEO_DECOVL_BASE:08x}
+# logbetween: m4 m5 bcmjob overlay load k=1 bytes={BCMVIDEO_DECOVL_BYTES} at={BCMVIDEO_DECOVL_BASE:08x} epoch=\d+
 # logbetween: m4 m5 art bcm overlay load by=art pieces=\d ok=1
 # logbetween: m4 m5 art npcover queue key=6a1b2f700f283f50 why=resident
 # logbetween: m4 m5 art npcover resident key=6a1b2f700f283f50 from=npcover ok=1

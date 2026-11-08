@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2002 Björn Stenberg
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -45,6 +46,7 @@
 #ifdef HAVE_IPOD_UI
 #include "ipodui/artcache.h"
 #include "ipodui/modload.h"     /* #106 */
+#include "ipodui/afb.h"         /* #137 */
 #endif
 #include "misc.h"
 #include "icons.h"
@@ -307,6 +309,9 @@ void gui_usb_screen_run(bool early_usb, intptr_t seqnum)
     /* A panel-art decode may already be running. Arm its cooperative stop
      * gate before our ACK starts exclusive storage handover. */
     artcache_usb_prepare();
+    /* #137: the Apple fallback's links go before the host may see the
+     * disk (the ack below hands it over); developer builds only */
+    afb_usb_park();
 #ifdef IPODUI_MODULES
     mod_usb_connect();      /* #106: the pack closes; no write */
 #endif

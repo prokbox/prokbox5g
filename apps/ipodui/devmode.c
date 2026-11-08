@@ -71,6 +71,8 @@
 #include "ipodui/sleep.h"
 #include "ipodui/fe_be.h"
 #include "ipodui/devstatus.h"      /* Status, verdicts, governor, bench */
+#include "ipodui/afb.h"            /* #137: the fallback library switch */
+#include "ipodui/dev_isoprobe.h"   /* #144 P1: USB audio probe (bench) */
 #include "ipodui/devbench_sim.h"    /* DEVBENCH_SIM: the sim's Bench session */
 #if defined(HAVE_BCMFW_DEVTEST) || defined(DEVBENCH_SIM)
 #include "ipodui/devbcm.h"         /* Video chip's rows, Bench session */
@@ -596,6 +598,25 @@ static char *dev_softsleep_name(int selected_item, void *data,
 MENUITEM_FUNCTION_DYNTEXT(ipodui_dev_softsleep_item, 0, dev_softsleep_toggle,
                           dev_softsleep_name, NULL, NULL, NULL, Icon_NOICON);
 
+/* #137: the fallback library (Apple firmware's database kept in step
+ * through links). Off by default; this switch expires at the owner's
+ * device trial (folded into the default, or removed with the feature).
+ * Turning it on or off runs the job at once (links made, or dropped). */
+static int dev_afb_toggle(void)
+{
+    afb_set(!afb_on());
+    return 0;
+}
+static char *dev_afb_name(int selected_item, void *data,
+                          char *buffer, size_t buffer_len)
+{
+    (void)selected_item; (void)data; (void)buffer; (void)buffer_len;
+    return (char *)(afb_on() ? "Fallback library: On"
+                             : "Fallback library: Off");
+}
+MENUITEM_FUNCTION_DYNTEXT(ipodui_dev_afb_item, 0, dev_afb_toggle,
+                          dev_afb_name, NULL, NULL, NULL, Icon_NOICON);
+
 #ifdef HAVE_UI_THREAD_SPLIT
 /* P19 S3/S8: where the shell's loop runs from the next boot: the main
  * thread (default), its own CPU thread, or the COP (refused and logged
@@ -671,6 +692,15 @@ MAKE_MENU(ipodui_dev_sleeplab_menu, ID2P(LANG_IPODUI_SLEEPLAB), NULL,
 #define DEV_SLEEPLAB_ITEM &ipodui_dev_sleeplab_menu,
 #else
 #define DEV_SLEEPLAB_ITEM
+#endif
+
+#ifdef HAVE_USB_ISOPROBE
+/* #144 P1: the isochronous bench probe, only in a --usb-isoprobe build */
+MENUITEM_FUNCTION(ipodui_dev_isoprobe_item, 0, "USB audio probe",
+                  dev_isoprobe_run, NULL, Icon_NOICON);
+#define DEV_ISOPROBE_ITEM , &ipodui_dev_isoprobe_item
+#else
+#define DEV_ISOPROBE_ITEM
 #endif
 
 #if defined(HAVE_USB_STATS) && !defined(SIMULATOR)
@@ -1285,6 +1315,11 @@ static const char *dt_name(int item, void *data, char *buf, size_t len)
     const unsigned char *d = (const unsigned char *)dt_rows[item].desc;
 
     (void)data; (void)buf; (void)len;
+#ifdef HAVE_BCM_JOBS
+    /* a switch's row shows its state (on or off at a glance) */
+    if (dt_rows[item].fn == dj_dev_row)
+        return dj_dev_name(buf, len);
+#endif
     return P2STR(d);
 }
 
@@ -1382,7 +1417,7 @@ MAKE_MENU(ipodui_dev_exp_menu, ID2P(LANG_IPODUI_DEV_EXPERIMENTS),
 #ifdef HAVE_UI_THREAD_SPLIT
           &ipodui_dev_uisplit_item,
 #endif
-          &ipodui_dev_softsleep_item
+          &ipodui_dev_softsleep_item, &ipodui_dev_afb_item
           DEV_STOR_ITEM, &ipodui_dev_standby_item
           DEV_CLOCK_ITEM DEV_RESIDENT_ITEMS DEV_UDMA_ITEMS DEV_USB_EXP_ITEMS);
 
@@ -1395,7 +1430,7 @@ MAKE_MENU(ipodui_dev_diag_menu, ID2P(LANG_IPODUI_DEV_DIAGNOSTICS), NULL,
 /* Labs: the guided sleep, alarm and drive-power runs */
 MAKE_MENU(ipodui_dev_labs_menu, ID2P(LANG_IPODUI_DEV_LABS), NULL,
           Icon_NOICON, DEV_SLEEPLAB_ITEM &ipodui_dev_alarmlab_menu
-          DEV_AB_ITEMS);
+          DEV_AB_ITEMS DEV_ISOPROBE_ITEM);
 
 MAKE_MENU(ipodui_dev_adv_menu, ID2P(LANG_IPODUI_DEV_ADVANCED), NULL,
           Icon_NOICON, &ipodui_dev_exp_menu, &ipodui_dev_diag_menu,

@@ -128,6 +128,48 @@ Evidence, all in Apple's code (`docs/research/bcm2722/isa.md` has the table): th
 - **`clra` acts on every repetition** ("One repetition" above), so an `acc` chain can't be REP'd across independent outputs: each output's chain is REP 1. Adds, subtracts and shifts between whole rows or columns are REP h.
 - **Four-step on the 2-D VRF:** transforms down the H16 rows, then along the V16 columns of the same block. The transpose is free (the rows and columns alias), and every butterfly works on 16 independent transforms with no permute. The real FFT's partner pairing (`Z[m − k]`) needs a lane reversal, which the VRF only does as V16 column moves (16 single moves a component, then one REP-8/4/2/1 rotation).
 - **Kinds:** `vmulhd` into a V16 D with an immediate and `acc` is not among Apple's (20 sites; `forms_test.py` counts it). The rest are Apple kinds. The image's start-up check (`viz_vpu.c`, `J_VPU_FFT`) keeps the C if any of them misbehaves.
+- **On silicon the check fails** (sittings 4e, 4f; open question #77). `docs/design/viz-fft-vc.md` §6.7 lists every one of the kernel's 46 operand forms with its evidence. Flipping one reading at a time in vc2sim [sim, 2026-11-05], the kernel passes under every alternative silicon hasn't refuted, and fails under each of these unmeasured readings:
+  - `x15` on an op with a **vertical A** (`jv_fft_cols`' twiddles): neither Apple's code nor our silicon has ever run it [hypothesis: element i feeds lane i];
+  - a **V16 A stepping** a column per REP: Apple-used (h264dec @103258), never on our silicon;
+  - **`acc` writing a V16 D** through `vmulhd`: Apple writes V16 D from the accumulator only through other multiplies (@109fa2);
+  - an **H16 D's `+r` y**: Apple relies on it being applied (216 sites; its AAC FFT at y 2–6, @1039f2) [apple-RE]. Our only D `+r` row, D16R, moved x by 3, which can't tell "aligned" from "dropped".
+
+  These are the open readings below. Bench row VFFT's VF3 probes each one alone, with the words expected under each reading.
+
+**Open readings: vertical operands with the accumulator, and `+r` y** [hypothesis until VF3]:
+
+| Reading | Model | Evidence | Probe |
+|---|---|---|---|
+| `x15` with a V16 A | element i's low half goes into lane i's accumulator, as with an H A | none: Apple's vertical accumulator ops are `acc` only (@109fa2 h264dec, @10df0 vmcs) | VF3 VX15 |
+| A V16 A operand with `++` at REP n | steps one column (one lane) per repetition, like a V16 D (BARV [silicon]) and a V16 B (GTHR [silicon]) | [apple-RE] @103258 (h264dec), @1a34a (vmcs) | VF3 VSTP |
+| `acc` with a V16 D | element i gets lane i's high half | Apple does this with `vmul`, `vmulm` and `vshl` (@109fa2, @10df0), not `vmulhd` | VF3 VACD |
+| An H16 D's `+r` y | applied as given (only the x part aligns: quirks #28) | [apple-RE] 216 sites, e.g. @1039f2 (aacdec) at y 2, 4, 6; a V D's y aligns to 16 (quirks #39), the transposed case | VF3 HDRY |
+| An unstepped H16 A's `+r` y | applied as given | R48E (48-bit), REPA and GTHR (stepped) [silicon]; 140 Apple sites | VF3 HARY |
+
+**VF3's predictions** [mac] (`gen_bench.py` `vf3_probes`, bench image checks `HDRY` … `MHDR`, informational). Input: rows 0–15 hold `a(r, l) = int16((16r + l)·2971 + 12345)` at x 0 and `b(r, l) = int16((16r + l)·40503 + 777)` at x 32. A record logs only its first four words, so each probe's first stored row (row 8) gathers lanes from every result row; these are its words, lane 0 in the low half. The model's reading comes first (vc2sim gives it); `readlog.py` names whichever one silicon matches, and "neither" is the most useful answer:
+
+| Probe | The probe's instructions | Row 8 gathers | Words per reading |
+|---|---|---|---|
+| HDRY | `vadd` D H16 row 16 `+r3` (y 21), A row 0, `#0`; rows 16–47 = 0x5555 | lanes 0–1, 6–7 row 37; 2–3 row 32; 4–5 row 16 | applied `3bd43039 55555555 55555555 817675db`; y aligned to 16 `55555555 530a476f 55555555 55555555`; dropped `55555555 55555555 6a405ea5 55555555` |
+| VX15 | `vmul` discard, A V16 column 3, `#-23170 clra x15`; `vmulhd … acc`; `vmov #0 x15` (lo), `vmov #0 acc` (hi) | lanes 0–3 lo, 4–7 hi | lane i gets element i `258c50ec ceccfa2c 046deb91 dba31d49`; `x15` ignored `00000000 00000000 046deb91 dba31d49` |
+| VACD | `vmov` discard `#0x1234 clra acc`; `vmulhd` D V16 column 2 of rows 16–31, A V16 column 3, `#-23170 acc`; `vmov #0 acc` | lanes 0–3 the column (transposed), 4–7 the accumulator | `acc` applies `0db4f4d8 3f6b268f 16a1fdc5 edd72f7d`; ignored `fb80e2a4 2d37145b 12341234 12341234`; plain write, still accumulates `fb80e2a4 2d37145b 16a1fdc5 edd72f7d` |
+| VSTP | `vadd` D V16 column 0 of rows 16–31 `++`, A V16 column 0 `++`, `#0 rep4` | row 16 | A steps `3bd43039 530a476f 00000000 00000000`; A unstepped `30393039 30393039 00000000 00000000`; D unstepped `0000530a 00000000 00000000 00000000` |
+| HARY | `vadd` D row 40, A row 0 `+r3` (y 5), `#0` | row 40 | applied `dc44d0a9 f37ae7df 0ab0ff15 21e6164b`; dropped `3bd43039 530a476f 6a405ea5 817675db` |
+| MHDR | `vmulhd` D row 48 `++`, A row 0 `++`, B row 0 x 32 `++`, `rep16` | lanes 0–3 row 48, 4–7 row 63 | floors `e9db0092 f4de11b5 205ff3df dedb040c`; rounds `e9db0092 f4de11b6 205ff3df dedc040c`; A and B unstepped `e9db0092 f4de11b5 0ad62dcd d539df00` |
+
+**Promotion candidates for a later sitting: F1–F4, the accumulator chain with a vector B** [mac predictions; not in the bench yet]. The viz FFT's EXACT mode (one floor per output, +3.5 dB of floor; `docs/design/viz-fft-vc.md` §5.3, §6.6) needs four forms silicon hasn't run: F1 `vmul Ddiscard AH16 BH16 clra x15`, F2 `vmul Ddiscard AH16 BH16 x15`, F3 `vmulhd Ddiscard AH16 BH16 acc`, F4 `vmulhd DH16 AH16 BH16 acc`. Apple's code uses all four (@100118, @100136 slideshow; @1029b0, @1029ba mpg4dec; its AAC FFT's twiddle products @1042d4, @1042de with the B row at `+r`) [apple-RE], so the reading below is well founded; promoting them needs one probe on our unit. Sketch, same inputs as VF3: `vmul Ddiscard A row 0 x 0, B row 0 x 32 clra x15`; `vmul … A row 1, B row 1 x15`; `vmulhd Ddiscard A row 0, B row 0 acc`; `vmulhd D row 40, A row 1, B row 1 acc`; then `vmov D row 41 #0 x15` for the low half; rows 40 and 41 copied to block 0 (ADDI) and stored.
+
+| Reading | Row 40 (the sum's high half), first 4 words | Row 41 (its low half) |
+|---|---|---|
+| **model**: element-wise products, the exact sum `a0·b0 + a1·b1` floored once | `eee802c6 f1bd11dc 0a7d36dd e29ecc62` | `23c04222 ca98a692 f6408fd2 a6b8fde2` |
+| `x15` ignored with a vector B (the high halves alone: SEP's arithmetic) | `eee702c5 f1bd11dc 0a7d36dc e29ecc62` | — |
+| B read as lane 0 broadcast | `01c102c6 ffb700bc fdadfeb2 f89afca8` | — |
+
+The model and the first alternative differ only in lanes whose low halves carry (lanes 0, 1, 4 of these words), so all 16 lanes are logged. A pass promotes F1–F4 to `silicon` in `tools/bcmre/proven_forms.txt` and makes EXACT available behind the same start-up check; nothing ships on it until then.
+
+Every full result row is stored after row 8; the generated `bench_gen.S` lists each row's first four words under each reading.
+
+**Apple's own FFT** (`aacdec`, `vc_lfft512down` @103c16, stages @104220 and @104534) [apple-RE] is evidence for the vector-B accumulator chains: its 32 × 16 twiddle products are `vmul … x15` and `vmulhd … acc` with the twiddle row as B at `+r` (@1042d4, @1042de), plus the rounding unsigned-B multiply for the low half. It keeps 32-bit values as pairs of halfword rows (adds with carry through the flags), scales each stage through the accumulator, and reorders through memory, not with vertical operands. Apple's code is a baseline for what forms do, not a limit on which we use (owner, 2026-11-05).
 
 **Our use: the visualizer's bars** (`jv_bars16`, `bcmfw/video/gen_viz.py`; `docs/research/bcm2722/visualizer.md` §5.1) [sim]:
 - **Broadcast down the columns.** A per-row value, such as each row's gradient colour or its index, sits as one H16 row (lane k is row k's). One `vadd` into a V16 D stepping a column per REP, from that unstepped H16 A, copies it into all 16 columns of a block, so row k holds row k's value on every lane. This is the transpose of `vld16 … rep16` at a stride of 0, which copies a row down the rows.

@@ -36,7 +36,21 @@
 
 #define RES ((volatile uint32_t *)BCMFW_BENCH_RESULTS)
 
-static uint32_t out[64] __attribute__((aligned(32)));
+/* the checks' stores, then guard words no check may write (bench.h
+   BENCH_OUT_WORDS: GTHR stores 16 rows; out[] was 64 words before batch
+   5, and GTHR's store ran 256 bytes past it) */
+static uint32_t out[BENCH_OUT_WORDS + BENCH_GUARD_WORDS] __attribute__((aligned(32)));
+
+/* 1 if every guard word still holds the fill */
+static int guard_ok(void)
+{
+    uint32_t i;
+
+    for (i = BENCH_OUT_WORDS; i < BENCH_OUT_WORDS + BENCH_GUARD_WORDS; i++)
+        if (out[i] != 0xA5A5A5A5)
+            return 0;
+    return 1;
+}
 
 static void step(uint32_t v)
 {
@@ -89,7 +103,8 @@ static uint32_t first_bad(const struct bench_vdesc *d)
 static void check_vectors(void)
 {
     uint32_t k, i;
-    uint32_t pass[2] = { 0, 0 }, late[2] = { 0, 0 }, all[2] = { 0, 0 };
+    /* (BENCH_MAX_VCASES + 31) / 32 words; the header keeps the first two */
+    uint32_t pass[3] = { 0, 0, 0 }, late[3] = { 0, 0, 0 }, all[3] = { 0, 0, 0 };
 
     RES[BR_FIRST_FAIL] = 0xFFFFFFFF;
     RES[BR_VREC_WORDS] = BV_WORDS;
@@ -100,7 +115,7 @@ static void check_vectors(void)
         uint32_t bad, flags = 0;
 
         step(BCMFW_BENCH_STEP_VEC | k);
-        for (i = 0; i < 64; i++)
+        for (i = 0; i < BENCH_OUT_WORDS + BENCH_GUARD_WORDS; i++)
             out[i] = 0xA5A5A5A5;
         bench_vcase(k, d->in, out);
         /* the first words at once, before anything else reads out[] */
@@ -132,6 +147,12 @@ static void check_vectors(void)
         {
             flags |= BVF_LATE_PASS;
             late[k >> 5] |= 1u << (k & 31);
+        }
+        if (!guard_ok())            /* a store past out[]: never a pass */
+        {
+            flags = BVF_OVERRUN;
+            pass[k >> 5] &= ~(1u << (k & 31));
+            late[k >> 5] &= ~(1u << (k & 31));
         }
         v[BV_FLAGS] = flags | d->words << 8 | bad << 16;
         v[BV_TAG] = d->tag;

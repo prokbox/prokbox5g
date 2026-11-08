@@ -96,6 +96,30 @@ gl_script_row() {
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$@" >>"${GATE_TMP:-/tmp}/scripts-rows.tsv"
 }
 
+# The host tools a primed sim disk was made with, one line each, for the
+# primed-disk cache key (validate.sh simdisk_cache_key). A disk primed
+# without jpegtran (then: a baseline copy as the "progressive" JPEG) was
+# served from the cache after the tool was installed, and the art script
+# that wants FAILED got OK. The covers are now committed
+# (tests/fixtures/sim-art, in the key through its SHA256SUMS), so jpegtran
+# is no longer a priming tool; the audio is still encoded at priming time,
+# so ffmpeg's version stays in the key. $1: the sim build base (video
+# flavours also record ffprobe and libx264).
+gl_simdisk_tools() {
+    # no pipe into head: under pipefail a SIGPIPE would make the line vary
+    _v() {
+        if command -v "$1" >/dev/null 2>&1; then
+            _o=$("$@" 2>&1 || true); printf '%s\n' "${_o%%$'\n'*}"
+        else echo "$1 none"; fi
+    }
+    _v ffmpeg -version
+    case "${1:-}" in *video*)
+        _v ffprobe -version
+        _o=$(ffmpeg -hide_banner -encoders 2>/dev/null || true)
+        case "$_o" in *" libx264 "*) echo "libx264 yes";; *) echo "libx264 none";; esac;;
+    esac
+}
+
 # The dynamic job pool: a token FIFO, so at most $1 jobs run at once and a
 # freed slot starts the next job at once (no static worker partition).
 # bash 3.2 compatible (no wait -n). Jobs are shell functions or commands.
@@ -111,7 +135,12 @@ gl_pool_init() {
 gl_pool_submit() {
     local tok
     read -r -u 9 tok
-    ( "$@"; echo x >&9 ) &
+    # stdin is /dev/null: the caller's loop reads its job list from stdin
+    # (validate.sh: while read ... < pool-order.tsv), and a job that reads
+    # stdin (ffmpeg without -nostdin, cat, read) ate the following lines,
+    # so those scripts were never submitted ("ran guard: only 558 of 563",
+    # rc-0.8.0 on Linux: p19-audio-resume among them)
+    ( "$@" </dev/null; echo x >&9 ) &
 }
 gl_pool_wait() { wait; exec 9>&-; }
 

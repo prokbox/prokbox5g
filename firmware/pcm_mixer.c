@@ -34,6 +34,8 @@
                          * the PCM lock masks the CPU's FIQ only) */
 #else
 #define XCORE_ASSERT_CPU(what) do { } while (0)
+#define XCORE_BSS               /* stock: one core touches the mixer */
+#define XCORE_DATA
 #endif
 #ifdef HAVE_DAC_STANDBY
 #include "dac_ext.h"
@@ -46,7 +48,7 @@
    before the last samples are sent to the codec and so things are done in
    parallel (as much as possible) with sending-out data. */
 
-static unsigned int mix_frame_size = MIX_FRAME_SAMPLES*4;
+static unsigned int mix_frame_size XCORE_DATA = MIX_FRAME_SAMPLES*4;
 
 /* Define this to nonzero to add a marker pulse at each frame start */
 #define FRAME_BOUNDARY_MARKERS 0
@@ -73,12 +75,17 @@ struct mixer_channel
 
 #define MAX_MIX_FRAME_SAMPLES  (MIX_FRAME_SAMPLES * FRAME_SIZE_MULT)
 
+/* ProkBox rc.6 (layout A): the PCM's FIQ, and so the mix, runs on the COP
+   while the CPU starts, stops and fades channels.  Every mixer variable
+   both reach is uncached: the buffers and channel tables in IRAM, the
+   scalars XCORE_BSS/DATA (docs/design/cop-shared-state.md, layout A) */
+
 /* Because of the double-buffering, playback is always from here, otherwise a
    mechanism for the channel callbacks not to free buffers too early would be
    needed (if we _really_ want it and it's worth it, we _can_ do that ;-) ) */
 static uint32_t downmix_buf[2][MAX_MIX_FRAME_SAMPLES] DOWNMIX_BUF_IBSS MEM_ALIGN_ATTR;
-static int downmix_index = 0;   /* Which downmix_buf? */
-static size_t next_size = 0;    /* Size of buffer to play next time */
+static int downmix_index XCORE_BSS;    /* Which downmix_buf? */
+static size_t next_size XCORE_BSS;     /* Size of buffer to play next time */
 
 /* Descriptors for all available channels */
 static struct mixer_channel channels[PCM_MIXER_NUM_CHANNELS] IBSS_ATTR;
@@ -87,7 +94,7 @@ static struct mixer_channel channels[PCM_MIXER_NUM_CHANNELS] IBSS_ATTR;
 static struct mixer_channel * active_channels[PCM_MIXER_NUM_CHANNELS+1] IBSS_ATTR;
 
 /* Number of silence frames to play after all data has played */
-static unsigned int idle_counter = 0;
+static unsigned int idle_counter XCORE_BSS;
 
 #if defined(HAVE_IPOD_UI_DEVMODE) || defined(HAVE_VIZ_TAP)
 /* NULL unless the audio path test or the visualizer's tap is armed;
@@ -115,10 +122,28 @@ void mixer_set_tap(mixer_tap_fn fn)
 #define SAMPR_NUM(sampr) (sampr)
 #endif
 
+#ifdef HAVE_CORE_LAYOUT_A
+/* rc.6: the FIQ (on the COP) must not read the sink's rate through its
+   cache (the CPU writes it); the CPU sets this before every start and at
+   each rate change, uncached */
+static unsigned int mix_idle_max XCORE_BSS;
+
+static void mix_idle_max_set(void)
+{
+    mix_idle_max = SAMPR_NUM(pcm_get_frequency()) * 3 / (mix_frame_size / 4);
+}
+
+static inline unsigned int max_idle_frames(void)
+{
+    return mix_idle_max;
+}
+#else
 static inline unsigned int max_idle_frames(void)
 {
     return SAMPR_NUM(pcm_get_frequency()) * 3 / (mix_frame_size / 4);
 }
+#define mix_idle_max_set() do { } while (0)
+#endif
 
 /** Mixing routines, CPU optmized **/
 #include "asm/pcm-mixer.c"
@@ -136,6 +161,15 @@ static void mixer_activate_channel(struct mixer_channel *chan)
         *elem = chan;
     }
 }
+
+/* ProkBox rc.6 (layout A): a channel's source as the mix reads it
+   (pcm_xcore.h pcm_mix_src()) */
+#ifdef HAVE_CORE_LAYOUT_A
+#include "pcm_xcore.h"
+#define mix_src(p) pcm_mix_src(p)
+#else
+#define mix_src(p) (p)
+#endif
 
 /* Stop channel from mixing */
 static void mixer_deactivate_channel(struct mixer_channel *chan)
@@ -200,6 +234,7 @@ fill_frame:
             {
                 chan->play_cbs->get_more(&chan->start, &chan->size);
                 ALIGN_AUDIOBUF(chan->start, chan->size);
+                chan->start = mix_src(chan->start);
             }
 
             if (!(chan->start && chan->size))
@@ -312,6 +347,8 @@ static void mixer_start_pcm(void)
         return;
 #endif
 
+    mix_idle_max_set();
+
     /* Prepare initial frames and set up the double buffer */
     mixer_buffer_callback(PCM_DMAST_STARTED);
 
@@ -346,7 +383,7 @@ static  void mixer_handle_sampr_change(unsigned int sampr)
                 size_t size;
                 chan->play_cbs->get_more(&start, &size);
                 if (start && size) {
-                    chan->start = start;
+                    chan->start = mix_src(start);
                     chan->size = size;
                     chan->last_size = 0;
 
@@ -379,6 +416,7 @@ static  void mixer_handle_sampr_change(unsigned int sampr)
         mix_frame_size = 1;
 
     mix_frame_size *= MIX_FRAME_SAMPLES * 4;
+    mix_idle_max_set();
 }
 
 /** Public interfaces **/
@@ -413,11 +451,17 @@ void mixer_channel_play_data(enum pcm_mixer_channel channel,
 
     pcm_play_lock();
 
+#ifdef HAVE_CORE_LAYOUT_A
+    /* rc.6: the first buffer (a click, a beep, a voice frame) was written
+       through the CPU's cache; the COP's mix reads SDRAM */
+    commit_dcache();
+#endif
+
     if (start && size)
     {
         /* We have data - start the channel */
         chan->status = CHANNEL_PLAYING;
-        chan->start = start;
+        chan->start = mix_src(start);
         chan->size = size;
         chan->last_size = 0;
         chan->play_cbs = cbs;

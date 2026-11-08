@@ -1,3 +1,4 @@
+/* Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md. */
 #ifndef RBCODECCONFIG_H_INCLUDED
 #define RBCODECCONFIG_H_INCLUDED
 

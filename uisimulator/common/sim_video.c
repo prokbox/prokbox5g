@@ -378,6 +378,78 @@ void sim_video_vcheck_nopic(bool on)
     model.no_pic = on;
 }
 
+static uint32_t feed_fault_base;    /* fifo_errors at video_fault */
+static uint32_t busy_base;          /* busy_refusals at video_fault */
+static uint32_t fault_n;            /* the last video_fault feed's n */
+static bool fault_quiet;
+
+void sim_video_feed_fault(uint32_t n, bool quiet)
+{
+    fault_n = n;
+    fault_quiet = quiet;
+    model.busy_at = n ? model.feeds + n : 0;
+    model.feed_err_quiet = n && quiet;
+    feed_fault_base = model.fifo_errors;
+    busy_base = model.busy_refusals;
+}
+
+static uint64_t hole_off;
+
+void sim_video_set_hole(uint64_t off)
+{
+    hole_off = off;
+}
+
+uint64_t sim_video_hole(void)
+{
+    return hole_off;
+}
+
+/* #175: the index window's records for the next play (0: the build's) */
+static uint32_t window_records;
+
+void sim_video_set_window(uint32_t records)
+{
+    window_records = records;
+}
+
+uint32_t sim_video_window(void)
+{
+    return window_records;
+}
+
+/* FEEDs refused as a full queue since video_fault (the refusal itself:
+   the FIFO errors that follow it may never come once the player has
+   restarted the session) */
+uint32_t sim_video_feed_refusals(void)
+{
+    return model.busy_refusals - busy_base;
+}
+
+/* The refusal was overtaken: a CLOSE (the player's restart for a seek,
+   e.g. the slow sim audio's 1.5 s snap back) came after it, so its reply
+   was read inside that CLOSE's call and dropped with the old session's
+   FIFO before the player's tick could see it.  Harmless on the device
+   (the restart is the refusal's remedy), but the scenario never ran:
+   arm it again, as the last video_fault feed did.  Not for a quiet
+   fault: no reply comes, and the player's own restart (its watchdog)
+   is the scenario */
+bool sim_video_feed_overtaken(void)
+{
+    return !fault_quiet && sim_video_feed_refusals() &&
+           model.closes != model.busy_closes;
+}
+
+void sim_video_feed_rearm(void)
+{
+    sim_video_feed_fault(fault_n, fault_quiet);
+}
+
+uint32_t sim_video_feed_errors(void)
+{
+    return model.fifo_errors - feed_fault_base;
+}
+
 uint32_t sim_video_frames(void)
 {
     return frames;
@@ -385,7 +457,10 @@ uint32_t sim_video_frames(void)
 
 uint32_t sim_video_errors(void)
 {
-    return errors + model.port_misuse + model.fifo_errors;
+    /* a FEED refused on purpose (video_fault): its FIFO errors are the
+       scenario's, not the host's */
+    return errors + model.port_misuse +
+           (model.busy_at ? feed_fault_base : model.fifo_errors);
 }
 
 extern const char *sim_shot_dir;   /* --shotdir, as the shot command */

@@ -1,0 +1,27 @@
+# A 48 kHz track then a 44.1 kHz one, played through: with the play
+# frequency "auto" the output rate switches between them by a full
+# re-buffer, so the 48 kHz track runs out to an empty buffer by design.
+# That drain is a rate gap, not an underrun (the 3 h soak, 2026-11-08:
+# its two "underruns" were these). A real starvation mid-track must still
+# count as an underrun.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p19-rate-gap.script
+# needs: library
+# golden: skip
+# fulls-extra: 1          (the Now Playing row appears: play_files)
+# log: pcm rate gap n=1 sampr=44100
+
+wait 4000
+copy fixtures/rate48k.flac /Music/rate48k.flac
+wait 500
+play_files /Music/rate48k.flac /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait 9000               # the 4 s 48 kHz track ends; the switch; the next
+expect_playing 1000
+expect_rate_gaps 1      # the planned drain at 48 -> 44.1
+expect_underruns 0      # (before: counted as an underrun)
+pcm_starve 6000         # mid-track: the decoder gets no buffer for 6 s
+wait 8000
+expect_underruns 1      # a real underrun still counts as one
+expect_rate_gaps 1
+shot end
+rm_file /Music/rate48k.flac
+quit

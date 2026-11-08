@@ -8,6 +8,7 @@
  *
  * Copyright (C) Daniel Stenberg (2002)
  * Copyright (C) William Wilgus (2026)
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License

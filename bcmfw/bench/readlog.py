@@ -339,7 +339,11 @@ INFO_VTAGS = ('STBK', 'RNDT', 'RNDU', 'MLSC',
               # P19, after 2026-10-25's silicon run: the rows that tell the
               # fitting variants apart, and the jobs' new lane shift
               # (gen_bench.py vpu_fit_cases)
-              'ASHX', 'ACSA', 'GTHR')
+              'ASHX', 'ACSA', 'GTHR',
+              # P19, VF3: single-instruction probes of the FFT's open
+              # readings (gen_bench.py vf3_probes; viz-fft-vc.md section 10)
+              'HDRY', 'VX15', 'VACD', 'VSTP', 'HARY', 'MHDR')
+VF3_VTAGS = ('HDRY', 'VX15', 'VACD', 'VSTP', 'HARY', 'MHDR')
 X15_VTAGS = ('X15M', 'X15S', 'X15Z', 'MHDU', 'VCLP', 'R48E', 'D16R', 'REPA')
 # Lanes 0-7 of each x15 check's first stored row (gen_bench.py x15_cases)
 X15M_IN = ((100, -100, 205, -205, 32767, -32768, 51, -52),
@@ -494,7 +498,7 @@ def x15_verdicts(recs):
     g = got16('REPA')
     if g is not None:
         out.append('REP 8 with acc %s (REPA)' % name(g, REPA_TH))
-    for tag in ('ASHX', 'ACSA'):
+    for tag in ('ASHX', 'ACSA') + VF3_VTAGS:
         r = recs.get(tag)
         if r is not None:
             out.append('%s (%s)' % (variant_verdict(tag, r['got']), tag))
@@ -553,6 +557,48 @@ VARIANT_WORDS = {
 }
 
 
+# VF3 (gen_bench.py vf3_probes): each probe's first stored row (its
+# summary row 8, or its only result row) under each hypothesis, predicted
+# on the Mac before any silicon run; bench_test.py checks them against
+# the generator.  The first is vc2sim's reading.
+VARIANT_WORDS.update({
+    'HDRY': (('model', '3bd43039 55555555 55555555 817675db',
+              "an H16 D's +r y is applied (y 21: row 37; as modelled)"),
+             ('align16', '55555555 530a476f 55555555 55555555',
+              "an H16 D's +r y aligns down to 16 (row 32): NOT as modelled"),
+             ('dropped', '55555555 55555555 6a405ea5 55555555',
+              "an H16 D's +r is dropped (row 16): NOT as modelled")),
+    'VX15': (('model', '258c50ec ceccfa2c 046deb91 dba31d49',
+              'x15 with a V16 A adds element i to lane i (as modelled)'),
+             ('x15_ignored', '00000000 00000000 046deb91 dba31d49',
+              'x15 is ignored with a V16 A (low half 0): NOT as modelled')),
+    'VACD': (('model', '0db4f4d8 3f6b268f 16a1fdc5 edd72f7d',
+              'acc applies to a V16 D through vmulhd (as modelled)'),
+             ('acc_ignored', 'fb80e2a4 2d37145b 12341234 12341234',
+              'acc is ignored with a V16 D (a plain vmulhd, nothing added): NOT as '
+              'modelled'),
+             ('plain_write', 'fb80e2a4 2d37145b 16a1fdc5 edd72f7d',
+              'a V16 D gets the plain vmulhd while the accumulator still adds: NOT as '
+              'modelled')),
+    'VSTP': (('model', '3bd43039 530a476f 00000000 00000000',
+              'a V16 A steps a column per REP (as modelled)'),
+             ('a_unstepped', '30393039 30393039 00000000 00000000',
+              'a V16 A does not step across a REP: NOT as modelled'),
+             ('d_unstepped', '0000530a 00000000 00000000 00000000',
+              'a V16 D does not step across a REP: NOT as modelled')),
+    'HARY': (('model', 'dc44d0a9 f37ae7df 0ab0ff15 21e6164b',
+              "an unstepped H16 A's +r y is applied (as modelled)"),
+             ('dropped', '3bd43039 530a476f 6a405ea5 817675db',
+              "an unstepped H16 A's +r y is dropped: NOT as modelled")),
+    'MHDR': (('model', 'e9db0092 f4de11b5 205ff3df dedb040c',
+              'REP 16 vmulhd with D, A and B stepping floors (as modelled)'),
+             ('round', 'e9db0092 f4de11b6 205ff3df dedc040c',
+              'REP 16 vmulhd rounds instead of flooring: NOT as modelled'),
+             ('unstepped', 'e9db0092 f4de11b5 0ad62dcd d539df00',
+              'REP 16 vmulhd: A and B do not step: NOT as modelled')),
+})
+
+
 def variant_verdict(tag, got):
     """The variant ASHX or ACSA's first four words (ints) name, as text
     that starts with the variant's name"""
@@ -582,7 +628,8 @@ def tag_verdicts(recs, tags):
         r = recs.get(tag)
         if r is None:
             continue
-        state = 'pass' if r['flags'] & 1 else 'late' if r['flags'] & 2 else 'FAIL'
+        state = ('OVERRUN' if r['flags'] & 4 else 'pass' if r['flags'] & 1 else
+                 'late' if r['flags'] & 2 else 'FAIL')
         text = '; '.join(c for c in clauses if re.search(r'\b%s\b' % tag, c))
         against = re.search(r'\bNOT\b|neither|not as modelled', text)
         if state == 'FAIL' and text and not against and 'as modelled' in text:
@@ -702,7 +749,7 @@ def vector_verdict(recs):
     bad = [t for t, r in recs.items() if not r['flags'] & 3 and t not in DIAG_VTAGS]
     shift = [t for t in bad if t in ('ASHF', 'ASHG')]
     first = [t for t in bad if t in INFO_VTAGS[4:] and t not in shift + list(X15_VTAGS)
-             + ['PUTV', 'BARV', 'ASHX', 'ACSA', 'GTHR']]
+             + ['PUTV', 'BARV', 'ASHX', 'ACSA', 'GTHR'] + list(VF3_VTAGS)]
     bad = [t for t in bad if t not in INFO_VTAGS + ('MHRN',)]
     if shift:
         out.append('an A operand\'s +r lane offset is not as modelled (%s, '
@@ -730,7 +777,8 @@ def report_vrecs(run, p):
                                                   'late', 'bad', 'want'))
     for k in sorted(recs):
         r = recs[k]
-        st = 'pass' if r['flags'] & 1 else ('LATE' if r['flags'] & 2 else 'FAIL')
+        st = ('OVERRUN' if r['flags'] & 4 else 'pass' if r['flags'] & 1 else
+              'LATE' if r['flags'] & 2 else 'FAIL')
         bad = r['flags'] >> 16
         p('  %2d %-4s %-5s %5d %-35s %-35s %8s %8s' % (
             k, r.get('tag', '?'), st, (r['flags'] >> 8) & 0xFF,

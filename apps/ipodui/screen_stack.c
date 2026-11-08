@@ -208,6 +208,8 @@ int ui_push_t(const struct ui_screen_ops *ops, const void *arg,
         transition_kind = t;
         if (cover_hook)
             cover_hook(&stack[depth - 2], ops);
+        if (stack[depth - 2].ops->covered)
+            stack[depth - 2].ops->covered(&stack[depth - 2]);
     }
     logf("ipodui: push %s (%d)", ops->name, depth);
     return 0;

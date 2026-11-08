@@ -1,0 +1,55 @@
+# p19-relvideos: the release shape offers Videos in the main menu and plays a clip
+#   SIM_BUILD=build/sim-rel-video scripts/shots.sh tests/ui/ipodui-relvideo-play.script
+# (ipodui-relvideo-* run on build/sim-rel-video: --ipodui --ipodui-release
+# --bcmfw-video --bcmfw-merged, the shipping shape's shell and player as a
+# simulator, developer mode compiled out; scripts/validate.sh script_sim)
+# needs: video
+# devmode: none
+# reset: mainmenu
+#
+# The 0.7.0-alpha release build had no Videos row: menucfg.h offered it only
+# in the simulator and the developer build (p19-bcm-release). Basic video
+# ships in the first 0.8.x (docs/release-plan.md 1.3a), so the release
+# offers Videos, on by default, after Search and before Podcasts (7G).
+#
+# Disk: tests/fixtures/videos/mkvideos.sh (Movies/: Audio First, High
+# Profile, Late Chapter, Short Film; see ipodui-p14a-play.script).
+# Main menu: Music, Videos, Podcasts, Extras, Settings, Shuffle Songs.
+
+# golden: skip main videos playing_video playing back
+# trace: video
+wait 4000
+wait_db 45000
+art_wait 60000
+expect_drawn Videos         # the main menu's row (nothing else drawn yet says it)
+shot main
+wheel +1 300                # Videos (second row, after Music)
+wait 900
+key SELECT
+wait 900
+expect_drawn Movies         # the Videos screen: Movies, TV Shows, Settings
+expect_drawn TV Shows
+shot videos
+key SELECT                  # Movies
+wait 1200
+wheel +3 300                # Short Film (last of 4)
+wait 400
+key SELECT
+wait_pos 3000 30000 Film.m4v
+wait 2000                   # (a rerun on the same disk resumes at ~3.3 s)
+expect_video 30 playing     # at least 30 pictures went up, no errors
+video_shot playing_video
+shot playing
+key MENU                    # stop
+wait 1500
+expect_video 0 none
+shot back
+
+# nothing from the developer side reached the screen in the whole run
+expect_not_drawn Developer
+expect_not_drawn developer
+expect_not_drawn Bench
+expect_not_drawn bench
+expect_not_drawn Probe
+expect_not_drawn Lab
+expect_not_drawn MHz

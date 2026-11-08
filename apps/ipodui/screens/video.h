@@ -47,6 +47,10 @@
  * video row. */
 void ui_video_play(const char *path, int tc_idx);
 
+/* #154: a video session is open (from its player's start to its end):
+ * its audio is never Now Playing, so the main menu's row ignores it */
+bool ui_video_session(void);
+
 /* V6, screens/setvideos.c (3.8): pushes Videos > Settings (Start
  * Playing, Fit to Screen). Called by the Videos menu (V5). */
 void ui_setvideos_push(void);
@@ -56,6 +60,9 @@ void ui_setvideos_push(void);
  * header title (const char *), NULL for "Videos". */
 extern const struct ui_screen_ops ui_videos_screen;
 
+#else
+#include <stdbool.h>
+static inline bool ui_video_session(void) { return false; }
 #endif /* HAVE_BCMFW_VIDEO */
 
 #endif /* IPODUI_SCREENS_VIDEO_H */

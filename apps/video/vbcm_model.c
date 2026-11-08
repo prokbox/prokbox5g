@@ -142,6 +142,7 @@ void vbm_boot(struct vbm *m)
     m->torn = false;
     m->pend_n = 0;              /* SDRAM's contents are gone anyway */
     m->boots++;
+    m->sdram_up = false;        /* the fresh image brings it up at OPEN */
     m->cmd_rd = m->evt_wr = 0;
     m->session = m->own_display = 0;
     m->q_rd = m->q_wr = 0;
@@ -408,6 +409,14 @@ static void cmd(struct vbm *m, uint32_t op, uint32_t tag, const uint32_t *a,
         m->fifo_next = m->fifo_rd = 0;
         m->q_rd = m->q_wr = 0;
         m->last_done = m->now_us();
+        if (!m->sdram_up)
+        {
+            /* video.c video_open: the bring-up (sdram_init's power-up
+               wait at least) before the first decode */
+            m->sdram_up = true;
+            m->sd_bringups++;
+            m->last_done += VBM_SDRAM_UP_US;
+        }
         m->packets = m->bytes = m->errors = 0;
         m->decoded = m->shown = 0;
         m->held = false;
@@ -455,13 +464,18 @@ static void cmd(struct vbm *m, uint32_t op, uint32_t tag, const uint32_t *a,
         {
             m->errors++;
             m->fifo_errors++;
-            reply(m, op, tag, HP_E_FIFO, &m->fifo_next, 1);
+            if (!m->feed_err_quiet)
+                reply(m, op, tag, HP_E_FIFO, &m->fifo_next, 1);
             return;
         }
-        if (m->q_wr - m->q_rd >= VBM_QUEUE)
+        if (m->q_wr - m->q_rd >= VBM_QUEUE ||
+            (m->busy_at && m->feeds == m->busy_at))
         {
             m->errors++;
-            reply(m, op, tag, HP_E_BUSY, &m->fifo_next, 1);
+            m->busy_refusals++;
+            m->busy_closes = m->closes;
+            if (!m->feed_err_quiet)
+                reply(m, op, tag, HP_E_BUSY, &m->fifo_next, 1);
             return;
         }
         m->q[m->q_wr % VBM_QUEUE].off = a[1];
@@ -507,6 +521,17 @@ static void cmd(struct vbm *m, uint32_t op, uint32_t tag, const uint32_t *a,
         m->session = m->own_display = 0;
         m->q_rd = m->q_wr;
         m->state = HP_ST_IDLE;
+        if (n >= 2 && (a[1] & HP_CLOSE_SDRAM_IDLE))
+        {
+            /* hostproto.c cmd_close: Apple's idle after the session,
+               SDRAM marked down; one more reply word */
+            r[5] = m->sdram_up ? HP_CLOSE_SD_IDLED | 1u << 8 : HP_CLOSE_SD_NOTUP;
+            if (m->sdram_up)
+                m->sd_idles++;
+            m->sdram_up = false;
+            reply(m, op, tag, HP_OK, r, 6);
+            return;
+        }
         reply(m, op, tag, HP_OK, r, 5);
         return;
     case HP_OP_STATUS:

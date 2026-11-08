@@ -1,0 +1,22 @@
+{{- /* Previous and next across the whole Developers section, in reading
+       order: the edition page, then each Part and its chapters. */ -}}
+{{ $cur := . }}
+{{ $all := slice }}
+{{ with site.GetPage "/developers" }}
+  {{ $all = $all | append . }}
+  {{ range .Sections.ByWeight }}
+    {{ $all = $all | append . }}
+    {{ range .Pages.ByWeight }}{{ $all = $all | append . }}{{ end }}
+  {{ end }}
+{{ end }}
+{{ $prev := false }}{{ $next := false }}
+{{ range $i, $p := $all }}
+  {{ if eq $p $cur }}
+    {{ if gt $i 0 }}{{ $prev = index $all (sub $i 1) }}{{ end }}
+    {{ if lt (add $i 1) (len $all) }}{{ $next = index $all (add $i 1) }}{{ end }}
+  {{ end }}
+{{ end }}
+<nav class="prevnext" aria-label="Previous and next" data-pagefind-ignore>
+  {{ with $prev }}<a class="prev" href="{{ .RelPermalink }}"><small>Previous</small>{{ .Title }}</a>{{ end }}
+  {{ with $next }}<a class="next" href="{{ .RelPermalink }}"><small>Next</small>{{ .Title }}</a>{{ end }}
+</nav>

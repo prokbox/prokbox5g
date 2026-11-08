@@ -105,6 +105,10 @@ What the firmware does, and what each step assumes:
 | Re-enumeration after a cut | **open**: does the iFlash quad adapter come back cleanly from a cut while the PP keeps running, how long until BSY clears, and does it need more than a reset (for example a longer off time to discharge)? The device session (`docs/device-session-p18-0.md`, #114 round) measures `stor pwr on ms=` and counts failures | [hypothesis] until then |
 | Cost | power-up and re-init est. 0.3–0.5 s (250 ms of it the fixed wait); the adapter's standby draw versus off is the D3/#114 A/B | [hypothesis] |
 
+### 5.2 What Apple's firmware does (2026-11-06)
+
+[apple-RE] (`apple-disk.md` §5). Apple's off path sends STANDBY IMMEDIATE, waits for the controller to be idle, then cuts the rail. That is the same order as ours, but Apple sends no separate FLUSH CACHE first and uses APM level 1, where we use `0x80`. Apple's power-on: rail, **4 ms**, `DEV_EN` IDE0, **10 ms**, then a poll for BSY clear and DRDY set every 10 ms. There is no fixed 250 ms wait. It allows 10 s, then one power cycle (50 ms off), then 21 s more. On every power-on it re-sends SET FEATURES: the transfer mode, write cache on, look-ahead on, APM 1. When Apple spins the drive down (per-client lingers, 250 ms after a song fill) and the two storage profiles we derive from it are in [`apple-disk.md`](apple-disk.md) §2 and §9.
+
 ## 6. Our measurements [silicon]
 
 | Item | Result | Source |

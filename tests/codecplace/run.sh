@@ -49,7 +49,7 @@ if ! "$HOSTCC" -std=gnu99 -O1 -g -Wall -Wextra -Werror ${EXTRA_CFLAGS:-} \
     exit 1
 fi
 if "$TMP/test_codecplace"; then
-    echo "ok   codec placement (codec_place_core.c, codec_cop.c: the CPU-pinned plain default; A/B modes: core per run by screen state, 30 s hold, no reload, fields on CPU runs, cop_assist; D's full-buffer sleep)"
+    echo "ok   codec placement (codec_place_core.c, codec_cop.c: the COP default (Apple layout) and its loud CPU fallback; A/B arms: CPU-pinned plain path, core per run by screen state, 30 s hold, no reload, fields on CPU runs, cop_assist; D's full-buffer sleep)"
 else
     echo "FAIL: codec placement"
     exit 1

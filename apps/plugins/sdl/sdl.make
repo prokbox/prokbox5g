@@ -1,3 +1,4 @@
+# Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
 #             __________               __   ___.
 #   Open      \______   \ ____   ____ |  | _\_ |__   _______  ___
 #   Source     |       _//  _ \_/ ___\|  |/ /| __ \ /  _ \  \/  /

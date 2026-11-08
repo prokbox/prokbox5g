@@ -130,7 +130,7 @@ VIS_MM(videos, UI_MM_VIDEOS)
 VIS_MM(podcasts, UI_MM_PODCASTS)
 VIS_MM(extras, UI_MM_EXTRAS)
 /* P12: the Extras the Main Menu checklist can add, each in its fixed slot
- * after Extras (photo 1189: Alarms right under Extras), in the bits' order;
+ * after Extras (photo `main-menu-custom-hold`: Alarms right under Extras), in the bits' order;
  * shown when ticked and the Extra is offered on this unit */
 #define VIS_MX(name, bit, x) static bool mx_vis_##name(void) \
     { return ui_mm_visible(bit) && extras_available(x); }

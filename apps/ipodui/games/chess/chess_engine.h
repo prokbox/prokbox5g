@@ -102,8 +102,11 @@ void ce_init(struct ce *e, struct ce_tt *tt, int tt_bits);
  * the root, from seed (a weaker, varied level) */
 void ce_start(struct ce *e, const struct cs_pos *p, int max_depth,
               int noise, uint32_t seed);
-/* search up to `nodes` more nodes; CE_RUN (more to do) or CE_DONE */
-int  ce_run(struct ce *e, uint32_t nodes);
+/* search for up to `steps` more steps of the search loop (each a move
+ * tried, legal or not, or a frame finished: bounded work, at most about
+ * 11 k ARM instructions; docs/design/games.md 5.6); CE_RUN (more to do)
+ * or CE_DONE. The result does not depend on how the search is sliced. */
+int  ce_run(struct ce *e, uint32_t steps);
 /* the move to play now: the last full iteration's, or this one's best
  * so far when it has searched its first root move (the previous best,
  * searched first); CS_NOMOVE only when no legal move exists. Ends the

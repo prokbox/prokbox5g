@@ -43,7 +43,7 @@
 # GATE_KEEP_GOING=1. GATE_MAX_MINUTES defaults to 240 (full) / 75 (--quick).
 #
 # Builds (configuring missing build dirs) fw-ui, fw, sim-ui[, sim, boot, boot-ui, fw-rel,
-# sim-ui-video, sim-ui-mod, fw-ui-mod (the module loader on; P12 close)]
+# sim-ui-video, sim-rel-video, sim-ui-mod, fw-ui-mod (the module loader on; P12 close)]
 # concurrently (JOBS make -j per dir, default ncpu split across them),
 # runs host tests, then runs every tests/ui/*.script against the right
 # simulator, with GATE_JOBS parallel workers (default min(16, 2*ncpu,
@@ -55,12 +55,16 @@
 # from $ROCKBOX_SIMDISK_CACHE (default $HOME/.cache/rockbox-simdisk)
 # across every worktree's gate with the same inputs, same as the
 # ccache wiring in tools/configure -- see simdisk_cache_key() below).
-# A script that fails in the parallel run is re-run
-# alone, serially, once the parallel phase is done (a sim under worker
-# contention can be flakier than one running alone); "flaky-retry ok" if
-# that run passes, a real FAIL only if it fails alone too — the retry
-# count is printed, and is a smell worth investigating if it keeps
-# happening. Finally prints a size report against build/fw/.size-baseline.
+# Flake policy (owner, 2026-11-06; docs/process.md "Flake guard"): a
+# failed script is retried at once in its slot on a fresh clone, then in an
+# isolated parallel batch; it runs serially only on request; a failure that
+# persists is a code defect to trace, never a reason to loosen the test.
+# GATE_POOL=1 GATE_ALONE_JOBS=N implements this today (the pool's in-slot
+# retry, then N alone runs at once); it becomes the default in 0.8.1. The
+# default path below still re-runs a failed script alone, serially, once the
+# parallel phase is done; "flaky-retry ok" if that run passes, a real FAIL
+# only if it fails alone too. The retry count is printed, and the flake
+# ledger names scripts that keep flaking. Finally prints a size report against build/fw/.size-baseline.
 # Exit code is non-zero on any failure.
 #
 # For ipodui-* scripts, each shot with a committed golden image
@@ -131,12 +135,19 @@ P=--compiler-prefix=arm-none-eabi-
 # ipodui-* script runs on sim-ui, and so do the user-guide shots
 # (docs-*: the shell's screens; on the stock sim a "# fresh-db" one waited
 # for a database nothing builds, p19-gatefix5); the rest on the stock sim.
+# ipodui-relvideo-* (p19-relvideos) run on sim-rel-video: the shipping
+# shape's shell and player as a simulator (--ipodui --ipodui-release
+# --bcmfw-video --bcmfw-merged; --bcmfw is firmware-only), developer mode
+# compiled out, so a release that loses Videos or shows a developer string
+# fails there. (co_rel's sim-rel-bcm stays the compile-only release sim
+# without the player.)
 script_needs_modules() { # name
     grep -qE '^#[[:space:]]*needs:[[:space:]]*modules' "tests/ui/$1.script" 2>/dev/null
 }
 script_sim() {
     case "$1" in
         ipodui-p14a-*|ipodui-p19-*) echo build/sim-ui-video ;;
+        ipodui-relvideo-*) echo build/sim-rel-video ;;
         ipodui-*) if script_needs_modules "$1"; then echo build/sim-ui-mod
                   else echo build/sim-ui; fi ;;
         docs-*) echo build/sim-ui ;;
@@ -203,13 +214,15 @@ else
 fi
 
 # clone_disk <src-simdisk> <dst>: a fast copy-on-write clone on APFS
-# (cp -c), falling back to a plain recursive copy elsewhere.
+# (cp -c), falling back to a recursive copy that keeps timestamps
+# elsewhere (a plain cp -R reset every pinned mtime on Linux, and the
+# podcast episodes, sorted newest first, came out in folder order).
 clone_disk() {
     rm -rf "$2"
     if [ "$(uname)" = Darwin ] && /bin/cp -c -R "$1" "$2" 2>/dev/null; then  # /bin/cp: a GNU cp earlier in PATH has no -c
         return 0
     fi
-    cp -R "$1" "$2"
+    cp -pR "$1" "$2"   # -p: the pinned mtimes (tag_mtime orders "newest" lists) must survive
 }
 
 # Shared simdisk cache (process audit 2 #8): the generated library/music
@@ -230,6 +243,7 @@ SIMDISK_CACHE_ROOT=${ROCKBOX_SIMDISK_CACHE:-$HOME/.cache/rockbox-simdisk}
 # shell's library/sort/art code, the sim's db hook). The key also covers
 # the configure flavour via the cache dir name (sim / sim-ui).
 SIMDISK_CACHE_INPUTS="tests/ui/setup_music.sh tests/ui/setup_library.py
+tests/fixtures/sim-art/SHA256SUMS
 tests/ui/setup_library.sh apps/tagcache.c apps/tagcache.h apps/tagtree.c
 apps/settings_list.c apps/ipodui/library.c apps/ipodui/library.h
 apps/ipodui/libfile.h apps/ipodui/sortkey.c apps/ipodui/artcache.c
@@ -295,15 +309,15 @@ simdisk_code_state() {
 simdisk_cache_key() { # [base] [needs]
     # needs: what goes on the disk (music, db, video, library); one base
     # primed for different job sets must not share an entry
-    { echo "salt $SIMDISK_CACHE_SALT"; echo "needs ${2:-}"; simdisk_code_state; cat $SIMDISK_CACHE_INPUTS 2>/dev/null
-      case "${1:-}" in sim-ui-video|sim-ui-video-lib) cat $SIMDISK_VIDEO_INPUTS 2>/dev/null ;; esac
+    { echo "salt $SIMDISK_CACHE_SALT"; echo "needs ${2:-}"; simdisk_code_state; gl_simdisk_tools "${1:-}"; cat $SIMDISK_CACHE_INPUTS 2>/dev/null
+      case "${1:-}" in sim-ui-video|sim-ui-video-lib|sim-rel-video) cat $SIMDISK_VIDEO_INPUTS 2>/dev/null ;; esac
       true; } | hash_tool | awk '{print $1}'
 }
 copy_tree() { # <src> <dst>: cp -c clone on APFS, else a plain copy
     if [ "$(uname)" = Darwin ] && /bin/cp -c -R "$1" "$2" 2>/dev/null; then  # /bin/cp: a GNU cp earlier in PATH has no -c
         return 0
     fi
-    cp -R "$1" "$2"
+    cp -pR "$1" "$2"   # -p: the pinned mtimes (tag_mtime orders "newest" lists) must survive
 }
 simdisk_cache_restore() { # <simdisk> <cachedir> -- 0 on a usable hit
     local disk=$1 cache=$2 p got=0
@@ -344,7 +358,7 @@ step "builds"
 # edits keep stock byte-identical); boot only when bootloader/ or
 # firmware/ changed. The stock sim is full-gate only. No merge-base with
 # main, or an empty change list, builds what --quick always built.
-BUILD_DIRS="fw-ui fw sim-ui sim boot boot-ui fw-rel sim-ui-video sim-ui-mod fw-ui-mod"
+BUILD_DIRS="fw-ui fw sim-ui sim boot boot-ui fw-rel sim-ui-video sim-rel-video sim-ui-mod fw-ui-mod"
 # What --quick and --changed compare against: the closest of main and the
 # integration branch (p19, local or forge's), or GATE_BASE if set.  A
 # branch off p19 measured against main counted p19's 440 commits as its
@@ -368,7 +382,7 @@ if [ $QUICK = 1 ]; then
     [ -n "$QMB" ] && echo "note --quick: changes measured against ${QMB#* } at $(git rev-parse --short "${QMB%% *}")"
     QMB=${QMB%% *}
     if [ -z "$QMB" ]; then
-        BUILD_DIRS="fw-ui fw sim-ui sim-ui-video sim-ui-mod fw-ui-mod"
+        BUILD_DIRS="fw-ui fw sim-ui sim-ui-video sim-rel-video sim-ui-mod fw-ui-mod"
         FWV=1
         echo "note build fw: no merge-base with main, cannot tell what changed"
         echo "skip build boot (--quick: no merge-base to tell bootloader/ firmware/ changed)"
@@ -381,11 +395,12 @@ if [ $QUICK = 1 ]; then
         # Phase 14a video builds (sim-ui-video for the ipodui-p14a-* scripts,
         # compile-only fw-ui-video for the device path) in --quick only when
         # something they compile changed; GATE_FW_VIDEO=1 forces
-        # fw-ui-video, GATE_SIM_VIDEO=0 drops sim-ui-video
-        if printf '%s\n' "$QFILES" | grep -qE '^(apps/|uisimulator/|firmware/|lib/|bcmfw/|tools/configure|tests/ui/ipodui-p14a-|tests/ui/ipodui-p19-|tests/fixtures/videos/|scripts/(validate|shots)\.sh|scripts/gate_map\.txt)'; then
-            [ "${GATE_SIM_VIDEO:-1}" = 0 ] || BUILD_DIRS="$BUILD_DIRS sim-ui-video"
+        # fw-ui-video, GATE_SIM_VIDEO=0 drops sim-ui-video (and sim-rel-video,
+        # the release shape's, p19-relvideos: the same rule)
+        if printf '%s\n' "$QFILES" | grep -qE '^(apps/|uisimulator/|firmware/|lib/|bcmfw/|tools/configure|tests/ui/ipodui-p14a-|tests/ui/ipodui-p19-|tests/ui/ipodui-relvideo-|tests/fixtures/videos/|scripts/(validate|shots)\.sh|scripts/gate_map\.txt)'; then
+            [ "${GATE_SIM_VIDEO:-1}" = 0 ] || BUILD_DIRS="$BUILD_DIRS sim-ui-video sim-rel-video"
         else
-            echo "skip build sim-ui-video (--quick: no apps/, uisimulator/, firmware/, lib/, bcmfw/ or p14a test file changed)"
+            echo "skip build sim-ui-video, sim-rel-video (--quick: no apps/, uisimulator/, firmware/, lib/, bcmfw/ or video test file changed)"
         fi
         if [ "${GATE_FW_VIDEO:-0}" = 1 ] \
                 || printf '%s\n' "$QFILES" | grep -qE '^(apps/|firmware/|lib/|bcmfw/|tools/configure)'; then
@@ -617,6 +632,9 @@ if [ $QUICK = 0 ]; then
                     echo "ok   $d _end $end B <= RELEASE_END_MAX $RELEASE_END_MAX B ($((RELEASE_END_MAX - end)) B spare)"
                 fi
                 for f in $RELEASE_REQUIRED; do
+                    # the bootloader joins the zip at packaging
+                    # (scripts/release_build.sh adds and checks it)
+                    [ "$f" = bootloader-ipodvideo.ipod ] && continue
                     unzip -l $d/rockbox.zip 2>/dev/null | awk '{print $4}' | grep -qx "$f" \
                         || bad "shipping shape ($d): rockbox.zip lacks $f (RELEASE_REQUIRED, scripts/release_flags.sh)"
                 done
@@ -747,6 +765,9 @@ for d in $BUILD_DIRS; do
         boot-ui) set -- --target=22 --type=b --ipodui $P ;;
         fw-rel) set -- --target=22 --type=n --ipodui --ipodui-release $P ;;
         sim-ui-video) set -- --target=22 --type=s --ipodui --bcmfw-video ;;
+        # p19-relvideos: the shipping shape (scripts/release_flags.sh) as a
+        # simulator: --bcmfw, --bcmfw-default and --bcmfw-l1 are firmware-only
+        sim-rel-video) set -- --target=22 --type=s --ipodui --ipodui-release --bcmfw-video --bcmfw-merged ;;
         sim-ui32) set -- --target=22 --type=s --ipodui --ram=32 ;;
         sim-ui-mod) set -- --target=22 --type=s --ipodui ;;
         fw-ui-mod) set -- --target=22 --type=n --ipodui $P ;;
@@ -789,15 +810,23 @@ fi
 
 gl_abort_on_build_failure
 
+# A build has the UI thread split (and its --wrap stubs) iff it is a
+# developer build (HAVE_IPOD_UI_DEVMODE); the sealed release compiles it
+# out (owner decision 2026-11-05, #148), so the febe/xcore link checks,
+# which police that split, skip it; developer builds stay strict.
+has_ui_split() { grep -q -- 'HAVE_IPOD_UI_DEVMODE' "$1/Makefile"; }
+
 step "cross-core objects (P19 S0 link-map gate)"
 # every kernel object or flag both PP5022 cores touch is linked uncached
 # (scripts/xcore_objects.txt); a planted cached one must be caught. Only
 # the ELFs this run built are gated (a stale one from an earlier run, or
-# fw-ui-video skipped by --quick, is not).  The release builds too: the UI
-# may run on the COP there (P19 19-9, 0.8.0).
+# fw-ui-video skipped by --quick, is not).  The release has no UI split
+# (#148), so it is skipped.
 XC_ELFS=""
 for b in fw-ui fw-rel fw-ui-video fw-ui-mod fw-ship fw-rel-bcm-mod; do
-    if [ -f "$GATE_TMP/built-$b" ] && [ -f "build/$b/rockbox.elf" ]; then
+    if [ -f "build/$b/Makefile" ] && ! has_ui_split "build/$b"; then
+        echo "skip xcore build/$b (release: no UI thread split, #148)"
+    elif [ -f "$GATE_TMP/built-$b" ] && [ -f "build/$b/rockbox.elf" ]; then
         XC_ELFS="$XC_ELFS build/$b/rockbox.elf"
     elif [ -f "build/$b/rockbox.elf" ]; then
         echo "skip xcore build/$b (not built in this run)"
@@ -815,18 +844,43 @@ if [ -f "$GATE_TMP/built-fw-ui" ] && [ -f build/fw-ui/rockbox.elf ]; then
         || { cat "$GATE_TMP/xcore-plant.log"; bad "xcore gate self-test"; }
 fi
 
+step "misaligned static data accesses (PP5022 data abort)"
+# a halfword or word load/store to SDRAM at a misaligned address aborts on
+# the PP5022 (docs/pp5022-reference/quirks.md; the sitting 4gh boot loop:
+# ata_get_info's strh into static char arrays a link had put on odd
+# addresses).  Whether it bites depends on the link, so the linked images
+# are checked: every ARM build this run made, bootloaders included; a few
+# seconds each
+MA_ELFS=""
+for b in fw fw-ui fw-rel fw-ui-video fw-ui-mod fw-ship fw-rel-bcm-mod boot boot-ui; do
+    if [ -f "$GATE_TMP/built-$b" ] && [ -f "build/$b/rockbox.elf" ]; then
+        MA_ELFS="$MA_ELFS build/$b/rockbox.elf"
+    elif [ -f "$GATE_TMP/built-$b" ] && [ -f "build/$b/bootloader.elf" ]; then
+        MA_ELFS="$MA_ELFS build/$b/bootloader.elf"
+    fi
+done
+if [ -n "$MA_ELFS" ]; then
+    # shellcheck disable=SC2086
+    python3 scripts/misaligned_access_check.py $MA_ELFS \
+        || bad "misaligned static data access (scripts/misaligned_access_check.py; give the object its access type or alignment)"
+else
+    echo "skip misaligned access check (no ARM build in this run)"
+fi
+
 step "UI boundary (P19 S1-S4: remote calls, cache lines)"
 # the shell may run on the COP (docs/design/p19-ui-on-cop.md): every
 # direct back-end call from its objects crosses by a generated stub
 # (apps/ipodui/febe_rpc.list; regenerate with
 # scripts/febe_rpc_gen.py --from-build build/fw-ui), and no cache line
 # holds both front-end and other data.  Every shell firmware this run
-# built, release included: since P19 19-9 (0.8.0) the release links the
-# stubs and may run the UI on the COP; a few seconds each.
+# built; the release has no split since #148 and is skipped (has_ui_split);
+# a few seconds each.
 python3 scripts/febe_rpc_gen.py --check || bad "febe stubs out of date (scripts/febe_rpc_gen.py)"
 FB_N=0
 for b in fw-ui fw-rel fw-ui-mod fw-ship fw-rel-bcm-mod; do
-    if [ -f "$GATE_TMP/built-$b" ] && [ -f "build/$b/rockbox.elf" ]; then
+    if [ -f "build/$b/Makefile" ] && ! has_ui_split "build/$b"; then
+        echo "skip febe checks build/$b (release: no UI thread split, #148)"
+    elif [ -f "$GATE_TMP/built-$b" ] && [ -f "build/$b/rockbox.elf" ]; then
         FB_N=$((FB_N + 1))
         echo "febe checks: build/$b"
         python3 scripts/febe_link_check.py --strict "build/$b" \
@@ -1079,10 +1133,10 @@ for s in tests/ui/*.script; do
     if [ $QUICK = 1 ] && [ "$b" = build/sim ]; then
         continue
     fi
-    if [ "$b" = build/sim-ui-video ]; then
+    if [ "$b" = build/sim-ui-video ] || [ "$b" = build/sim-rel-video ]; then
         case " $BUILD_DIRS " in
-            *" sim-ui-video "*) ;;
-            *) echo "skip $n (sim-ui-video not built this run: no video-relevant file changed)"
+            *" ${b#build/} "*) ;;
+            *) echo "skip $n (${b#build/} not built this run: no video-relevant file changed)"
                continue ;;
         esac
     fi
@@ -1638,6 +1692,33 @@ if [ "$GATE_POOL" = 1 ]; then
         echo "$nfailed script(s) failed their first run in the pool and were retried at once"
     fi
     real_failed=""
+    # failed twice under pool load: once more, without the pool's load, before
+    # it is real. GATE_ALONE_JOBS=N (default 1: one at a time) runs N of these
+    # at once, each on its own clone; on a machine where N sims leave the CPU
+    # mostly idle (the Linux laptop: load ~1.5 at 15 sims on 8 cores) that is
+    # as quiet as one, and 60 double failures no longer take an hour serially.
+    alone_list=""
+    for n in $(printf '%s\n' $first_failed | sort); do
+        [ -n "$n" ] || continue
+        [ "$(cat "$GATE_TMP/retry-$n" 2>/dev/null || echo 1)" = 0 ] && continue
+        alone_list="$alone_list $n"
+    done
+    alone_job() { # name
+        local n=$1 b rd
+        b=$(script_sim "$n"); rd="$b/simdisk.a$n"
+        clone_disk "$(script_disk "$n")" "$rd"
+        mv -f "$GATE_TMP/out-$n" "$GATE_TMP/out-$n.second-attempt" 2>/dev/null || true
+        GL_KIND=ui run_script_job "$n" "$b" "$rd" alone 3
+        rm -rf "$rd"
+    }
+    if [ -n "$alone_list" ]; then
+        aj=${GATE_ALONE_JOBS:-1}
+        [ "$aj" -ge 1 ] 2>/dev/null || aj=1
+        echo "$(echo $alone_list | wc -w | tr -d ' ') script(s) failed twice; running each once more without the pool's load, $aj at a time (GATE_ALONE_JOBS)"
+        gl_pool_init "$aj"
+        for n in $alone_list; do gl_pool_submit alone_job "$n"; done
+        gl_pool_wait
+    fi
     for n in $(printf '%s\n' $first_failed | sort); do
         [ -n "$n" ] || continue
         if [ "$(cat "$GATE_TMP/retry-$n" 2>/dev/null || echo 1)" = 0 ]; then
@@ -1645,11 +1726,6 @@ if [ "$GATE_POOL" = 1 ]; then
             flaky=$((flaky + 1))
             continue
         fi
-        # failed twice under pool load: once more, alone, before it is real
-        b=$(script_sim "$n"); rd="$b/simdisk.retry"
-        clone_disk "$(script_disk "$n")" "$rd"
-        mv -f "$GATE_TMP/out-$n" "$GATE_TMP/out-$n.second-attempt" 2>/dev/null || true
-        GL_KIND=ui run_script_job "$n" "$b" "$rd" alone 3
         if [ "$(cat "$GATE_TMP/status-$n")" = 0 ]; then
             echo "flaky-retry ok: $n (failed twice in the pool, passed alone)"
             flaky=$((flaky + 1))
@@ -1954,9 +2030,38 @@ if [ -f build/fw-ship/rockbox.ipod ] && [ $QUICK = 0 ]; then
         strings build/fw-ship/rockbox.ipod build/fw-ship/modules/modules.pak | grep -i developer | head -5
         bad "sealed release: $ndev \"developer\" string(s) in build/fw-ship (rockbox.ipod, modules.pak)"
     fi
+    # the shipping shape plays its merged image's video at 150 MHz: the
+    # image has a clock150 token (0.8.0-rc.6 shipped without one)
+    vc_bin="$GATE_TMP/test_vclock_rel"
+    if gcc -std=gnu99 -O1 -Iapps -Iapps/video -o "$vc_bin" tests/video/test_vclock.c \
+            >"$GATE_TMP/vclock_rel_cc.log" 2>&1 \
+       && "$vc_bin" release >"$GATE_TMP/vclock_rel.log" 2>&1; then
+        echo "ok   shipping shape (fw-ship): the merged image has a clock150 token (video at 150 MHz)"
+    else
+        cat "$GATE_TMP/vclock_rel_cc.log" "$GATE_TMP/vclock_rel.log" 2>/dev/null | grep -v '^ok' | head -5
+        bad "sealed release: the merged image has no clock150 token: every video would play with the VC at 27 MHz"
+    fi
 elif [ $QUICK = 0 ]; then
     bad "sealed release: build/fw-ship/rockbox.ipod missing (co_rel)"
 fi
+
+# rc.6 (layout A): the PCM's FIQ runs on the COP in every shell build.
+# Everything it reaches must write no cached static and make no kernel or
+# blocking call (docs/design/cop-shared-state.md, layout A); red on rc.5's
+# code with the FIQ moved (13 statics, 14 calls)
+# A missing image or a walk that cannot run fails the step (fiq_gate.sh:
+# a gate that inspected nothing must not pass).  fw-ship is built by the
+# full gate only
+if [ $QUICK = 0 ]; then
+    sh scripts/fiq_gate.sh build/fw-ship build/fw-ui \
+        || bad "audio on the COP: the FIQ walk found a hazard or did not run (scripts/fiq_gate.sh)"
+else
+    sh scripts/fiq_gate.sh build/fw-ui \
+        || bad "audio on the COP: the FIQ walk found a hazard or did not run (scripts/fiq_gate.sh)"
+fi
+
+step "merge-conflict markers (tracked files)"
+sh scripts/check_conflict_markers.sh || bad "merge-conflict markers in tracked files"
 
 step "native illusion (user-visible strings in shell)"
 if [ -d apps/ipodui ] && grep -rnI --include='*.c' -iE '"[^"]*rockbox[^"]*"' apps/ipodui; then
@@ -2110,6 +2215,11 @@ if python3 tests/release_tree/test_scrub.py >"$GATE_TMP/scrub-self.log" 2>&1; th
     echo "ok   public-tree scrub and owner-media guard self-test"
 else
     grep -v '^ok' "$GATE_TMP/scrub-self.log" | head; bad "scrub self-test (tests/release_tree)"
+fi
+if python3 tests/release_tree/test_import.py >"$GATE_TMP/import-self.log" 2>&1; then
+    echo "ok   public import commit self-test ($(grep -c '^ok' "$GATE_TMP/import-self.log") checks)"
+else
+    grep -v '^ok' "$GATE_TMP/import-self.log" | head; bad "import self-test (tests/release_tree/test_import.py)"
 fi
 # Every gate: notices intact, headers, Apple marks in LANG strings, asset
 # provenance (scripts/legal_audit.py, ~2 s). --release adds the 2(a)

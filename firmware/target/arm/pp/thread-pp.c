@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2007 by Daniel Ankers
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * PP5002 and PP502x SoC threading support
  *
@@ -23,6 +24,7 @@
 #ifdef HAVE_PP_GOV
 #include "pgov.h"       /* ProkBox: the idle stamps in core_sleep() */
 #endif
+#include "corelayout.h" /* ProkBox K-1: cop_next_tmo_check() */
 
 #if NUM_CORES == 1
 /* Single-core variants for FORCE_SINGLE_CORE */
@@ -295,8 +297,7 @@ static inline void core_sleep(unsigned int core)
 #ifdef HAVE_PP_GOV
     /* ProkBox band governor: this core's idle time (one writer per core,
      * IRQs still off; read by the CPU's tick, firmware/pgov.c) */
-    uint32_t pgov_t0 = USEC_TIMER | 1;
-    pgov_sleep_t0[core] = pgov_t0;
+    uint32_t pgov_seq = pgov_idle_enter(&pgov_idle[core]);
 #endif
     asm volatile (
         "mov    r0, #4                     \n" /* r0 = 0x4 << core */
@@ -318,8 +319,10 @@ static inline void core_sleep(unsigned int core)
         :  [ctl]"r"(&CPU_CTL), [mbx]"r"(MBX_BASE), [c]"r"(core)
         : "r0", "r1");
 #ifdef HAVE_PP_GOV
-    pgov_idle_us[core] += USEC_TIMER - pgov_t0;
-    pgov_sleep_t0[core] = 0;
+    pgov_idle_leave(&pgov_idle[core], pgov_seq);
+#endif
+#ifdef HAVE_PP_IRQ_TALLY
+    pp_idle_exits[core]++;          /* P19 4h: the duty row's wakes */
 #endif
     enable_irq();
 }
@@ -401,6 +404,17 @@ void core_wake(unsigned int othercore)
     restore_irq(oldlevel);
 }
 #endif /* ASM/C selection */
+
+#ifdef HAVE_CORE_LAYOUT_A
+/* ProkBox K-1 (corelayout.h): the COP's next due timeout check, for the
+ * CPU's tick.  The COP is the word's only writer (prepare_block() and the
+ * timeout check run on the blocking thread's own core) and the core
+ * entries live in IRAM, uncached and shared: one aligned word read */
+long cop_next_tmo_check(void)
+{
+    return __core_id_entry(COP)->next_tmo_check;
+}
+#endif
 
 #endif /* CPU_PPxxxx */
 

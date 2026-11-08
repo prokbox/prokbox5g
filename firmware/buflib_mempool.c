@@ -12,6 +12,7 @@
 *
 * Copyright (C) 2009 Andrew Mahone
 * Copyright (C) 2011 Thomas Martitz
+* Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
 * 
 *
 * This program is free software; you can redistribute it and/or
@@ -33,6 +34,9 @@
 #include "debug.h"
 #include "panic.h"
 #include "system.h" /* for ALIGN_*() */
+#ifdef HAVE_BUFLIB_HEAPCHECK
+#include "crc32.h"
+#endif
 
 /* FIXME: This comment is pretty out of date now and wrong in some details.
  *
@@ -193,6 +197,116 @@ bool buflib_context_relocate(struct buflib_context *ctx, void *buf)
     return true;
 }
 
+#ifdef HAVE_BUFLIB_HEAPCHECK
+/* ProkBox, developer builds: a header's CRC (BUFLIB_IDX_CRC) over its
+ * length, its handle's distance from the table's end (unchanged when the
+ * whole buffer moves) and its ops */
+static uint32_t header_crc(const struct buflib_context *ctx,
+                           const union buflib_data *block)
+{
+    uintptr_t w[3];
+
+    w[0] = (uintptr_t)block[BUFLIB_IDX_LEN].val;
+    w[1] = (uintptr_t)ctx->handle_table -
+           (uintptr_t)block[BUFLIB_IDX_HANDLE].handle;
+    w[2] = (uintptr_t)block[BUFLIB_IDX_OPS].ops;
+    return crc_32(w, sizeof(w), 0xFFFFFFFFu);
+}
+
+static inline void header_seal(const struct buflib_context *ctx,
+                               union buflib_data *block)
+{
+    block[BUFLIB_IDX_CRC].val = (intptr_t)header_crc(ctx, block);
+}
+
+/* abs() for a length word (abs() takes an int: a 64-bit simulator's
+   corrupt word would be cut) */
+static inline intptr_t len_abs(intptr_t v)
+{
+    return v < 0 ? -v : v;
+}
+
+/* The block before 'block' in the chain (NULL: it is the first, or the
+ * chain doesn't land on it); bounded, never panics */
+static union buflib_data *walk_prev(const struct buflib_context *ctx,
+                                    const union buflib_data *block)
+{
+    union buflib_data *b = ctx->buf_start, *prev = NULL;
+    long n = 0;
+
+    while (b < block && n++ < 65536)
+    {
+        intptr_t len = b->val;
+
+        if (len == 0 || len_abs(len) > ctx->alloc_end - b)
+            return NULL;
+        prev = b;
+        b += len_abs(len);
+    }
+    return b == block ? prev : NULL;
+}
+
+/* The handle number of an allocated block whose handle pointer is sane, 0
+ * otherwise (free, or the pointer itself is bad) */
+static int block_handle_num(const struct buflib_context *ctx,
+                            const union buflib_data *block)
+{
+    union buflib_data *h = block[BUFLIB_IDX_HANDLE].handle;
+
+    if (block->val <= 0 || !IS_ALIGNED((uintptr_t)h, sizeof(*h)) ||
+        h < ctx->last_handle || h >= ctx->handle_table)
+        return 0;
+    return ctx->handle_table - h;
+}
+#endif
+
+#ifdef HAVE_BUFLIB_HEAPCHECK
+/* ProkBox (developer builds): with 'block' set the message names the block
+ * before it too (its address, bytes, handle and ops: the owner, through
+ * the link map), on a shorter prefix so it fits the panic record's 120
+ * bytes */
+static void buflib_panic_v(struct buflib_context *ctx,
+                           union buflib_data *block, const char *message,
+                           va_list ap)
+{
+    char buf[128];
+
+    vsnprintf(buf, sizeof(buf), message, ap);
+    if (block)
+    {
+        union buflib_data *p = walk_prev(ctx, block);
+
+        if (p)
+            BPANICF("buflib %s prev %p b=%ld h=%d o=%p", buf, (void *)p,
+                    (long)(p->val * (intptr_t)sizeof(union buflib_data)),
+                    block_handle_num(ctx, p),
+                    p->val > 0 ? (void *)p[BUFLIB_IDX_OPS].ops : NULL);
+        BPANICF("buflib %s prev none", buf);
+    }
+    BPANICF("buflib error (CTX:%p, %zd bytes):\n%s", ctx,
+        (ctx->handle_table - ctx->buf_start) * sizeof(union buflib_data), buf);
+}
+
+static void buflib_panic(struct buflib_context *ctx, const char *message, ...)
+{
+    va_list ap;
+
+    va_start(ap, message);
+    buflib_panic_v(ctx, NULL, message, ap);
+    va_end(ap);
+}
+
+static void buflib_panic_block(struct buflib_context *ctx,
+                               union buflib_data *block,
+                               const char *message, ...)
+{
+    va_list ap;
+
+    va_start(ap, message);
+    buflib_panic_v(ctx, block, message, ap);
+    va_end(ap);
+}
+#else
 static void buflib_panic(struct buflib_context *ctx, const char *message, ...)
 {
     char buf[128];
@@ -205,6 +319,9 @@ static void buflib_panic(struct buflib_context *ctx, const char *message, ...)
     BPANICF("buflib error (CTX:%p, %zd bytes):\n%s", ctx,
         (ctx->handle_table - ctx->buf_start) * sizeof(union buflib_data), buf);
 }
+/* upstream's panic, the block unused (a release build's code unchanged) */
+#define buflib_panic_block(ctx, block, ...) buflib_panic(ctx, __VA_ARGS__)
+#endif
 
 /* Allocate a new handle, returning 0 on failure */
 static inline
@@ -660,6 +777,9 @@ buffer_alloc:
     block[BUFLIB_IDX_HANDLE].handle = handle;
     block[BUFLIB_IDX_OPS].ops = ops;
     block[BUFLIB_IDX_PIN].pincount = 0;
+#ifdef HAVE_BUFLIB_HEAPCHECK
+    header_seal(ctx, block);
+#endif
 
     handle->alloc = (char*)&block[BUFLIB_NUM_FIELDS];
 
@@ -928,6 +1048,9 @@ buflib_shrink(struct buflib_context* ctx, int handle, void* new_start, size_t ne
          * the code below the wants block whether it changed or not */
         block = new_block;
     }
+#ifdef HAVE_BUFLIB_HEAPCHECK
+    header_seal(ctx, block);        /* its length changed */
+#endif
 
     /* Now deal with size changes that create free blocks after the allocation */
     if (old_next_block != new_next_block)
@@ -1057,7 +1180,7 @@ static void check_block_length(struct buflib_context *ctx,
         /* Check the block length does not pass beyond the end */
         if (length == 0 || block > ctx->alloc_end - abs(length))
         {
-            buflib_panic(ctx, "block len wacky [%p]=%ld",
+            buflib_panic_block(ctx, block, "block len wacky [%p]=%ld",
                          (void*)&block[BUFLIB_IDX_LEN], (long)length);
         }
     }
@@ -1077,14 +1200,14 @@ static void check_block_handle(struct buflib_context *ctx,
          * properly aligned due to some C standard voodoo?? */
         if (!IS_ALIGNED((uintptr_t)h_entry, alignof(*h_entry)))
         {
-            buflib_panic(ctx, "handle unaligned [%p]=%p",
+            buflib_panic_block(ctx, block, "handle unaligned [%p]=%p",
                          &block[BUFLIB_IDX_HANDLE], h_entry);
         }
 
         /* Check the pointer is actually inside the handle table */
         if (h_entry < ctx->last_handle || h_entry >= ctx->handle_table)
         {
-            buflib_panic(ctx, "handle out of bounds [%p]=%p",
+            buflib_panic_block(ctx, block, "handle out of bounds [%p]=%p",
                          &block[BUFLIB_IDX_HANDLE], h_entry);
         }
 
@@ -1096,8 +1219,108 @@ static void check_block_handle(struct buflib_context *ctx,
         /* buflib allows zero length allocations, so alloc_end is inclusive */
         if (alloc < alloc_begin || alloc > alloc_end)
         {
-            buflib_panic(ctx, "alloc outside block [%p]=%p, %p-%p",
+            buflib_panic_block(ctx, block, "alloc outside block [%p]=%p, %p-%p",
                          h_entry, alloc, alloc_begin, alloc_end);
         }
     }
 }
+
+#ifdef HAVE_BUFLIB_HEAPCHECK
+/* ProkBox, developer builds (sitting 4gh-b5: a compaction's move_block()
+ * met a header whose handle word was 0x023e6613): the heap walk, evidence
+ * before the panic.  Read-only: it may run between any two buflib calls on
+ * the CPU, a shrink callback included (the allocation that called it holds
+ * one handle marked -1, not counted). */
+static const char *const walk_why[BUFLIB_WALK_REASONS] =
+{
+    "ok", "lenzero", "lenrange", "lenshort", "hdlalign", "hdlrange",
+    "backptr", "crc", "handles", "limit",
+};
+
+const char *buflib_walk_why(int bad)
+{
+    return bad >= 0 && bad < BUFLIB_WALK_REASONS ? walk_why[bad] : "?";
+}
+
+int buflib_walk(struct buflib_context *ctx, struct buflib_walk *w,
+                int max_blocks)
+{
+    union buflib_data *block = ctx->buf_start, *prev = NULL, *h;
+    int bad = BUFLIB_WALK_OK;
+
+    memset(w, 0, sizeof(*w));
+    while (block < ctx->alloc_end)
+    {
+        intptr_t len = block[BUFLIB_IDX_LEN].val;
+
+        if (w->blocks >= max_blocks)
+            bad = BUFLIB_WALK_LIMIT;
+        else if (len == 0)
+            bad = BUFLIB_WALK_LEN_ZERO;
+        else if (len_abs(len) > ctx->alloc_end - block)
+            bad = BUFLIB_WALK_LEN_RANGE;
+        else if (len > 0)
+        {
+            h = block[BUFLIB_IDX_HANDLE].handle;
+            if (len < BUFLIB_NUM_FIELDS)
+                bad = BUFLIB_WALK_LEN_SHORT;
+            else if (!IS_ALIGNED((uintptr_t)h, sizeof(*h)))
+                bad = BUFLIB_WALK_HANDLE_ALIGN;
+            else if (h < ctx->last_handle || h >= ctx->handle_table)
+                bad = BUFLIB_WALK_HANDLE_RANGE;
+            else if (h->alloc < (char *)&block[BUFLIB_NUM_FIELDS] ||
+                     h->alloc > (char *)(block + len))
+                bad = BUFLIB_WALK_BACKPTR;
+            else if ((uint32_t)block[BUFLIB_IDX_CRC].val !=
+                     header_crc(ctx, block))
+                bad = BUFLIB_WALK_CRC;
+        }
+        if (bad)
+        {
+            w->at = block;
+            w->len = len;
+            if (len > 0 && len <= ctx->alloc_end - block)
+            {
+                w->handle = block[BUFLIB_IDX_HANDLE].handle;
+                w->ops = block[BUFLIB_IDX_OPS].ops;
+                if (len >= BUFLIB_NUM_FIELDS)
+                {
+                    w->crc = (uint32_t)block[BUFLIB_IDX_CRC].val;
+                    w->want = header_crc(ctx, block);
+                }
+            }
+            break;
+        }
+        w->blocks++;
+        if (len > 0)
+            w->used++;
+        prev = block;
+        block += len_abs(len);
+    }
+    if (!bad)
+    {
+        /* the table: every live handle names an allocated block (one an
+           allocation in progress holds reads -1) */
+        for (h = ctx->last_handle; h < ctx->handle_table; h++)
+            if (h->alloc && h->val != -1)
+                w->handles++;
+        if (w->handles != w->used)
+            bad = BUFLIB_WALK_HANDLES;
+    }
+    w->bad = bad;
+    if (bad && prev)
+    {
+        w->prev = prev;
+        w->prev_len = prev->val;
+        if (prev->val > 0)
+        {
+            struct buflib_callbacks *ops = prev[BUFLIB_IDX_OPS].ops;
+
+            w->prev_handle = block_handle_num(ctx, prev);
+            w->prev_ops = ops;
+            w->prev_move = ops ? (const void *)ops->move_callback : NULL;
+        }
+    }
+    return bad;
+}
+#endif

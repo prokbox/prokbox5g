@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2002 by Alan Korr
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -62,10 +63,33 @@ static struct corelock cpufreq_cl SHAREDBSS_ATTR;
 unsigned char probed_ramsize;
 #endif
 
+#ifdef HAVE_PP_IRQ_TALLY
+/* ProkBox P19 4h: the CPU's IRQs by source and each core's idle exits
+ * (system-target.h); the developer build's duty row reads them */
+uint32_t pp_irq_n[PP_IRQ_N];
+uint32_t pp_idle_exits[2] SHAREDBSS_ATTR;
+
+static inline void pp_irq_tally(void)
+{
+    unsigned long lo = CPU_INT_STAT, hi = CPU_HI_INT_STAT;
+    int k = (lo & TIMER1_MASK) ? PP_IRQ_TICK
+          : (lo & TIMER2_MASK) ? PP_IRQ_T2
+          : (lo & USB_MASK) ? PP_IRQ_USB
+          : (lo & IDE_MASK) ? PP_IRQ_IDE
+          : (hi & I2C_MASK) ? PP_IRQ_WHEEL
+          : (hi & GPIO2_MASK) ? PP_IRQ_GPIO : PP_IRQ_OTHER;
+
+    pp_irq_n[k]++;
+}
+#endif
+
 void __attribute__((interrupt("IRQ"))) irq_handler(void)
 {
     if(CURRENT_CORE == CPU)
     {
+#ifdef HAVE_PP_IRQ_TALLY
+        pp_irq_tally();
+#endif
         if (CPU_INT_STAT & TIMER1_MASK) {
             TIMER1();
         }
@@ -735,6 +759,23 @@ void system_init(void)
         probed_ramsize = *end32;
 #endif
     }
+#ifdef HAVE_CORE_LAYOUT_A
+    else
+    {
+        /* ProkBox core layout (A): the COP unmasks its own FIQ, so the
+         * PCM DMA's source 26 can be its FIQ (our extension: Apple's COP
+         * never takes it, docs/pp5022-reference/apple-cop-audio.md).  The
+         * CPSR is per core: crt0-pp.S leaves F set on both, main.c clears
+         * it on the CPU only, so no CPU write can open the COP's FIQ
+         * (sitting 4gh, P-1: cop_cpsr 0x5f, no FIQ).  The COP's priority
+         * words are cleared first: a source reaches the COP as a FIQ only
+         * once pcm_pp_set_core() (or the P-1 probe) routes it, and every
+         * COP source is masked here (disable_all_interrupts, the CPU) */
+        COP_INT_PRIORITY = 0;
+        COP_HI_INT_PRIORITY = 0;
+        enable_fiq();
+    }
+#endif
 
     init_cache();
 }

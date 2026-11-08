@@ -1,0 +1,186 @@
+# #154 (owner, 2026-11-06): a paused video keeps its place through any power-off
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p19-video-pause-keep.script
+# (ipodui-p19-* default to build/sim-ui-video; the gate runs them there)
+# needs: video
+# timeout: 480
+#
+# A paused video, left alone, never loses its spot: the battery dying (no
+# shutdown path at all), a soft sleep that the battery then cuts, the idle
+# power-off, and every way off the screen (MENU, hold MENU, a USB plug),
+# each of the last two followed by the battery dying. Each part pauses
+# Short Film a little further on, and the next start from the Videos list
+# must resume there (within about a second: the check runs 0.7 s into the
+# resumed play). The pause itself writes the spot (video.c spot_tick(),
+# tagcache_ui_save_spot()).
+#
+# Disk: tests/fixtures/videos/mkvideos.sh (Movies/ Short Film, 13 s,
+# chapters at 0, 4, 8 s). Main menu with Videos on: Music, Videos, ...
+# Short Film's spot is left at none (played to its end) for the others.
+
+# golden: skip
+# trace: video
+# log: ms kept=1
+# nolog: ms kept=0
+
+# 1. the battery dies while paused: nothing runs at the cut
+wait 4000
+wait_db 45000
+video_screen /Movies/Short%20Film.m4v
+wait_pos 4500 30000 Film.m4v
+key PLAY            # pause at ~4.5 s
+wait 600
+expect_paused 300
+shot paused
+wait 1500           # the pause's write is out
+power_cut
+reboot
+
+# 2. it resumes there; paused again at ~6.5 s, the idle timer puts the
+# unit to sleep, and the battery dies in the sleep
+wait 4000
+wait_db 45000
+wheel -10 300
+wheel +1 300        # Videos
+wait 600
+key SELECT
+wait 900
+key SELECT          # Movies
+wait 1200
+wheel -10 300
+wheel +3 300        # Short Film
+wait 400
+key SELECT
+wait 700
+expect_pos 4300 6000        # the spot of part 1, not 0
+wait_pos 6500 30000 Film.m4v
+key PLAY
+wait 600
+expect_paused 300
+sleep_mode soft     # the developer switch's soft sleep (part 3: none)
+idle_poweroff 1
+wait 80000          # idle past the minute: asleep
+power_cut
+reboot
+
+# 3. it resumes there; paused at ~8 s, the idle power-off (no soft sleep)
+wait 4000
+wait_db 45000
+wheel -10 300
+wheel +1 300        # Videos
+wait 600
+key SELECT
+wait 900
+key SELECT          # Movies
+wait 1200
+wheel -10 300
+wheel +3 300        # Short Film
+wait 400
+key SELECT
+wait 700
+expect_pos 6300 8000
+wait_pos 8000 30000 Film.m4v
+key PLAY
+wait 600
+expect_paused 300
+sleep_mode off
+idle_poweroff 1
+wait 85000          # the power-off ends this part before this does
+reboot
+
+# 4. it resumes there; then each way off the screen while paused
+wait 4000
+idle_poweroff 10    # the default again (before it can come)
+wait_db 45000
+wheel -10 300
+wheel +1 300        # Videos
+wait 600
+key SELECT
+wait 900
+key SELECT          # Movies
+wait 1200
+wheel -10 300
+wheel +3 300        # Short Film
+wait 400
+key SELECT
+wait 700
+expect_pos 7800 9500
+
+# MENU while paused at ~9 s: back to the list, the spot kept
+wait_pos 9000 30000 Film.m4v
+key PLAY
+wait 600
+expect_paused 300
+key MENU
+wait 1500
+expect_video 0 none
+key SELECT          # Short Film again
+wait 700
+expect_pos 8800 10500
+
+
+# hold MENU while paused at ~10 s: the main menu; then the battery dies
+wait_pos 10000 30000 Film.m4v
+key PLAY
+wait 600
+expect_paused 300
+hold MENU 1500
+wait 1500
+expect_video 0 none
+power_cut
+reboot
+
+# 5. it resumes there; a USB plug while paused at ~11 s (the screen is
+# covered and the session ends; nothing is written at the USB entry),
+# then the battery dies
+wait 4000
+wait_db 45000
+wheel -10 300
+wheel +1 300        # Videos
+wait 600
+key SELECT
+wait 900
+key SELECT          # Movies
+wait 1200
+wheel -10 300
+wheel +3 300        # Short Film
+wait 400
+key SELECT
+wait 700
+expect_pos 9800 11500
+wait_pos 11000 30000 Film.m4v
+key PLAY
+wait 600
+expect_paused 300
+usb_connect
+wait 3000
+usb_disconnect
+wait 3000
+expect_video 0 none
+wait_db 45000
+wait 3000
+power_cut
+reboot
+
+# 6. it resumes there (#165: at ~11.2 s the sound was decoded to its end,
+# and the USB stop was taken for the natural end, which wrote 0 over the
+# pause's spot). Then it plays to its end: Short Film's spot back to none
+# for the other scripts; the screen goes by itself.
+wait 4000
+wait_db 45000
+wheel -10 300
+wheel +1 300        # Videos
+wait 600
+key SELECT
+wait 900
+key SELECT          # Movies
+wait 1200
+wheel -10 300
+wheel +3 300        # Short Film
+wait 400
+key SELECT
+wait 700
+expect_pos 10800 12500
+wait_pos 12000 40000 Film.m4v
+wait 3000
+expect_video 0 none
+quit

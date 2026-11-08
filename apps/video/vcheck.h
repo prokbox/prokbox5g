@@ -246,6 +246,9 @@ struct vcheck_band
        and parsed), [48] (a refusal or first error), FIFO_RD, the
        STATUS replies since the FEED; diag_n 0: none */
     uint32_t diag[9], diag_n;
+    /* the passing band's CLOSE with io->close_flags (bench row sdc): the
+       reply's last word (HP_CLOSE_SD_CODE / _POLLS), 0xFFFFFFFF none */
+    uint32_t sd_close;
 };
 
 struct vcheck_io
@@ -264,6 +267,9 @@ struct vcheck_io
     uint32_t pitch;
     uint16_t *scratch;      /* 512 halfwords, 4-aligned: the readback */
     const uint32_t *sums;   /* the stream's table (vcheck_stream.h) */
+    /* bench row sdc only (0 otherwise): CLOSE's flags for the band that
+       passes (HP_CLOSE_SDRAM_IDLE); its reply word in b->sd_close */
+    uint32_t close_flags;
 };
 
 #define VCHECK_PASS         0

@@ -23,7 +23,7 @@
 #***************************************************************************
 
 # Host test of mpa.c's synthesis switch (P19 19-1c iii, review M1): the
-# inline synthesis the shell runs by default (decoding pinned to the CPU)
+# inline synthesis a run on the CPU takes (ci->cop_assist false)
 # against upstream's single-core path and the second-core thread, PCM
 # hashed per run. Needs ffmpeg for the test MP3 (skipped without it).
 # Compiler: the newest Homebrew gcc-NN, else cc; override with HOSTCC=...
@@ -83,17 +83,19 @@ plain=$(run 1 0 | cut -d' ' -f1 | cut -d: -f2-)
 inl=$(run 2 0 | cut -d' ' -f1)
 thr=$(run 2 1 | cut -d' ' -f1)
 want "inline = plain" "${inl#I:}" "$plain"
-want "pair threaded,inline" "$(run 2 10 | cut -d' ' -f1-2)" "$thr I:$plain"
-want "pair inline,threaded" "$(run 2 01 | cut -d' ' -f1-2)" "I:$plain $thr"
+# The threaded path is bit-exact with the plain one too: mpa.c takes a
+# frame's PCM length from its header, not from synth.pcm.length while the
+# synthesis thread may be writing it (upstream did, so the first frame of a
+# run and of each seek was kept or dropped by timing; this test used to
+# expect the drop and failed under load when it was kept)
+want "threaded = plain" "${thr#T:}" "$plain"
+want "pair threaded,inline" "$(run 2 10 | cut -d' ' -f1-2)" "T:$plain I:$plain"
+want "pair inline,threaded" "$(run 2 01 | cut -d' ' -f1-2)" "I:$plain T:$plain"
 want "pair inline,inline" "$(run 2 00 | cut -d' ' -f1-2)" "I:$plain I:$plain"
 pseek=$(run 1 0 1500 | cut -d' ' -f1 | cut -d: -f2-)
 want "seek inline = plain" "$(run 2 0 1500 | cut -d' ' -f1)" "I:$pseek"
-# Upstream's thread reads synth.pcm.length before the thread writes it,
-# so each run start (and each seek) loses one 1152-sample frame there;
-# the inline path, like the single-core one, keeps it
+want "seek threaded = plain" "$(run 2 1 1500 | cut -d' ' -f1)" "T:$pseek"
 n_plain=${plain#*:}
-n_thr=${thr##*:}
-want "threaded frame" "$((n_plain - n_thr))" 1152
 want "the thread was made" "$(run 2 1 | cut -d' ' -f2)" "threads=1"
 if [ $fail = 0 ]; then
     echo "ok   mp3 synthesis switch (mpa.c inline = single-core path bit-exact: one run, a seek, gapless pairs both ways with the thread; ${n_plain} samples)"

@@ -402,8 +402,93 @@ static void test_cut_safe(void)
     CHECK(s.on && s.offs == 0);     /* no cut implied */
 }
 
+/* AW-1: the release linger (250 ms after a fill that reached its target,
+ * Apple 1.3's BufferedSongReading) and its fallback to the hold */
+static void test_linger(void)
+{
+    struct stor_pwr_tune lt = tune;
+    struct stor_pwr s;
+    long L = HZ / 4;                /* 250 ms */
+
+    lt.hold_dark = 3 * HZ;
+    lt.linger_rewake = 5 * HZ;
+    stor_pwr_init(&s, 0, true);
+    /* none armed: the hold */
+    CHECK(stor_pwr_off_deadline(&s, &lt, 1000, 1000, false) == 1000 + 3 * HZ);
+    /* the fill ends at 1000 (last access 920, storage_sleep()'s rewind):
+       due 250 ms after the release, not 3 s after the access */
+    stor_pwr_linger_arm(&s, 1000, L);
+    CHECK(stor_pwr_linger_live(&s, 920, false));
+    CHECK(stor_pwr_off_deadline(&s, &lt, 920, 920, false) == 1000 + L);
+    CHECK(!stor_pwr_off_due(&s, &lt, 1000 + L, 920, false));
+    CHECK(stor_pwr_off_due(&s, &lt, 1000 + L + 1, 920, false));
+    /* lit: the browsing hold, never the linger */
+    CHECK(!stor_pwr_linger_live(&s, 920, true));
+    CHECK(stor_pwr_off_deadline(&s, &lt, 920, 920, true) == 920 + 60 * HZ);
+    /* an access after the release: the hold again */
+    CHECK(!stor_pwr_linger_live(&s, 1010, false));
+    CHECK(stor_pwr_off_deadline(&s, &lt, 1010, 1010, false) == 1010 + 3 * HZ);
+    /* the driver's own standby commands (activity, not a transfer) at
+       1020 leave the linger live */
+    CHECK(stor_pwr_off_deadline(&s, &lt, 1020, 920, false) == 1000 + L);
+    CHECK(stor_pwr_off_due_x(&s, &lt, 1000 + L + 1, 1020, 920, false));
+    /* never longer than the hold (an old release, a recent access) */
+    stor_pwr_linger_arm(&s, 1000, 10 * HZ);
+    CHECK(stor_pwr_off_deadline(&s, &lt, 1000, 1000, false) == 1000 + 3 * HZ);
+    /* the cut counts, and disarms */
+    stor_pwr_linger_arm(&s, 1000, L);
+    stor_pwr_note_off(&s, 1000 + L + 1, STOR_PWR_R_LINGER, 10);
+    CHECK(s.lingers == 1 && s.linger_cut && s.linger == 0);
+    CHECK(s.ev[0].reason == STOR_PWR_R_LINGER);
+    CHECK(!strcmp(stor_pwr_reason_name(STOR_PWR_R_LINGER), "linger"));
+    /* back on after 6 min (the next refill): no rewake, backoff clear */
+    stor_pwr_note_on(&s, &lt, 1000 + L + 1 + 360 * HZ, 30, STOR_PWR_R_ACCESS,
+                     10);
+    CHECK(s.rewakes == 0 && s.rewake_run == 0 && !s.linger_cut);
+    CHECK(!s.backoff);
+    /* a rewake 2 s after a linger cut: counted; the backoff from the
+       wasted cycle also stops the next linger until it relaxes */
+    {
+        long t0 = 100000;
+        stor_pwr_linger_arm(&s, t0, L);
+        stor_pwr_note_off(&s, t0 + L, STOR_PWR_R_LINGER, 10);
+        stor_pwr_note_on(&s, &lt, t0 + L + 2 * HZ + 30, 30,
+                         STOR_PWR_R_ACCESS, 10);
+        CHECK(s.rewakes == 1 && s.rewake_run == 1 && !s.linger_off);
+        CHECK(s.backoff > 0);
+        stor_pwr_linger_arm(&s, t0 + 5000, L);
+        CHECK(!stor_pwr_linger_live(&s, t0 + 4900, false));
+        /* a second rewake in a row trips the fallback */
+        s.backoff = 0;
+        stor_pwr_note_off(&s, t0 + 5000 + L, STOR_PWR_R_LINGER, 10);
+        stor_pwr_note_on(&s, &lt, t0 + 5000 + L + HZ, 0, STOR_PWR_R_ACCESS,
+                         10);
+        CHECK(s.rewakes == 2 && s.linger_off);
+        /* tripped: arming does nothing, the hold rules */
+        s.backoff = 0;
+        stor_pwr_linger_arm(&s, t0 + 9000, L);
+        CHECK(s.linger == 0);
+        CHECK(stor_pwr_off_deadline(&s, &lt, t0 + 8900, t0 + 8900, false)
+              == t0 + 8900 + 3 * HZ);
+    }
+    /* an idle cut (not a linger) followed by a fast power-on is no
+       rewake; a linger cut then a slow one resets the run */
+    stor_pwr_init(&s, 0, true);
+    stor_pwr_note_off(&s, 100, STOR_PWR_R_IDLE, 10);
+    stor_pwr_note_on(&s, &lt, 150, 0, STOR_PWR_R_ACCESS, 10);
+    CHECK(s.rewakes == 0);
+    /* tick wrap */
+    stor_pwr_init(&s, 0x7fffff00L, true);
+    stor_pwr_linger_arm(&s, 0x7ffffff0L, L);
+    CHECK(stor_pwr_off_due(&s, &lt, (long)(0x7ffffff0UL + 26UL),
+                           0x7fffff80L, false));
+    CHECK(!stor_pwr_off_due(&s, &lt, (long)(0x7ffffff0UL + 25UL),
+                            0x7fffff80L, false));
+}
+
 int main(void)
 {
+    test_linger();
     test_power_fail();
     test_cut_safe();
     test_hold();

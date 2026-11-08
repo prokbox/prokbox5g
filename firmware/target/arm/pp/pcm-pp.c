@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2006 by Michael Sevakis
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -53,6 +54,67 @@ struct dma_data
 
 extern void *fiq_function;
 
+#ifdef HAVE_CORE_LAYOUT_A
+/* ProkBox core layout (A) steps 0b and 2 (firmware/export/corelayout.h,
+ * docs/changes-from-rockbox.md): either core may take the PCM DMA's FIQ.
+ * The vector's one shared target (fiq_function, both cores jump through
+ * it) points at fiq_by_core, which reads the core's identity and jumps
+ * through that core's own target.  Apple's FIQ stub does the same with
+ * PROCESSOR_ID in two banked registers (osos 1.3 0x1000_015C).  The
+ * targets live in IRAM (uncached, both cores read them); each is written
+ * only while that core's source 26 is masked. */
+#if !defined(CPU_PP502x)
+#error "HAVE_CORE_LAYOUT_A: the PP502x FIQ path only"
+#endif
+#include "corelayout.h"
+void *fiq_core_target[NUM_CORES] IBSS_ATTR;
+static unsigned int pcm_core IBSS_ATTR;         /* takes source 26: CPU */
+static volatile int pcm_fiq_busy IBSS_ATTR;     /* pcm_core's FIQ runs */
+static struct corelock pcm_lock_cl IBSS_ATTR;
+static struct pcm_pp_stats pcmpp IBSS_ATTR;
+
+/* The interrupt controller's per-core registers: the COP's sit 0x10
+ * above the CPU's (EN_STAT, EN, DIS, PRIORITY; pp5020.h) */
+#define CORE_INT_REG(cpu_reg, core) \
+    (*(volatile unsigned long *)((uintptr_t)&(cpu_reg) + ((core) << 4)))
+
+void fiq_by_core(void) ICODE_ATTR __attribute__((naked));
+void fiq_by_core(void)
+{
+    /* FIQ mode banks r8-r14: r10 and r12 need no saving */
+    asm volatile (
+        "mov    r10, #0x60000000    \n" /* PROCESSOR_ID */
+        "ldrb   r12, [r10]          \n"
+        "ldr    r10, =fiq_core_target \n"
+        "cmp    r12, #0x55          \n" /* the CPU */
+        "ldreq  pc, [r10]           \n"
+        "ldr    pc, [r10, #4]       \n" /* the COP */
+        ".ltorg                     \n"
+    );
+}
+
+/* A FIQ on a core with no target yet: its source 26 off, counted */
+static void fiq_spurious(void) ICODE_ATTR __attribute__((interrupt("FIQ")));
+static void fiq_spurious(void)
+{
+    if (CURRENT_CORE == CPU)
+    {
+        CPU_INT_DIS = DMA_MASK;
+        pcmpp.spurious[CPU]++;
+    }
+    else
+    {
+        COP_INT_DIS = DMA_MASK;
+        pcmpp.spurious[COP]++;
+    }
+}
+#define FIQ_TARGET_SET(core, fn) (fiq_core_target[(core)] = (void *)(fn))
+#define IF_LAYOUT_A_CORE pcm_core
+#else
+#define IF_LAYOUT_A_CORE CPU
+#define FIQ_TARGET_SET(core, fn) (fiq_function = (void *)(fn))
+#endif /* HAVE_CORE_LAYOUT_A */
+
 /* Dispatch to the proper handler and leave the main vector table alone */
 void fiq_handler(void) ICODE_ATTR __attribute__((naked));
 void fiq_handler(void)
@@ -60,7 +122,11 @@ void fiq_handler(void)
     asm volatile (
         "ldr pc, [pc, #-4]  \n"
     "fiq_function:          \n"
+#ifdef HAVE_CORE_LAYOUT_A
+        ".word fiq_by_core  \n"
+#else
         ".word 0            \n"
+#endif
     );
 }
 
@@ -95,7 +161,13 @@ static struct dma_data dma_play_data IBSS_ATTR =
  * from being called. Split up transfers to a reasonable size that is good as
  * a timer and peaking yet still keeps the FIQ count low.
  */
+/* set by the CPU (sink_set_freq), read by the FIQ: in layout A that is the
+   COP's, so the word is uncached (IRAM) */
+#ifdef HAVE_CORE_LAYOUT_A
+static uint16_t max_dma_chunk_size IBSS_ATTR;
+#else
 static uint16_t max_dma_chunk_size;
+#endif
 
 #if defined(CPU_PP502x)
 /* 16-bit, L-R packed into 32 bits with left in the least significant halfword */
@@ -111,7 +183,11 @@ static inline void dma_tx_init(void)
     /* Enable DMA controller */
     DMA_MASTER_CONTROL |= DMA_MASTER_CONTROL_EN;
     /* FIQ priority for DMA */
+#ifdef HAVE_CORE_LAYOUT_A
+    CORE_INT_REG(CPU_INT_PRIORITY, pcm_core) |= DMA_MASK;
+#else
     CPU_INT_PRIORITY |= DMA_MASK;
+#endif
     /* Enable request?? Not setting or clearing everything doesn't seem to
      * prevent it operating. Perhaps important for reliability (how requests
      * are handled). */
@@ -189,18 +265,43 @@ static void dma_tx_stop(void)
 
 static inline void dma_tx_lock(void)
 {
+#ifdef HAVE_CORE_LAYOUT_A
+    /* pcm_core's source off, from either core: DIS is a write-one-to-clear
+     * register, so the write is atomic [rockbox-derived; that a CPU write
+     * reaches the COP's mask is what bench row pcop checks] */
+    CORE_INT_REG(CPU_INT_DIS, pcm_core) = DMA_MASK;
+#else
     CPU_INT_DIS = DMA_MASK;
+#endif
 }
 
 static inline void dma_tx_unlock(void)
 {
+#ifdef HAVE_CORE_LAYOUT_A
+    CORE_INT_REG(CPU_INT_EN, pcm_core) = DMA_MASK;
+#else
     CPU_INT_EN = DMA_MASK;
+#endif
 }
 
 /* NOTE: direct stack use forbidden by GCC stack handling bug for FIQ */
 void fiq_playback(void) ICODE_ATTR __attribute__((interrupt("FIQ")));
 void fiq_playback(void)
 {
+#ifdef HAVE_CORE_LAYOUT_A
+    /* A lock on the other core masks pcm_core's source and then waits
+     * while this flag is up.  Flag first, then the mask's state: a FIQ
+     * raised just before the mask landed leaves its request pending
+     * (DMA0_STATUS unread) and runs again at the unlock */
+    pcm_fiq_busy = 1;
+    if (UNLIKELY(!(CORE_INT_REG(CPU_INT_EN_STAT, CURRENT_CORE) & DMA_MASK)))
+    {
+        pcmpp.held_off++;
+        pcm_fiq_busy = 0;
+        return;
+    }
+    pcmpp.fiq[CURRENT_CORE]++;
+#endif
     DMA0_STATUS; /* Clear any pending interrupt */
 
     size_t size = (DMA0_CMD & 0xffff) + 4; /* Get size of trasfer that caused
@@ -219,11 +320,18 @@ void fiq_playback(void)
 #endif
         dma_play_data.addr = dma_tx_buf_prepare(dma_play_data.p_r);
 #ifdef HAVE_DEVSTATS
+#ifdef HAVE_CORE_LAYOUT_A
+        /* devstats is the CPU's cached memory: the COP never writes it */
+        if (CURRENT_CORE == CPU)
+#endif
         DEVSTATS_PCM_WB(USEC_TIMER - ds_t0);
 #endif
         dma_tx_start(false);
         pcm_play_dma_status_callback(PCM_DMAST_STARTED);
     }
+#ifdef HAVE_CORE_LAYOUT_A
+    pcm_fiq_busy = 0;
+#endif
 }
 
 #else /* !defined (CPU_PP502x) */
@@ -434,10 +542,108 @@ void fiq_playback(void)
 #endif /* CPU_PP502x */
 
 static void sink_set_freq(uint16_t freq) {
-    max_dma_chunk_size = hw_freq_sampr[freq] >> 6;
+    /* ProkBox #191: whole 32-bit words (DMA0_INCR is 32-bit wide).  The
+     * upstream rate >> 6 gave odd lengths (44.1 kHz: 689 bytes), and every
+     * chunk after the first then started off a word boundary */
+    max_dma_chunk_size = (hw_freq_sampr[freq] >> 6) & ~3;
     audiohw_set_frequency(freq);
 }
 
+#ifdef HAVE_CORE_LAYOUT_A
+/* The locker is not pcm_core: its mask has stopped new FIQs there, and a
+ * FIQ already running there is waited out (bounded; a stuck one is
+ * counted, never hung on) */
+static void fiq_wait_out(void)
+{
+    uint32_t n = 0;
+
+    (void)CORE_INT_REG(CPU_INT_EN_STAT, pcm_core);  /* the mask has landed */
+    while (pcm_fiq_busy)
+    {
+        if (++n > 100000)
+        {
+            pcmpp.lock_stuck++;
+            break;
+        }
+    }
+    if (n)
+    {
+        pcmpp.lock_waits++;
+        if (n > pcmpp.lock_spin_max)
+            pcmpp.lock_spin_max = n;
+    }
+}
+
+/* Either core may lock.  The depth counter and the mask decisions sit
+ * under a corelock (uncached, IRAM); the mask on pcm_core's source is what
+ * keeps the FIQ out once the lock returns, on either core */
+static void sink_lock(void)
+{
+    const unsigned int core = CURRENT_CORE;
+    int status = disable_interrupt_save(IRQ_FIQ_STATUS);
+
+    corelock_lock(&pcm_lock_cl);
+    if (core != pcm_core)
+        pcmpp.lock_xcore++;
+    if (++dma_play_data.locked == 1) {
+        dma_tx_lock();
+        if (core != pcm_core)
+            fiq_wait_out();
+    }
+    corelock_unlock(&pcm_lock_cl);
+    restore_interrupt(status);
+}
+
+static void sink_unlock(void)
+{
+    int status = disable_interrupt_save(IRQ_FIQ_STATUS);
+
+    corelock_lock(&pcm_lock_cl);
+    if (--dma_play_data.locked == 0 && dma_play_data.state != 0) {
+        dma_tx_unlock();
+    }
+    corelock_unlock(&pcm_lock_cl);
+    restore_interrupt(status);
+}
+
+int pcm_pp_set_core(unsigned int core)
+{
+    int status, rc = -1;
+
+    if (core >= NUM_CORES || CURRENT_CORE != CPU)
+        return -1;
+    status = disable_interrupt_save(IRQ_FIQ_STATUS);
+    corelock_lock(&pcm_lock_cl);
+    if (dma_play_data.state == 0 && dma_play_data.locked == 0) {
+        unsigned int old = pcm_core;
+
+        if (core != old) {
+            /* both off; the priority moves; the old core's target goes
+               back to the catch-all.  The next start enables the new one */
+            CORE_INT_REG(CPU_INT_DIS, old) = DMA_MASK;
+            CORE_INT_REG(CPU_INT_DIS, core) = DMA_MASK;
+            CORE_INT_REG(CPU_INT_PRIORITY, old) &= ~DMA_MASK;
+            CORE_INT_REG(CPU_INT_PRIORITY, core) |= DMA_MASK;
+            FIQ_TARGET_SET(old, fiq_spurious);
+            pcm_core = core;
+        }
+        rc = 0;
+    }
+    corelock_unlock(&pcm_lock_cl);
+    restore_interrupt(status);
+    return rc;
+}
+
+unsigned int pcm_pp_core(void)
+{
+    return pcm_core;
+}
+
+void pcm_pp_get_stats(struct pcm_pp_stats *out)
+{
+    *out = pcmpp;
+}
+#else /* !HAVE_CORE_LAYOUT_A */
 /* For the locks, FIQ must be disabled because the handler manipulates
    IISCONFIG and the operation is not atomic - dual core support
    will require other measures */
@@ -462,10 +668,11 @@ static void sink_unlock(void)
 
     restore_fiq(status);
 }
+#endif /* HAVE_CORE_LAYOUT_A */
 
 static void sink_start_pcm(void)
 {
-    fiq_function = fiq_playback;
+    FIQ_TARGET_SET(IF_LAYOUT_A_CORE, fiq_playback);
     dma_play_data.state = 1;
     dma_tx_start(true);
 }
@@ -514,6 +721,13 @@ static void sink_dma_init(void)
     /* Initialize default register values. */
     audiohw_init();
 
+#ifdef HAVE_CORE_LAYOUT_A
+    /* the CPU takes the PCM's FIQ until pcm_pp_set_core() moves it */
+    FIQ_TARGET_SET(CPU, fiq_spurious);
+    FIQ_TARGET_SET(COP, fiq_spurious);
+    corelock_init(&pcm_lock_cl);
+    pcm_core = CPU;
+#endif
     dma_tx_init();
 
     IISCONFIG |= IIS_TXFIFOEN;
@@ -702,7 +916,7 @@ void pcm_rec_dma_start(void *addr, size_t size)
     dma_rec_data.core = processor_id(); /* save initiating core */
 #endif
     /* setup FIQ handler */
-    fiq_function = fiq_record;
+    FIQ_TARGET_SET(CPU, fiq_record);
 
     /* interrupt on full fifo, enable record fifo interrupt */
     dma_rec_data.state = 1;

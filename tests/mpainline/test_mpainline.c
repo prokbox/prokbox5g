@@ -22,8 +22,10 @@
  ****************************************************************************/
 
 /* Host test of P19 19-1c (iii), review M1: lib/rbcodec/codecs/mpa.c's
- * synthesis switch. The shell's default (decoding pinned to the CPU)
- * runs MP3's synthesis inline (ci->cop_assist false) in a build that
+ * synthesis switch. A run on the CPU (a video's soundtrack, a COP that
+ * would not start, the developer CPU arm; the default decodes on the COP
+ * since owner 2026-11-07) runs MP3's synthesis inline
+ * (ci->cop_assist false) in a build that
  * has the second-core path compiled in; that path needs NUM_CORES > 1,
  * so the simulator never runs it. Here mpa.c and libmad build for the
  * host with two "cores" (the synthesis thread on a pthread) and with

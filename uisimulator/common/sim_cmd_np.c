@@ -37,6 +37,7 @@
 #include "metadata.h"
 #include "powermgmt.h"
 #include "sim_db.h"
+#include "pcmbuf.h"
 int sim_mkdir(const char *path);   /* filesystem-sim.c */
 #include "sim_cmd_np.h"
 
@@ -271,6 +272,34 @@ bool sim_cmd_np(const char *cmd, char *argv[], int argc, int lineno)
         fprintf(stderr, "sim_script: play_files %d\n", argc - 1);
         return true;
     }
+#ifdef HAVE_IPOD_UI
+    /* the PCM buffer's counts (pcmbuf.c): real underruns, and the planned
+     * drains at a sample-rate switch between tracks (rate gaps) */
+    if ((!strcmp(cmd, "expect_underruns") || !strcmp(cmd, "expect_rate_gaps"))
+        && argc >= 2)
+    {
+        bool gaps = !strcmp(cmd, "expect_rate_gaps");
+        unsigned long want = strtoul(argv[1], NULL, 10);
+        unsigned long got = gaps ? pcmbuf_rate_gaps() : pcmbuf_underruns();
+
+        if (got != want)
+            fprintf(stderr, "sim_script:%d: %s failed: %lu, want %lu "
+                    "(underruns %lu, rate gaps %lu)\n", lineno, cmd, got,
+                    want, pcmbuf_underruns(), pcmbuf_rate_gaps());
+        else
+            fprintf(stderr, "sim_script: %s ok: %lu\n", cmd, got);
+        return true;
+    }
+    if (!strcmp(cmd, "pcm_starve") && argc >= 2)
+    {
+        extern long sim_pcmbuf_starve_until;
+        long ms = atol(argv[1]);
+
+        sim_pcmbuf_starve_until = current_tick + ms * HZ / 1000;
+        fprintf(stderr, "sim_script: pcm_starve %ld ms\n", ms);
+        return true;
+    }
+#endif
     if (!strcmp(cmd, "repeat") && argc >= 2)
     {
         global_settings.repeat_mode = !strcmp(argv[1], "all") ? REPEAT_ALL

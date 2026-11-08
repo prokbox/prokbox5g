@@ -1,0 +1,25 @@
+# #137 (the Apple fallback, developer switch off, the default): a USB
+# session and its post-USB moment run as before: no park on the ack
+# path, no job, nothing written for the Apple side.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-afb-off.script
+# needs: library
+# timeout: 120
+# log: usb exit
+# nolog: afb park
+# nolog: afb plan
+# nolog: afb unpark
+# golden: skip
+# reset: mainmenu
+
+wait 4000
+wait_db 30000
+rm_file /.rockbox/afb/on
+rm_file /.rockbox/afb/state
+
+usb_connect
+wait 2500
+usb_disconnect
+wait 150
+wait_db 45000
+wait 6000
+shot after_usb              # the shell after the session (shots.sh needs one)

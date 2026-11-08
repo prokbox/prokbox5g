@@ -59,7 +59,14 @@
 /* The caller's memory (player.md section 5): the index window, the read
    and staging pieces and the parameter sets.  The key table comes
    separately, once its size is known (vpc_init's return). */
-#define VPC_WINDOW_RECORDS  2048        /* 24 KB of index, ~68 s at 30 fps */
+#ifndef VPC_WINDOW_RECORDS     /* (tests/video: a small one, to slide) */
+#define VPC_WINDOW_RECORDS  4096        /* 48 KB of index, 2.8 min at 24 fps */
+#endif
+/* #175: the index is read ahead (vpc_source index_post) once less than
+   this much play is left in the window: the slowest storage wake, a disk's
+   2-4 s (docs/hardware.md, "Storage wake"; 600-700 ms on flash), twice.
+   The ring itself is unchanged: 8 s is 240 records at 30 fps */
+#define VPC_IDX_LEAD_US     8000000
 #define VPC_PIECE           2048        /* bytes per copy into the FIFO */
 #define VPC_PARAMS_MAX      512
 #define VPC_MEM_SIZE        (VPC_WINDOW_RECORDS * VIX_RECORD_SIZE + \
@@ -91,6 +98,9 @@
 #define VPC_AUDIO_STILL_US  1000000
 #define VPC_STILL_MAX       3       /* restarts in a row, no picture
                                        between: give up (BVP_E_STILL) */
+/* a still whose pushes waited on the audio's buffer (day 4c): this many
+   pictures from the file itself, then the buffer again */
+#define VPC_DATA_DIRECT_PICS 900
 /* direct_read's waits for "not buffered" before it gives up (about 3 s
    at vplayer's 10 ms wait) */
 #define VPC_DIRECT_TRIES    300
@@ -131,7 +141,27 @@ struct vpc_source
     /* optional: let the buffering thread run (a read answered "not
        buffered yet" and must be retried) */
     void (*wait)(void);
+    /* optional (day 4c): a still on data waits, the sample's file offset
+       the push waited for; the source logs where its buffer stands */
+    void (*report)(void *ctx, uint64_t want_off);
+    /* optional (sitting 4g): is another thread's transfer under way
+       (VPC_DISK_BUSY: a read now rides along, no power-up of its own)?
+       Without it the index is read ahead only at VPC_IDX_LEAD_US */
+    int (*disk)(void *ctx, int how);
+    /* optional (#175): the index read ahead on another thread (the
+       reader; it powers storage up if it must, never this thread).
+       index_post starts a read of n bytes at off into buf: 0 started
+       (buf is the reader's until index_done answers), < 0 not now (the
+       window's end is then read in this thread).  index_done:
+       VPC_NOT_BUFFERED while it runs, then what index_read would have
+       returned.  One at a time; the caller needs wait() with them. */
+    int (*index_post)(void *ctx, uint64_t off, void *buf, uint32_t n);
+    long (*index_done)(void *ctx);
+    /* optional (#175): the index window in records, at most
+       VPC_WINDOW_RECORDS; 0 that (the simulator's video_fault window) */
+    uint32_t window_records;
 };
+#define VPC_DISK_BUSY       0
 
 /* The BCM.  take: from the display driver (0 or < 0); boot: power-cycle,
    start the video image and power the panel on, 0 once it reports ready;
@@ -205,6 +235,18 @@ struct vpc_stats
                                    reset under us): pushed again later */
     uint32_t aborts;            /* packets dropped part way (port or
                                    "not buffered"); params ride again */
+    uint32_t feed_refusals;     /* sessions restarted: the image refused
+                                   a FEED (day 4c) */
+    uint32_t stills_behind;     /* of the stills: no posts going out, the
+                                   stream behind the audio (day 4c) */
+    uint32_t pictures;          /* shown, over every session of the
+                                   play (STATUS word 7's moves) */
+    uint32_t data_stills;       /* of the stills: the data never came
+                                   (pushes waiting on the audio's buffer):
+                                   the samples read from the file */
+    uint32_t idx_reads;         /* #175: index reads ahead, on the reader */
+    uint32_t idx_here;          /* the window ran out while playing: read
+                                   in the player's thread */
 };
 
 /* What is read from a lost image (bcmfw/video/video.h, config.h) */
@@ -257,6 +299,10 @@ struct vpc
     struct vix_header hdr;
     uint8_t *win;               /* index window */
     uint32_t win_first, win_n;
+    uint32_t win_cap;           /* records the window (a ring) holds */
+    uint32_t idx_req_first, idx_req_n;  /* #175: the reader's read, 0 none */
+    bool idx_off;               /* a read ahead failed: this window's end
+                                   is read here */
     uint8_t *piece;             /* read buffer */
     uint8_t *stage;             /* staging (whole-word writes), one of */
     uint8_t *stage_buf[2];      /* two: a piece's DMA may still read the
@@ -336,6 +382,10 @@ struct vpc
                                    the first picture is logged */
     bool read_direct;           /* the source reads the file only (the
                                    retry after a refusal, dev32) */
+    uint32_t direct_left;       /* day 4c: read_direct for a data stall,
+                                   this many pictures more (0: not that) */
+    uint32_t still_data_mark;   /* stats.data_waits when the picture
+                                   last moved */
     bool push_port_err;         /* a push met a port failure: vpc_tick
                                    rides it out or reloads */
     struct vpc_src_fail src_fail;   /* the last source failure (dev42) */
@@ -368,6 +418,8 @@ struct vpc
     uint8_t ub_why;             /* a live invalidation waiting, 0 none */
     bool ub_said;               /* reported this play */
     long ub_a;
+    uint32_t ub_pics;           /* its session's pictures (STATUS word 7:
+                                   since the last OPEN, so a restart's) */
 };
 
 /* The first-use check's live step-down: no band above b for the rest of

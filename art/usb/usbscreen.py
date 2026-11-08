@@ -28,7 +28,7 @@
         defaults: apps/ipodui/usbscreen_data.h, docs/design/usb
 
 The 7G's "Connected" screen (docs/design/spec/system-screens.md, owner
-photos 1165 / photo 1226): a dark header, a slate-to-navy body, a
+photos `usb-connected` / photo `usb-connected-b`): a dark header, a slate-to-navy body, a
 glossy orange disc with a connector pictogram while idle and two sync
 arrows spinning while the host moves data, then "Connected" / "Eject
 before disconnecting." Every shape here is an original drawing.
@@ -195,7 +195,7 @@ def clean_disc(tab):
     return px
 
 # ---------------------------------------------------------------- arrows
-# Two arcs plus two heads (photo 1165): the ring centre line at radius RM,
+# Two arcs plus two heads (photo `usb-connected`): the ring centre line at radius RM,
 # stroke ARC_W; arrow 1 runs clockwise from its square tail at TAIL_DEG
 # (degrees clockwise from 12 o'clock) to its head's base at HEAD_DEG; the
 # head is a triangle HEAD_HW to each side of the centre line, its tip

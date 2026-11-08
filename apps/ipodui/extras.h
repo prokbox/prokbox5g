@@ -25,7 +25,7 @@
 #ifndef IPODUI_EXTRAS_H
 #define IPODUI_EXTRAS_H
 
-/* The Extras list in stock order (spec extras.md; photos 1191/1197),
+/* The Extras list in stock order (spec extras.md; photos `extras-1`/`extras-menu-b`),
  * and the same entries for the Main Menu items (menucfg.h UI_MM_*).
  * Owner W1-F (extras.c, screens/extras.c).
  *
@@ -115,7 +115,7 @@ void extras_go_stopwatch(void);
 /* the Extra an action opens, or -1 */
 int extras_of_action(void (*fn)(void));
 /* Calendars' row panel: the time, today's calendar page, the weekday
- * (photo 1191); the plain Extras panel for rows whose art is not in yet */
+ * (photo `extras-1`); the plain Extras panel for rows whose art is not in yet */
 extern const struct ui_preview_ops ui_preview_x_calendars;
 extern const struct ui_preview_ops ui_preview_x_plain;
 /* The other rows' icons (screens/panels.c, extrasart.h; owner 2026-10-24):

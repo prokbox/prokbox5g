@@ -131,6 +131,10 @@ enum
 #if defined(HAVE_USB_CHARGING_ENABLE) && defined(HAVE_USBSTACK)
     USB_CHARGER_UPDATE,      /* Event */
 #endif
+#ifdef HAVE_USB_CHARGER_PARK
+    USB_PARK_CHECK,          /* Event - ProkBox AW-2: the host window ran out */
+    USB_PARK_REPROBE,        /* Event - ProkBox AW-2: usb_charger_reprobe() */
+#endif
 #ifdef HAVE_BOOTLOADER_USB_MODE
     USB_HANDLED,             /* Bootloader status code */
 #endif
@@ -179,6 +183,9 @@ enum {
 #ifdef USB_ENABLE_IAP
     USB_DRIVER_IAP,
 #endif
+#ifdef USB_ENABLE_ISOPROBE
+    USB_DRIVER_ISOPROBE,    /* ProkBox #144 P1, bench build only */
+#endif
     USB_NUM_DRIVERS
 };
 
@@ -208,6 +215,12 @@ bool usb_inserted(void);
 /* ProkBox: a host (not a charger) has addressed the device and storage
  * may be handed to it; usb_inserted() is also true on VBUS alone */
 bool usb_storage_host_present(void);
+#endif
+#ifdef HAVE_USB_CHARGER_PARK
+/* ProkBox AW-2 (usbpark_core.h): a parked controller (a charger with no
+ * host) gets a fresh host window; any thread, a no-op otherwise. The
+ * shell calls it when the user wakes the screen. */
+void usb_charger_reprobe(void);
 #endif
 /* check whether USB is plugged, note that this is the raw hardware value */
 int usb_detect(void);

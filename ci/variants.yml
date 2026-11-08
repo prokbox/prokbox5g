@@ -1,10 +1,10 @@
 # Phase 9 variant CI (docs/phase9-brief.md section 3.5). DRAFT, NOT ENABLED.
 #
 # GitHub Actions syntax, kept outside .github/workflows/ on purpose: the
-# project is LAN-only on Forgejo today (frozen default O7: a local pairwise
-# runner, scripts/variants.sh; this workflow waits for a public GitHub
-# mirror). To enable it, copy it to .github/workflows/variants.yml (or
-# .forgejo/workflows/ with a runner that has the toolchain).
+# project had no public CI when this was written (frozen default O7: a local
+# pairwise runner, scripts/variants.sh; this workflow waited for the public
+# GitHub repo). To enable it, copy it to .github/workflows/variants.yml (or
+# to any Actions-compatible runner that has the toolchain).
 #
 # Jobs:
 #   compile   all 32 hardware variants (2 storage x 2 RAM x 2 battery

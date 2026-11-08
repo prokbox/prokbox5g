@@ -43,9 +43,22 @@
 #define _IPODUI_UILAT_H_
 
 #include <stdbool.h>
+#include <stdint.h>
 #include "config.h"
 
+/* Sitting 4g: a span's CPU split for another line (the visualiser's
+ * views, "viz cpu codec=C% ui=U% idle=I% cop_idle=K%" at each close), to
+ * tell the PP's contention from the VideoCore's.  uilat_cpu_mark() at the
+ * start, uilat_cpu_log() at the end. */
+struct uilat_cpu
+{
+    uint32_t us, codec, ui, idle, cidle;
+};
+
 #if defined(HAVE_DEVSTATS) && !defined(SIMULATOR)
+#define UILAT_CPU
+void uilat_cpu_mark(struct uilat_cpu *m);
+void uilat_cpu_log(const char *tag, const struct uilat_cpu *m);
 void uilat_input(long btn);     /* input.c: a button event dequeued */
 void uilat_pixels(void);        /* anim.c: an LCD push done */
 void uilat_frame(bool late);    /* anim.c: an animation frame */

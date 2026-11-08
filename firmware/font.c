@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (c) 2002 by Greg Haerr <greg@censoft.com>
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -91,28 +92,53 @@
 #endif
 
 #if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
-/* The shell fonts (apps/ipodui/fonts) carry the Windows-1252 punctuation
- * (curly quotes, en and em dash, ellipsis) in the C1 control slots
- * U+0080..U+009F, which text never displays, so a font stays one small
- * contiguous range; map those code points onto the slots. */
-static inline ucschar_t font_remap(ucschar_t c)
+#include "font_shell_map.h"
+/* The shell fonts (apps/ipodui/fonts) cover U+0020..U+024F, plus the
+ * characters of font_shell_slot[] (quotes, dashes, music notes, euro, ...)
+ * drawn in the C1 control slots U+0080..U+009F; see font_shell_map.h.
+ * Map a code point onto the slot or alias that draws it. Text below
+ * U+0080 and the Latin range pass with two compares. A code point no
+ * table knows is returned as is and drawn as the default character.
+ * Only a font that holds the slots and ends by FONT_SHELL_LAST is
+ * remapped (Heros' last glyph is U+0237, so the shell fonts end there);
+ * a font that reaches further has its own glyphs and is left alone. */
+static ucschar_t font_remap(const struct font *pf, ucschar_t c)
 {
-    static const unsigned short cp1252[32] = {
-        0, 0, 0, 0, 0, 0x2026, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0x2018, 0x2019, 0x201C, 0x201D, 0, 0x2013, 0x2014,
-        0, 0, 0, 0, 0, 0, 0, 0,
-    };
-    int i;
-    if (c < 0x2013 || c > 0x2026)
+    int lo, hi, i;
+
+    if (c < 0x80 || pf->firstchar > 0x80
+        || pf->firstchar + pf->size > FONT_SHELL_LAST + 1)
         return c;
+    if (c <= 0x9F) {
+        /* a raw C1 code point: Windows-1252 text decoded as Latin-1 */
+        c = font_shell_cp1252[c - 0x80];
+        if (!c)
+            return 0xFFFF;      /* out of range: the default character */
+    }
+    if (c <= FONT_SHELL_LAST)
+        return c;
+    lo = 0;
+    hi = (int)(sizeof(font_shell_alias) / sizeof(font_shell_alias[0])) - 1;
+    while (lo <= hi) {
+        int mid = (lo + hi) / 2;
+        if (font_shell_alias[mid][0] == c) {
+            c = font_shell_alias[mid][1];
+            if (c <= FONT_SHELL_LAST && (c < 0x80 || c > 0x9F))
+                return c;
+            break;
+        }
+        if (font_shell_alias[mid][0] < c)
+            lo = mid + 1;
+        else
+            hi = mid - 1;
+    }
     for (i = 0; i < 32; i++)
-        if (cp1252[i] == c)
+        if (font_shell_slot[i] == c)
             return 0x80 + i;
     return c;
 }
 #else
-#define font_remap(c) (c)
+#define font_remap(pf, c) (c)
 #endif
 
 /* Define this to try loading /.rockbox/.glyphcache    *
@@ -863,7 +889,7 @@ int font_get_width(struct font* pf, ucschar_t char_code)
     struct font_cache_entry *e;
 
     /* check input range*/
-    char_code = font_remap(char_code);
+    char_code = font_remap(pf, char_code);
     if (char_code < pf->firstchar || char_code >= pf->firstchar+pf->size)
         char_code = pf->defaultchar;
     char_code -= pf->firstchar;
@@ -886,7 +912,7 @@ const unsigned char* font_get_bits(struct font* pf, ucschar_t char_code)
     const unsigned char* bits;
 
     /* check input range*/
-    char_code = font_remap(char_code);
+    char_code = font_remap(pf, char_code);
     if (char_code < pf->firstchar || char_code >= pf->firstchar+pf->size)
         char_code = pf->defaultchar;
     char_code -= pf->firstchar;
@@ -931,6 +957,23 @@ const unsigned char* font_get_bits(struct font* pf, ucschar_t char_code)
 
     return bits;
 }
+
+#if defined(HAVE_IPOD_UI)
+/* Whether pf draws c with a glyph of its own (or an alias's) rather than
+ * the default character: in range after font_remap() and not a hole the
+ * converter filled with the default glyph. For text readers that mark a
+ * character the type lacks (apps/ipodui/screens/notes.c, contacts.c). */
+bool font_has_glyph(struct font *pf, ucschar_t c)
+{
+    ucschar_t r = font_remap(pf, c);
+
+    if (r < pf->firstchar || r >= pf->firstchar + pf->size)
+        return false;
+    if (r == (ucschar_t)pf->defaultchar)
+        return true;
+    return font_get_bits(pf, c) != font_get_bits(pf, pf->defaultchar);
+}
+#endif
 
 extern int open_pathfmt(char *buf, size_t size, int oflag, const char *pathfmt, ...); /*misc.c*/
 static NO_INLINE int font_path_open_glyphcache(const char *font_path, int oflags)

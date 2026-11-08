@@ -1,4 +1,5 @@
 #!/usr/bin/perl
+# Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
 #             __________               __   ___.
 #   Open      \______   \ ____   ____ |  | _\_ |__   _______  ___
 #   Source     |       _//  _ \_/ ___\|  |/ /| __ \ /  _ \  \/  /
@@ -405,6 +406,9 @@ sub buildzip {
         glob_copy("$ROOT/apps/ipodui/fonts/*.fnt", "$temp_dir/fonts/");
         copy("$ROOT/apps/ipodui/fonts/GUST-FONT-LICENSE.txt",
              "$temp_dir/fonts/GUST-FONT-LICENSE.txt");
+        # ten glyphs come from DejaVu Sans; its licence asks for the notice
+        copy("$ROOT/apps/ipodui/fonts/DEJAVU-FONT-LICENSE.txt",
+             "$temp_dir/fonts/DEJAVU-FONT-LICENSE.txt");
     }
 
     # HAVE_BCMFW_VIDEO or HAVE_BCMFW_MERGED_VIDEO: the resident (and the

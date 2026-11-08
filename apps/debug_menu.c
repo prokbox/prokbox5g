@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2002 Heikki Hannikainen
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -1449,7 +1450,10 @@ static int disk_callback(int btn, struct gui_synclist *lists)
 
     (void)lists;
     int i;
-    char buf[128];
+    /* ProkBox: halfword stores below, so a halfword array (a char array's
+     * alignment is 1; ata_get_info()'s, sitting 4gh) */
+    uint16_t bufw[128 / 2];
+    char *buf = (char *)bufw;
     unsigned short* identify_info = ata_get_identify();
     bool timing_info_present = false;
     (void)btn;
@@ -1457,21 +1461,21 @@ static int disk_callback(int btn, struct gui_synclist *lists)
     simplelist_reset_lines();
 
     for (i=0; i < 20; i++)
-        ((unsigned short*)buf)[i]=htobe16(identify_info[i+27]);
+        bufw[i]=htobe16(identify_info[i+27]);
     buf[40]=0;
     /* kill trailing space */
     for (i=39; i && buf[i]==' '; i--)
         buf[i] = 0;
     simplelist_addline("Model: %s", buf);
     for (i=0; i < 10; i++)
-        ((unsigned short*)buf)[i]=htobe16(identify_info[i+10]);
+        bufw[i]=htobe16(identify_info[i+10]);
     buf[20]=0;
     /* kill trailing space */
     for (i=19; i && buf[i]==' '; i--)
         buf[i] = 0;
     simplelist_addline("Serial number: %s", buf);
     for (i=0; i < 4; i++)
-        ((unsigned short*)buf)[i]=htobe16(identify_info[i+23]);
+        bufw[i]=htobe16(identify_info[i+23]);
     buf[8]=0;
     simplelist_addline(
              "Firmware: %s", buf);

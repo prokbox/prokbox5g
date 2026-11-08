@@ -71,4 +71,9 @@ if python3 "$T/test_policy.py"; then
 else
     echo "FAIL: UI boundary audio-out rule"; rc=1
 fi
+if python3 "$T/test_reach.py"; then
+    echo "ok   UI boundary reach (paths into the file layer found, wraps and CPU callbacks not; file-layer lines isolated)"
+else
+    echo "FAIL: UI boundary reach (febe_reach_check.py, xcore_line_check.py)"; rc=1
+fi
 exit $rc

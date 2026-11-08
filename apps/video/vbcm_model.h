@@ -71,6 +71,11 @@ struct vbm_pkt
 #endif
 #define VBM_LAND_BYTES  4096
 
+/* An OPEN with SDRAM down (the first of a boot, or after a CLOSE with
+   HP_CLOSE_SDRAM_IDLE) runs the bring-up first: sdram_up.h's power-up
+   wait, the one fixed part of it (one attempt on silicon) */
+#define VBM_SDRAM_UP_US 200
+
 /* One 32-bit read through the host port (an address set-up and two
    16-bit reads), in ns, as silicon charged it.  Calibration [silicon]
    sitting 4c (2026-10-26, merged image 23693ff4): the first-use check
@@ -129,6 +134,15 @@ struct vbm
                                    reads as junk until the next boot (the
                                    header overwritten, session 12) */
     bool torn;
+    uint32_t busy_at;           /* knob: this FEED (the count over the
+                                   model's life) is refused once with
+                                   HP_E_BUSY, its queue full as the image
+                                   says it (video.c video_queue), 0 never:
+                                   day 4c's stall, pictures gone and the
+                                   audio on until a scrub */
+    bool feed_err_quiet;        /* knob: FEED errors are counted, never
+                                   replied (a lost reply: the host's
+                                   watchdog alone must see the stall) */
     bool refuse;                /* knob: the stream is unsupported: the
                                    first FEED raises EV_ERROR and the
                                    session stops decoding (HP_ST_ERROR) */
@@ -163,7 +177,15 @@ struct vbm
 
     /* what the tests look at */
     uint32_t boots, cuts, opens, closes, feeds, fifo_errors, statuses;
+    uint32_t busy_refusals;     /* FEEDs refused as a full queue (busy_at too) */
+    uint32_t busy_closes;       /* closes at the last busy_at refusal: a
+                                   CLOSE after it, before the host handled
+                                   it, means a restart overtook it */
     uint32_t fast_opens;        /* OPENs with HP_OPEN_FAST_CLOCK */
+    bool sdram_up;              /* video.c sdram_ready: an OPEN brought it
+                                   up, no CLOSE has idled it since */
+    uint32_t sd_bringups;       /* OPENs that ran the SDRAM bring-up */
+    uint32_t sd_idles;          /* CLOSEs with HP_CLOSE_SDRAM_IDLE that idled */
     bool nomem_fast;            /* knob: OPEN with HP_OPEN_FAST_CLOCK
                                    answers HP_E_NOMEM (SDRAM on PLL A) */
     bool fast;                  /* the session's clock (STATUS word 15) */

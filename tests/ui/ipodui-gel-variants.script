@@ -25,11 +25,11 @@ wait 600
 
 key SELECT          # Music
 wait 800
-wheel +2 300        # "Albums" (photo 1212: Music menu, Albums selected)
+wheel +2 300        # "Albums" (photo `music-menu-b`: Music menu, Albums selected)
 wait 1200
 shot music_menu
 
-key SELECT          # Albums: two-line rows (photo 1211)
+key SELECT          # Albums: two-line rows (photo `albums-list-twoline-b`)
 wait 1500
 wheel +1 300
 wait 1500
@@ -39,7 +39,7 @@ key MENU            # back to Music
 wait 800
 wheel -1 300        # "Artists"
 wait 400
-key SELECT          # full-width single-line list (photo 1213)
+key SELECT          # full-width single-line list (photo `artists-list-b`)
 wait 1200
 wheel +2 300
 wait 800
@@ -53,7 +53,7 @@ wheel +3 300        # Settings
 wait 400
 key SELECT
 wait 1200
-wheel +6 300        # "Backlight" (photo 1186's screen is one level below)
+wheel +6 300        # "Backlight" (photo `backlight-values`'s screen is one level below)
 wait 1200
 shot settings
 quit

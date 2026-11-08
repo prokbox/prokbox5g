@@ -57,7 +57,7 @@ bool ui_lock_gate(void);
  * PLAY to sleep). */
 bool ui_lock_key(const struct ui_input *in);
 
-/* The frosted combination body and the padlock (owner photo 1201),
+/* The frosted combination body and the padlock (owner photo `extras-screenlock-new-combination`),
  * shared by Screen Lock and Volume Limit (one copy, resident). Rows are a
  * function of y, so a band redraw repeats them exactly. */
 #define UI_LOCK_ART_RIGHT 118           /* x right of the padlock */

@@ -8,6 +8,7 @@
  *
  * Copyright (C) 2002 by Heikki Hannikainen, Uwe Freese
  * Revisions copyright (C) 2005 by Gerald Van Baren
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License

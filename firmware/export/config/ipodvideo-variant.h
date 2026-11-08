@@ -179,10 +179,11 @@
 #define HAVE_ATA_UDMA_FORCE
 #endif
 /* Fit-2: work for the second core (firmware/export/cop_job.h,
- * docs/fit2-brief.md). First client: the codec's decode on the COP, on by
- * default in every shell build (owner, 2026-10-18, on session 36's
- * numbers); the developer row turns it off until the next boot, for A/B
- * and a later battery comparison (apps/codec_cop.c). A video's soundtrack
+ * docs/fit2-brief.md). First client: the codec's decode on the COP, the
+ * default in every shell build, the release included (owner, 2026-11-07,
+ * Apple's core layout; first 2026-10-18 on session 36's numbers, pinned
+ * to the CPU 2026-10-24 to 11-07); the developer rows move it to the CPU
+ * for A/B (apps/codec_cop.c place_mode). A video's soundtrack
  * still decodes on the CPU (fit2-brief section 12.1). The simulator has
  * one core: the same code runs every job on the caller's thread and the
  * switch changes nothing. */
@@ -190,19 +191,32 @@
 #define HAVE_COP_CODEC
 #define HAVE_COP_JOBS
 #endif
+/* P19 core layout (A), migration steps 0b-2 (docs/design/
+ * core-layout-decision.md section 7): the COP's own FIQ stack and a
+ * per-core FIQ target (crt0-pp.S, pcm-pp.c), K-1's parked COP
+ * (kernel-pp.c) and the PCM DMA's core chosen at run time (pcm-pp.c).
+ * Every shell build since 0.8.0-rc.6 (owner 2026-11-07): the PCM's FIQ
+ * and refill run on the COP from boot (apps/audio_cop.c proves the route
+ * and falls back to the CPU, logged, if it fails); K-1's park stays a
+ * developer switch, off by default (firmware/export/corelayout.h). */
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER) && !defined(SIMULATOR)
+#define HAVE_CORE_LAYOUT_A
+#endif
 /* P19 S1/S3 (docs/design/p19-ui-on-cop.md section 7): the shell's loop
  * may run on its own "ui" thread, on the CPU or the COP (19-9), with the
  * main thread as the back end's service thread (apps/ipodui/fe_be.h).
- * Every shell build, release included (0.8.0 gate, owner 2026-10-26).
+ * Developer builds only (HAVE_IPOD_UI_DEVMODE): the release compiles
+ * the split and its --wrap stubs out (owner decision 2026-11-05, #148:
+ * Apple's core layout replaces 19-9; -10,880 B of _end).
  * Which one a boot runs: the boot guard's fallback, then (developer
  * builds) the ui_split marker, then the hidden config.cfg key "ipodui ui
  * core", then IPODUI_UI_CORE_DEFAULT below (fe_be.c mode_read()). */
-#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+#if defined(HAVE_IPOD_UI) && defined(HAVE_IPOD_UI_DEVMODE) && !defined(BOOTLOADER)
 #define HAVE_UI_THREAD_SPLIT
 /* The build default, enum fe_mode: 0 the shell on the main thread, 1 its
  * own CPU thread, 2 the COP.  The 0.8.0 flip once bench 4's 19-9 rows
  * (ucop, uck1, uck2, ufeel, upanel, ucop2: underruns=0, offcore=0) pass
- * is this one line, 0 -> 2 (docs/release-plan.md 1.3). */
+ * is this one line, 0 -> 2 (retired for the release, #148). */
 #ifndef IPODUI_UI_CORE_DEFAULT
 #define IPODUI_UI_CORE_DEFAULT 0
 #endif

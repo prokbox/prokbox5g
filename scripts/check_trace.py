@@ -341,6 +341,46 @@ SPLIT_SCREENS = {'menu', 'settings-choice'}
 # device log's "lib open ... us="
 # (USEC_TIMER) to the sim's for the same library once one exists.
 SIM_FACTOR = 400
+
+# Generated numbers a script's comment rules may name instead of pinning
+# them (a regenerated image moves them): `{NAME}`, `{NAME - NAME}`,
+# `{(NAME + 8191) // NAME}` and so on, `{EXPR:08x}` for a format.  NAME is
+# a numeric #define of these headers (the committed, generated ones).
+# Only comment lines are expanded; a brace group that doesn't start with
+# a name or "(" (a regex's \d{2}) is left alone.
+EXPAND_HEADERS = ('apps/video/bcmvideo_image.h', 'apps/video/bcmprobe_image.h',
+                  'bcmfw/jobs/bcmjob.h')
+RE_EXPAND = re.compile(r'\{(\(*[A-Z][A-Z0-9_]*[^{}:]*?)(?::([0-9a-zA-Z]+))?\}')
+RE_EXPR_OK = re.compile(r'^[A-Z0-9_\s()+\-*/%]+$')
+
+
+def header_defines(root):
+    names = {}
+    for h in EXPAND_HEADERS:
+        try:
+            text = open(os.path.join(root, h)).read()
+        except OSError:
+            continue
+        for m in re.finditer(r'^#define\s+([A-Z][A-Z0-9_]*)\s+(0x[0-9a-fA-F]+|\d+)u?\b',
+                             text, re.M):
+            names.setdefault(m.group(1), int(m.group(2), 0))
+    return names
+
+
+def expand_script_lines(script_lines, names):
+    """The comment lines with every {EXPR[:fmt]} replaced; an unknown name
+    or a bad expression raises ValueError (the rule would test nothing)"""
+    def one(m):
+        expr, fmt = m.group(1), m.group(2) or 'd'
+        if not RE_EXPR_OK.match(expr):
+            raise ValueError('bad expression {%s}' % expr)
+        for n in re.findall(r'[A-Z][A-Z0-9_]*', expr):
+            if n not in names:
+                raise ValueError('{%s}: %s is no numeric #define in %s'
+                                 % (expr, n, ', '.join(EXPAND_HEADERS)))
+        return format(eval(expr, {'__builtins__': {}}, dict(names)), fmt)
+    return [RE_EXPAND.sub(one, l) if l.lstrip().startswith('#') else l
+            for l in script_lines]
 DEFAULT_MANIFEST = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                 '..', 'tests', 'ui', 'library_manifest.txt')
 
@@ -2239,8 +2279,9 @@ def check_np(lines, script_lines, ok, bad):
         found = m.group(2) in text
         if m.group(1) and m.group(2).isdigit():
             # a digits-only nolog (a passcode) matches a whole number
-            # only: "1234" inside a tick or a timing like 12345 is not it
-            found = re.search(r'(?<!\d)%s(?!\d)' % m.group(2),
+            # only, and not a key=value field: "1234" inside a tick or a
+            # timing like 12345, or a value like cpu=1234, is not it
+            found = re.search(r'(?<![\d=])%s(?!\d)' % m.group(2),
                               text) is not None
         if m.group(1) and found:
             bad('log contains "%s" (# nolog)' % m.group(2))
@@ -3193,6 +3234,12 @@ def main():
         ok('full updates (%d <= %d)' % (fulls, allowed))
 
     script_lines = list(open(a.script))
+    try:
+        script_lines = expand_script_lines(
+            script_lines, header_defines(
+                os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')))
+    except ValueError as e:
+        bad('script rules: %s' % e)
     required = any(re.match(r'#\s*trace:\s*lib\b', l) for l in script_lines)
     check_library(lines, a, ok, bad, required)
     check_art(lines, ok, bad,

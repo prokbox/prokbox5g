@@ -88,6 +88,7 @@ Each chapter stands on its own and states each fact once, with its tag, and link
 |---|---|---|
 | 4 | [`boot-and-clocks.md`](boot-and-clocks.md) | Power-up from the host, load address and entry, the cache, run control, the 1 MHz counter's clock, PLL, regulator, the switch to 150 MHz and back, power-down order |
 | 5 | [`host-interface.md`](host-interface.md) | The PP5022 side (register banks, handshake bits, bootstrap, timing) and the BCM side (doorbell, interrupt line); Apple's transports and Rockbox's command word; our own protocol as a worked example |
+| 21 | [`program-swap.md`](program-swap.md) | Changing the program on a running core: the cache facts it rests on, Apple's method (cold restart for a new image; libraries the core links and flushes itself), our warm swap, the B13 record and its round-0 regression, ranked recipes, open questions |
 
 ### Part III. Instruction sets
 

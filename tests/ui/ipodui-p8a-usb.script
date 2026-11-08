@@ -14,7 +14,7 @@
 # acceptance is >= 3 distinct frames; check_trace.py's p8a-usb rule
 # asserts only usb:frame y=68 h=80 and io=1). The review sheet is
 # tests/review/p8a-sheets.sh (idle USB-C, idle 30-pin, frames 0/3/6/9,
-# after disconnect, next to photo 1226 / photo 1165); usb-io.mp4 is the
+# after disconnect, next to photo `usb-connected-b` / photo `usb-connected`); usb-io.mp4 is the
 # "record" below (2 s at 10 fps).
 #
 # Needs U1 (usbscreen.c reading sim_usb_glyph_pin, uisimulator/common/

@@ -70,7 +70,7 @@
   - *Default until read: 64 MB, 32 KB clusters.*
 - **O5.** Does the USB-C board or the haptic mod draw power from the 30-pin **accessory 3.3 V** pin? *Default: the accessory supply stays on (stock behaviour) until you confirm it doesn't. The dock line-out stage (OUT2) is switched off either way, since its pins are gone.*
 - **O6.** Rundown method for the battery goal. A full rundown of a 3000 mAh cell at the 5.5G's ~30 mA playback draw is roughly **4 days per firmware** (estimate). *Default: tuning uses partial 24 h A/B runs (same playlist, fixed volume, screen off, compare voltage drop and log), and there is one full rundown each for Apple 1.3 and the final P9 build.*
-- **O7.** CI: is a Forgejo Actions runner available now, or does the matrix wait for GitHub? *Default: wait for GitHub. A local `scripts/variants.sh` runs the pairwise set at integration, and the workflow file is committed but not enabled.*
+- **O7.** CI: is a self-hosted Actions runner available now, or does the matrix wait for GitHub? *Default: wait for GitHub. A local `scripts/variants.sh` runs the pairwise set at integration, and the workflow file is committed but not enabled.*
 
 ---
 
@@ -678,7 +678,7 @@ void powerlog_set(bool on);         /* devmode toggle; off at boot */
 | O3 | Devmode build on the owner's unit | release build |
 | O5 | Accessory 3.3 V rail stays on, independent of `_IAP` (`p9 accessory=1` trace); dock line-out (OUT2) off under `!DOCK30` | rail off too |
 | O6 | Partial 24 h A/B runs for tuning; one full rundown each for the final number | full rundowns only |
-| O7 | Local pairwise runner; workflow not enabled until GitHub | Forgejo runner now |
+| O7 | Local pairwise runner; workflow not enabled until GitHub | self-hosted runner now |
 | V1 | Owner variant: flash, 64, 3000, usbc, haptics | – |
 | V2 | `--ram=64` keeps the runtime 32 MB guard (one boot branch). **Accepted exception** to §1.2's compile-time rule: a mis-install safety net, one compare at boot (L4) | hard 64 |
 | V3 | Large-cell table = upstream table until H3 | estimated table now |

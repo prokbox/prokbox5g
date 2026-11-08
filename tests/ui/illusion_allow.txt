@@ -12,10 +12,10 @@ Based on Rockbox (rockbox.org), licensed under the GNU GPL v2 or later.
 # paragraph 1 (LANG_IPODUI_NOTICE_1, docs/legal.md section 2): the credit
 # to the base firmware (CLAUDE.md rule 1's exception). Listed from after
 # its "%s" (the version string), so a version bump keeps it matching.
-is independent firmware built by the community on Rockbox. Apple Inc. did not make it, has not approved or endorsed it, and does not support it. Apple's own software is not part of it.
+is independent firmware, built by the community on Rockbox. Apple Inc. did not make, approve, endorse or support it, and it contains no Apple software.
 # The notice, paragraph 4 (LANG_IPODUI_NOTICE_4): the copyright notice
 # GPL v2 section 2(c) asks for.
-Copyright © the Rockbox contributors and the ProkBox contributors. Free software under the GNU GPL, version 2 or later. It comes with no warranty.
+© the Rockbox and ProkBox contributors. Free software (GNU GPL v2 or later), no warranty.
 # Legal, paragraph 5 (LANG_IPODUI_LEGAL_5): the long disclaimer's
 # independence text, "a fork of Rockbox" (docs/legal.md section 2).
 ProkBox5g is not Apple software and not an Apple product. It is free, open-source, community-driven firmware: a fork of Rockbox, tuned for the iPod Video (5th generation and 5.5). Apple Inc. did not make it, has not approved or endorsed it, does not support it, and has no connection with this project. If something goes wrong with ProkBox5g, ask the ProkBox community, not Apple.

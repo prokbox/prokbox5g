@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2014 by Michael Sevakis
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -24,6 +25,7 @@
 #include "disk_cache.h"
 #include "fs_defines.h"
 #include "bitarray.h"
+#include "xcore.h"        /* ProkBox p19-copfileio: the CPU-only check */
 
 /* Cache: LRU cache with separately-chained hashtable
  *
@@ -341,6 +343,7 @@ void dc_discard_all(IF_MV_NONVOID(int volume))
 /* expropriate a buffer from the cache */
 void * dc_get_buffer(void)
 {
+    XCORE_FS_ASSERT_CPU("dc_get_buffer");   /* ProkBox: CPU only */
     dc_lock_cache();
 
     void *buf = NULL;

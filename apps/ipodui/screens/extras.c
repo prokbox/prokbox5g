@@ -22,7 +22,7 @@
  ****************************************************************************/
 
 /* The resident Extras list (docs/phase12-brief.md 3.2, M2; spec
- * extras.md; owner photos 1191, photo 1197): a split menu, the eight
+ * extras.md; owner photos `extras-1`, photo `extras-menu-b`): a split menu, the eight
  * Extras in stock order, the highlighted row's art in the panel. Drawn by
  * menu.c and list.c like every other menu; a row opens its Extra through
  * extras_open(). A row whose module this unit cannot run is hidden. */
@@ -31,6 +31,7 @@
 #include "ipodui/menu.h"
 #include "ipodui/preview.h"
 #include "ipodui/extras.h"
+#include "ipodui/modload.h"
 
 #define VIS(name, x) \
     static bool vis_##name(void) { return extras_available(x); }
@@ -62,6 +63,9 @@ static void extras_refresh(void)
     int x;
 
     ui_extras_menu.title = str(LANG_IPODUI_EXTRAS);
+    /* the Games row asks the pack's index: read it now if no module has
+     * since boot (day 4c: Games missing after a video, disk asleep) */
+    mod_index_warm();
     for (x = 0; x < XT__N; x++)
     {
         rows[x].label = str(extras_table[x].title_lang);

@@ -75,8 +75,18 @@ $A2/01 Hum.mp3
 $A2/02 Beeps.mp3
 $A3/Mini Audiobook.m4b"
 
+# The cover is committed (tests/fixtures/sim-art/music-cover.jpg, checked
+# against its SHA256SUMS), not encoded here: an mjpeg encode differs between
+# ffmpeg builds, and the goldens show it. The stamp carries a digest of
+# SHA256SUMS, so a disk primed with other art is regenerated.
+ARTDIR="$ROOT/tests/fixtures/sim-art"
+sha256() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$@"; else shasum -a 256 "$@"; fi; }
+ARTHINT="regenerate with tests/fixtures/sim-art/export.sh and commit the result"
+[ -f "$ARTDIR/SHA256SUMS" ] || { echo "setup_music: $ARTDIR/SHA256SUMS missing; $ARTHINT" >&2; exit 1; }
+WANT="$VERSION-$(sha256 <"$ARTDIR/SHA256SUMS" | cut -c1-12)"
+
 uptodate() {
-    [ -f "$STAMP" ] && [ "$(cat "$STAMP")" = "$VERSION" ] || return 1
+    [ -f "$STAMP" ] && [ "$(cat "$STAMP")" = "$WANT" ] || return 1
     echo "$FILES" | while IFS= read -r f; do
         [ -f "$f" ] || exit 1
     done
@@ -97,11 +107,12 @@ AAC="-c:a aac -b:a 16k -ac 1 -ar 22050"
 rm -rf "$A1" "$A2" "$A3"
 mkdir -p "$A1" "$A2" "$A3"
 
-# Cover: diagonal two-tone gradient with concentric rings (240x240 baseline
-# JPEG, which is what the Rockbox album art decoder handles best).
-$FF -f lavfi -i "gradients=s=240x240:c0=0x1d3557:c1=0xe76f51:x0=0:y0=0:x1=240:y1=240:d=1:seed=1" \
-    -vf "geq=r='r(X,Y)*(1-0.35*lt(mod(hypot(X-120,Y-120),40),12))':g='g(X,Y)*(1-0.35*lt(mod(hypot(X-120,Y-120),40),12))':b='b(X,Y)*(1-0.35*lt(mod(hypot(X-120,Y-120),40),12))',format=yuvj420p" \
-    -frames:v 1 -c:v mjpeg -q:v 4 $IMG_EXACT "$TMP/cover.jpg"
+# Cover: the committed one (export.sh draws it), byte for byte.
+want=$(awk '$2 == "music-cover.jpg" || $2 == "*music-cover.jpg" {print $1}' "$ARTDIR/SHA256SUMS")
+have=$(sha256 "$ARTDIR/music-cover.jpg" 2>/dev/null | cut -d' ' -f1)
+[ -n "$want" ] && [ "$want" = "$have" ] \
+    || { echo "setup_music: music-cover.jpg missing or not as in SHA256SUMS; $ARTHINT" >&2; exit 1; }
+cp "$ARTDIR/music-cover.jpg" "$TMP/cover.jpg"
 
 # mp3 <out> <lavfi-audio> <seconds> <title> <artist> <album> <track> [art]
 mp3() {
@@ -187,5 +198,5 @@ fs = sorted(os.path.join(r, n) for r, _, ns in os.walk(sys.argv[1]) for n in ns)
 for i, f in enumerate(fs):
     os.utime(f, (1767225600 + 10 * i,) * 2)
 ' "$MUSIC"
-echo "$VERSION" > "$STAMP"
+echo "$WANT" > "$STAMP"
 echo "setup_music: mini library written to $MUSIC" >&2

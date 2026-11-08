@@ -839,7 +839,7 @@ void ui_panel_draw_videos(const struct ui_panel *p)
 
 /* -- Extras: world map, clock and date ------------------------------------ */
 
-/* Owner photo main-menu-custom-hold (photo 1189) and extras-clocks-sel: the
+/* Owner photo main-menu-custom-hold (photo `main-menu-custom-hold`) and extras-clocks-sel: the
  * eastern half of a world map in light grey on dark grey, a white 3-D
  * analog clock (~91 px, centre ~(80, 117)) with the numerals 1-12, and
  * the date under it ("Oct 6 2026"). The map is the right half of the
@@ -1134,7 +1134,7 @@ void ui_extras_page_backdrop(int y0, int h, int w)
 
 /* -- P12 Extras rows (W1-F) -------------------------------------------------- */
 
-/* Extras > Calendars (owner photos 1191, photo 1196): the time at the
+/* Extras > Calendars (owner photos `extras-1`, photo `extras-calendars`): the time at the
  * top, today's calendar page, the weekday under it: the Date & Time page
  * drawn with a clock title and a weekday caption. Again at the next
  * minute (the time), which also covers midnight (the page). */
@@ -1174,7 +1174,7 @@ const struct ui_preview_ops ui_preview_x_plain = {
 
 /* -- the Extras rows' icons (owner, 2026-10-24) ----------------------------- */
 
-/* Owner photos 1197, photo 1198: every Extras row has its own icon in
+/* Owner photos `extras-menu-b`, photo `extras-alarms`: every Extras row has its own icon in
  * the panel, on the panel's slate, no title, no caption; centred where
  * the Extras clock sits (80, 117). Original art, extrasart.py. Owner,
  * second pass: one scale for all (about 84 px tall, every foot on one
@@ -1320,7 +1320,7 @@ static void x_icon(const struct ui_panel *p, int art)
     x_icon_refl(&c, art);
 }
 
-/* Alarms (photo 1197, photo 1198; also its own split list and the Main Menu's
+/* Alarms (photo `extras-menu-b`, photo `extras-alarms`; also its own split list and the Main Menu's
  * Alarms item): the alarm clock; 12, 3, 6 and 9 in the small font, then
  * the reflection, so it mirrors them too */
 static int x_alarms_draw(const struct ui_panel *p, const void *arg,

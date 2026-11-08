@@ -1,3 +1,4 @@
+# Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
 #             __________               __   ___.
 #   Open      \______   \ ____   ____ |  | _\_ |__   _______  ___
 #   Source     |       _//  _ \_/ ___\|  |/ /| __ \ /  _ \  \/  /
@@ -17645,15 +17646,15 @@
   user: core
   <source>
     *: none
-    ipodui: "Customize Main Menu"
+    ipodui: "Customise Main Menu"
   </source>
   <dest>
     *: none
-    ipodui: "Customize Main Menu"
+    ipodui: "Customise Main Menu"
   </dest>
   <voice>
     *: none
-    ipodui: "Customize Main Menu"
+    ipodui: "Customise Main Menu"
   </voice>
 </phrase>
 <phrase>
@@ -17662,15 +17663,15 @@
   user: core
   <source>
     *: none
-    ipodui: "Customize Music Menu"
+    ipodui: "Customise Music Menu"
   </source>
   <dest>
     *: none
-    ipodui: "Customize Music Menu"
+    ipodui: "Customise Music Menu"
   </dest>
   <voice>
     *: none
-    ipodui: "Customize Music Menu"
+    ipodui: "Customise Music Menu"
   </voice>
 </phrase>
 <phrase>
@@ -18342,15 +18343,15 @@
   user: core
   <source>
     *: none
-    ipodui: "Eject before disconnecting."
+    ipodui: "Eject it from your computer before you unplug it."
   </source>
   <dest>
     *: none
-    ipodui: "Eject before disconnecting."
+    ipodui: "Eject it from your computer before you unplug it."
   </dest>
   <voice>
     *: none
-    ipodui: "Eject before disconnecting."
+    ipodui: "Eject it from your computer before you unplug it."
   </voice>
 </phrase>
 <phrase>
@@ -19362,15 +19363,15 @@
   user: core
   <source>
     *: none
-    ipodui: "ProkBox5g 0.7.0-alpha"
+    ipodui: "ProkBox5g 0.8.0"
   </source>
   <dest>
     *: none
-    ipodui: "ProkBox5g 0.7.0-alpha"
+    ipodui: "ProkBox5g 0.8.0"
   </dest>
   <voice>
     *: none
-    ipodui: "ProkBox5g 0.7.0-alpha"
+    ipodui: "ProkBox5g 0.8.0"
   </voice>
 </phrase>
 <phrase>
@@ -19443,19 +19444,19 @@
 </phrase>
 <phrase>
   id: LANG_IPODUI_LEGAL_4
-  desc: iPod UI shell, Legal: paragraph 4, the fallback typeface (P11)
+  desc: iPod UI shell, Legal: paragraph 4, the DejaVu Sans glyphs inside ShellSans (P11)
   user: core
   <source>
     *: none
-    ipodui: "Fallback type: Source Sans 3, used under the SIL Open Font License 1.1."
+    ipodui: "Extra symbols: DejaVu Sans, used under the Bitstream Vera Fonts licence."
   </source>
   <dest>
     *: none
-    ipodui: "Fallback type: Source Sans 3, used under the SIL Open Font License 1.1."
+    ipodui: "Extra symbols: DejaVu Sans, used under the Bitstream Vera Fonts licence."
   </dest>
   <voice>
     *: none
-    ipodui: "Fallback type: Source Sans 3, used under the SIL Open Font License 1.1."
+    ipodui: "Extra symbols: DejaVu Sans, used under the Bitstream Vera Fonts licence."
   </voice>
 </phrase>
 <phrase>
@@ -24071,15 +24072,15 @@
   user: core
   <source>
     *: none
-    ipodui: "Turn the wheel to set each digit, then press the center button."
+    ipodui: "Turn the wheel to set each digit, then press the centre button."
   </source>
   <dest>
     *: none
-    ipodui: "Turn the wheel to set each digit, then press the center button."
+    ipodui: "Turn the wheel to set each digit, then press the centre button."
   </dest>
   <voice>
     *: none
-    ipodui: "Turn the wheel to set each digit, then press the center button."
+    ipodui: "Turn the wheel to set each digit, then press the centre button."
   </voice>
 </phrase>
 <phrase>
@@ -25176,15 +25177,15 @@
   user: core
   <source>
     *: none
-    ipodui: "For help, write to prokbox.project@gmail.com, not to Apple. To start Apple's software instead, hold Menu while switching on."
+    ipodui: "For help: prokbox.project@gmail.com, not Apple. Hold Menu at start-up for Apple's software."
   </source>
   <dest>
     *: none
-    ipodui: "For help, write to prokbox.project@gmail.com, not to Apple. To start Apple's software instead, hold Menu while switching on."
+    ipodui: "For help: prokbox.project@gmail.com, not Apple. Hold Menu at start-up for Apple's software."
   </dest>
   <voice>
     *: none
-    ipodui: "For help, write to prokbox.project@gmail.com, not to Apple. To start Apple's software instead, hold Menu while switching on."
+    ipodui: "For help: prokbox.project@gmail.com, not Apple. Hold Menu at start-up for Apple's software."
   </voice>
 </phrase>
 <phrase>
@@ -27293,5 +27294,73 @@
   <voice>
     *: none
     ipodui: "Not Saved"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_DEV_VC_DRIFT
+  desc: iPod UI shell (devmode builds only): Developer > Advanced > Video chip: the drift-on-the-video-chip switch's row
+  user: core
+  <source>
+    *: none
+    ipodui_devmode: "Drift on video chip"
+  </source>
+  <dest>
+    *: none
+    ipodui_devmode: "Drift on video chip"
+  </dest>
+  <voice>
+    *: none
+    ipodui_devmode: "Drift on video chip"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_DEV_VC_DRIFT_STATE
+  desc: iPod UI shell (devmode builds only): the drift switch's row with its state; %s is On, Off, Auto (On) or Still
+  user: core
+  <source>
+    *: none
+    ipodui_devmode: "Drift on video chip: %s"
+  </source>
+  <dest>
+    *: none
+    ipodui_devmode: "Drift on video chip: %s"
+  </dest>
+  <voice>
+    *: none
+    ipodui_devmode: "Drift on video chip"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_DEV_VC_DRIFT_AUTO
+  desc: iPod UI shell (devmode builds only): the drift switch on automatic; %s is what it gives now (On or Off)
+  user: core
+  <source>
+    *: none
+    ipodui_devmode: "Auto (%s)"
+  </source>
+  <dest>
+    *: none
+    ipodui_devmode: "Auto (%s)"
+  </dest>
+  <voice>
+    *: none
+    ipodui_devmode: "Auto"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_DEV_VC_DRIFT_STILL
+  desc: iPod UI shell (devmode builds only): the drift switch showing the still cover (the fallback, for the bench)
+  user: core
+  <source>
+    *: none
+    ipodui_devmode: "Still"
+  </source>
+  <dest>
+    *: none
+    ipodui_devmode: "Still"
+  </dest>
+  <voice>
+    *: none
+    ipodui_devmode: "Still"
   </voice>
 </phrase>

@@ -580,6 +580,17 @@ static unsigned long poison_px(void)
     return n;
 }
 
+/* The rect an owner poisoned (bcmjob_poison_claim) */
+static int pcx, pcy, pcw, pch;
+
+void bcmjob_poison_claim(int x, int y, int w, int h)
+{
+    pcx = x;
+    pcy = y;
+    pcw = w;
+    pch = h;
+}
+
 static void glass(bool on)
 {
     const struct jref_surf *p;
@@ -599,10 +610,16 @@ static void glass(bool on)
         {
             unsigned long n = 0;
             int x;
+            /* the rule: only an owner that poisoned this very rect keeps
+             * the framebuffer's copy checkable (the visualiser's full
+             * screen is not: its copy is the last CPU frame, never stale
+             * in a way a shot could show) */
+            bool poisoned = pcw && gx >= pcx && gy >= pcy
+                            && gx + gw <= pcx + pcw && gy + gh <= pcy + pch;
 
             if (bcmjob_drift_mode() == BCMJOB_DRIFT_PARITY)
                 n = bcmjob_model_diff(gx, gy, gw, gh);
-            else
+            else if (poisoned)
                 for (r = 0; r < gh; r++)
                 {
                     const uint16_t *fb = (const uint16_t *)FBADDR(gx, gy + r);
@@ -760,6 +777,14 @@ static int ovl_pend_kind;
 static long ovl_pend_t0;
 static bool sim_ovl_have(int kind);
 
+static long ovl_stall_ms;            /* the next last piece's block */
+
+void sim_bcm_ovl_stall(long ms)
+{
+    ovl_stall_ms = ms;
+    sim_trace("bcmjob overlay stall ms=%ld", ms);
+}
+
 static int sim_ovl_end(int kind)
 {
     if (ovl_pend != 2)
@@ -767,6 +792,19 @@ static int sim_ovl_end(int kind)
         ovl_pend = 2;
         ovl_pend_kind = kind;
         ovl_pend_t0 = current_tick;
+    }
+    if (ovl_stall_ms > 0)
+    {
+        /* bcm_ovl_stall: the pass blocks inside the last piece's put
+         * past the art thread's waits (it has taken the piece: the leak
+         * path), then the load is refused, so the overlay stays due */
+        long t = ovl_stall_ms * HZ / 1000;
+
+        ovl_stall_ms = 0;
+        sleep(t);
+        ovl_pend = 0;
+        sim_trace("bcmjob overlay refused why=stall rc=%d", BCMJOB_OFF);
+        return BCMJOB_OFF;
     }
     if (TIME_BEFORE(current_tick, ovl_pend_t0 + SIM_OVL_END))
         return BCMJOB_OVL_AGAIN;

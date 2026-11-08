@@ -148,6 +148,14 @@ ARM7TDMI's `SWP` is not used across cores. Rockbox's `corelock` is **Peterson's 
 - At reset both cores run the boot code; Rockbox's crt0 parks the COP with `PROC_SLEEP` until the CPU has remapped memory, wakes it to do its own remap, parks it again, and finally wakes it after the CPU's kernel is ready (`boot.md` §4).
 - A COP image that never reaches its own code is normal: Rockbox's `cop_main` notes that with an old bootloader the COP never starts, so firmware must not assume the COP is available.
 - The COP takes **only Timer 2** interrupts in Rockbox and is woken every tick by the CPU (`core_wake(COP)` in the Timer 1 ISR). An idle COP sleeps in `PROC_SLEEP`.
+- **K-1, the parked COP** (developer builds, `corelayout_set_park()`, off by default; core layout A step 1) [code; host test `tests/copk1`; device: bench row k1]:
+  - The pulse exists so that the COP checks its own timeout list. Every other reason to run on the COP already wakes it: a queue post, a semaphore release and a thread start all reach `core_schedule_wakeup()`, which calls `core_wake()` when the waker is on the other core [code, `thread.c`].
+  - When parked, the tick wakes the COP only when the COP's `core_entry.next_tmo_check` is due. That is the same comparison the kernel uses (`cop_park.h`). The COP is the only writer of that word, and it lives in IRAM.
+  - With nothing pending, the COP's own check sets the word a minute ahead, so a parked idle COP still wakes once a minute.
+  - Apple's COP is the same: it sleeps until the CPU posts work. Apple's wake (`osos 0x100C_FB08`) clears `COP_CTL` bit 31 only if the COP is asleep, which is what `core_wake()`'s mailbox handshake does [apple-RE].
+  - **Host model** (`tests/copk1`) [model]: with the same work, both arms fire every timeout on the same tick. The COP's wakes go from 100/s to 0.017/s with nothing to do, and from 115/s to 27/s with 20 posts a second plus deadlines. A post that comes before a thread's deadline leaves a stale entry, and that entry costs one more wake at the old deadline (upstream's lazy list).
+  - **Handshake model** [model]: upstream's `core_sleep()`/`core_wake()`, transcribed onto two host threads with no tick at all, delivered 200,000 of 200,000 posts. K-1 relies on that handshake alone; the pulse used to hide a lost wake.
+  - **Reporting lag** [code]: `devstats`' per-core idle adds a sleep only when the core wakes, so a parked COP's idle shows up to a minute late. Read `pp_idle_exits` (`HAVE_PP_IRQ_TALLY`) or `pgov` instead, which count a sleep still in progress.
 - Before reloading an image (rolo), the CPU has the COP disable its interrupts, clean+invalidate its cache, disable the cache, signal through an IRAM flag, and jump to physical `0x1000_0000`, where the new image's crt0 parks it again. [rockbox] `rolo.c`
 
 ## 7. What can run on the COP

@@ -149,3 +149,41 @@ int pl_format_row(char *buf, size_t size, const struct pl_row *w,
     }
     return n;
 }
+
+void pl_totals_add(struct pl_totals *t, bool disk_on, bool bl, bool playing)
+{
+    t->subs++;
+    if (disk_on)
+        t->disk_on++;
+    if (bl)
+        t->bl++;
+    else if (playing)
+        t->dark_play++;
+}
+
+static int pl_fmt_ms(char *buf, size_t size, const char *name, uint32_t ms)
+{
+    if (ms == UINT32_MAX)
+        return snprintf(buf, size, " %s=-", name);
+    return snprintf(buf, size, " %s=%lu", name, (unsigned long)(ms / 1000));
+}
+
+int pl_totals_format(char *buf, size_t size, const struct pl_totals *t,
+                     int subs_per_sec, uint32_t idle_cpu_ms,
+                     uint32_t idle_cop_ms)
+{
+    unsigned d = subs_per_sec > 0 ? (unsigned)subs_per_sec : 1;
+    int n = snprintf(buf, size, "up_s=%lu disk_on_s=%lu bl_s=%lu "
+                     "darkplay_s=%lu", (unsigned long)(t->subs / d),
+                     (unsigned long)(t->disk_on / d),
+                     (unsigned long)(t->bl / d),
+                     (unsigned long)(t->dark_play / d));
+
+    if (n < 0 || (size_t)n >= size)
+        return n;
+    n += pl_fmt_ms(buf + n, size - n, "idle_cpu_s", idle_cpu_ms);
+    if ((size_t)n >= size)
+        return n;
+    n += pl_fmt_ms(buf + n, size - n, "idle_cop_s", idle_cop_ms);
+    return n;
+}

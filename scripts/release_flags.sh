@@ -37,6 +37,11 @@ RELEASE_SHAPE="--target=22 --type=n --ipodui --ipodui-release --bcmfw --bcmfw-de
 # owner's mods, 3000 mAh, haptics, USB-C (no dock).
 RELEASE_STOCK="--battery=stock --dock30 --no-haptics"
 RELEASE_MODDED="--battery=3000 --haptics"
+# The matrix release_build.sh builds ({variant} x {storage} x {RAM}); scripts/release_tree.py
+# reads the same lists to keep every file any of them compiles.
+RELEASE_VARIANTS="stock modded"
+RELEASE_STORAGES="flash hdd"
+RELEASE_RAMS="64 32"
 
 # The ProkBox start-up program (bootloader) shipped in every zip.
 RELEASE_BOOT="--target=22 --type=b --ipodui"

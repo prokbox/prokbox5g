@@ -209,6 +209,11 @@ static void keep_reply(struct bvp *v, uint32_t op, uint32_t tag,
     {
         v->errors++;
         v->last_error = n ? (int32_t)body[0] : HP_E_INVAL;
+        if (!v->feed_refused++)
+        {
+            v->feed_err = v->last_error;
+            v->feed_want = n > 1 ? body[1] : ~0u;
+        }
         return;
     }
     for (i = 0; i < BVP_REPLIES; i++)
@@ -375,6 +380,7 @@ static void reset_fifo(struct bvp *v)
     v->done_units = 0;
     v->in_flight = 0;
     v->eos = false;
+    v->feed_refused = 0;        /* a new session's FIFO starts at 0 */
 }
 
 int bvp_open(struct bvp *v, uint32_t w, uint32_t h, uint32_t mode_flags)

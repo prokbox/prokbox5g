@@ -360,6 +360,9 @@ const void *mod_export(enum mod_id id, int slot)
     return mod_export_now(id, slot);
 }
 void mod_warm(enum mod_id id) { (void)id; }
+int mod_index_state(void) { return 1; }
+void mod_index_warm(void) {}
+void mod_index_wait(long ticks) { (void)ticks; }
 #else /* IPODUI_MODULES */
 
 /* The module arena: reserved once at shell start, pinned, counted in the
@@ -1537,6 +1540,57 @@ void mod_warm(enum mod_id id)
         kick(id);
 }
 
+/* Day 4c: the Games row asks the pack's index which games it holds, and
+ * the index is read only by a module's load (the Settings warm-up, the
+ * indexer, a highlight's preload while the disk happens to be awake).  A
+ * boot that had loaded none (a resume straight into playback, then a
+ * video) hid Games until a reboot: entering Extras with the disk asleep
+ * preloads nothing.  Entering Extras now reads the index (spinning up if
+ * need be, as Settings does, #104), and the row stays while it is owed. */
+int mod_index_state(void)
+{
+#ifdef IPODUI_MODLOAD
+    return pak_state;
+#else
+    return 1;
+#endif
+}
+
+void mod_index_warm(void)
+{
+#ifdef IPODUI_MODLOAD
+    if (!arena)
+        return;
+    reap();
+    if (pak_state == 0 && !job.busy && job_post(JOB_OPEN, -1, 0, NULL, 0))
+        UPDATE_TRACE("mod index warm");
+#endif
+}
+
+void mod_index_wait(long ticks)
+{
+#ifdef IPODUI_MODLOAD
+    long until = current_tick + ticks;
+
+    while (arena && pak_state == 0 && !TIME_AFTER(current_tick, until))
+    {
+        reap();
+        if (pak_state != 0)
+            break;
+        if (!job.busy && !job_post(JOB_OPEN, -1, 0, NULL, 0))
+            break;
+        if (!job_wait(until - current_tick))
+            break;
+        reap();
+    }
+    if (pak_state == 0)
+        ui_log("mod", "index wait timed out ms=%ld",
+               (long)ticks * (1000 / HZ));
+#else
+    (void)ticks;
+#endif
+}
+
 
 /* -- common ----------------------------------------------------------------- */
 static long batch_due = -1;             /* tick of the next batch */
@@ -1880,6 +1934,11 @@ static void snap_batch(const char *why, bool create)
     int i, n = 0, fd = -1;
     uint32_t size = 0, magic = SNAP_MAGIC;
 
+    /* the shell's own file work on the UI thread (the post-USB refresh of
+     * the snapshots), not the reads of a module that is on top by then:
+     * its two key-file opens, a second after a USB session, were booked
+     * as a Class A game's steady-state reads (p19-solflake) */
+    modclass_save(true);
     snap_keys_read = false;
     snap_read_keys();
     for (i = 0; i < SNAP__N; i++)
@@ -1916,6 +1975,7 @@ static void snap_batch(const char *why, bool create)
         ui_invalidate(UI_DIRTY_ALL);    /* the framebuffer was scratch */
     }
     snap_keys_read = false;
+    modclass_save(false);
     UPDATE_TRACE("snap batch why=%s n=%d", why, n);
     ui_log("mod", "snap batch why=%s n=%d ms=%ld", why, n,
            (current_tick - t0) * (1000 / HZ));

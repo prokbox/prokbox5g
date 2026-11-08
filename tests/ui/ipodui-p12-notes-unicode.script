@@ -3,13 +3,15 @@
 # Extended-A letters and the curly quotes, dashes and ellipsis; Greek,
 # Cyrillic, Japanese and an emoji show one hollow box per character, never
 # a blank or a guess (the count is logged: missing=). A Windows-1252 note
-# (no valid UTF-8) reads its accents and quotes; its euro sign, which the
-# type lacks, is a box too.
+# (no valid UTF-8) reads its accents and quotes, and its euro sign (in the
+# type since the 0.8.0 glyph coverage, p19-font-coverage d03d19fa71; was a
+# box before). The 20 boxes of the UTF-8 note keep the missing-glyph path
+# covered.
 #   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p12-notes-unicode.script
 # needs: library
 # timeout: 180
 # log: notes view r=4 bytes=214 lines=6 missing=20 enc=0
-# log: notes view r=6 bytes=47 lines=2 missing=1 enc=3
+# log: notes view r=6 bytes=47 lines=2 missing=0 enc=3
 # nolog: modclass viol
 # golden: skip
 # reset: mainmenu

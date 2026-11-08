@@ -85,9 +85,12 @@ export SDL_AUDIODRIVER=${SDL_AUDIODRIVER:-dummy}
 export SIM_LOAD_WATCH=${SIM_LOAD_WATCH:-1}
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 # ipodui-p14a-* scripts (Phase 14a video) run on the sim with the video
-# player by default (build/sim-ui-video); SIM_BUILD overrides, as always.
+# player by default (build/sim-ui-video), ipodui-relvideo-* on the release
+# shape with the player (build/sim-rel-video, p19-relvideos); SIM_BUILD
+# overrides, as always.
 case "$(basename "${1:-}" .script)" in
     ipodui-p14a-*) DEFSIM=build/sim-ui-video ;;
+    ipodui-relvideo-*) DEFSIM=build/sim-rel-video ;;
     *) DEFSIM=build/sim ;;
 esac
 SIM=${SIM_BUILD:-$DEFSIM}
@@ -164,6 +167,13 @@ esac
 if [ $needs_p19c = 1 ]; then
     sh "$ROOT/tests/fixtures/p19c/make_p19c_fixtures.sh" \
         || { echo "p19c fixtures failed" >&2; exit 2; }
+fi
+# Day 4c's long-play episode (tests/fixtures/videos/mksoak.sh: 12 min at
+# the converter's settings) under build/soak-fixtures, idempotent; scripts
+# copy it in with "copy ../../build/soak-fixtures/soak.m4v <dst>"
+if grep -qE '^#[[:space:]]*needs:[[:space:]]*soak' "$script"; then
+    sh "$ROOT/tests/fixtures/videos/mksoak.sh" \
+        || { echo "soak fixture failed" >&2; exit 2; }
 fi
 # Phase 6 audiobook fixtures (chaptered m4b, no chapters, multi-file,
 # ffmpeg CTOC, 1,100 chapters, UTF-8 cuts) under build/ab-fixtures,
@@ -480,7 +490,11 @@ found=0
 while IFS= read -r bmp; do
     [ -f "$bmp" ] || continue
     png="${bmp%.bmp}.png"
-    sips -s format png "$bmp" --out "$png" >/dev/null 2>&1 && rm -f "$bmp"
+    if command -v sips >/dev/null 2>&1; then
+        sips -s format png "$bmp" --out "$png" >/dev/null 2>&1 && rm -f "$bmp"
+    else   # Linux: bit-exact with sips (RGB565 rounding), see bmp2png.py
+        python3 "$ROOT/scripts/bmp2png.py" "$bmp" "$png" && rm -f "$bmp"
+    fi
     echo "$png"
     found=1
 done <"$out/.shots"
@@ -525,6 +539,11 @@ while IFS= read -r ef; do
             || { echo "expect-file: $efp lacks '$eft'" >&2; exit 1; }
     fi
 done || exit 1
+# Hang rule (scripts/check_hang_rule.py): a hang record in sim.log fails the
+# run unless the script says "# expect: hang <slot>".
+hr=$("$ROOT/scripts/check_hang_rule.py" "$script" "$log" 2>&1) \
+    || { echo "$hr" >&2; exit 1; }
+echo "$hr" >&2
 if grep -qE "expect_[a-z_]+ failed|wait_(pos|index) failed" "$log"; then
     echo "script expectation failed (log: $log)" >&2; exit 1
 fi

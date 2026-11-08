@@ -172,16 +172,14 @@ static int utf8_get(const uint8_t *s, int len, int *i)
     return c;
 }
 
-/* What the shell type draws: its range, without the C1 slots, plus the
- * punctuation firmware/font.c maps onto them */
+/* What the shell type draws (firmware/font.c: its range and the
+ * characters it maps onto the C1 slots, font_shell_map.h). A C1 code
+ * point here is a real control, not Windows-1252 text. */
 static bool has_glyph(const struct font *pf, uint32_t cp)
 {
-    if (cp >= 0x2013 && cp <= 0x2026)
-        return cp == 0x2013 || cp == 0x2014 || cp == 0x2018 || cp == 0x2019
-               || cp == 0x201c || cp == 0x201d || cp == 0x2026;
     if (cp >= 0x80 && cp < 0xa0)
         return false;
-    return cp >= pf->firstchar && cp < pf->firstchar + (uint32_t)pf->size;
+    return font_has_glyph((struct font *)pf, cp);
 }
 
 /* s with every character the type lacks as '?', into out (len bytes);

@@ -114,7 +114,7 @@ TABLE = {
         'bcmfw/tests/vcheck_image_test.py', 'bcmfw/tests/vcheck_shim.c',
         'bcmfw/tests/video_test.py',
     ]),
-    'devtest': (12, [
+    'devtest': (30, [  # 38 min measured alone under load 6-9 (2026-10-28)
         'bcmfw/tests/devtest_test.py',
         'bcmfw/bench/',
         'apps/ipodui/devbench.c', 'apps/ipodui/devbench.h',

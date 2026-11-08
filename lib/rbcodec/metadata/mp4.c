@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2005 Magnus Holmgren
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -1023,12 +1024,17 @@ static bool read_mp4_container(int fd, struct mp3entry* id3,
                 uint8_t chapters   = 0;
                 uint64_t timestamp = 0;
 
+                /* A short or corrupt atom: the final seek skips it (an
+                 * unsigned size -= 9 would wrap and seek ~4 GB ahead). */
+                if (size < 9)
+                    break;
+
                 lseek(fd, 8, SEEK_CUR);
                 read_uint8(fd, &chapters);
                 size -= 9;
 
                 /* the first chapter will be used as the lead_trim */
-                if (chapters > 0) {
+                if (chapters > 0 && size >= 8) {
                     read_uint64be(fd, &timestamp);
                     id3->lead_trim = (timestamp * id3->frequency) / 10000000;
                     size -= 8;

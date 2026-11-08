@@ -129,6 +129,7 @@ bool extras_module_live(int mod) { (void)mod; return false; }
 int extras_top_module(void) { return -1; }
 void modclass_top(int m) { (void)m; }
 void modclass_pass(void) {}
+void modclass_save(bool begin) { (void)begin; }
 void ui_boost_burst_poll(void) {}
 int sdk_screen_mod(const struct ui_screen_ops *ops) { (void)ops; return -1; }
 bool xindex_busy(void) { return false; }
@@ -178,6 +179,12 @@ static const char *const names[MOD__N] = {
 
 static struct modpak_hdr hdr;
 static long pak_size;
+/* MODLOAD_DEV_ONLY (the release arena run on a developer pack only): the
+ * modules whose developer image carries developer-only content (xindex:
+ * the Apple fallback's job, #137) are not loaded; the release pack, which
+ * has none of it, is proven to fit by the run on fw-ship's pack and by
+ * modpak.py check --arena at its make zip */
+static unsigned dev_only;
 
 /* A module in the arena: slot 0 is the header its pack entry describes,
  * every other export lies inside it (after its load and after every
@@ -230,6 +237,8 @@ static int load_all(const char *pass)
             fails++;
             continue;
         }
+        if (dev_only & (1u << id))
+            continue;                   /* not this pack's to prove */
         d = mod_export((enum mod_id)id, MOD_SLOT_DESC);
         r = mod_rt_get((enum mod_id)id);
         if (why != MOD_WHY_OK)
@@ -255,7 +264,7 @@ static int load_all(const char *pass)
     }
     /* the survivors, moved by the later loads' compactions */
     for (i = 0; i < hdr.count; i++)
-        if (hdr.ent[i].id < MOD__N
+        if (hdr.ent[i].id < MOD__N && !(dev_only & (1u << hdr.ent[i].id))
             && mod_rt_get((enum mod_id)hdr.ent[i].id)->state == MOD_READY)
             check_module(&hdr.ent[i], pass);
     return loaded;
@@ -307,9 +316,41 @@ int main(int argc, char **argv)
     fclose(o);
     free(buf);
     pak_path = tmp_pak;
+#ifndef HAVE_IPOD_UI_DEVMODE
+    if (getenv("MODLOAD_DEV_ONLY"))
+    {
+        char list[128], *tok, *save;
+
+        snprintf(list, sizeof(list), " %s ", getenv("MODLOAD_DEV_ONLY"));
+        for (tok = strtok_r(list, " ", &save); tok;
+             tok = strtok_r(NULL, " ", &save))
+        {
+            for (i = 0; i < MOD__N && strcmp(names[i], tok); i++)
+                ;
+            if (i == MOD__N)
+            {
+                fprintf(stderr, "FAIL: MODLOAD_DEV_ONLY names %s\n", tok);
+                return 1;
+            }
+            dev_only |= 1u << i;
+        }
+    }
+#endif
     for (i = 0; i < hdr.count; i++)
-        runnable += mod_why_hidden(&hdr.ent[i], MOD_RAM_64,
+    {
+        const struct modpak_ent *e = &hdr.ent[i];
+
+        if (e->id < MOD__N && (dev_only & (1u << e->id)))
+        {
+            printf("note module load path: %s not loaded in this arena "
+                   "(a developer pack's image, %u + %u B .bss; "
+                   "MOD_ARENA_USE %d B)\n", names[e->id],
+                   (unsigned)e->image, (unsigned)e->bss, MOD_ARENA_USE);
+            continue;
+        }
+        runnable += mod_why_hidden(e, MOD_RAM_64,
                                    MOD_CLASSES_BUILT) == MOD_WHY_OK;
+    }
 
     /* 1. the boot's warm-up, before the arena exists (ui_main.c:
      * ui_theme_init() runs before mod_init()) */

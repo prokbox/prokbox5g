@@ -20,6 +20,9 @@
  *   or data that finished after a reset) is never parsed as a CBW.
  * - A CBW is exactly 31 bytes (BOT 6.2.1); anything else is invalid and
  *   handled like a bad signature (both pipes halted, BOT 6.6.1).
+ * - A CBW naming a LUN the device does not have is not meaningful (BOT
+ *   6.2.2); it is refused the same way, before anything indexes per-LUN
+ *   state with it, and the host recovers with Reset Recovery.
  * - A command that fails before its data phase (READ or WRITE out of range
  *   or without a disk, a refused field) halts the data pipe the CBW names,
  *   when dCBWDataTransferLength is not 0, before the failed CSW (BOT 6.7.2
@@ -63,6 +66,12 @@ enum ubot_act {
     UBOT_HOLD_CBW,          /* CBW came first: run it when the CSW is done */
     UBOT_CSW_DONE,          /* the CSW went out: wait for the command */
 };
+
+/* does the CBW name a LUN the device has? (BOT 6.2.2) */
+static inline bool ubot_lun_ok(unsigned int lun, unsigned int nluns)
+{
+    return lun < nluns;
+}
 
 /* the held CBW's own completion: was it a valid CBW? */
 static inline bool ubot_cbw_valid(int status, int length)

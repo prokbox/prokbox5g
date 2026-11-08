@@ -688,6 +688,21 @@ static void band_run(const struct vcheck_io *io, const struct vcheck_stream *s,
         }
     }
 close:
+    if (io->close_flags && b->why == VCHECK_OK)
+    {
+        /* bench row sdc: the passing band's CLOSE with the flags, its
+           reply's last word kept (hostproto.h HP_CLOSE_SD_*) */
+        uint32_t a[2], w[6], got = 0;
+
+        a[0] = v->session;
+        a[1] = io->close_flags;
+        rc = bvp_call(v, HP_OP_CLOSE, a, 2, w, 6, &got, 200000);
+        v->session = 0;
+        b->sd_close = rc == HP_OK && got ? w[got - 1] : 0xFFFFFFFFu;
+        if (rc != HP_OK && dead_rc(rc))
+            goto failed;
+        return;
+    }
     if ((rc = bvp_close(v, 0)) != HP_OK && dead_rc(rc))
         goto failed;
     return;
@@ -752,6 +767,7 @@ int vcheck_run(const struct vcheck_io *io, const struct vcheck_stream *s,
         struct vcheck_band *b = &res->tried[res->n++];
 
         memset(b, 0, sizeof(*b));
+        b->sd_close = 0xFFFFFFFFu;
         b->band = (uint8_t)band;
         t = io->port->now_us();
         band_run(io, s, band, b);

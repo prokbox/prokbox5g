@@ -618,7 +618,7 @@ void np_bar_cols(const struct np_canvas *cv, int x0, int y, int w,
             rows = st->side;            /* the groove's square ends */
         if (tick && rows != st->side)
         {
-            /* a short, subtle chapter tick inside the track (photo 1221):
+            /* a short, subtle chapter tick inside the track (photo `np-audiobook-noart-chapterticks-b`):
              * rows NP_TICK_TOP .. NP_BAR_H - 1 - NP_TICK_TOP */
             np_px t = filled ? st->tick_fill : st->tick;
             for (r = 0; r < NP_BAR_H; r++, dst += cv->stride)

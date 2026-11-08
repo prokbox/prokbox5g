@@ -112,6 +112,15 @@
 #define STOR_PWR_RELAX_S        120
 #define STOR_PWR_PWRUP_BUDGET_S 2
 #define STOR_PWR_READY_S        3
+/* AW-1 (apple-power-catalog.md; docs/storage-choices.md): Apple 1.3
+ * releases the drive 250 ms after a song-buffer read. A fill that reached
+ * its target (buffering.c's storage_sleep()) arms a linger of LINGER_MS
+ * on flash, dark only; a power-on within LINGER_REWAKE_S of a linger's cut
+ * is a rewake, and STOR_PWR_LINGER_TRIP of them in a row put the hold
+ * back for the session. A rotating drive already spins down 200 ms after
+ * that same call (upstream's Q_STORAGE_SLEEP) and keeps its policy. */
+#define STOR_PWR_LINGER_MS      250
+#define STOR_PWR_LINGER_REWAKE_S 5
 
 #ifndef SIMULATOR
 /* firmware/drivers/ata.c */

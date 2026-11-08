@@ -119,9 +119,8 @@ static void play(const char *path, int band, int seconds, bool steps,
             if (vplayer_vclk_mask() >> k & 1)
                 top = k;
         global_settings.repeat_mode = REPEAT_ONE;
-        playlist_create(NULL, NULL);
-        playlist_insert_track(NULL, path, PLAYLIST_INSERT_LAST, false, true);
-        playlist_start(0, 0, 0);
+        /* the video's own queue: never the audio queue (#154) */
+        playlist_play_video_ipodui(path, 0, 0);
         for (s = 0; s < seconds * 10; s++)
         {
             vplayer_pump();
@@ -151,6 +150,7 @@ static void play(const char *path, int band, int seconds, bool steps,
     }
     vplayer_stop();
     audio_stop();
+    playlist_end_video_ipodui();     /* #154 */
     global_settings.repeat_mode = repeat;
     vplayer_set_frame_hook(NULL);
     vplayer_vclk_force(-1);

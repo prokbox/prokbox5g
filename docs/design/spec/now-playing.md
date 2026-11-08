@@ -1,7 +1,7 @@
 *Split from `7g-spec.md` (2026-10-07). Cross-cutting rules are in [index.md](index.md).*
 
 ## Now Playing
-- **Layout:** album art on the left, drawn with a **3D perspective slant** that turns it toward the text, not flat. It spans x 9–145. The left edge is y 33–167 (135 px) and the right edge y 44–162 (119 px) (P11, measured on the rectified owner references np-clean-ufo, np-clean-battlecry and photo 1203; `np-reflection.md` §1). A glossy-floor reflection fades gradually below it and runs on **behind the elapsed time and the bar row**, to nothing by y 219; the times, the bars and the mode rows draw on top of it.
+- **Layout:** album art on the left, drawn with a **3D perspective slant** that turns it toward the text, not flat. It spans x 9–145. The left edge is y 33–167 (135 px) and the right edge y 44–162 (119 px) (P11, measured on the rectified owner references np-clean-ufo, np-clean-battlecry and photo `np-normal-b`; `np-reflection.md` §1). A glossy-floor reflection fades gradually below it and runs on **behind the elapsed time and the bar row**, to nothing by y 219; the times, the bars and the mode rows draw on top of it.
   - Track info starts at **x = 160**: title (black bold, cap 11 ≈ 15–16 px, top y 60), artist (top y 81), album (top y 98), rating stars (y 116–125), "n of N" (top y 133).
   - The rating row is **blank when the track is unrated**; once rated, the stars are small and **near-black**, not gray (photos `np-normal-b.jpg`, `np-rating-4stars-b.jpg`).
   - The title marquee-scrolls, clipped at the text block's left edge with no fade, looping with a wide gap; long artist/album lines end in "...".
@@ -26,6 +26,15 @@
   - **Chapter artwork (owner, 2026-10-06):** when a book has per-chapter images, Now Playing shows the **current chapter's image**, switching at each chapter boundary; otherwise the book cover. The "Resume" plus chapters list shows **titles only**, with no chapter thumbnails. (#39)
   - **Scrubbing (owner, 2026-10-06):** a slow wheel moves normally. A **fast** wheel **snaps between chapter checkpoints** (chapter starts), so a long book can be crossed quickly.
 
+## Audio only: what Now Playing and Play resume (#154, owner 2026-11-06)
+- Play, the resume point ("last played") and Now Playing are only ever **audio**: music, audiobooks and audio podcasts. A video never becomes the queue, the resume point or the Now Playing screen.
+- **A video starts and resumes only from the Videos lists** (Movies, TV Shows, a show's episodes, a podcast's video episodes), at its own saved spot (its database entry's last position; Settings › Videos › Start Playing). It plays on the video screen as its own session, apart from the audio queue.
+- **Its sound never plays on behind the menus.** Leaving the video screen in any way (MENU, hold MENU, the video's end, a failure, another screen pushed over it) stops the picture and the sound together; the file's spot is kept (a natural end resets it).
+- Starting a video stops the music (its spot kept). After the video the music stays stopped, so the main menu has no Now Playing row; **PLAY then resumes the music where it stopped**, in the same queue, and Now Playing shows it. A power cut mid-video leaves the same state: the next start's PLAY resumes the music.
+- **The screen stays lit while a video plays** (no backlight timeout, no dark playback); paused, the normal timeout applies (the player's own hold, `apps/video/vplayer.c`).
+- **A paused video keeps its place through any power-off** (owner, 2026-11-06): the backlight going off, Hold, the idle power-off or sleep, the sleep timer, a low-battery shutdown, a reboot, a USB plug, or the battery simply dying. Half a second into a pause the video's spot is written (one small write per pause, none while it plays), so the next start from the Videos list resumes there. Every stop writes it again as before. Test: `tests/ui/ipodui-p19-video-pause-keep.script`.
+- Stock differs (deliberate, `changes-from-7g.md` 2.52): on the 7G a video replaces the queue and becomes Now Playing (unverified, not captured).
+
 ## Hold-SELECT menu
 
 - **Hold-SELECT menu:** a **full-screen ordinary list** under the normal header (not an overlay): **Add to On-The-Go, Browse Album, Browse Artist, Cancel** from Now Playing (Start Genius first only with Genius data, which we skip) (photo `hold-select-popup-np-b.jpg`).
@@ -44,19 +53,19 @@
     - an inner shadow on the empty track;
     - a glossy blue fill with its own highlight.
     - Both the fill and the empty track read as polished metal or plastic.
-  - **Rating stars:** shiny 3D metallic blue: a lighter top-left facet, a darker lower-right facet, a specular glint, and a thin darker edge, like the glossy stars in photo 1206. The small dots and the text-block stars stay plain.
+  - **Rating stars:** shiny 3D metallic blue: a lighter top-left facet, a darker lower-right facet, a specular glint, and a thin darker edge, like the glossy stars in photo `np-rating-4stars-b`. The small dots and the text-block stars stay plain.
   - Precompute the per-row colour tables and star tiles once (the lean rules), so there is no runtime cost beyond today's blits.
 
-## Bar row materials: detailed from the owner photos (2026-10-08, zoomed crops of photo 1206, 1208, 1209). Authoritative.
+## Bar row materials: detailed from the owner photos (2026-10-08, zoomed crops of photo `np-rating-4stars-b`, `np-shuffle-b`, `np-volume-b`). Authoritative.
 Lighting convention for every pre-drawn object: **light from the top**. Anything raised has a light top edge and a dark bottom edge, and casts a soft shadow downward. Anything sunken has a dark top inner edge and a light bottom inner edge.
 
 **1. Flat reflections under the bar-row objects (head-on, not slanted).**
 - The progress bar (fill and track), the scrubber track, the volume bar and the rating stars each show a **gentle mirror reflection directly below them**: the object's rows mirrored about its own bottom edge, about 4–6 px tall, starting at ~25–30% opacity and fading to 0.
-- Under the blue fill the reflection reads as a **pale cyan strip** (clearly visible in photo 1209). Under the empty grey track it is very faint.
+- Under the blue fill the reflection reads as a **pale cyan strip** (clearly visible in photo `np-volume-b`). Under the empty grey track it is very faint.
 - **No reflection** under the speaker glyphs, the time labels or the shuffle icon.
 - Same maths as `docs/design/np-reflection.md`, but with no perspective: s = 1, and α(d) = A0·exp(−K·d/h_obj) with h_obj the object's height, A0 ≈ 0.28, a 2-row feather.
 
-**2. The bar fill (blue): glossy, gel-like and 3D** (photo 1209 zoom):
+**2. The bar fill (blue): glossy, gel-like and 3D** (photo `np-volume-b` zoom):
 - top ~30%: medium blue with a faint lighter top line (the top highlight);
 - middle: the deepest royal blue;
 - bottom ~30%: **brightening toward cyan**, brightest just above the bottom edge (a glow from light passing through), then a 1 px slightly darker bottom edge;
@@ -69,7 +78,7 @@ Lighting convention for every pre-drawn object: **light from the top**. Anything
 - a 1 px darker bottom line;
 - ends square.
 
-**4. Rating stars (corrected 2026-10-08 after comparing with photo 1206):**
+**4. Rating stars (corrected 2026-10-08 after comparing with photo `np-rating-4stars-b`):**
 - **Shape:** classic, **fat, regular five-point stars** with broad arms and a large body. Not thin or pointy.
 - **Size and spacing:** ~13–14 px wide, set close together (a gap of ~4 px between stars, pitch ~18 px), and centred in the bar row.
 - **Colour:** a **bright azure blue**, with only a **subtle, smooth gel gradient** (slightly lighter in the upper half, slightly richer lower down).
@@ -78,14 +87,14 @@ Lighting convention for every pre-drawn object: **light from the top**. Anything
 - The empty slots are a plain small near-black dot (~3 px).
 - Our first attempt (small, navy outline, busy facets) looked like embossed badges. That is wrong.
 
-**5. The shuffle shelf: OUR CURRENT VERSION IS INVERTED.** The correct model (photo 1208):
+**5. The shuffle shelf: OUR CURRENT VERSION IS INVERTED.** The correct model (photo `np-shuffle-b`):
 - **The shelf is a sunken channel:** a rounded rectangle (radius ~4) recessed into the panel, with a light-grey fill slightly darker than the background, a **dark top inner edge** (1–2 px soft inner shadow) and a **light bottom inner edge** (1 px highlight). The unselected options ("Songs", "Albums") sit **inside the channel**, flat, in near-black bold text, with no borders between them.
 - **The selected option is a raised metallic button inside the channel:**
   - a rounded rect (radius ~3) the size of its cell;
   - a body gradient from a lighter top to a slightly darker bottom (a satin metal or plastic look);
   - a 1 px light top edge;
   - a 1 px darker bottom and right edge;
-  - a **soft drop shadow** (1–2 px, ~20–30% black) falling below it onto the channel floor (visible as the darker smudge under "Off" in photo 1208);
+  - a **soft drop shadow** (1–2 px, ~20–30% black) falling below it onto the channel floor (visible as the darker smudge under "Off" in photo `np-shuffle-b`);
   - **blue** label text.
   - No dark outline box: today's dark border around the selection is what makes ours read as "popped in".
 - When the selection moves, the button moves across the channel; the channel itself never changes. The shelf's slide-in animation is unchanged.
@@ -97,8 +106,8 @@ All of the above is pre-drawn once (row colour tables, a star tile, the shelf ch
   - A **scrollbar on the right edge**, in **our standard UI scrollbar style** (the same thumb and track as the lists; the fidelity audit measures the 7G thumb at 3 px wide), not the photo's older 5.5G style.
   - The header stays our normal 7G header (title or clock, play glyph, battery).
   - The wheel scrolls line by line (as built). The scrollbar thumb is sized and positioned by the visible lines over the total.
-- **Shuffle glyph crossing (owner, 2026-10-08; photo 1208):** where the two shuffle arrows cross, one arrow has a **small split (a gap) on either side of the other**, so one visibly passes over the other, like a road overpass. Use this in **every crossed-arrows shuffle glyph**: the Now Playing shelf icon, the small shuffle indicator under the header, and the Settings → Shuffle tile when on (Songs/Albums). Rounded ends, per the rounded-glyph direction.
-- **Volume speaker glyphs (owner, 2026-10-08; zoomed photo 1209):** both speakers are a small square **magnet body** plus a **flared cone** opening to the right, with a **small separate dot centred just in front of the cone's mouth** (the "little centre bit"). The left (quiet) speaker is exactly that, with no waves. The right (loud) speaker adds **two concentric sound arcs** beyond the dot. Dark grey, softly anti-aliased and rounded; slightly larger than ours. Ours is currently a flat wedge with no dot. **Refinement (owner, 2026-10-08):** the centre dot is the speaker's **dust cap**. The cone's **front rim (the speaker edge) peeks out above and below the dust cap**, as a thin edge, taller than the dot, curving slightly. So the glyph reads as a real speaker: body, cone, rim, then the dust cap in front.
+- **Shuffle glyph crossing (owner, 2026-10-08; photo `np-shuffle-b`):** where the two shuffle arrows cross, one arrow has a **small split (a gap) on either side of the other**, so one visibly passes over the other, like a road overpass. Use this in **every crossed-arrows shuffle glyph**: the Now Playing shelf icon, the small shuffle indicator under the header, and the Settings → Shuffle tile when on (Songs/Albums). Rounded ends, per the rounded-glyph direction.
+- **Volume speaker glyphs (owner, 2026-10-08; zoomed photo `np-volume-b`):** both speakers are a small square **magnet body** plus a **flared cone** opening to the right, with a **small separate dot centred just in front of the cone's mouth** (the "little centre bit"). The left (quiet) speaker is exactly that, with no waves. The right (loud) speaker adds **two concentric sound arcs** beyond the dot. Dark grey, softly anti-aliased and rounded; slightly larger than ours. Ours is currently a flat wedge with no dot. **Refinement (owner, 2026-10-08):** the centre dot is the speaker's **dust cap**. The cone's **front rim (the speaker edge) peeks out above and below the dust cap**, as a thin edge, taller than the dot, curving slightly. So the glyph reads as a real speaker: body, cone, rim, then the dust cap in front.
 - **Remaining-time minus sign (owner, 2026-10-08):** in the original there is a **very slightly larger gap** between the "−" and the digits of the remaining time (e.g. "− 4:06" spacing is a touch wider than ours). Add ~1 px after the minus in the digit atlas or layout, and measure it against the straightened photos (fidelity audit).
 - **When the queue ends (owner, 2026-10-08, corrected):** when a playlist, album or book finishes with Repeat off (or a lone book stops at its end), Now Playing **pops back to the previous screen** (which may be the main menu), as in the brief's default 9.15. The main menu's **"Now Playing" row disappears** once nothing is playing or paused, and must refresh as soon as the main menu is shown again.
 - **Auto-return to Now Playing on idle (owner, 2026-10-08):** while music is playing (or paused, ⚠️ default: playing only), if the user leaves the wheel idle in any menu or list for a while, Now Playing **appears automatically**, pushed on top of the current screen, so MENU goes back to where they were.
@@ -107,9 +116,9 @@ All of the above is pre-drawn once (row colour tables, a star tile, the shelf ch
   - Not on Now Playing itself, the USB screen, a game, or a text or value editor in progress.
   - Implemented from `ui_nowplaying_idle()` (NAV-H2), which already runs every main-loop pass: no new timer source.
   - **Applies to everything that plays** (owner, 2026-10-08): music, audiobooks and podcasts alike.
-- **Layering (owner, 2026-10-08; photo 1206):** the album-art reflection lies **behind** the bar row. The rating stars (and the bars, shelf and speakers) are drawn **on top of** the reflection where they overlap; the reflection shows around them. Implemented through the saved art+reflection band background (`np-reflection.md` §6) for every mode and slide frame.
+- **Layering (owner, 2026-10-08; photo `np-rating-4stars-b`):** the album-art reflection lies **behind** the bar row. The rating stars (and the bars, shelf and speakers) are drawn **on top of** the reflection where they overlap; the reflection shows around them. Implemented through the saved art+reflection band background (`np-reflection.md` §6) for every mode and slide frame.
 - **Chapter counter vs title (owner, 2026-10-08):** the "N of M" counter is the **position of the current chapter entry** in the file's chapter list. It is never parsed from the title. Books often have a Preface, an Introduction or Opening Credits before "Chapter 1", so "Chapter 1" may legitimately be entry 2 or 3. The only rule: the title and the counter must come from the **same entry**, updated together.
-- **Speaker glyphs: exact direction** (orchestrator, from a 16× comparison of the rectified photo 1222 against ours, 2026-10-08; supersedes the earlier speaker bullets where they differ). Device pixels at 1×; build from a 4× supersampled vector, then downsample, so the edges are naturally anti-aliased; near-black (#1c1c1c) on white.
+- **Speaker glyphs: exact direction** (orchestrator, from a 16× comparison of the rectified photo `np-audiobook-volume-b` against ours, 2026-10-08; supersedes the earlier speaker bullets where they differ). Device pixels at 1×; build from a 4× supersampled vector, then downsample, so the edges are naturally anti-aliased; near-black (#1c1c1c) on white.
   - **Quiet (left) speaker, ~10 w × 11 h:**
     - **Body:** a rectangle 3 w × 5 h, vertically centred.
     - **Cone:** from the body's right edge (5 h), flaring with straight diagonal edges to a **mouth 11 h** over 4 px.

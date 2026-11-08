@@ -43,6 +43,11 @@ if [ ! -f "$SOURCE/Synth/.synthetic" ] || [ "$(cat "$SOURCE/Synth/.synthetic")" 
         echo "floor gate: FAIL lib50k.sh could not build the 50k library" >&2
         exit 1; }
 fi
+# the database must be the one this firmware reads (SORTKEY_VERSION and the
+# format defines; tests/perf/ensure50k.sh re-primes a stale one)
+"$ROOT/tests/perf/ensure50k.sh" "$SOURCE" || {
+    echo "floor gate: FAIL the 50k database is stale (tests/perf/ensure50k.sh)" >&2
+    exit 1; }
 # #47: a disk sorted by older grouping rules is re-sorted once at its next
 # boot. The measured scripts start from a library in the current order, as
 # on a device after its first boot (tests/perf/settle50k.sh); the re-sort
@@ -70,7 +75,15 @@ EXTRA_WORK=${FLOOR_EXTRA_WORK:-32768}
 BCM_RES=${FLOOR_BCM_RES:-$(sed -n 's/^#define BCM_RESIDENT_BYTES[[:space:]]*\(0x[0-9a-fA-F]*\).*/\1/p' \
     "$ROOT/firmware/export/config/ipodvideo.h" | head -1)}
 BCM_RES=$((${BCM_RES:-0}))
-echo "floor gate: module arena $ARENA B (apps/ipodui/modload.h MOD_ARENA_SIZE), Extra-open transient $EXTRA_WORK B, resident BCM image $BCM_RES B (BCM_RESIDENT_BYTES)"
+# plus the overlays' session piece buffer (art_bcm.c art_bcm_ovl_buf_init():
+# BCMJOB_DEC_PIECE + XCORE_LINE, taken at the BCM's init and kept, so no
+# overlay load takes memory from playing audio), with the BCM image's stand-in
+OVL_PIECE=$(sed -n 's/^#define BCMJOB_DEC_PIECE[[:space:]]*\([0-9]*\).*/\1/p' "$ROOT/bcmfw/jobs/bcmjob.h" | head -1)
+OVL_BUF=$(( ${FLOOR_OVL_BUF:-$(( ${OVL_PIECE:-0} + 16 ))} ))
+[ "$BCM_RES" -gt 0 ] && [ "${OVL_PIECE:-0}" -gt 0 ] || [ -n "${FLOOR_OVL_BUF:-}" ] \
+    || { echo "floor gate: FAIL could not read BCMJOB_DEC_PIECE (bcmfw/jobs/bcmjob.h)" >&2; exit 2; }
+[ "$BCM_RES" -gt 0 ] && BCM_RES=$((BCM_RES + OVL_BUF))
+echo "floor gate: module arena $ARENA B (apps/ipodui/modload.h MOD_ARENA_SIZE), Extra-open transient $EXTRA_WORK B, BCM $BCM_RES B (BCM_RESIDENT_BYTES + the overlay session buffer $OVL_BUF B)"
 # FLOOR_PARALLEL=1: the 32 MB and 64 MB halves run at the same time (each has
 # its own simulator build and its own disposable clone of the library; their
 # output is printed in RAM order afterwards). Default: one after the other.

@@ -18,10 +18,10 @@
 # np: viz-full
 # golden: skip
 # logbetween: start c0 art bcm overlay pass k=0 off=0 us=\d+ rc=1
-# logbetween: start c0 art bcm overlay pass k=0 off=16384 us=\d+ rc=1
-# logbetween: start c0 art bcm overlay piece k=0 off=16384 n=2996 rc=0
-# logbetween: start c0 art bcm viz load pieces=3 res=0
-# logbetween: c4 c5 art bcm viz load pieces=3 res=0
+# logbetween: start c0 art bcm overlay pass k=0 off={(BCMVIDEO_VIZOVL_BYTES - 1) // BCMJOB_DEC_PIECE * BCMJOB_DEC_PIECE} us=\d+ rc=1
+# logbetween: start c0 art bcm overlay piece k=0 off={(BCMVIDEO_VIZOVL_BYTES - 1) // BCMJOB_DEC_PIECE * BCMJOB_DEC_PIECE} n={BCMVIDEO_VIZOVL_BYTES % BCMJOB_DEC_PIECE} rc=0
+# logbetween: start c0 art bcm viz load pieces={(BCMVIDEO_VIZOVL_BYTES + BCMJOB_DEC_PIECE - 1) // BCMJOB_DEC_PIECE} res=0
+# logbetween: c4 c5 art bcm viz load pieces={(BCMVIDEO_VIZOVL_BYTES + BCMJOB_DEC_PIECE - 1) // BCMJOB_DEC_PIECE} res=0
 # logbetween: c0 c5 bcmjob pass max us=\d+ what=
 # logrange: 0 20000 art bcm overlay pass k=\d off=\d+ us=(\d+)
 # logrange: 0 20000 bcmjob pass max us=(\d+)

@@ -130,6 +130,28 @@ python3 scripts/gate_tools.py ledger-report --gate-id unit-g >"$T/l2.out"
 grep -q 'flaky .*flakyB' "$T/l2.out" && grep -q 'real .*realC' "$T/l2.out" \
     && ok "pool job: ledger rows (flaky, real)" || bad "pool ledger: $(cat "$T/l2.out")"
 
+# --- hang rule (scripts/check_hang_rule.py) ------------------------------------
+HR=$T/hang; mkdir -p "$HR"
+printf 'wait 100\n' >"$HR/plain.script"
+printf '# expect: hang ui\nwait 100\n' >"$HR/expect-ui.script"
+printf 'sim_script: boot\nipodui: hang recovered art after 16s; its record:\nipodui: panic hang record thread=artcache count=1\n' >"$HR/art.log"
+printf 'ipodui: hang recovered ui after 8s; its record:\nipodui: panic hang record thread=main count=1\n' >"$HR/ui.log"
+printf 'sim_script: boot\nipodui: fine\n' >"$HR/clean.log"
+: >"$HR/empty.log"
+hr() { python3 scripts/check_hang_rule.py "$1" "$2" >"$HR/out" 2>&1; echo $?; }
+[ "$(hr "$HR/plain.script" "$HR/art.log")" = 1 ] && grep -q "unexpected hang record on slot 'art'" "$HR/out" \
+    && ok "hang rule: unexpected record fails, names slot" || bad "hang rule unexpected: $(cat "$HR/out")"
+[ "$(hr "$HR/expect-ui.script" "$HR/ui.log")" = 0 ] && grep -q '2 hang records, 0 unexpected' "$HR/out" \
+    && ok "hang rule: expected record passes (counted)" || bad "hang rule expected: $(cat "$HR/out")"
+[ "$(hr "$HR/expect-ui.script" "$HR/art.log")" = 1 ] \
+    && ok "hang rule: expecting ui does not excuse art" || bad "hang rule wrong slot"
+[ "$(hr "$HR/plain.script" "$HR/clean.log")" = 0 ] \
+    && ok "hang rule: clean log passes" || bad "hang rule clean: $(cat "$HR/out")"
+[ "$(hr "$HR/plain.script" "$HR/missing.log")" = 2 ] && grep -q 'inspected nothing' "$HR/out" \
+    && ok "hang rule: missing log fails as inspected nothing" || bad "hang rule missing: $(cat "$HR/out")"
+[ "$(hr "$HR/plain.script" "$HR/empty.log")" = 2 ] \
+    && ok "hang rule: empty log fails as inspected nothing" || bad "hang rule empty"
+
 # --- ledger ------------------------------------------------------------------
 for g in g1 g2 g3; do
     python3 scripts/gate_tools.py ledger-add --gate-id $g --commit abc --script ipodui-x \
@@ -141,6 +163,97 @@ python3 scripts/gate_tools.py ledger-report --gate-id g3 >"$T/ledger.out"
 grep -q 'needs a fix.*ipodui-x' "$T/ledger.out" && ! grep -q 'needs a fix.*ipodui-y' "$T/ledger.out" \
     && grep -q '2 first-attempt' "$T/ledger.out" && ok "ledger report: repeat flaker named, real failure not" \
     || bad "ledger: $(cat "$T/ledger.out")"
+
+# --- primed-disk cache key: the host tools (gl_simdisk_tools) ---------------
+# The audio is encoded at priming time, so the ffmpeg version is in the key,
+# and a video disk primed without libx264 must not be served once it is
+# there. The covers are committed (tests/fixtures/sim-art), so jpegtran is
+# no longer a priming tool and must not churn the key. Stub tools on a PATH
+# of their own; the function uses only builtins and the tools.
+SB=$T/toolbin; mkdir -p "$SB"
+stub() { # name first-line [encoders-text]
+    printf '#!/bin/sh\ncase "$*" in *-encoders*) printf "%%s\\n" "%s";; *) echo "%s"; echo second;; esac\n' \
+        "${3:-}" "$2" >"$SB/$1"; chmod +x "$SB/$1"; }
+tk() { ( PATH=$SB; . scripts/gatelib.sh; gl_simdisk_tools "$1" ) | cksum; }
+stub ffmpeg "ffmpeg version 1" " V..... libx264   H.264"; stub ffprobe "ffprobe version 1"
+k_full=$(tk sim-ui); kv_full=$(tk sim-ui-video)
+stub jpegtran "libjpeg-turbo version 3"; k_jpeg=$(tk sim-ui)
+stub ffmpeg "ffmpeg version 2" " V..... libx264   H.264"; k_newff=$(tk sim-ui)
+stub ffmpeg "ffmpeg version 1" " V..... libopenh264 H.264"; kv_nox264=$(tk sim-ui-video)
+stub ffmpeg "ffmpeg version 1" " V..... libx264   H.264"; k_back=$(tk sim-ui); kv_back=$(tk sim-ui-video)
+if [ "$k_full" != "$k_newff" ] && [ "$kv_full" != "$kv_nox264" ] \
+   && [ "$k_full" = "$k_jpeg" ] && [ "$k_full" = "$k_back" ] && [ "$kv_full" = "$kv_back" ]; then
+    ok "primed-disk key: changes with the ffmpeg version and libx264; not with jpegtran; stable otherwise"
+else
+    bad "primed-disk key: full=$k_full jpeg=$k_jpeg newff=$k_newff back=$k_back video=$kv_full nox264=$kv_nox264 vback=$kv_back"
+fi
+grep -q 'gl_simdisk_tools "${1:-}"' scripts/validate.sh \
+    && ok "primed-disk key: validate.sh's simdisk_cache_key folds in the tools" \
+    || bad "primed-disk key: simdisk_cache_key no longer calls gl_simdisk_tools"
+grep -q '^tests/fixtures/sim-art/SHA256SUMS$' scripts/validate.sh \
+    && ok "primed-disk key: the committed art's SHA256SUMS is a key input" \
+    || bad "primed-disk key: tests/fixtures/sim-art/SHA256SUMS is not in SIMDISK_CACHE_INPUTS"
+
+# --- committed art: the generators copy it byte for byte, or refuse -----------
+# install_art() against a copy of the fixture dir: intact copies exactly;
+# an altered or missing image, or an image left out of SHA256SUMS, refuses.
+AD=$T/art; cp -R tests/fixtures/sim-art "$AD"; OUTD=$T/artout
+ia() { rm -rf "$OUTD"; mkdir -p "$OUTD"
+       python3 -c 'import sys; sys.path.insert(0, "tests/ui"); import setup_library as s
+s.ART_DIR = sys.argv[1]; s.install_art(sys.argv[2])' "$AD" "$OUTD" >"$T/ia.out" 2>&1; }
+if ia && cmp -s "$AD/cover0.jpg" "$OUTD/cover0.jpg" && cmp -s "$AD/cover_progressive.jpg" "$OUTD/cover_progressive.jpg" \
+   && [ "$(ls "$OUTD" | wc -l | tr -d ' ')" = 9 ]; then
+    ok "committed art: 9 images installed, byte-identical"
+else
+    bad "committed art: intact copy did not install exactly: $(cat "$T/ia.out")"
+fi
+printf 'x' >>"$AD/cover3.jpg"
+if ! ia && grep -q 'cover3.jpg does not match SHA256SUMS' "$T/ia.out"; then
+    ok "committed art: an altered image refuses"
+else bad "committed art: an altered image was accepted: $(cat "$T/ia.out")"; fi
+cp tests/fixtures/sim-art/cover3.jpg "$AD/cover3.jpg"; rm "$AD/cover.png"
+if ! ia && grep -q 'cover.png missing' "$T/ia.out"; then
+    ok "committed art: a missing image refuses"
+else bad "committed art: a missing image was accepted: $(cat "$T/ia.out")"; fi
+cp tests/fixtures/sim-art/cover.png "$AD/cover.png"; grep -v ' cover5.jpg$' "$AD/SHA256SUMS" >"$AD/S" && mv "$AD/S" "$AD/SHA256SUMS"
+if ! ia && grep -q 'cover5.jpg not in SHA256SUMS' "$T/ia.out"; then
+    ok "committed art: an image left out of SHA256SUMS refuses"
+else bad "committed art: an unlisted image was accepted: $(cat "$T/ia.out")"; fi
+
+# --- disk clones keep the pinned mtimes ----------------------------------------
+# The test library pins every file's mtime (setup_library.py pin_mtimes):
+# "newest" lists (podcast episodes, O_NEWEST by tag_mtime) depend on it. A
+# plain cp -R reset them on Linux, and the episodes came out in folder
+# order (2 goldens, 1,380 px). simpool_clone here; every clone fallback in
+# the gate scripts by grep.
+CS=$T/clonesrc; mkdir -p "$CS/d"; echo x >"$CS/d/f"; touch -d '2026-01-02 00:00:10 UTC' "$CS/d/f"
+( . scripts/simpool.sh; simpool_clone "$CS" "$T/clonedst" ) >/dev/null 2>&1
+if [ -f "$T/clonedst/d/f" ] && [ "$(python3 -c 'import os,sys; print(int(os.stat(sys.argv[1]).st_mtime))' "$T/clonedst/d/f")" = 1767312010 ]; then
+    ok "disk clones: simpool_clone keeps a pinned mtime"
+else
+    bad "disk clones: simpool_clone lost the pinned mtime ($(ls -l --time-style=+%s "$T/clonedst/d/f" 2>&1))"
+fi
+nf=$(grep -nE '^[[:space:]]+cp -R "\$1" "\$2"' scripts/simpool.sh scripts/validate.sh scripts/validate-classic.sh | wc -l | tr -d ' ')
+np=$(grep -nE '^[[:space:]]+cp -pR "\$1" "\$2"' scripts/simpool.sh scripts/validate.sh scripts/validate-classic.sh | wc -l | tr -d ' ')
+if [ "$nf" = 0 ] && [ "$np" -ge 5 ]; then
+    ok "disk clones: all $np clone fallbacks in the gate scripts keep timestamps (cp -pR)"
+else
+    bad "disk clones: $nf clone fallback(s) without -p, $np with"
+fi
+
+# --- the pool: a job that reads stdin never eats the job list ----------------
+# validate.sh submits from "while read ...; done < pool-order.tsv"; the jobs
+# inherited that stdin, and one that read it (ffmpeg without -nostdin) made
+# later scripts vanish unsubmitted (rc-0.8.0 on Linux: 5 of 563)
+PJ=$T/poolstdin; mkdir -p "$PJ"; seq 1 40 | sed 's/^/ui\tjob/' >"$PJ/order.tsv"
+( . scripts/gatelib.sh
+  pjob() { [ "$1" = job3 ] && head -c 60 >/dev/null; : >"$PJ/ran-$1"; }
+  gl_pool_init 4
+  while IFS=$'\t' read -r _k pn; do gl_pool_submit pjob "$pn"; done <"$PJ/order.tsv"
+  gl_pool_wait ) >/dev/null 2>&1
+np=$(ls "$PJ" | grep -c '^ran-')
+[ "$np" = 40 ] && ok "pool: a job reading stdin leaves the job list alone (40 of 40 ran)" \
+    || bad "pool: only $np of 40 jobs ran (a job ate the job list on stdin)"
 
 rm -rf "$T"
 [ $fails -eq 0 ] && echo "ok   gate machinery" || { echo "gate machinery: $fails failure(s)"; exit 1; }

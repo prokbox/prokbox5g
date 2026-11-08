@@ -339,6 +339,8 @@ The image's vector forms are **unchecked on silicon**: `forms_test.py` counts th
 
 ## 10. Open
 
+- **The FFT on silicon (2026-11-05):** sittings 4e and 4f read `J_VPU` 0x53 with the overlay loaded: BARS and FLIP set, **FFT clear**, so `SPECTRUM` runs the C on the BCM (`../../bcm2722-reference/open-questions.md` #77). A replacement 512-sample kernel built only from silicon-proven forms (a transpose instead of the V16 column stages, separately floored products instead of the vector-B chains), its host model and its bench row: `docs/design/viz-fft-vc.md`, `tests/vizfft/`.
+
 **Shell side built (branch `viz`, 2026-10-25):** `apps/ipodui/viz.{c,h}` and `viz_core.{c,h}` take the tap's window by play position, send it to `SPECTRUM` through a 512 x 1 `J_CLS_STRIP` slot and draw with `BARS` into `J_SURF_FRONT` at x 0, y 30, 320 x 160 (every row 32-byte aligned), `PRESENT`, `FENCE`, the rect owned (`bcmjob_owned_set`) while the view shows; the CPU path (jviz.c on the PP, 256 samples, 15 fps, unboosted) whenever the ops are missing, logged as `viz CPU FALLBACK why=...`. The device path is built too (§12): the driver's `SPECTRUM` reply and `OVERLAY` load, so a device running the display-only image takes the BCM path; the merged image (no `OVERLAY`) logs `why=noop`. Mirror's reflection is drawn on the BCM too since `p19-viz-flip` (§12.5); Scope, Radial and Spectrogram since `p19-viz-ops` (§13: `POLYLINE`, `SEGMENTS`, `PALROW`); Cover and Aura are listed and hidden.
 
 

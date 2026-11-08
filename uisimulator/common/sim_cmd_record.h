@@ -51,6 +51,18 @@
  *                        first, for a deterministic video. Logs "record
  *                        <name> N frames (<ms> ms at <fps> fps)".
  *
+ *   record_start <fps> <name>, record_stop
+ *                        the same dump on a thread of its own, from
+ *                        record_start until record_stop, while the script
+ *                        goes on pressing keys and turning the wheel (a
+ *                        navigation clip). Frame i is due at start + i/fps
+ *                        on the tick (pick an fps whose period is whole
+ *                        ticks: 10, 20, 25); a slot the host overslept
+ *                        repeats the previous frame (a hard link), so the
+ *                        clip keeps real time. Same naming and numbering
+ *                        as "record"; logs "record <name> N frames (R
+ *                        repeated, <fps> fps, background)".
+ *
  * Returns false for any other command. */
 bool sim_cmd_record(const char *cmd, char *argv[], int argc, int lineno);
 

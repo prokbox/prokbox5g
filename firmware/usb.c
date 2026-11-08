@@ -38,6 +38,9 @@
 #include "string.h"
 #ifdef HAVE_USBSTACK
 #include "usb_core.h"
+#ifdef USB_ENABLE_ISOPROBE
+#include "usb_isoprobe.h"       /* ProkBox #144 P1, bench build only */
+#endif
 #endif
 #include "logf.h"
 #include "screendump.h"
@@ -124,6 +127,42 @@ static struct usb_handover_info hand;
 #define HAND_STAT(x)
 #endif
 static struct event_queue usb_queue SHAREDBSS_ATTR;
+#ifdef HAVE_USB_CHARGER_PARK
+/* ProkBox AW-2 (firmware/export/usbpark_core.h): on a charger with no
+ * host, the controller is parked (clocks off, the PLL hold released)
+ * after the host window; usb_state stays as it was, so the shell still
+ * sees USB power and the charge current the stack chose is kept */
+#include "usbpark_core.h"
+#include "pwr_awake.h"
+static struct usbpark park;
+static struct timeout park_tmo;
+static int park_ma;                     /* the charge current kept */
+
+static int park_tmo_cb(struct timeout *tmo)
+{
+    (void)tmo;
+    queue_post(&usb_queue, USB_PARK_CHECK, 0);
+    return 0;
+}
+
+static void park_arm(void)
+{
+    timeout_register(&park_tmo, park_tmo_cb, park.window + 1, 0);
+}
+
+/* a host spoke: never parked until VBUS drops */
+static void park_host(void)
+{
+    if (usbpark_host(&park))
+    {
+        pwraw_note(PWRAW_USBOFF, false, (uint32_t)park.window,
+                   park.late_hosts);
+        if (park.gave_up)
+            pwraw_fail(PWRAW_USBOFF, (uint32_t)park.window,
+                       park.late_hosts);
+    }
+}
+#endif
 #ifdef USB_ENABLE_HID
 static bool usb_hid = true;
 #endif
@@ -241,6 +280,10 @@ static inline void usb_configure_drivers(int for_state)
 #ifdef USB_ENABLE_CHARGING_ONLY
         usb_core_enable_driver(USB_DRIVER_CHARGING_ONLY, true);
 #endif
+#ifdef USB_ENABLE_ISOPROBE
+        /* ProkBox #144 P1: charge-only, so no mass storage beside it */
+        usb_core_enable_driver(USB_DRIVER_ISOPROBE, usb_isoprobe_armed());
+#endif
 
         usb_attach();
         break;
@@ -264,6 +307,9 @@ static inline void usb_configure_drivers(int for_state)
 #endif
 #ifdef USB_ENABLE_CHARGING_ONLY
         usb_core_enable_driver(USB_DRIVER_CHARGING_ONLY, false);
+#endif
+#ifdef USB_ENABLE_ISOPROBE
+        usb_core_enable_driver(USB_DRIVER_ISOPROBE, false);
 #endif
 
         usb_attach();
@@ -441,6 +487,9 @@ static void NORETURN_ATTR usb_thread(void)
 
 #ifdef HAVE_USBSTACK
         case USB_NOTIFY_SET_ADDR:
+#ifdef HAVE_USB_CHARGER_PARK
+            park_host();
+#endif
 #ifdef USB_DETECT_BY_REQUEST
             /* first sign of a host that addresses before anything else;
              * the class drivers must be on before interfaces are assigned */
@@ -460,11 +509,17 @@ static void NORETURN_ATTR usb_thread(void)
             /* Even when extracted: a reset that raced the cable pull must
              * still clear usb_core's bus_reset_pending (harmless if the
              * core has already exited). */
+#ifdef HAVE_USB_CHARGER_PARK
+            park_host();
+#endif
             usb_core_handle_notify(ev.id, ev.data);
             break;
         case USB_TRANSFER_COMPLETION:
             if(usb_state <= USB_EXTRACTED)
                 break;
+#ifdef HAVE_USB_CHARGER_PARK
+            park_host();
+#endif
 
 #ifdef USB_DETECT_BY_REQUEST
             usb_state = USB_INSERTED;
@@ -489,6 +544,10 @@ static void NORETURN_ATTR usb_thread(void)
             usb_state = USB_POWERED;
 
             usb_stack_enable(true);
+#ifdef HAVE_USB_CHARGER_PARK
+            usbpark_vbus(&park, true, current_tick);
+            park_arm();
+#endif
 #ifndef BOOTLOADER
 #ifndef HAVE_USB_POWER
             int usb_mode = -1;
@@ -542,8 +601,21 @@ static void NORETURN_ATTR usb_thread(void)
             if(usb_state == USB_EXTRACTED)
                 break;
 
+#ifdef HAVE_USB_CHARGER_PARK
+            timeout_cancel(&park_tmo);
+            if(park.state == USBPARK_PARKED)
+            {
+                /* already off: what usb_core_exit() leaves, 100 mA */
+                usb_charging_maxcurrent_change(100);
+                pwraw_note(PWRAW_USBOFF, false, 0, park.parks);
+            }
+            else
+#endif
             if(usb_state == USB_POWERED || usb_state == USB_INSERTED)
                 usb_stack_enable(false);
+#ifdef HAVE_USB_CHARGER_PARK
+            usbpark_vbus(&park, false, current_tick);
+#endif
 
 #ifdef IPOD_ACCESSORY_PROTOCOL
             iap_reset_state(IF_IAP_MP(0));
@@ -589,6 +661,38 @@ static void NORETURN_ATTR usb_thread(void)
 #ifdef USB_DRIVER_CLOSE
         case USB_QUIT:
             thread_exit();
+            break;
+#endif
+
+#ifdef HAVE_USB_CHARGER_PARK
+        case USB_PARK_CHECK:
+            /* the window ran out with no host: a charger. Never with the
+             * storage handed over or a USB screen owed */
+            if(usbpark_due(&park, current_tick) &&
+               pwraw_active(PWRAW_USBOFF) &&
+               (usb_state == USB_INSERTED || usb_state == USB_POWERED) &&
+               !exclusive_storage_requested && !exclusive_storage_enabled)
+            {
+                park_ma = usb_charging_maxcurrent();
+                usb_stack_enable(false);
+                usb_charging_maxcurrent_change(park_ma);
+                usbpark_parked(&park);
+                pwraw_note(PWRAW_USBOFF, true, (uint32_t)park_ma,
+                           park.parks);
+            }
+            break;
+        case USB_PARK_REPROBE:
+            if(usbpark_reprobe(&park, current_tick))
+            {
+                usb_stack_enable(true);
+                /* the class drivers and the attach again, as on a VBUS
+                 * edge (usb_set_host_present() acts on a change only) */
+                usb_host_present = false;
+                usb_set_host_present(true);
+                pwraw_note(PWRAW_USBOFF, false, (uint32_t)park.window,
+                           park.reprobes);
+                park_arm();
+            }
             break;
 #endif
 
@@ -795,6 +899,10 @@ void usb_init(void)
     usb_enable(false);
 
     queue_init(&usb_queue, true);
+#ifdef HAVE_USB_CHARGER_PARK
+    usbpark_init(&park, USBPARK_WINDOW_MS * HZ / 1000,
+                 USBPARK_WINDOW_MAX_MS * HZ / 1000);
+#endif
 
     usb_thread_entry = create_thread(usb_thread, usb_stack,
                        sizeof(usb_stack), 0, usb_thread_name
@@ -861,6 +969,14 @@ void usb_close(void)
     thread_wait(thread);
 }
 #endif /* USB_DRIVER_CLOSE */
+
+#ifdef HAVE_USB_CHARGER_PARK
+void usb_charger_reprobe(void)
+{
+    if(park.state == USBPARK_PARKED)
+        queue_post(&usb_queue, USB_PARK_REPROBE, 0);
+}
+#endif
 
 bool usb_inserted(void)
 {

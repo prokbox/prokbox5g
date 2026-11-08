@@ -50,6 +50,19 @@
 #include <string.h>
 #include "firmware/usbstack/usb_storage_bot.h"
 
+/* The run must be the same on every host: libc rand() is not (glibc and
+ * macOS give different sequences, and on glibc the old rules' run never
+ * hit a double CSW, so the self-check failed). A fixed LCG instead. */
+static unsigned long long bot_rng = 1;
+static void bot_srand(unsigned seed) { bot_rng = seed; }
+static int bot_rand(void)
+{
+    bot_rng = bot_rng * 6364136223846793005ULL + 1442695040888963407ULL;
+    return (int)(bot_rng >> 33);
+}
+#define srand bot_srand
+#define rand bot_rand
+
 #define CHUNK     4         /* sectors per data transfer (WRITE_BUFFER) */
 #define BS        512
 #define MAX_CBW   512       /* the CBW receive's length */
@@ -503,6 +516,10 @@ static int check_decisions(void)
     EXPECT(ubot_clamp(36, 5, 36) == 5, "clamp: allocation length");
     EXPECT(ubot_clamp(4, 255, 36) == 4, "clamp: dCBWDataTransferLength");
     EXPECT(ubot_clamp(0, 255, 36) == 0, "clamp: no data");
+    EXPECT(ubot_lun_ok(0, 1), "LUN 0 of 1 accepted");
+    EXPECT(!ubot_lun_ok(1, 1) && !ubot_lun_ok(15, 1) && !ubot_lun_ok(255, 1),
+           "LUN past the drive count refused");
+    EXPECT(!ubot_lun_ok(0, 0), "no drives: every LUN refused");
     EXPECT(ubot_early_cmd(0x00) == UBOT_EARLY_TUR, "early TUR");
     EXPECT(ubot_early_cmd(0x03) == UBOT_EARLY_SENSE, "early REQUEST SENSE");
     EXPECT(ubot_early_cmd(0x28) == UBOT_EARLY_HOLD, "READ held");
@@ -541,7 +558,12 @@ int main(int argc, char **argv)
                errs_write, errs_in, errs_csw);
     errs_double = errs_misparse = errs_deaf = errs_write = errs_in =
         errs_csw = 0;
-    lv = run(1, 1234, 20000);
+    /* The old rules go deaf after their first fault, which hides any
+     * later double CSW: many short runs, so the self-check does not hang
+     * on one seed's luck (one long run hit a double in 4 seeds of 7). */
+    lv = 0;
+    for (unsigned s = 1; s <= 40; s++)
+        lv += run(1, 1234 + s, 500);
     printf("bot_test: the old rules: %lu violations (double=%lu "
            "misparse=%lu deaf=%lu csw=%lu)\n", lv, errs_double,
            errs_misparse, errs_deaf, errs_csw);

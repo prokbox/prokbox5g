@@ -12,12 +12,28 @@
 real=
 me=$(basename "$0")
 d=$(cd "$(dirname "$0")" && pwd)
-IFS=:
-for p in $PATH; do
-    [ "$p" = "$d" ] && continue
-    if [ -x "$p/$me" ]; then real="$p/$me"; break; fi
-done
-unset IFS
+# find_real NAME: first NAME on PATH that is neither this shim nor a ccache
+# masquerade link (Fedora puts /usr/lib64/ccache first; ccache would then
+# re-find the shim ahead of the compiler and loop forever).
+find_real() {
+    IFS=:
+    for p in $PATH; do
+        [ "$p" = "$d" ] && continue
+        [ -x "$p/$1" ] || continue
+        case "$(readlink -f "$p/$1")" in */ccache) continue;; esac
+        echo "$p/$1"; break
+    done
+    unset IFS
+}
+real=$(find_real "$me")
+# Linux distros ship the host compiler as plain gcc (Fedora 44's is 16): a
+# gcc-NN with no real gcc-NN uses a real gcc of the same major version.
+case "$me" in gcc-[0-9]*)
+    if [ -z "$real" ]; then
+        g=$(find_real gcc)
+        [ -n "$g" ] && [ "$("$g" -dumpversion | cut -d. -f1)" = "${me#gcc-}" ] && real=$g
+    fi;;
+esac
 [ -n "$real" ] || { echo "align-shim: no real $me on PATH" >&2; exit 127; }
 if [ "${ALIGN_SHIM:-1}" = 0 ] || [ "${ALIGN_SHIM_ALLOW:-0}" = 1 ]; then exec "$real" "$@"; fi
 # preprocess-only / version probes need no sanitizer

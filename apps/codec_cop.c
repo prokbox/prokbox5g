@@ -32,14 +32,18 @@
  *  - the api struct the codec sees (ci_cop) is uncached; the CPU copies
  *    the playback fields into it after every call.
  *
- * P19 19-1c (docs/phase19-brief.md): decoding is pinned to the CPU (owner,
- * 2026-10-24): by default no load is bound here, the codec gets the plain
- * api, no stack is kept back and MP3's synthesis runs inline. Two
- * developer A/B modes for M-2 bind the load: the COP always (Fit-2), or
- * the core chosen per run by the screen state (apps/codec_place_core.c:
- * dark on the CPU, lit on the COP), moved at a track boundary without a
- * reload; a run on the CPU then calls straight through and keeps ci_cop's
- * fields in step.
+ * Owner, 2026-11-07 (0.8.0, Apple's core layout): decoding is on the COP
+ * by default in every shell build, the release included: every load is
+ * bound here and every run goes to the COP worker (CPL_MODE_COP, Fit-2),
+ * with MP3's synthesis on the COP too. If the COP will not start or take
+ * the run, the CPU runs it and the log says "COP FAILED" (cop_refused()).
+ * This supersedes 2026-10-24's pin to the CPU (P19 19-1c,
+ * docs/phase19-brief.md), which stays, with the screen rule, as one of
+ * two developer A/B arms: the CPU always (the plain path: the real api,
+ * nothing kept back, synthesis inline), or the core chosen per run by the
+ * screen state (apps/codec_place_core.c: dark on the CPU, lit on the
+ * COP), moved at a track boundary without a reload; a run on the CPU then
+ * calls straight through and keeps ci_cop's fields in step.
  *
  * Copyright (C) 2026 prokopto-dev
  *
@@ -70,6 +74,7 @@
 #include "backlight.h"
 #include "lcd.h"
 #include "ipodui/uilog.h"
+#include "ipodui/heapchk.h"     /* 4gh-b5: the heap walk at a place */
 #ifdef HAVE_BCMFW_VIDEO
 #include "video/vplayer.h"
 #endif
@@ -94,9 +99,11 @@ static bool enabled = true;         /* default on; the developer row clears it *
  * take (bound), and each run picks its core (on_cop) without a reload */
 static bool bound;                  /* this load sees ci_cop */
 static bool on_cop;                 /* this run decodes on the COP */
-/* Owner, 2026-10-24: decoding is pinned to the CPU; the screen rule and
- * the COP are developer A/B modes for M-2 only */
-static int place_mode = CPL_MODE_CPU;
+/* Owner, 2026-11-07: decoding is on the COP in every shell build, the
+ * release included (Apple's core layout: the CPU keeps the UI, file
+ * system, disk, USB and the BCM driver). It supersedes 2026-10-24's pin
+ * to the CPU, which stays as a developer A/B arm with the screen rule */
+static int place_mode = CPL_MODE_COP;
 static struct cpl_state place;      /* the codec thread's only */
 static uint32_t runs, cpu_runs;
 
@@ -110,9 +117,16 @@ bool codec_cop_enabled(void)
     return enabled;
 }
 
+/* The COP's worker would not start this boot (it never ran the thread
+ * within a second: an old bootloader, or a dead core). Each retry would
+ * stall the track start for that second and leave one more thread queued
+ * on the core, its stack in the codec slot: so the rest of the boot
+ * decodes on the CPU, each load logged as "COP FAILED (down)" */
+static bool cop_down;
+
 bool codec_cop_available(void)
 {
-    return cop_jobs_cross_core();
+    return cop_jobs_cross_core() && !cop_down;
 }
 
 bool codec_cop_active(void)
@@ -146,7 +160,7 @@ static int screen_now(void)
 
 void codec_cop_observe(void)
 {
-    if (bound)                  /* the pinned default: nothing to watch */
+    if (bound)                  /* unbound (the CPU arm): nothing to watch */
         cpl_observe(&place, screen_now(), current_tick);
 }
 
@@ -168,9 +182,10 @@ static void sync_fields(void)
 {
     ci_cop.filesize  = real->filesize;
     ci_cop.curpos    = real->curpos;
-    /* The COP reads id3 from memory; the CPU (a run on the CPU, the entry
-     * points) through its own cache, as without the switch (19-1c (i) 4:
-     * per run, not per worker) */
+    /* The COP reads id3 from memory (19-1c (i) 4: per run, not per
+     * worker). Playback's CODEC_ID3 is already the uncached view for both
+     * cores (#196, codec_id3.c), so this is the same pointer either way;
+     * the alias stays for any other id3 handed in */
     ci_cop.id3       = on_cop ? cop_uncached(real->id3) : real->id3;
     ci_cop.audio_hid = real->audio_hid;
     ci_cop.dsp       = real->dsp;
@@ -524,6 +539,12 @@ struct codec_api *codec_cop_select(struct codec_api *api, bool encoder)
      * which core the first run takes */
     bound = enabled && !encoder && codec_cop_available()
             && place_mode != CPL_MODE_CPU;
+    if (cop_down && enabled && !encoder && place_mode != CPL_MODE_CPU)
+    {
+        /* meant for the COP: never silently on the CPU */
+        ui_log("codec", "COP FAILED (down): decoding on the CPU");
+        logf("codec cop: COP FAILED (down), decoding on the CPU");
+    }
 #ifdef HAVE_BCMFW_VIDEO
     /* A video's soundtrack stays on the CPU: with the switch on, session
      * 36's stage 7 saw it stand still under the picture (the bcm session,
@@ -567,7 +588,7 @@ struct codec_api *codec_cop_select(struct codec_api *api, bool encoder)
 /* 19-1c: the core for this run (the first after a load, a track
  * boundary, or a seek's re-run, which keeps the core it had), and the
  * codec's switch for its own helper work on the COP (iii). Unbound (the
- * pinned default, or no COP): the plain path, synthesis inline */
+ * CPU arm, a video, or no COP): the plain path, synthesis inline */
 static bool last_cop;               /* the core the last run took */
 
 static void choose(bool track_start)
@@ -611,6 +632,8 @@ static void log_place(void)
         ui_log("codec", "place %s<-%s load=%d scr=%d held=%ld m=%d",
                name[on_cop], name[last_cop], fresh_log ? 1 : 0,
                place.screen, held, place_mode);
+        /* 4gh-b5: the heap walked at each place or move between cores */
+        heapchk_at(on_cop ? "place cop" : "place cpu");
     }
     fresh_log = false;
     last_cop = on_cop;
@@ -620,6 +643,17 @@ static void run_job(void *arg)
 {
     (void)arg;
     run_status = codec_run_proc();
+}
+
+/* The COP would not take a run that was meant for it: the CPU runs it,
+ * and says so loudly (never silently, owner 2026-11-07). MP3's synthesis
+ * then stays inline: its thread would wait on a COP that is not there */
+static void cop_refused(const char *why)
+{
+    ui_log("codec", "COP FAILED (%s): decoding on the CPU", why);
+    logf("codec cop: COP FAILED (%s), decoding on the CPU", why);
+    real->cop_assist = false;
+    ci_cop.cop_assist = false;
 }
 
 /* Runs on the CPU, through the struct the codec was given */
@@ -647,7 +681,10 @@ int codec_cop_run(bool track_start)
         && !cop_worker_start(&worker, codec_slot_top(COP_CODEC_STACK),
                              COP_CODEC_STACK, "codec cop", COP_CODEC_PRIO))
     {
-        /* No COP: the codec runs here, through the same struct */
+        /* No COP: the codec runs here, through the same struct, and
+         * every later load of this boot too (cop_down) */
+        cop_down = true;
+        cop_refused("start");
         return run_here();
     }
 
@@ -658,15 +695,21 @@ int codec_cop_run(bool track_start)
      * next run there */
     t = cop_job_post(&worker, run_job, NULL, COPJ_CODE | COPJ_IN | COPJ_OUT);
     if (t < 0)
+    {
+        cop_refused("post");
         return run_here();
+    }
     cop_job_wait(&worker, t);
     runs++;
+    heapchk_at("cop done");         /* 4gh-b5: the COP's run is over */
     return run_status;
 }
 
 void codec_cop_unload(void)
 {
     cop_worker_stop(&worker);
+    if (bound)
+        heapchk_at("unplace");      /* 4gh-b5: the codec leaves the cores */
     bound = false;
     on_cop = false;
 }

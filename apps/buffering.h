@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2007 Nicolas Pennequin
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -54,6 +55,11 @@ void buffering_init(void) INIT_ATTR;
 bool buffering_reset(char *buf, size_t buflen);
 #ifdef HAVE_IPOD_UI
 bool buffering_is_filling(void);    /* npfix: a fill under way */
+/* ProkBox #175: runs fn on the buffering thread, between its fills' chunks,
+ * so a read that may wait for a storage power-up never waits in the caller
+ * (the video's index read ahead, apps/video/vplayer.c). fn may read an open
+ * file; it must not wait for the poster. False: no buffering thread. */
+bool buffering_post_job(void (*fn)(void));
 #endif
 
 #ifdef HAVE_IPOD_UI

@@ -11,11 +11,11 @@
  *
  * iPod UI shell: the native USB screen (docs/phase8a-brief.md §3.2)
  *
- * What the 7G shows while a computer has the disk (owner photos 1165
- * and photo 1226): a dark header with the clock (or "iPod") centred, a
+ * What the 7G shows while a computer has the disk (owner photos `usb-connected`
+ * and photo `usb-connected-b`): a dark header with the clock (or "iPod") centred, a
  * slate-to-navy body, a glossy orange disc carrying a connector glyph
  * while idle and two sync arrows turning while the host moves data, and
- * "Connected" / "Eject before disconnecting." under it.
+ * "Connected" / "Eject it from your computer before you unplug it." under it.
  *
  * Compose once, then blit (lean rules 1 and 3). At entry, boosted, the
  * disc box (92 x 92 at (114, 53)) is rendered into the shell's strip:
@@ -389,6 +389,7 @@ USB_ARM_ENTRY static void usb_compose_all(usb_px *strip, int glyph)
 #include "ipodui/sysscreen.h"
 #include "ipodui/alarm.h"
 #include "ipodui/preview.h"     /* ui_fb_settle() (P19) */
+#include "ipodui/modclass.h"
 #include "ipodui/sdk/sdk_int.h"     /* sdk_usb() */
 #include "hang_watch.h"             /* hang_suspend(): the session */
 #include "file.h"
@@ -413,7 +414,7 @@ USB_ARM_ENTRY static void usb_compose_all(usb_px *strip, int glyph)
 #endif
 
 #define USB_TEXT1_BASE  187     /* "Connected", Bold 15 (photo: 186.5) */
-#define USB_TEXT2_BASE  205     /* "Eject before disconnecting.", Reg 12 */
+#define USB_TEXT2_BASE  205     /* "Eject it from your computer before you unplug it.", Reg 12 */
 #define USB_TEXT_W      300
 
 /* the text band: "Connected" (Bold 15) cap top to the second line's
@@ -570,7 +571,7 @@ static unsigned long usb_text_hash(const char *s)
     return h;
 }
 
-/* The text under the disc: "Connected" / "Eject before disconnecting.",
+/* The text under the disc: "Connected" / "Eject it from your computer before you unplug it.",
  * or, once the computer has ejected every LUN, "OK to Disconnect" alone
  * (P11 E2: USB mode stays until the cable is pulled). Over the body
  * gradient, which the caller has drawn (no push). */
@@ -893,6 +894,8 @@ void ui_usb_screen_loop(bool early)
     hang_suspend(HANG_SUSP_USB, true);  /* the host owns the disk: no hang
                                          * watch until the session ends */
     usb_running = true;
+    modclass_save(true);    /* the session's disk work is the firmware's,
+                             * not that of a module still on top */
     sdk_usb(true);          /* P12: a game suspends (after the ack; no
                              * write until the session ends) */
     usb_sessions++;
@@ -1223,6 +1226,7 @@ void ui_usb_screen_loop(bool early)
     (void)frames;                       /* trace only (no-op on target) */
     (void)boost;
     usb_running = false;
+    modclass_save(false);
     sdk_usb(false);
 }
 

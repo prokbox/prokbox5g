@@ -1,0 +1,47 @@
+# README clip (scripts/readme_visuals.sh): the main menu with its art
+# panel drifting, Music, Albums, a smooth wheel glide down the list, an
+# album, its first song into Now Playing, then back out to the main menu.
+# Recorded at a steady 20 fps by "record_start" (a thread of its own, so
+# the keys and the wheel below play out on camera; sim_cmd_record.c).
+# Synthetic library only (tests/ui/setup_library.py): no owner media. The
+# glide stops on "Hiss Theory" (row 18), before the fixture names that
+# play on real band names (rows 19-24); keep it there. The panel drift
+# costs ~43 KB a frame in the GIF, so the clip keeps it short to stay
+# under 1.5 MB, and it ends as the main menu returns (a seamless loop).
+#   SIM_BUILD=build/sim-rel-video scripts/shots.sh tests/ui/readme/readme-nav.script
+# needs: library
+# needs: video
+# drift: live
+# golden: skip
+# timeout: 180
+wait 4000
+wait_db 45000
+art_wait 60000
+battery 100
+drift_phase 0
+wait 1500            # the panel's full-size art is in (the clip starts sharp)
+shot start           # a still (shots.sh wants one "shot")
+record_start 20 nav
+wait 700             # the main menu: the art panel drifts
+key SELECT           # Music
+wait 250
+wheel +2 80          # Albums
+key SELECT
+wait 700
+wheel +18 45         # a fast glide down the albums, to "Hiss Theory"
+wait 900
+key SELECT           # the album
+wait 800
+key SELECT           # its first song: plays, Now Playing opens
+wait 2000
+key MENU             # back out: the album
+wait 600
+key MENU             # Albums
+wait 600
+key MENU             # Music
+wait 250
+key MENU             # the main menu (Now Playing is now a row); the
+wait 200             # loop restarts on the main menu
+record_stop
+audio_stop
+quit

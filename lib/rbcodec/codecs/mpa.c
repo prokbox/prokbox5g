@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2005 Dave Chapman
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -31,9 +32,10 @@ CODEC_HEADER
 
 #if defined(MPA_SYNTH_ON_COP) && defined(HAVE_IPOD_UI)
 /* ProkBox P19 19-1c (iii): the synthesis runs inline when playback says
-   this run keeps to one core (ci->cop_assist false: the default, decoding
-   pinned to the CPU). Read at each run's start; the COP thread stays,
-   idle, for a later run of a developer A/B mode */
+   this run keeps to one core (ci->cop_assist false: a run on the CPU, such
+   as a video's soundtrack or the developer CPU arm; the default decodes on
+   the COP, owner 2026-11-07). Read at each run's start; the COP thread
+   stays, idle, for a later run on the COP */
 static bool synth_inline;
 #define SYNTH_INLINE()  synth_inline
 #else
@@ -457,6 +459,7 @@ enum codec_status codec_run(void)
     int current_stereo_mode = -1;
     unsigned long current_frequency = 0;
     int framelength;
+    int pcm_length;
     int padding = MAD_BUFFER_GUARD; /* to help mad decode the last frame */
     intptr_t param;
 
@@ -651,10 +654,18 @@ enum codec_status codec_run(void)
         stream.error = 0; /* Must get new inputbuffer next time */
         file_end = 0;
 
-        framelength = synth.pcm.length - samples_to_skip;
+        /* The length this frame's synthesis produces, from its header as
+         * libmad's mad_synth_frame() sets it (32 * MAD_NSBSAMPLES; the
+         * half-rate branch is compiled out in Rockbox's libmad), not
+         * synth.pcm.length: on the threaded path the COP thread may still
+         * be writing that (upstream read it here, so the first frame after
+         * a start or a seek was kept or dropped by timing: 1152 samples).
+         * Inline, synthesis has already set the same value. */
+        pcm_length = 32 * MAD_NSBSAMPLES(&frame.header);
+        framelength = pcm_length - samples_to_skip;
         if (framelength < 0) {
             framelength = 0;
-            samples_to_skip -= synth.pcm.length;
+            samples_to_skip -= pcm_length;
         }
 
         samplesdone += framelength;

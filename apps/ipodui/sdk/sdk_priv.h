@@ -39,10 +39,21 @@ typedef void *sdk_jb[5];
 #define SDK_LONGJMP(b)  __builtin_longjmp(b, 1)
 #endif
 
-#ifdef USEC_TIMER
+#if defined(SIMULATOR)
+/* the simulator's clock (sdk.c): the tick's, or with the device clock
+ * model on (a UI script's `sdk_devclock`), game code timed as on the
+ * 30 MHz device; SIM_SEG marks game code starting and stopping */
+uint32_t sdki_sim_now_us(void);
+void sdki_sim_seg(bool on);
+#define NOW_US() sdki_sim_now_us()
+#define SIM_SEG(on) sdki_sim_seg(on)
+#elif defined(USEC_TIMER)
 #define NOW_US() ((uint32_t)USEC_TIMER)
 #else
 #define NOW_US() ((uint32_t)current_tick * (1000000u / HZ))
+#endif
+#ifndef SIM_SEG
+#define SIM_SEG(on) do { } while (0)
 #endif
 #define NOW_MS() ((uint32_t)current_tick * (1000u / HZ))
 
@@ -128,6 +139,10 @@ struct sdk_ctx {
     bool     boosted;
 #ifdef SIMULATOR
     pthread_t ui_thread;
+    uint32_t sim_step_max_us;           /* the device clock model's
+                                           longest step (logged at exit) */
+    uint32_t sim_entry_max_us[6];       /* ... and the longest of each
+                                           entry (init .. exit) */
 #endif
 };
 

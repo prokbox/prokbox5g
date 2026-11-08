@@ -21,6 +21,10 @@ Fonts
   TeX Gyre Heros, (c) the TeX Gyre project and GUST e-foundry, under the
   GUST Font License (LPPL-based, free); shipped as "ShellSans"
   (apps/ipodui/fonts/, licence text GUST-FONT-LICENSE.txt).
+  Ten glyphs Heros lacks (music notes, primes, thin space, a few Latin
+  letters) come from DejaVu Sans, (c) Bitstream, Inc. (Bitstream Vera
+  Fonts licence; the DejaVu changes are in the public domain); licence
+  text DEJAVU-FONT-LICENSE.txt.
   Source Sans 3 (SIL Open Font License 1.1) is the documented fallback
   face and is not shipped.
 

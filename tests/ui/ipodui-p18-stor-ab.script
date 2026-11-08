@@ -8,11 +8,19 @@
 #      "ab paused" after the grace, the mode back (off).
 #   4. A run aborted by hand: "ab abort", the mode back (on).
 # The power log is off before and after (power.cfg gone), on in between.
+# The run happens in the Music list, not the main menu: on the device the
+# A/B starts from the developer list (on the UI thread). Here "drive_ab
+# start" runs on the script thread, and the first start's power-log ring
+# (core_alloc) shrinks the playing buffer: a stop and restart. Over the
+# main menu its Now Playing row went off and on again (two full redraws)
+# whenever the woken UI thread won the sim's thread mutex from the
+# allocating script thread inside that window: the host's scheduler's
+# choice (Fedora: every run; the Mac: not seen), not the shell's.
 #   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p18-stor-ab.script
 # needs: music
 # needs: np
 # golden: skip
-# fulls-extra: 4   (the Now Playing push with each play_files)
+# fulls-extra: 2   (Now Playing's idle auto-return push in runs 2 and 4)
 # timeout: 150
 # log: refused: not playing
 # log: refused: repeat off
@@ -31,6 +39,8 @@
 # expect-file: /.rockbox/power.csv ,ab abort
 
 wait 3000
+key SELECT                # Music (see the header)
+wait 1000
 rm_file /.rockbox/power.csv
 rm_file /.rockbox/power.cfg
 mkdir /StorAb

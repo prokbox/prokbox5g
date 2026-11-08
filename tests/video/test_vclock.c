@@ -28,6 +28,7 @@
  * (bcmvideo_clock.h, from bcmfw/verified.txt) against its merged image
  * (bcmvideo_image.h): reported, and a token must name an image FNV. */
 #include <stdio.h>
+#include <string.h>
 #include "vclock_gate.h"
 #define HAVE_BCMFW_MERGED_VIDEO
 #include "bcmvideo_image.h"
@@ -43,9 +44,10 @@ static void check(int ok, const char *what)
     printf("%s  %s\n", ok ? "ok  " : "FAIL", what);
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
     static const uint32_t tok[] = { 0x80bc8611u, 0x12345678u };
+    int release = argc > 1 && !strcmp(argv[1], "release");
     static const uint32_t none[1] = { 0 };
     enum vclock_why g;
     int k, found = 0;
@@ -89,6 +91,13 @@ int main(void)
            (unsigned long)BCMVIDEO_MERGED_FNV,
            g == VCLOCK_TOKEN ? "150 MHz (clock150 token)"
                              : "27 MHz until a re-verify writes its clock150 token");
+    /* "release": the shipping shape plays its merged image at 150 MHz
+     * (0.8.0-rc.6 shipped b9bcbe57 without a token: every video at
+     * 27 MHz, choppy and out of sync; validate.sh's fw-ship step runs
+     * this) */
+    if (release)
+        check(g == VCLOCK_TOKEN, "release: the merged image has a clock150 "
+              "token (else every video plays with the VC at 27 MHz)");
     printf("test_vclock: %d of %d passed\n", n - fails, n);
     return fails != 0;
 }

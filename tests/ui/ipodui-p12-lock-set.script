@@ -1,6 +1,6 @@
 # P12 W1-L (docs/phase12-brief.md 9 "-lock-set"): Extras > Screen Lock
 # with no combination opens New Combination (open padlock, owner photo
-# photo 1201); a different second entry says so under the roller and starts
+# photo `extras-screenlock-new-combination`); a different second entry says so under the roller and starts
 # again at New; the same entry twice sets it and shows Lock / Reset beside
 # the closed padlock; back out and in again: Lock / Reset at once.
 #   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p12-lock-set.script

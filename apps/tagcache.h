@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2005 by Miika Pekkarinen
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -284,7 +285,7 @@ bool tagcache_ui_resumes(const struct mp3entry *id3);
  * cache. These read-only RAM getters do not yield;
  * returned pointers point into the movable RAM cache and are valid only
  * until the caller yields. */
-#define TAGCACHE_UI_AUDIOBOOK   0x0020 /* mp3entry.is_audiobook or genre Audiobook */
+#define TAGCACHE_UI_AUDIOBOOK   0x0020 /* type, book genre or folder */
 #define TAGCACHE_UI_PODCAST     0x0040 /* genre Podcast or a /Podcasts/ folder */
 #define TAGCACHE_UI_COMPILATION 0x0080 /* album artist "Various Artists" */
 /* Phase 14a (docs/phase14a-brief.md 3.2, 4.2), set by ui_classify() from
@@ -315,6 +316,8 @@ bool tagcache_ui_busy(void);
 bool tagcache_ui_sleep_owed(void);
 struct mp3entry;
 void tagcache_ui_sleep_prepare(const struct mp3entry *id3);
+/* #154: a paused video's spot, written now (one journal append); UI thread */
+bool tagcache_ui_save_spot(const struct mp3entry *id3);
 bool tagcache_ui_sleep_walk(unsigned boots);
 bool tagcache_ui_sleep_walking(void);
 bool tagcache_ui_sleep_rebuild(void);

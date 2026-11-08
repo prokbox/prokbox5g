@@ -464,11 +464,18 @@ class Suite(H.Suite):
     VIDEO_SHIPPED = ('BCMFW_VIDEO=1', 'BCMFW_IDLE_SLEEP=1', 'BCMFW_IDLE_GATED=1',
                      'BCMFW_IDLE_DOORBELL=1')     # bcmfw/mkvideo.py's image
 
-    def swap(self, row, b, h, vp, defines, what, progress=None):
+    def swap(self, row, b, h, vp, defines, what, progress=None,
+             flush='cold'):
         """One warm swap (warm-swap.md section 2) into the image built
         with defines; returns the new image's Vp, or None.  progress: the
         parking image's program, when it reports its steps
-        (BCMFW_PARK_FLUSH)"""
+        (BCMFW_PARK_FLUSH).  flush: the host's cache flush before the go
+        word, 'cold' (0xC0000000, wait, 0: the cold start's) or '25a'
+        (vmcs @25a's running-core form, vplayer.c warm_flush: the request
+        over the word with the enables cleared, re-requested while bit 0
+        reads 1, then polled, then 0).  Sitting 4g's A/B runs both; the
+        model takes either (any write with bit 30 is a flush) and does not
+        model stale lines (program-swap.md: later work)"""
         C = H.B.config_value
         pulses, nev, starts = b.panel.pulses, len(b.panel.events), b.starts
         shown = list(b.panel.fb)
@@ -504,8 +511,18 @@ class Suite(H.Suite):
             b.run(50)
         b.sim.code.clear()      # the core reads the new bytes
         b.w32(0x1F8, 0)
-        b.w32(0x10000C00, 0xC0000000)
-        row.check(any(b.r32(0x10000C00) & 1 for _ in range(4)), what + ': cache flush')
+        if flush == '25a':
+            keep = b.r32(0x10000C00) & 0x3FFFFFFF
+            for _ in range(15):
+                b.w32(0x10000C00, keep | 0x40000000)
+                if not b.r32(0x10000C00) & 1:
+                    break
+                b.w32(0x10000C00, keep)
+            row.check(any(b.r32(0x10000C00) & 1 for _ in range(4)),
+                      what + ': cache flush (@25a form)')
+        else:
+            b.w32(0x10000C00, 0xC0000000)
+            row.check(any(b.r32(0x10000C00) & 1 for _ in range(4)), what + ': cache flush')
         b.w32(0x10000C00, 0)
         b.run(200)              # (the upload zeroed the warm word)
         row.check(in_stub(), '%s: the upload disturbed the stub (core at %x)' % (what, b.pc))
@@ -551,7 +568,8 @@ class Suite(H.Suite):
             row.check(st == K['HP_E_BUSY'], 'PARK with a session open: %d' % st)
             op, st, _ = vp.call(K['HP_OP_CLOSE'], [p[0] if p else 0, 0])
             row.check(st == K['HP_OK'], 'CLOSE: %d' % st)
-            vp = self.swap(row, b, h, vp, JDEFS, 'back')
+            # sitting 4g's A/B: in by the cold start's flush, back by @25a's
+            vp = self.swap(row, b, h, vp, JDEFS, 'back', flush='25a')
             row.check(vp.caps & K['HP_CAP_JOBS_2D'], 'the display-only image: caps %x' % vp.caps)
             prog, rep, img = self.image(JDEFS)
             self.metrics['park stub bytes'] = (prog.symbols['bcmfw_park_stub_end'] -
@@ -1397,7 +1415,7 @@ class Suite(H.Suite):
         o, st, rep = vp.wait(tag)
         return p, st, rep
 
-    def viz_run(self, row, b, vp, prog, what, fail, rng, lib):
+    def viz_run(self, row, b, vp, prog, what, fail, rng, lib, vfft=True):
         """SPECTRUM through the ring at 256 and 512 samples against jviz.c
         built for the Mac (the levels), checking the vector FFT ran unless
         fail; then BARS, the v1 frame and bare ones, against jviz_bars_draw
@@ -1433,9 +1451,10 @@ class Suite(H.Suite):
                 out.append(('SPECTRUM', n, name, st, got))
                 row.check(got == list(l2[:nb]), '%s: SPECTRUM %d %s: %s, want %s' % (
                     what, n, name, got, list(l2[:nb])))
-                ran = 'jv_fft%d' % n in pr.fn
-                row.check(ran != fail, '%s: SPECTRUM %d: jv_fft%d %s' % (
-                    what, n, n, 'ran' if ran else 'never ran'))
+                # the vector FFT is 512 samples' (jv_vfft512); 256 is the C
+                ran = 'jv_vfft512' in pr.fn
+                row.check(ran == (n == 512 and not fail and vfft), '%s: SPECTRUM %d: jv_vfft512 %s' % (
+                    what, n, 'ran' if ran else 'never ran'))
                 if name.startswith('sine full'):
                     self.metrics['SPECTRUM %d (%s%s), 27 MHz' % (
                         n, 'C' if fail else 'vector', what[:8])] = \
@@ -1839,6 +1858,98 @@ class Suite(H.Suite):
         except (T.Fail, H.Timeout) as e:
             row.check(False, str(e))
 
+    def t_idle_tick(self):
+        """The adaptive idle tick (config.h BCMFW_IDLE_ADAPT; P19 batch 5,
+        power-apple-vs-ours.md row 10) in the merged image, gate on: no
+        doorbell seen, 1 ms (as before); after one doorbell and with
+        nothing pending, 10 ms; during a jobs animation and an open
+        session, 1 ms; after them, 10 ms again.  The tick count over each
+        window of simulated time says the period; the INFO word's
+        BCMFW_INFO_TICK_SLOW says it too."""
+        row = T.Row('adaptive idle tick (merged): 1 ms, 10 ms after a doorbell, 1 ms busy')
+        self.rows.append(row)
+        defs = self.VIDEO_SHIPPED + ('BCMFW_JOBS=1',)
+        C = lambda n: H.B.config_value(n, defs)  # noqa: E731
+        TICKS, BELLS, SLEEPS = C('BCMFW_MB_IDLE_TICKS'), C('BCMFW_MB_IDLE_BELLS'), \
+            C('BCMFW_MB_IDLE_SLEEPS')
+        SLOW = 0x0008                           # BCMFW_INFO_TICK_SLOW
+        try:
+            b, h, vp = self.setup(1, defines=defs)
+            bell = b.bus.attach(T.M.HostDoorbell(raises=True))
+            b.sim.mem.device(T.M.IntCtl).srcs.append(bell.sources)
+            b.w32(C('BCMFW_MB_IDLE_EN'), C('BCMFW_IDLE_EN_MAGIC'))
+
+            def window(ms):
+                """ticks and sleeps per second over ms of simulated time"""
+                t0, n0, s0 = b.timer.clo, b.r32(TICKS), b.r32(SLEEPS)
+                while (b.timer.clo - t0) & 0xffffffff < ms * 1000:
+                    b.run(2000)
+                    vp.drain()
+                dt = (b.timer.clo - t0) & 0xffffffff
+                return ((b.r32(TICKS) - n0) * 1e6 / dt, (b.r32(SLEEPS) - s0) * 1e6 / dt)
+
+            def near(rate, want):
+                return abs(rate - want) <= want * 0.15
+
+            window(5)
+            r0, w0 = window(200)
+            row.check(b.r32(BELLS) == 0 and near(r0, 1000),
+                      'no doorbell: %.0f ticks/s, want 1000' % r0)
+            row.check(not b.r32(T.MB_INFO) & SLOW, 'no doorbell: INFO says slow')
+            # vc2sim's sleep runs time on to the next timer event before it
+            # takes an interrupt, and takes the tick (vector 49) before the
+            # doorbell (55): a ring can wait many ticks in the sim (on
+            # silicon a pending source ends the sleep at once).  Wait for
+            # the handler's count; the period is what is measured here
+            bell.ring()
+            for _ in range(200):
+                if b.r32(BELLS):
+                    break
+                window(5)
+            window(25)
+            r1, w1 = window(400)
+            row.check(b.r32(BELLS) >= 1 and near(r1, 100),
+                      'doorbell seen, nothing pending: %.0f ticks/s, want 100' % r1)
+            row.check(b.r32(T.MB_INFO) & SLOW, 'slow tick: INFO bit clear')
+            self.metrics['idle wakes/s, 1 ms tick (before)'] = round(w0)
+            self.metrics['idle wakes/s, adaptive tick (after)'] = round(w1)
+
+            # an animation: 12 SLIDE frames, 33 ms apart (about 400 ms)
+            FR, BK = J['J_SURF_FRONT'], J['J_SURF_BACK']
+            offs = [(i * 320 // 12) for i in range(1, 13)]
+            slide = [J['J_ANIM_SLIDE'], BK, FR, 0, xy(320, 240), 0, 33, 12] + [
+                offs[k] | offs[k + 1] << 16 for k in range(0, 12, 2)]
+            vp.tag = (vp.tag + 1) & 0x7fff or 1
+            tag = vp.send(J['J_OP_ANIM'], slide, tag=vp.tag | J['J_TAG_REPLY'])
+            bell.ring()
+            op, st, _ = vp.wait(tag)
+            row.check(st == K['HP_OK'], 'ANIM %d' % st)
+            r2, _ = window(150)
+            row.check(near(r2, 1000), 'animation running: %.0f ticks/s, want 1000' % r2)
+            for _ in range(400):
+                if any(e[0] == J['J_EV_ANIM'] for e in vp.events):
+                    break
+                window(5)
+            row.check(any(e[0] == J['J_EV_ANIM'] for e in vp.events), 'no animation end')
+            vp.events = []
+            window(25)
+            r3, _ = window(300)
+            row.check(near(r3, 100), 'after the animation: %.0f ticks/s, want 100' % r3)
+
+            # an open session (decoding paces itself by the clock): 1 ms
+            op, st, p = self.open_null(vp)
+            row.check(st == K['HP_OK'], 'OPEN %d' % st)
+            r4, _ = window(100)
+            row.check(near(r4, 1000), 'session open: %.0f ticks/s, want 1000' % r4)
+            vp.call(K['HP_OP_CLOSE'], [p[0] if p else 0, 0])
+            window(25)
+            r5, _ = window(300)
+            row.check(near(r5, 100), 'after CLOSE: %.0f ticks/s, want 100' % r5)
+            good, bad = b.sim.irq_returns
+            row.check(bad == 0, 'interrupt returns: %d clobbered' % bad)
+        except (T.Fail, H.Timeout) as e:
+            row.check(False, str(e))
+
     def t_ovl(self):
         """The display-only image's overlay (J_OP_OVERLAY; #126, proposed,
         sim only): J_OPS bit 21 and J_OVL; SPECTRUM and BARS refused until
@@ -1909,11 +2020,16 @@ class Suite(H.Suite):
                 row.check(st == K['HP_OK'] and jops() == ops0 | bits | (0 if fail else lbits),
                           '%s: load: status %d, J_OPS %08x' % (what, st, jops()))
                 vpu = b.r32(jb + J['J_VPU'])
-                row.check(vpu == vpu0 | J['J_VPU_FLIP'] |
-                          (0 if fail else J['J_VPU_FFT'] | J['J_VPU_BARS']),
+                # the display-only image's overlay has no room for the
+                # vector FFT (build.py JVIZ_NO_VFFT): FFT stays clear, and
+                # J_VFFT reads the C's three goldens alone
+                row.check(vpu == vpu0 | J['J_VPU_FLIP'] | (0 if fail else J['J_VPU_BARS']),
                           '%s: J_VPU %x (before %x)' % (what, vpu, vpu0))
+                vf = b.r32(jb + J['J_VFFT'])
+                row.check(vf == 0x80000007, '%s: J_VFFT %08x' % (what, vf))
                 self.fill_front(vp)
-                results[fail] = self.viz_run(row, b, vp, both, what, fail, random.Random(126), lib)
+                results[fail] = self.viz_run(row, b, vp, both, what, fail, random.Random(126),
+                                             lib, vfft=False)
                 # an epoch change drops the ops; a reload brings them back
                 ep = b.r32(jb + J['J_EPOCH']) & 0xFFFF
                 op, st, _ = self.jcall(vp, J['J_OP_RESET'], [])
@@ -2011,6 +2127,10 @@ class Suite(H.Suite):
             vpu = b.r32(jb + J['J_VPU'])
             row.check(vpu & J['J_VPU_FFT'] and vpu & J['J_VPU_BARS'] and vpu & J['J_VPU_FLIP'],
                       'J_VPU %x' % vpu)
+            # the FFT's start-up check (batch 5): C = Mac, kernel = C, all
+            # three frames (jobs.h J_VFFT_ALL)
+            vf = b.r32(jb + J['J_VFFT'])
+            row.check(vf == 0x80000707, 'J_VFFT %08x' % vf)
             self.fill_front(vp)
             self.viz_run(row, b, vp, both, what, False, random.Random(126), lib)
             # the swap: DECODE in, the visualizer's ops out
@@ -2269,7 +2389,7 @@ class Suite(H.Suite):
                  self.t_window,
                  self.t_scroll, self.t_mix, self.t_blit, self.t_retained, self.t_marquee,
                  self.t_phase, self.t_gate, self.t_variants, self.t_viz, self.t_ovl,
-                 self.t_ovl_merged, self.t_staged, self.t_staged_merged)
+                 self.t_ovl_merged, self.t_staged, self.t_staged_merged, self.t_idle_tick)
         if self.args.audit:
             tests = (self.t_audit,)
         elif self.args.only:

@@ -1,0 +1,68 @@
+# Day 4c's long play (sitting 4c, build fa3d8edb58): about 10 minutes into
+# an episode the pictures stopped and the audio played on; leaving and
+# coming back, or a scrub, started them again.  This plays a 12-minute
+# episode at the converter's settings (tests/fixtures/videos/mksoak.sh:
+# 67 MB, past a 64 MB unit's audio buffer, so the buffer refills and wraps
+# under the player) through the shell's video screen, and checks every
+# minute that the pictures kept coming: at least 900 more a wall-clock
+# minute (the simulator's audio runs slow under load, about 41 s of play
+# a minute, so 16 minutes reach about 11 minutes of the episode), no
+# still-picture restart, no give-up, and the play's end lines ("video
+# prog end").  Real time (no sim time acceleration exists): about 17
+# minutes, so never run by the gate; the
+# gate-sized check of the stall paths is tests/ui/ipodui-p19-vstall.script.
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/video/sim_soak.script
+#   python3 scripts/check_trace.py out/shots/sim_soak/sim.log tests/video/sim_soak.script
+# needs: video
+# needs: soak
+# golden: skip
+# log: video
+# env: IPODUI_SIM_VIDEO=1
+# timeout: 1200
+# nolog: video: still
+# nolog: video: stopped, BCM given back
+# nolog: video: image lost
+# nolog: video: data still
+# nolog: video: FEED refused
+# log: video prog end pics=
+wait 4000
+mkdir /Soak
+copy ../../build/soak-fixtures/soak.m4v /Soak/soak.m4v
+video_screen /Soak/soak.m4v
+wait 3000
+expect_video 20 playing
+wait 60000
+expect_video 900 playing
+wait 60000
+expect_video 1800 playing
+wait 60000
+expect_video 2700 playing
+wait 60000
+expect_video 3600 playing
+wait 60000
+expect_video 4500 playing
+wait 60000
+expect_video 5400 playing
+wait 60000
+expect_video 6300 playing
+wait 60000
+expect_video 7200 playing
+wait 60000
+expect_video 8100 playing
+wait 60000
+expect_video 9000 playing
+wait 60000
+expect_video 9900 playing
+wait 60000
+expect_video 10800 playing
+wait 60000
+expect_video 11700 playing
+wait 60000
+expect_video 12600 playing
+wait 60000
+expect_video 13500 playing
+wait 60000
+expect_video 14400 playing
+video_res
+key MENU
+wait 1500

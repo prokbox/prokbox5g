@@ -393,6 +393,11 @@ def build_overlay(resident, out=DEFAULT_OUT, defines=(), listing=True,
         raise C.Gap('no overlay region in this image (BCMFW_JOBS_OVL)')
     os.makedirs(os.path.join(out, 'lib'), exist_ok=True)
     flags = ovl_flags(defines)
+    if not config_value('BCMFW_VIDEO', defines):
+        # the display-only image's 20 KB region has no room for the vector
+        # FFT (jv_vfft512, 7.7 KB; #126): its SPECTRUM runs the C, as
+        # before batch 5 on silicon.  The merged image's 36 KB region has it
+        flags = flags + ['-DJVIZ_NO_VFFT=1']
     for src in LIB_SOURCES:
         _put(os.path.join(out, 'lib', os.path.splitext(os.path.basename(src))[0] + '.s'),
              C.compile_c(os.path.join(HERE, src), '-O2', flags))

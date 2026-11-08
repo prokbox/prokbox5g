@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2005 by Miika Pekkarinen
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -3293,6 +3294,8 @@ static void db_log(const char *prefix, const char *msg)
 #endif
 
 #ifdef HAVE_IPOD_UI
+#include "ipodui/bookclass.h"   /* #146: book/podcast rules, header only */
+
 static bool ui_is_one_of(const char *s, const char *a, const char *b)
 {
     return s && (!strcasecmp(s, a) || !strcasecmp(s, b));
@@ -3300,7 +3303,9 @@ static bool ui_is_one_of(const char *s, const char *a, const char *b)
 
 /* The shell keeps audiobooks and podcasts apart from music and lists
  * compilations separately. Decided once here, while the file is open;
- * a podcast wins over an audiobook (chaptered podcast episodes). */
+ * video is never a book, a podcast wins over an audiobook (chaptered
+ * podcast episodes), then the type, a book genre or an Audiobooks folder
+ * makes a book (#146, rules in ipodui/bookclass.h). */
 static int32_t ui_classify(const struct mp3entry *id3, const char *path)
 {
     int32_t flag = TAGCACHE_UI_VIDEO_CHECKED;
@@ -3308,12 +3313,17 @@ static int32_t ui_classify(const struct mp3entry *id3, const char *path)
     if (id3->is_video)
         return flag | TAGCACHE_UI_VIDEO;
 
-    if (ui_is_one_of(id3->genre_string, "Podcast", "Podcasts")
-        || strcasestr(path, "/Podcasts/"))
-        flag |= TAGCACHE_UI_PODCAST;
-    else if (id3->is_audiobook
-             || ui_is_one_of(id3->genre_string, "Audiobook", "Audiobooks"))
-        flag |= TAGCACHE_UI_AUDIOBOOK;
+    switch (bookclass_of(id3->is_audiobook, id3->genre_string, path))
+    {
+        case BOOKCLASS_PODCAST:
+            flag |= TAGCACHE_UI_PODCAST;
+            break;
+        case BOOKCLASS_BOOK:
+            flag |= TAGCACHE_UI_AUDIOBOOK;
+            break;
+        default:
+            break;
+    }
 
     if (ui_is_one_of(id3->albumartist, "Various Artists", "Various"))
         flag |= TAGCACHE_UI_COMPILATION;
@@ -3929,6 +3939,9 @@ static int tempbuf_sort(int fd)
         /* Write some padding. */
         if (fe.tag_length - length > 0)
             write(fd, "XXXXXXXX", fe.tag_length - length);
+#ifdef HAVE_IPOD_UI
+        do_timed_yield();   /* #172: 50k tag writes in one run otherwise */
+#endif
     }
 
     return i;
@@ -4041,6 +4054,9 @@ static bool build_numeric_indices(struct tagcache_header *h, int tmpfd)
 
             /* Seek to the end of the string data. */
             lseek(tmpfd, tfe->data_length, SEEK_CUR);
+#ifdef HAVE_IPOD_UI
+            do_timed_yield();   /* #172: 50k entries in one run otherwise */
+#endif
         }
 
         /* Backup the master index position. */
@@ -8780,6 +8796,9 @@ static bool load_tagcache(void)
             logf("read error #10");
             goto failure;
         }
+#ifdef HAVE_IPOD_UI
+        do_timed_yield();   /* #172: 50k reads in one run otherwise */
+#endif
     }
 
     close(fd);
@@ -9424,9 +9443,60 @@ static void st_log(long lookups, long reads)
 #define ST_MARK(b) do {} while (0)
 #endif
 
+/* check_dir() nesting. Each level holds a DIR open, so stop well under
+ * MAX_OPEN_DIRS; a path past curpath is cut and never followed either.
+ * On native FAT a folder whose first cluster is already on the way down
+ * (a corrupt chain looping back) is a loop. Logged once, skipped; no
+ * boot stamp vouches for that walk. */
+#define TC_SCAN_MAX_DEPTH 24
+static int tc_scan_depth;
+static bool tc_scan_logged;
+#if defined(HAVE_IPOD_UI) && !defined(SIMULATOR) && !defined(APPLICATION)
+#define TC_SCAN_LOOPS   /* a dirent's first cluster (ProkBox field) */
+static uint32_t tc_scan_clus[TC_SCAN_MAX_DEPTH];
+#endif
+
+static bool tc_scan_skip(const char *why)
+{
+#ifdef UI_COMMIT
+    ui_walk_broken = true;
+#endif
+    if (!tc_scan_logged)
+    {
+        tc_scan_logged = true;
+#ifdef UI_COMMIT
+        ui_log("db", "walk skip %s depth=%d", why, tc_scan_depth);
+#else
+        logf("tagcache: walk skip %s depth=%d", why, tc_scan_depth);
+        (void)why;
+#endif
+    }
+    return false;
+}
+
+/* may the walk go into this folder entry? */
+static bool tc_scan_descend_ok(const struct dirent *entry)
+{
+    if (tc_scan_depth >= TC_SCAN_MAX_DEPTH)
+        return tc_scan_skip("deep");
+#ifdef TC_SCAN_LOOPS
+    uint32_t clus = entry->info.fstclus;
+    for (int i = 0; clus && i < tc_scan_depth; i++)
+        if (tc_scan_clus[i] == clus)
+            return tc_scan_skip("loop");
+    tc_scan_clus[tc_scan_depth] = clus;
+#else
+    (void)entry;
+#endif
+    return true;
+}
+
 static bool check_dir(const char *dirname, int add_files)
 {
     int success = false;
+
+    if (tc_scan_depth == 0)
+        tc_scan_logged = false;
 
     DIR *dir = opendir(dirname);
     ST_MARK(ST_OPEN);
@@ -9493,8 +9563,9 @@ static bool check_dir(const char *dirname, int add_files)
         struct dirinfo info = dir_get_info(dir, entry);
         ST_MARK(ST_INFO);
         size_t len = strlen(curpath);
-        path_append(&curpath[len-1], PA_SEP_HARD, entry->d_name,
-                    sizeof (curpath) - len);
+        bool cut = path_append(&curpath[len-1], PA_SEP_HARD, entry->d_name,
+                               sizeof (curpath) - len)
+                   >= sizeof (curpath) - len;
 #ifdef UI_COMMIT
         /* #89: the tree as read, for the boot stamp (bootstamp.c walks it
          * the same way); the hidden folder changes at every run */
@@ -9510,6 +9581,15 @@ static bool check_dir(const char *dirname, int add_files)
 #endif
 
         processed_dir_count++;
+#ifdef HAVE_IPOD_UI
+        /* #172: a slice per entry, as in the commit. The walk otherwise
+         * yields only where storage blocks, and a run of cached reads or
+         * a fast card (and the simulator's host files, always) held the
+         * shell's thread on this core for the whole walk: 7-10 s on a
+         * first build of 50k tracks, the boot screen frozen past its
+         * hold. */
+        do_timed_yield();
+#endif
 #if defined(SIMULATOR) && defined(HAVE_IPOD_UI)
         {
             extern int sim_scan_slow_ticks; /* tests: "scan_slow" */
@@ -9517,7 +9597,11 @@ static bool check_dir(const char *dirname, int add_files)
                 sleep(sim_scan_slow_ticks);
         }
 #endif
-        if (info.attribute & ATTR_DIRECTORY)
+        if (cut)
+        {
+            tc_scan_skip("long");       /* not this entry's real path */
+        }
+        else if (info.attribute & ATTR_DIRECTORY)
         {
 #ifndef SIMULATOR
             /* don't follow symlinks to dirs, but try to add it as a search root
@@ -9526,7 +9610,12 @@ static bool check_dir(const char *dirname, int add_files)
                 add_search_root(curpath);
             else
 #endif /* SIMULATOR */
+            if (tc_scan_descend_ok(entry))
+            {
+                tc_scan_depth++;
                 check_dir(curpath, add_files);
+                tc_scan_depth--;
+            }
 #ifdef UI_COMMIT
             if (ui_hidden)
                 ui_walk_mute--;
@@ -11851,6 +11940,47 @@ bool tagcache_ui_sleep_busy(void)
 #endif
 }
 
+#ifdef UI_COMMIT
+/* The paused track's resume point, as tagtree's track-finish event writes
+ * it at a stop (its 3 s rule), but no play counted: the track goes on.
+ * Queued (RAM, no I/O); the caller has the drain. True: queued. */
+static bool ui_spot_enqueue(const struct mp3entry *id3)
+{
+    static const unsigned char tags[2] = { tag_lastelapsed, tag_lastoffset };
+    long vals[2];
+
+    if (!id3 || !id3->tagcache_idx || id3->elapsed < 3 * 1000
+        || !(global_settings.autoresume_enable || id3->is_audiobook
+             || tagcache_ui_resumes(id3)))
+        return false;
+    vals[0] = (long)id3->elapsed;
+    vals[1] = (long)id3->offset;
+    return tagcache_ui_update_stats(id3->path, id3->tagcache_idx - 1,
+                                    id3->tagcache_bind, 2, tags, vals);
+}
+#endif
+
+/* #154 (owner, 2026-11-06): a paused video keeps its place through any
+ * power-off, the battery dying included. Its pause writes the spot at
+ * once: one journal append (two frames) per pause, forced however cold
+ * the drive, so no shutdown path (or none at all) is needed for it; a
+ * stop still writes it again through the track-finish event. UI thread
+ * (a back-end call); never under the USB handover, whose stop is drained
+ * after the unplug. True: queued for the worker's immediate drain. */
+bool tagcache_ui_save_spot(const struct mp3entry *id3)
+{
+#ifdef UI_COMMIT
+    if (tagcache_usb_quiescing || ui_shutdown_intent || !ui_spot_enqueue(id3))
+        return false;
+    ui_drain_force = true;
+    ui_drain_kick();
+    return true;
+#else
+    (void)id3;
+    return false;
+#endif
+}
+
 /* P18 (#86) sleep entry, UI thread, §4.3 step 3: the statistics drained
  * by the worker as any non-shutdown flush (appended to the journal, never
  * compacted; tagcache_shutdown() without the intent, which no sleep
@@ -11861,20 +11991,8 @@ void tagcache_ui_sleep_prepare(const struct mp3entry *id3)
 #ifdef UI_COMMIT
     if (tagcache_usb_quiescing || ui_shutdown_intent)
         return;
-    /* the paused track's resume point, as tagtree's track-finish event
-     * writes it at a stop (its 3 s rule), but no play counted: the track
-     * goes on after the wake. Drained with the rest just below. */
-    if (id3 && id3->tagcache_idx && id3->elapsed >= 3 * 1000
-        && (global_settings.autoresume_enable || id3->is_audiobook
-            || tagcache_ui_resumes(id3)))
-    {
-        static const unsigned char tags[2] = {
-            tag_lastelapsed, tag_lastoffset };
-        long vals[2] = { (long)id3->elapsed, (long)id3->offset };
-
-        tagcache_ui_update_stats(id3->path, id3->tagcache_idx - 1,
-                                 id3->tagcache_bind, 2, tags, vals);
-    }
+    /* the paused track's resume point; drained with the rest below */
+    ui_spot_enqueue(id3);
     /* review M2: RAM-coalesced statistics (ui_stats_recovering) go out
      * in this drain too, past the journal's back-off; sleep.c waits for
      * tagcache_ui_sleep_drained() */

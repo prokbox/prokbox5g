@@ -40,7 +40,7 @@ fi
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 # shellcheck disable=SC2086
-if ! "$HOSTCC" -std=gnu99 -O1 -g -Wall -Wextra -Werror ${EXTRA_CFLAGS:-} \
+if ! "$HOSTCC" -std=gnu99 -O1 -g -Wall -Wextra -Wno-missing-field-initializers -Werror ${EXTRA_CFLAGS:-} \
         -Iapps/ipodui -o "$TMP/test_autochecks" "$T/test_autochecks.c" 2>"$TMP/cc.log"; then
     echo "FAIL: compiling test_autochecks ($HOSTCC)"
     cat "$TMP/cc.log"

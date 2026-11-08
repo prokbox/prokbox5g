@@ -38,6 +38,7 @@
  * logged "drift still why=...". */
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include "config.h"
 
@@ -130,8 +131,12 @@ void dj_parity(const char *kind);
 /* The developer row (Developer > Advanced > Video chip, devmode.c):
  * cycles auto, on, off, still */
 bool dj_dev_row(void);
+/* Its text with its state, through the language system (sitting 4gh-b5:
+ * on or off at a glance): "Drift on video chip: On", "Off", "Auto (On)",
+ * "Still"; written into buf */
+const char *dj_dev_name(char *buf, size_t len);
 #define DRIFT_JOBS_DEV_ITEM \
-        { "BCM jobs: drift on video chip (auto/on/off/still)", dj_dev_row },
+        { (const char *)ID2P(LANG_IPODUI_DEV_VC_DRIFT), dj_dev_row },
 #endif
 
 #endif

@@ -305,7 +305,12 @@ bcmfw_idle_tick:
     st r1, (sp+4)
     mov r0, #TIMER_CLO
     ld r1, (r0)
+#if BCMFW_IDLE_ADAPT
+    mov r0, #bcmfw_idle_tick_us /* main.c idle_wait: 1 or 10 ms */
+    ld r0, (r0)
+#else
     mov r0, #BCMFW_IDLE_TICK_US
+#endif
     add r1, r0
     mov r0, #TIMER_C(1)
     st r1, (r0)

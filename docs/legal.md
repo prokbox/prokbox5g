@@ -47,7 +47,7 @@ Every text opens with the same plain statement, **"ProkBox5g is not Apple softwa
 **On device: the first-boot notice** (`LANG_IPODUI_NOTICE_*`; owner, 2026-10-26: the contact address, the way back to Apple's software, a countdown while Select is held off, UK spelling, one screen):
 > **This is not Apple software**
 > ProkBox5g &lt;ver&gt; is independent firmware, built by the community on Rockbox. Apple Inc. did not make, approve, endorse or support it, and it contains no Apple software.
-> For help, write to prokbox.project@gmail.com, not to Apple. To start Apple's software instead, hold Menu while switching on.
+> For help: prokbox.project@gmail.com, not Apple. Hold Menu at start-up for Apple's software.
 > iPod is a trademark of Apple Inc., used here only to name the hardware.
 > © the Rockbox and ProkBox contributors. Free software (GNU GPL v2 or later), no warranty.
 > Licence and source: github.com/prokbox/prokbox5g
@@ -78,9 +78,10 @@ Status values: **met** (in place and checked), **partial**, or **todo**. "Audit 
 | L3 | **GPL v2 §2(b)**: the whole work is licensed under the GPL | Every new file has the ProkBox header (GPL-2.0-or-later, `docs/templates/prokbox-header.txt`) | Audit 3 | met for `apps/ipodui/`; audit pending for the rest |
 | L4 | **GPL v2 §2(c)**: an interactive program shows a copyright notice, the no-warranty notice and where to find the licence | The first-boot notice (above) and Settings › Legal (package C: `apps/ipodui/notice.c`, `screens/legal.c`, `LANG_IPODUI_NOTICE_*`) | UI script `tests/ui/ipodui-legal-notice.script` | met (2026-10-26): `LANG_IPODUI_NOTICE_URL` = "github.com/prokbox/prokbox5g"; the notice still fits one screen (sim shot, `ipodui-legal-notice.script`). The release workflow refuses a tag while the placeholder is back |
 | L5 | **GPL v2 §3(a)**: binaries come with the complete corresponding source | Every release carries `ProkBox5g-<ver>-source.tar.gz` next to the binaries, built by CI from the same tag. It includes the build scripts, `tools/`, the font sources and converter, the BCM2722 image sources and the installer source | Release-day clean-room rebuild from the tarball matches the published zip | todo (#127) |
+| L5a | **Prebuilt ipodpatcher** (#127) | `ProkBox5g-<ver>-ipodpatcher-{macos-universal,linux-x86_64,windows-x86_64.exe}` are built by CI from the tagged tree's unmodified `utils/ipodpatcher` (Dave Chapman and Rockbox contributors; `arc4.c` by PeerSec Networks; all GPL v2 or later, headers kept in the files). Same release, same `SHA256SUMS`, same corresponding source (§3(a)): the source tarball contains `utils/ipodpatcher/` and `utils/libtools.make`. The tool is built without embedded bootloaders, so it carries no third-party firmware. Its own output says "Rockbox" and Dave Chapman's copyright; that is the tool's required notice, not our shell (rule 1 covers the firmware UI). The guide credits it and gives the source location | Release workflow job `ipodpatcher`; guide getting-started | met in the workflow; verify on the first tag |
 | L6 | **Rockbox credit** | README, the site, Settings › Legal, the first-boot notice and every announcement. Upstream history is kept in the public repo | Review | partial (README, Legal) |
 | L7 | **Third-party licences** (`lib/`, `docs/LICENSES`) | Kept in the tree and the source tarball; the licence texts the binary zip needs are copied into it | Audit 5 | todo (audit) |
-| L8 | **Fonts** | TeX Gyre Heros "ShellSans" under the GUST Font License (`apps/ipodui/fonts/GUST-FONT-LICENSE.txt`). Source Sans 3 under the SIL OFL 1.1 if shipped. No Apple fonts, Podium Sans included | Audit 5, `apps/ipodui/fonts/MANIFEST` | met |
+| L8 | **Fonts** | TeX Gyre Heros "ShellSans" under the GUST Font License (`apps/ipodui/fonts/GUST-FONT-LICENSE.txt`), with ten glyphs Heros lacks (music notes ♩ ♫ ♬, primes, thin space, ĸ ŉ Ŧ ŧ) from DejaVu Sans 2.37 under the Bitstream Vera Fonts licence, DejaVu changes public domain (`apps/ipodui/fonts/DEJAVU-FONT-LICENSE.txt`; notice kept, no "Bitstream"/"Vera" in the name). No OFL glyphs inside ShellSans: they would make the font OFL-only, against the GUST licence. Source Sans 3 is not shipped (it would need the SIL OFL 1.1 credit if it ever were). No Apple fonts, Podium Sans included. Settings › Legal credits exactly what ships: Heros under the GUST licence (`LANG_IPODUI_LEGAL_3`) and the DejaVu Sans glyphs under the Bitstream Vera licence (`LANG_IPODUI_LEGAL_4`) | Audit 5, `apps/ipodui/fonts/MANIFEST` | met |
 | L9 | **Trademarks** | §1 naming rules; §2 texts | Audit 6 covers names and LANG strings | partial |
 | L10 | **Trade dress**: no Apple logo, icons, fonts, artwork, marketing images or firmware | Our own boot glyph and icons, generated from our own geometry. Screenshots come from our simulator or our own devices, framed so Apple's logo isn't shown. `docs/reference/*/` stays private (gitignored) | Audit 7 (image provenance) and 8 (Apple firmware bytes) | partial (no consult, owner 2026-10-24; L14) |
 | L11 | **Non-commercial posture** | Free only. No donation link in v1.0 | Review | met |
@@ -97,7 +98,7 @@ Code that is never compiled is stripped **from the public tree only** (owner, 20
 1. **Collect.** Build every release configuration (firmware, codecs, shipped plugins, bootloader if shipped, BCM images, installer). Collect every file read, using the `-MMD` dependency files and a make trace of the Makefiles and host tools.
 2. **Keep.** Always keep every licence and notice file, `docs/`, `scripts/`, `tests/` and the simulator sources, so contributors can build and test.
 3. **Scrub.** Apply the release-plan §3.2 scrub list: private hosts, paths and serials.
-4. **Publish** as a labelled commit sequence: upstream Rockbox history up to our merge-base, then **"strip: remove code ProkBox5g never compiles"**, then the ProkBox import commit, then normal public development. The strip commit only deletes. Every remaining upstream file keeps its header.
+4. **Publish** as a labelled commit sequence: upstream Rockbox history up to our merge-base, then **"strip: remove code ProkBox5g never compiles"**, then one **"ProkBox5g <ver>"** import commit per release, then normal public development. The strip commit only deletes. Every remaining upstream file keeps its header. `scripts/release_import.py` makes the import commit (one commit, fixed public author, no trailers) and refuses any history that carries private data; it prints the push and tag commands and never pushes.
 
 Stripping never removes a notice the remaining code needs. If a kept file's licence text sits in a file that would otherwise be stripped, that licence file is kept (audit 2 and 5).
 
@@ -111,7 +112,7 @@ Anything else fails audit 7.
 
 | Path | Origin | Licence |
 |---|---|---|
-| `apps/ipodui/fonts/*.fnt` | `apps/ipodui/fonts/gen.sh` from TeX Gyre Heros | GUST Font License |
+| `apps/ipodui/fonts/*.fnt` | `apps/ipodui/fonts/gen.sh` from TeX Gyre Heros, plus ten glyphs from DejaVu Sans (listed in `apps/ipodui/fonts/README.md`, "Glyph sources") | GUST Font License; Bitstream Vera Fonts licence for the DejaVu glyphs |
 | `docs/design/usb/*.png`, `apps/ipodui/usbscreen_data.h` | `art/usb/usbscreen.py` | GPL-2.0-or-later |
 | `tests/ui/golden/**` | our simulator renders | GPL-2.0-or-later |
 | `bcmfw/video/*.bin` | built from our BCM2722 sources in `bcmfw/` | GPL-2.0-or-later |
@@ -121,6 +122,8 @@ Anything else fails audit 7.
 | `docs/research/bcm2722/*.png` | photos and captures of our own bench sessions (test patterns on our own unit) | GPL-2.0-or-later |
 | `bcmfw/video/stage6-clip.mp4` | synthetic clip generated for the stage 6 bench test | GPL-2.0-or-later |
 | `tests/ui/fixtures/**` | generated test fixtures (flat test art, leftover-file cases) | GPL-2.0-or-later |
+| `tests/fixtures/*.m4b`, `tests/fixtures/*.mp3` | generated by ffmpeg from synthetic sources (sine tones, silence, flat colour art) with synthetic chapter titles: `tests/fixtures/make_fixtures.sh` (`nero_chapters.m4b`, `apple_chapters.m4b`, `plain.mp3`), `make_chapcap_fixtures.py` (`chapters_*`), `make_meta_fixtures.py` (`rich_chapters.m4b`, `id3v2*.mp3`), `make_short_chpl_fixture.py` (`short_chpl.m4b`); `rich_chapters_badjpg.m4b` is `rich_chapters.m4b` with bytes of its art deliberately overwritten (`tests/ui/ipodui-art-chap-retry.script`) | GPL-2.0-or-later |
+| `tests/fixtures/sim-art/*.jpg`, `tests/fixtures/sim-art/*.png` | encoded by `tests/fixtures/sim-art/export.sh` from synthetic art only (procedural patterns and gradients drawn by `tests/ui/setup_library.py` and ffmpeg filters), checked by its `SHA256SUMS` | GPL-2.0-or-later |
 | `tests/gate/mutants/**` | our simulator renders, deliberately altered as gate self-test mutants (`scripts/gate_mutants.sh`) | GPL-2.0-or-later |
 | `docs/design/logo/`, `docs/design/unlit/` | our own design work | GPL-2.0-or-later (to confirm generator per file in the audit) |
 | `docs/user/images/getting-started-main-menu.png` | our simulator render (`scripts/shots.sh`), of the synthetic test library only (`tests/ui/setup_library.py`): no owner media, `tests/ui/ipodui-nav-panels.script` | GPL-2.0-or-later |
@@ -134,6 +137,8 @@ Anything else fails audit 7.
 | `docs/user/images/usb-and-syncing-usb-connected.png` | our simulator render (`scripts/shots.sh`), of the synthetic test library only (`tests/ui/setup_library.py`): no owner media, `tests/ui/ipodui-p8a-usb.script` | GPL-2.0-or-later |
 | `docs/user/images/troubleshooting-save-diagnostics.png` | our simulator render (`scripts/shots.sh`), of the synthetic test library only (`tests/ui/setup_library.py`): no owner media, `tests/ui/ipodui-diag-report.script` | GPL-2.0-or-later |
 | `docs/user/images/video-videos-menu.png` | our simulator render (`scripts/shots.sh`, `tests/ui/ipodui-p14a-menu.script`) of the generated video fixtures (`tests/fixtures/videos/mkvideos.sh`; the poster art is drawn by that script) | GPL-2.0-or-later |
+| `docs/user/images/readme/*.png` (main-menu, albums, now-playing, videos, settings, usb) | our simulator renders (`scripts/readme_visuals.sh`, running `tests/ui/readme/readme-stills.script` on the release-shaped sim), of the synthetic test library (`tests/ui/setup_library.py`) and the generated video fixtures' posters (`tests/fixtures/videos/mkvideos.sh`, art from `tests/fixtures/sim-art`): no owner media, no real names; 2x nearest-neighbour, written without metadata chunks | GPL-2.0-or-later |
+| `docs/user/images/readme/navigation.gif` | our simulator recording (`scripts/readme_visuals.sh`, running `tests/ui/readme/readme-nav.script`: 20 fps frame dump via `record_start`), of the synthetic test library only (`tests/ui/setup_library.py`): no owner media, no real names; no video frames | GPL-2.0-or-later |
 | `docs/user/images/video-video-play.png` | our simulator render (`scripts/shots.sh`, `tests/ui/ipodui-p14a-play.script`) of a frame of the generated video fixtures, whose only picture source is `bcmfw/video/stage6-real.mp4`: *Sintel* trailer, © Blender Foundation, durian.blender.org | CC BY 3.0 (the frame; credit as given here), GPL-2.0-or-later (the rest) |
 
 ## 6. Release-day checklist
@@ -147,3 +152,27 @@ Each step is also in release-plan §6.3 and §7.4.
 - [ ] Binaries and source tarball are attached to the same release, with `SHA256SUMS`.
 - [ ] Trademark search for "ProkBox" (and "ProkBox5g") is done. There is no IP consult (owner, 2026-10-24).
 - [ ] A contact and takedown address is published (Q13): `prokbox.project@gmail.com` in the README (done), on the site and in the release notes.
+
+## 7. Interoperability
+
+Decisions that let ProkBox5g work with other people's hardware and software. Each entry is dated and says what we do and what we never do. Not legal advice; recorded so the reasoning stays with the decision.
+
+### 7.1 USB identity for digital audio (#144; owner, 2026-11-05)
+
+**Decision.** In the owner's words: *"We'll present whatever ID we need to, in order to simulate this feature. If we can derive and get that working, lets do it."* The USB vendor and product ID the unit presents are chosen for interoperability with accessories. Today every build presents `05AC:1209`, the iPod Video's own ID, which Rockbox has always used. If car head units or docks only stream digital audio to IDs they know, a later build may present the classic's `05AC:1261` (RockPod does). `docs/pp5022-reference/usb.md` §7.1 lists the IDs and why.
+
+**Why.** Digital audio over USB (`docs/research/usb-digital-audio.md`) lets the iPod feed a computer, a DAC or a car head unit without the analogue stage. Head units and docks recognise an iPod by its USB ID before they offer digital audio; without a recognised ID the feature cannot interoperate at all.
+
+**What is and is not used.**
+- **No Apple keys, certificates or code.** Nothing is copied from Apple's firmware; descriptor shapes were read from it only to learn what the hardware has done (`[apple-RE]` notes, no bytes reused) and are rebuilt from the public USB Audio Class specification.
+- **The accessory authenticates, not the iPod.** In iAP the accessory carries Apple's authentication coprocessor and proves itself to the iPod; the iPod side only checks. ProkBox5g holds no secret and needs none, so nothing is circumvented. The protocol work follows public, clean-room reverse engineering (Rockbox `apps/iap/`, GPL).
+- **Names stay ours.** The ID is a number on the bus, nothing more. The USB strings say "ProkBox"; product, feature, file and repo names and every on-screen text still never use Apple marks (§1). Nothing on screen says the unit is an Apple product.
+
+### 7.2 Apple's music database for the fail-back (#137; owner, 2026-11-05)
+
+**Decision.** So that a user who boots Apple's own firmware (hold MENU) still finds their songs, ProkBox writes the music database file Apple firmware 1.3 reads (`iPod_Control/iTunes/iTunesDB`) and keeps hidden links to the user's files under `iPod_Control/Music` (developer switch for now).
+
+**What is and is not used.**
+- **No Apple code, keys or data.** The writer, its verifier and the reference tool (`tools/itunesdb/mkitdb.py`) are our own, written from public format descriptions (the iPodLinux notes and independent open-source readers, used as documents only; no LGPL or GPL v3 code copied) and from databases our own writer produced and the owner's unit accepted [silicon, 2026-11-05]. The 5G/5.5G format has no checksum or signature, so nothing is circumvented.
+- **The user's data stays theirs.** A database another program wrote is kept once, unchanged, in ProkBox's folder before ours replaces it; Apple's play counts are moved there too, never discarded.
+- **Names stay ours.** The folder is `PKB`, the playlist is named "ProkBox"; no Apple mark in any file, feature or on-screen name (§1).

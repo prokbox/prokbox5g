@@ -1,3 +1,4 @@
+# Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
 #             __________               __   ___.
 #   Open      \______   \ ____   ____ |  | _\_ |__   _______  ___
 #   Source     |       _//  _ \_/ ___\|  |/ /| __ \ /  _ \  \/  /
@@ -8,21 +9,29 @@
 
 INCLUDES += -I$(APPSDIR) $(patsubst %,-I$(APPSDIR)/%,$(subst :, ,$(APPEXTRA)))
 SRC += $(call preprocess, $(APPSDIR)/SOURCES)
-# ProkBox (#106): shell modules (target builds with IPODUI_MODULES only)
-include $(APPSDIR)/ipodui/modules/modules.make
 
 # ProkBox P19 S3 (docs/design/p19-ui-on-cop.md): in an iPod Video shell
-# firmware, developer or release (HAVE_UI_THREAD_SPLIT), the shell's
+# firmware, developer builds only (HAVE_UI_THREAD_SPLIT; the release
+# compiles the split out, #148), the shell's
 # direct back-end calls cross to the CPU when the shell runs on the COP:
 # the linker's --wrap options from apps/ipodui/febe_rpc.opts
 # (scripts/febe_rpc_gen.py)
 ifeq ($(MODELNAME),ipodvideo)
 ifeq (,$(APP_TYPE))
 ifneq (,$(findstring -DHAVE_IPOD_UI ,$(EXTRA_DEFINES) ))
+ifneq (,$(findstring -DHAVE_IPOD_UI_DEVMODE ,$(EXTRA_DEFINES) ))
 CORE_LDOPTS += @$(APPSDIR)/ipodui/febe_rpc.opts
+# the shell modules link with the same options (modules.make mod_link)
+FEBE_WRAP_FILE := $(APPSDIR)/ipodui/febe_rpc.opts
+FEBE_WRAP_OPTS = @$(FEBE_WRAP_FILE)
 endif
 endif
 endif
+endif
+
+# ProkBox (#106): shell modules (target builds with IPODUI_MODULES only; after
+# FEBE_WRAP_FILE above: its keep rule names it as a prerequisite)
+include $(APPSDIR)/ipodui/modules/modules.make
 
 # apps/features.txt is a file that (is preprocessed and) lists named features
 # based on defines in the config-*.h files. The named features will be passed
@@ -55,9 +64,11 @@ ASMDEFS_SRC += $(APPSDIR)/core_asmdefs.c
 # contract (bcmjob.h, jobs.h); -idirafter, so it never shadows a Rockbox
 # header (as firmware.make's bcmjob-*.o)
 # (and P19 19-5/19-6: the marquee's PAN, art_bcm's DECODE; the bench's
-# devbench_power.o, whose slp row rings the doorbell with a FENCE)
+# devbench_power.o, whose slp row rings the doorbell with a FENCE; and
+# devbench.o, whose VF0 row runs SPECTRUM, sitting 4g; devbench_vcpwr.o,
+# whose rows and watch use FENCE and the self-test)
 BCMJOB_SHELL_OBJ := $(addprefix $(BUILDDIR)/apps/ipodui/,drift_jobs.o mq_jobs.o art_bcm.o \
-	devbench_power.o viz.o viz_jviz.o devjobfail.o)
+	devbench_power.o viz.o viz_jviz.o devjobfail.o devbench.o devbench_vcpwr.o)
 # #126: the visualizer's spectrum and bars (bcmfw/jobs/jviz.c, the PP's
 # CPU path), and in a simulator with the job model its SPECTRUM and BARS
 # (jref_viz.c), with the executor's JREF_VIZ as uisimulator.make sets it

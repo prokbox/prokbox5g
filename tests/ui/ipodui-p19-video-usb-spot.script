@@ -1,0 +1,81 @@
+# #165: a video paused near its end keeps its spot through a USB session
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p19-video-usb-spot.script
+# (ipodui-p19-* default to build/sim-ui-video; the gate runs them there)
+# needs: video
+# timeout: 300
+#
+# Short Film (13 s) is paused at ~11.3 s: its sound is decoded to the end
+# by then and only the PCM buffer still holds the rest. USB is plugged in
+# and out (the session stops the audio; nothing is written at the USB
+# entry), and the next start from the Videos list must resume there, not
+# at 0. Then the same with MENU (a plain stop) at ~11.3 s. Before the fix
+# the stop was announced as the track's natural end (the codec's early
+# TEF_AUTO_SKIP), which resets the resume point to 0 over the pause's
+# write (playback.c audio_stop_playback()).
+#
+# Disk: tests/fixtures/videos/mkvideos.sh (Movies/ Short Film, 13 s).
+# Main menu with Videos on: Music, Videos, ... Short Film's spot is left
+# at none (played to its end) for the other scripts.
+
+# golden: skip
+# trace: video
+# log: ms kept=1
+# nolog: ms kept=0
+
+wait 4000
+wait_db 45000
+video_screen /Movies/Short%20Film.m4v
+wait_pos 11300 30000 Film.m4v
+key PLAY            # pause at ~11.3 s: the codec is done, the PCM is not
+wait 600
+expect_paused 300
+wait 1500           # the pause's write is out
+usb_connect
+wait 3000
+usb_disconnect
+wait 3000
+expect_video 0 none
+wait_db 45000
+wait 2000
+
+# 1. from the Videos list it resumes at the paused spot, not 0
+wheel -10 300
+wheel +1 300        # Videos
+wait 600
+key SELECT
+wait 900
+key SELECT          # Movies
+wait 1200
+wheel -10 300
+wheel +3 300        # Short Film
+wait 400
+key SELECT
+wait 700
+expect_pos 11000 12700      # the paused spot, not 0
+shot resumed_after_usb
+
+# 2. it plays to its end (the spot back to none); started again from 0,
+# paused at ~11.3 s and left with MENU: the next start resumes there
+wait_pos 12900 30000 Film.m4v
+wait 3000
+expect_video 0 none
+key SELECT          # Short Film again, from its start
+wait 700
+expect_pos 0 2500
+wait_pos 11300 30000 Film.m4v
+key PLAY
+wait 600
+expect_paused 300
+wait 1000
+key MENU            # the stop: back to the list
+wait 1500
+expect_video 0 none
+key SELECT
+wait 700
+expect_pos 11000 12700      # the paused spot, not 0
+
+# played to its end: Short Film's spot back to none for the other scripts
+wait_pos 12900 30000 Film.m4v
+wait 3000
+expect_video 0 none
+quit

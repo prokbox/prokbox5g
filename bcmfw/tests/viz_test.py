@@ -25,12 +25,16 @@
 """The visualizer's engine (#126; bcmfw/jobs/jviz.h, docs/research/bcm2722/
 visualizer.md), in vc2sim and on the Mac:
 
-1. The vector FFT (jv_fft256, jv_fft512; bcmfw/video/gen_viz.py) against
-   the C reference (jviz.c jviz_raw_ref), both built by vc2cc into one
-   program: every power of every bin bit for bit, on sines (on and between
-   bins, full scale and quiet), chirps, noise, silence, full-scale square
-   waves (clipping), impulses, DC, Nyquist and random words, at 256 and
-   512 samples.
+1. The vector FFT (jv_vfft512; bcmfw/video/gen_viz.py; #126,
+   docs/design/viz-fft-vc.md) against the C definition (jviz.c
+   jviz_raw_sep512), both built by vc2cc into one program: every power of
+   every bin bit for bit, on sines (on and between bins, full scale and
+   quiet), chirps, noise, silence, full-scale square waves (clipping),
+   impulses, DC, Nyquist and random words; every vector form the kernel
+   runs is filed silicon or apple in tools/bcmre/proven_forms.txt (and
+   vc2sim's strict forms mode runs it without a trap); its start-up check
+   (viz_vpu_check) reads J_VFFT_ALL, and fails when told to.  At 256
+   samples the C alone (no kernel: the BCM's SPECTRUM of 256 is the C).
 2. The C reference built for the Mac (ctypes) equals the vc2sim build's
    output, and its X[k] against a double-precision FFT of the same
    windowed input (numpy): the SNR in dB per signal class, the worst bin
@@ -50,14 +54,10 @@ visualizer.md), in vc2sim and on the Mac:
 6. The accumulator (quirks #31, #32): under every rule that fits silicon
    (vc2sim v_acc_sat sat32, read16, hi16; v_a16_reg_x dbl16, near32) and
    the old wrapping model, the kernel equals the C on a third of the
-   signals and on the worst case (every sample 32767, every table word
-   -32768: step 2's sum is 2^31), and its start-up check passes; the
-   kernel before (gen_viz.py --mutate acc1, every sum in one chain) and
-   tw1 (step 2's alone) differ on the worst case and fail the check under
-   each saturating rule, and pass only under the wrapping model.
-7. --mutations: gen_viz.py --mutate sign (a twiddle's sign), scale (a
-   stage's halving dropped), lane (the partner block's column 3 from the
-   wrong column): each must make bins differ; mask (the bars' select 1,
+   signals and its start-up check passes.
+7. --mutations: gen_viz.py --mutate lane0 (the partner's lane-0 fix
+   skipped), twsign (step 2's sine sign), brev (step 3's bit reversal):
+   each must make bins differ and fail the start-up check; mask (the bars' select 1,
    not -1, for a kept pixel), grad (the gradient rows of the group below),
    cap (a pixel in either cap bound capped): each must make bars frames
    differ and fail the bars' start-up check.  The kernel is regenerated
@@ -151,7 +151,7 @@ class Sim:
                             conservative=True)
         self.s = S.Sim()
         C.load_into_sim(self.prog, self.s)
-        self.tabs = {n: self.s.call('jviz_tabs', n) for n in SIZES}
+        self.vt = self.s.sym('jviz_vfft_tabs')
 
     def put(self, at, vals):
         self.s.mem.write(at, np.array(vals, dtype='<i2').tobytes())
@@ -166,76 +166,71 @@ class Sim:
         self.s.mem.write(out, bytes(1024))
         s0 = self.s.steps
         if kernel:
-            self.s.call('jv_fft%d' % n, out, AT, self.tabs[n], check_abi=True,
-                        max_steps=10 ** 7)
+            assert n == 512
+            self.s.call('jv_vfft512', out, AT, self.vt, check_abi=True, max_steps=10 ** 7)
+        elif n == 512:
+            self.s.call('jviz_raw_sep512', out, AT, check_abi=True, max_steps=10 ** 8,
+                        regs={15: 0, 22: 0})
         else:
             self.s.call('jviz_raw_ref', out, AT, n, check_abi=True, max_steps=10 ** 8,
                         regs={15: 0, 22: 0})
         return self.raw(out), self.s.steps - s0
 
+    def check(self, fail=0):
+        return self.s.call('viz_vpu_check', fail, check_abi=True, max_steps=10 ** 8,
+                           regs={15: 0, 22: 0})
 
-TAB = AT + 0x8000       # a crafted table, then its struct jviz_tabs
-WORST_PCM, WORST_TAB = 32767, -32768
+
+J_VFFT_ALL = 0x80000707
 
 
-def run_worst(sim, n, kernel=True):
-    """the worst case for the accumulator (viz_vpu.c viz_vpu_init's): every
-    sample 32767, every table word -32768"""
-    sim.put(TAB, [WORST_TAB] * 512)
-    st = TAB + 0x400
-    sim.s.mem.write(st, np.array([TAB, TAB, TAB, n // 32], dtype='<u4').tobytes())
-    sim.put(AT, [WORST_PCM] * n)
-    out = AT + 0x1000
-    sim.s.mem.write(out, bytes(1024))
-    if kernel:
-        sim.s.call('jv_fft%d' % n, out, AT, st, check_abi=True, max_steps=10 ** 7)
-    else:
-        sim.s.call('jviz_raw_ref_t', out, AT, n, st, check_abi=True, max_steps=10 ** 8,
-                   regs={15: 0, 22: 0})
-    return sim.raw(out)
+def forms_used(sim, x):
+    """{form text: (class, count)} of every vector instruction jv_vfft512
+    runs (single-stepped), classed by tools/bcmre/proven_forms.txt"""
+    import vc2vpu as VP
+    sim.put(AT, split(x))
+    s, r = sim.s, sim.s.r
+    for k, v in enumerate((AT + 0x1000, AT, sim.vt)):
+        r[k] = v
+    r[25], r[26] = S.STACK_TOP, S.RET_MAGIC
+    pc, used, table = s.sym('jv_vfft512'), {}, VP.proven_vector_forms()
+    while pc != S.RET_MAGIC:
+        h = s.code.get(pc) or s.fetch(pc)
+        ins = h[2]
+        if ins.e.name in ('vec48', 'vec80'):
+            key = VP.form_text(VP.form_keys(ins)[1])
+            cls = table.get(key, ('none', ''))[0]
+            used[key] = (cls, used.get(key, (cls, 0))[1] + 1)
+        r[31] = pc
+        npc = h[0]()
+        pc = (pc + h[1]) if npc is None else npc & S.MASK
+    return used
 
 
 def variants(sigs):
     """The kernel under every accumulator and A-operand rule that fits
-    silicon (vc2vpu.SILICON_FITS) and the old wrapping model: exact on the
-    signals and the worst case, the start-up check passing.  The kernel
-    before (acc1) and tw1 differ on the worst case and fail the check
-    under every saturating rule (the wrapping model, which silicon
-    refuted, is the only one they pass)"""
+    silicon (vc2vpu.SILICON_FITS) and the old wrapping model: exact on a
+    third of the signals, the start-up check passing"""
     import vc2vpu as VP
     rules = VP.SILICON_FITS['v_acc_sat'] + ('none',)
     a16s = VP.SILICON_FITS['v_a16_reg_x']
     saved = S.HYP['v_acc_sat'], S.HYP['v_a16_reg_x']
     bad = 0
+    ms = Sim()
+    crefs = [ms.run(x, 512, kernel=False)[0] for _, _, x in sigs[512][::3]]
     try:
-        for kernel in (None, 'acc1', 'tw1'):
-            regen(kernel)
-            ms = Sim()
-            refs = {n: run_worst(ms, n, kernel=False) for n in SIZES}
-            crefs = {n: [ms.run(x, n, kernel=False)[0] for _, _, x in sigs[n][::3]]
-                     for n in SIZES}
-            for a16 in (a16s if kernel is None else a16s[:1]):
-                for rule in rules:
-                    S.HYP['v_acc_sat'], S.HYP['v_a16_reg_x'] = rule, a16
-                    chk = ms.s.call('viz_vpu_init', 0, check_abi=True, max_steps=10 ** 8,
-                                    regs={15: 0, 22: 0})
-                    worst = sum(int(np.sum(valid(run_worst(ms, n), n) != valid(refs[n], n)))
-                                for n in SIZES)
-                    nd = sum(not np.array_equal(valid(ms.run(x, n)[0], n), valid(c, n))
-                             for n in SIZES for (_, _, x), c in zip(sigs[n][::3], crefs[n]))
-                    if kernel is None or rule == 'none':
-                        ok = chk == 1 and worst == 0 and nd == 0
-                    else:
-                        ok = chk == 0 and worst > 0
-                    bad += not ok
-                    print('accumulator %-6s A +r x %-6s %-10s: start-up check %s, worst case '
-                          '%d halfwords differ, %d signals differ: %s' % (
-                              rule, a16, kernel or 'two chains',
-                              'passes' if chk == 1 else 'fails', worst, nd,
-                              'ok' if ok else 'WRONG'))
+        for a16 in a16s:
+            for rule in rules:
+                S.HYP['v_acc_sat'], S.HYP['v_a16_reg_x'] = rule, a16
+                chk = ms.check()
+                nd = sum(not np.array_equal(ms.run(x, 512)[0], c)
+                         for (_, _, x), c in zip(sigs[512][::3], crefs))
+                ok = chk == J_VFFT_ALL and nd == 0
+                bad += not ok
+                print('accumulator %-6s A +r x %-6s: start-up check %08x, %d signals differ: '
+                      '%s' % (rule, a16, chk, nd, 'ok' if ok else 'WRONG'))
     finally:
         S.HYP['v_acc_sat'], S.HYP['v_a16_reg_x'] = saved
-        regen()
     return bad
 
 
@@ -272,7 +267,10 @@ def mac_fft(lib, x, n):
 def mac_raw(lib, x, n):
     pcm = (ctypes.c_int16 * n)(*split(x))
     raw = (ctypes.c_uint16 * 512)()
-    lib.jviz_raw_ref(raw, pcm, n)
+    if n == 512:
+        lib.jviz_raw_sep512(raw, pcm)
+    else:
+        lib.jviz_raw_ref(raw, pcm, n)
     return np.array(raw[:], dtype=np.uint16)
 
 
@@ -1041,8 +1039,8 @@ def main(argv):
         nd = mac_bad = 0
         ks = cs = 0
         for cls, name, x in sigs[n]:
-            kr, ksteps = sim.run(x, n)
             cr, csteps = sim.run(x, n, kernel=False)
+            kr, ksteps = sim.run(x, n) if n == 512 else (cr, 0)
             ks, cs = max(ks, ksteps), max(cs, csteps)
             if not np.array_equal(valid(kr, n), valid(cr, n)):
                 nd += 1
@@ -1055,8 +1053,19 @@ def main(argv):
         print('%3d samples: %d signals: kernel vs C %d differ; C vc2sim vs Mac %d differ'
               % (n, len(sigs[n]), nd, mac_bad))
         fails += nd + mac_bad
-    for n in SIZES:
-        # the display's yardstick: a full-scale sine's peak bin over the
+    used = forms_used(sim, sigs[512][0][2])
+    badf = sorted(k for k, (c, _) in used.items() if c not in ('silicon', 'apple'))
+    print('jv_vfft512: %d vector forms, %d instructions run, every one silicon or apple: %s'
+          % (len(used), sum(n_ for _, n_ in used.values()), 'yes' if not badf else
+             'NO: ' + '; '.join('%s (%s)' % (k, used[k][0]) for k in badf)))
+    fails += len(badf)
+    chk = [sim.check(f) for f in (0, 1)]
+    print('the FFT\'s start-up check: %08x (want %08x), forced to fail %08x (want the '
+          'kernel bits clear)' % (chk[0], J_VFFT_ALL, chk[1]))
+    fails += chk[0] != J_VFFT_ALL or chk[1] & 0x700 or chk[1] & 7 != 7
+    for n in (256,):
+        # the display's yardstick (the exact sums; SEP's precision is
+        # tests/vizfft's): a full-scale sine's peak bin over the
         # mean error power of a bin (the floor the bars can see)
         x = [s_ for c_, nm, s_ in sigs[n] if nm == 'sine full bin 17.00'][0]
         xr, xi = mac_fft(lib, x, n)
@@ -1087,43 +1096,52 @@ def main(argv):
                      regs={15: 0, 22: 0}) for f in (0, 1)]
     print('vector bars\' start-up check: %d (want 1), forced to fail %d (want 0)' % tuple(ok))
     fails += ok != [1, 0]
-    for n in SIZES:
+    for n in (512,):
         sim.put(AT, split(sigs[n][0][2]))
-        k = prof_call(sim.s, 'jv_fft%d' % n, AT + 0x1000, AT, sim.tabs[n])
-        c = prof_call(sim.s, 'jviz_raw_ref', AT + 0x1000, AT, n, regs={15: 0, 22: 0})
-        sim.s.mem.write(AT + 0x2000, bytes(2048))
-        pw = prof_call(sim.s, 'jviz_raw_power', AT + 0x2000, AT + 0x1000, n)
-        COST[n] = (k, c, pw)
-        print('cost %d: kernel %d instructions (%d vector), ~%.0f cycles; C reference %d '
-              'instructions; unpacking the powers %d' % (n, k[0], k[1], k[2], c[0], pw[0]))
+        k = prof_call(sim.s, 'jv_vfft512', AT + 0x1000, AT, sim.vt)
+        c = prof_call(sim.s, 'jviz_raw_sep512', AT + 0x1000, AT, regs={15: 0, 22: 0})
+        COST[n] = (k, c)
+        print('cost %d: kernel %d instructions (%d vector), ~%.0f cycles; C definition %d '
+              'instructions' % (n, k[0], k[1], k[2], c[0]))
         for mhz in (27, 150):
             print('    at %d MHz: kernel %.1f us, C %.2f ms (a 30 fps frame is 33.3 ms)' % (
-                mhz, (k[2] + pw[2]) / mhz, c[2] / mhz / 1000))
+                mhz, k[2] / mhz, c[2] / mhz / 1000))
+    ci = prof_call(sim.s, 'viz_vpu_check', 0, regs={15: 0, 22: 0})
+    print('cost the FFT\'s start-up check: %d instructions, ~%.0f cycles (%.1f ms at 27 MHz)'
+          % (ci[0], ci[2], ci[2] / 27000))
     if '--mutations' in argv:
         caught = 0
         try:
-            for m in ('sign', 'scale', 'lane'):
+            for m in ('lane0', 'twsign', 'brev'):
                 regen(m)
                 ms = Sim()
                 nd = tot = 0
-                for n in SIZES:
-                    for cls, name, x in sigs[n][::3]:
-                        kr, _ = ms.run(x, n)
-                        cr, _ = ms.run(x, n, kernel=False)
-                        nd += not np.array_equal(valid(kr, n), valid(cr, n))
-                        tot += 1
-                caught += nd > 0
-                print('mutation %-6s: %d of %d signals differ: %s' % (
-                    m, nd, tot, 'caught' if nd else 'NOT CAUGHT'))
+                for cls, name, x in sigs[512][::3]:
+                    kr, _ = ms.run(x, 512)
+                    cr, _ = ms.run(x, 512, kernel=False)
+                    nd += not np.array_equal(kr, cr)
+                    tot += 1
+                init = ms.check()
+                caught += nd > 0 and init != J_VFFT_ALL
+                print('mutation %-6s: %d of %d signals differ, the start-up check %08x: %s' % (
+                    m, nd, tot, init, 'caught' if nd and init != J_VFFT_ALL else
+                    'NOT CAUGHT'))
             # the bars: each mutation changes frames, and the start-up
             # check refuses it (J_VPU_BARS would stay clear)
             for m in ('mask', 'grad', 'cap'):
                 regen(m)
                 ms = Sim()
                 cases = bars_vec_cases(random.Random(5))[::4]
-                bad, n, _, _ = bars_vec_check(ms, random.Random(5), cases, quiet=True)
-                init = ms.s.call('viz_bars_init', 0, check_abi=True, max_steps=10 ** 8,
-                                 regs={15: 0, 22: 0})
+                try:
+                    bad, n, _, _ = bars_vec_check(ms, random.Random(5), cases, quiet=True)
+                    init = ms.s.call('viz_bars_init', 0, check_abi=True, max_steps=10 ** 8,
+                                     regs={15: 0, 22: 0})
+                except S.SimError as e:
+                    # the strict forms mode refuses the mutant's form: caught
+                    print('mutation %-6s: vc2sim refuses it (%s): caught' % (
+                        m, str(e).split(' at ')[0]))
+                    caught += 1
+                    continue
                 caught += bad > 0 and not init
                 print('mutation %-6s: %d of %d bars frames differ, the start-up check %s: %s'
                       % (m, bad, n, 'refuses it' if not init else 'PASSES it',

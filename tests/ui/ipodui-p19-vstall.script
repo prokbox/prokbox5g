@@ -1,0 +1,90 @@
+# Day 4c (build fa3d8edb58): the visualiser, then an episode whose pictures
+# stopped about 10 minutes in while the audio played on (a scrub, or
+# leaving and coming back, started them again), then Extras.  Gate-sized
+# (the 12-minute real-time soak is tests/video/sim_soak.script):
+#  start-v0  the visualiser runs a few seconds on the BCM; its close logs
+#            the view's summary ("viz soak": frames by who drew them, the
+#            holds), the line the 4e bench's visualiser soak reads;
+#  v0-h0     the episode plays;
+#  h0-h1     the audio's buffer stops short of the video's bytes and never
+#            fills (video_fault hole): no push, no post, so the old
+#            watchdog (posts counted) never fired and the picture stood
+#            for good.  Now the stream falls behind the audio, a still
+#            ("video: still: posts, data waits"), the samples from the
+#            file, pictures again (one concealed decode error in the
+#            simulator's decoder at the stall, around the slow sim audio's
+#            jump back: not counted here; the host model shows every
+#            packet intact, tests/video/test_vpcore.c 3c6b);
+#  h1-f1     one FEED refused, as a full queue (video_fault feed): the
+#            packet is never consumed and every later FEED is out of
+#            place; the refusal restarts the session where the audio is
+#            ("video: FEED refused") and the pictures go on;
+#  f1-x0     the play's end line ("video prog end": pictures against
+#            the audio's time, the 4e long-play step's line); the video
+#            stops and the BCM's jobs come back;
+#  x0-       Extras opens (Games: the module pack's index is read on the
+#            way in on the device; the simulator's modules are resident).
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p19-vstall.script
+#   python3 scripts/check_trace.py out/shots/ipodui-p19-vstall/sim.log tests/ui/ipodui-p19-vstall.script
+# needs: video
+# np: viz-full
+# reset: viz
+# golden: skip
+# timeout: 200
+# logbetween: start v0 viz soak s=\d+ bcm=[1-9]\d* cpu=0 hold=\d+/\d+ms fb=0
+# logbetween: h1 f1 video: FEED refused \(status, want\)
+# logbetween: h1 f1 video: FEED refused: n, in flight
+# logbetween: h0 h1 video: still: posts, data waits \([0-2],
+# logbetween: h0 h1 video: data still: file
+# logbetween: h0 h1 video buf -?\d+ st=
+# logbetween: f1 x0 video prog end pics=[1-9]\d\d+ audio_ms=\d+
+# logbetween: f1 x0 video prog end still=1 behind=1 data=1 ref=1
+# nolog: video: stopped, BCM given back
+# nolog: video: image lost
+# nolog: CPU FALLBACK
+wait 3000
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait 1500
+key SELECT          # Music
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 1500
+key SELECT          # Scrubber
+wait 400
+key SELECT          # Rating
+wait 600
+key SELECT          # Shuffle
+wait 600
+key SELECT          # Visualizer
+wait 4000
+key SELECT          # back to Normal: the view closes
+wait 1200
+ab_mark v0
+audio_stop
+wait 500
+ab_mark h0
+video_fault hole 200   # about 3.2 s in (the clip: 742 KB, 12 s)
+video_screen /Misc/S01E03.m4v
+wait 9000
+ab_mark h1
+video_fault hole 0
+video_fault feed 20
+video_wait_refusal 20000   # the refusal itself, not a fixed delay
+ab_mark f1
+key MENU            # stops, back to the list
+wait 2000
+ab_mark x0
+key MENU
+wait 800
+key MENU
+wait 800
+shot mainmenu
+wheel -2            # from Shuffle Songs up to Extras
+wait 500
+key SELECT          # Extras
+wait 1200
+shot extras

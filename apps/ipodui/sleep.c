@@ -63,6 +63,7 @@
 #include "ipodui/preview.h"     /* ui_fb_settle() (P19) */
 #include "ipodui/alarm_ring.h"      /* alarm_dark_wait() */
 #include "ipodui/sdk/sdk_int.h"     /* sdk_sleep_enter() */
+#include "hang_watch.h"          /* hang_idle_begin(): asleep is idle */
 #include "power_sleep.h"        /* SLEEP_REFUSE_*, struct sleep_req */
 #ifdef HAVE_POWER_SLEEP
 #include "stor_pwr.h"         /* #114: the drive's power-down */
@@ -586,6 +587,7 @@ static bool sleep_once(uint8_t entry, struct wake *w)
         .alarm_rtc = alarm_next_rtc(),
     };
     int tries = 0;
+    int hw;
 #ifdef HAVE_POWER_SLEEP
     struct sleep_req prq;
     struct sleep_result res;
@@ -606,7 +608,9 @@ static bool sleep_once(uint8_t entry, struct wake *w)
             .hold_wake_s = rq.hold_wake_s, .low_mv = rq.low_mv,
             .poll_s = rq.poll_s, .buttons_at_entry = rq.buttons_at_entry,
         };
+        hw = hang_idle_begin();     /* asleep: the shell's thread is idle */
         power_sleep(&prq, &res);
+        hang_idle_end(hw);
         if (res.refused)
         {
             ui_log("sleep", "refused why=%u try=%d", res.refused, tries);
@@ -630,7 +634,9 @@ static bool sleep_once(uint8_t entry, struct wake *w)
 
     for (;;)
     {
+        hw = hang_idle_begin();     /* asleep (the sim's tick runs on) */
         sim_sleep_run(&rq, &res);
+        hang_idle_end(hw);
         if (!res.refused)
             break;
         ui_log("sleep", "refused why=%u try=%d", res.refused, tries);

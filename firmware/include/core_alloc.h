@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2011 Thomas Martitz
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -43,6 +44,12 @@ size_t core_allocatable(void);
 
 #ifdef BUFLIB_DEBUG_CHECK_VALID
 void core_check_valid(void);
+#endif
+
+#ifdef HAVE_BUFLIB_HEAPCHECK
+/* ProkBox, developer builds: buflib_walk() over the core context (CPU
+ * only, like every core_* call); 0: every header good */
+int core_heap_walk(struct buflib_walk *w, int max_blocks);
 #endif
 
 #if defined(HAVE_IPOD_UI) && defined(SIMULATOR)

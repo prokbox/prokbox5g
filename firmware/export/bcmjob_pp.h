@@ -207,6 +207,11 @@ int bcmjob_dev_inject_fail(uint32_t op, uint32_t n);
 /* The simulator's B3 parity: pixels in the rect where the model's panel
  * (what PRESENT showed) differs from the PP framebuffer */
 uint32_t bcmjob_model_diff(int x, int y, int w, int h);
+/* An owner that poisons its rect's framebuffer copy says so (the drift
+ * panel does; the visualiser does not: it never keeps a stale copy it
+ * could tell from a drawn one).  The simulator's "glass owned STALE" check
+ * applies only to a rect so claimed; w == 0 withdraws the claim */
+void bcmjob_poison_claim(int x, int y, int w, int h);
 #endif
 
 /* ---- The drift's backend: the developer A/B switch (B3) -------------------

@@ -97,6 +97,7 @@
 #include "ipodui/np_playback.h"
 #include "ipodui/screens/screens.h"
 #include "ipodui/screens/nowplaying.h"
+#include "ipodui/screens/video.h"    /* ui_video_session() (#154) */
 #include "ipodui/screens/panels.h"   /* the reveal's backdrop (P12) */
 #include "ipodui/sleep.h"
 #include "ipodui/alarm.h"
@@ -112,6 +113,13 @@
 #include "stor_pwr.h"               /* sim_stor_ui_thread() (npfix) */
 #endif
 #include "hang_watch.h"             /* the hang watcher's heartbeat */
+#if defined(HAVE_BCMFW_RESIDENT) && defined(HAVE_BCMFW_DEVTEST) && \
+    !defined(SIMULATOR)
+#define UI_VCPWR_WATCH
+/* p19-vcpwr: the S1 and L5 watch (devbench_vcpwr.h, which brings the
+ * bench's tables; only this call is wanted here) */
+void vcpwr_service(void);
+#endif
 
 /* The header polls battery and hold. There is no hold-switch event for
  * the app (the driver only tells the backlight thread), so poll once a
@@ -294,7 +302,10 @@ bool ui_now_playing_visible(void)
     bool v;
 
     (void)fe_now_get(&now);         /* a failure logs; the last good copy */
-    v = audio_status()
+    /* #154: a video session's audio is never Now Playing; the music's
+     * stopped state below holds through it (no row flip, and no full
+     * menu redraw, between the video's audio start and its screen) */
+    v = (audio_status() && !ui_video_session())
         || (!(now.flags & FE_NOW_STOPPED) && global_status.resume_index != -1);
 
     UPDATE_TRACE("np row visible=%d", (int)v);  /* menu builds only */
@@ -445,7 +456,7 @@ static void refresh(struct ui_screen *s)
         /* boot, return from the WPS, or a push/pop without a strip.
          * Always the whole screen: on a split screen the body includes
          * the panel next to the header. */
-        UPDATE_TRACE("update full %s", s->ops->name);
+        UPDATE_TRACE("update full %s why=body", s->ops->name);
         lcd_update();
         ui_panel_sync(LCD_HEIGHT);
     }
@@ -641,7 +652,7 @@ static void slide_capture(int dir, bool push_above)
     {
         /* someone used the strip meanwhile: no old body, just show it */
         ui_strip_put();
-        UPDATE_TRACE("update full %s", s->ops->name);
+        UPDATE_TRACE("update full %s why=slide-strip-lost", s->ops->name);
         lcd_update();
         ui_panel_sync(LCD_HEIGHT);
         return;
@@ -944,7 +955,7 @@ static void reveal_capture(int dir)
     {
         /* someone used the strip meanwhile: no old screen, just show it */
         ui_strip_put();
-        UPDATE_TRACE("update full %s", s->ops->name);
+        UPDATE_TRACE("update full %s why=reveal-strip-lost", s->ops->name);
         lcd_update();
         ui_panel_sync(LCD_HEIGHT);
         return;
@@ -1591,6 +1602,8 @@ void ipodui_main(void)
     /* P19 W0-6: the job client's state (sim: the resident image's
      * reservation); nothing is sent to the BCM2722 until a caller asks */
     bcmjob_init(bcmjob_trace);
+    art_bcm_ovl_buf_init();         /* the overlays' piece buffer, before the
+                                     * audio buffer exists: never a shrink */
     bcmjob_frame_due_hook(bcmjob_frame_due);  /* 19-6: the owner's budget */
     {
         /* review M5: the floor with the BCM's reservation, on the device
@@ -1768,6 +1781,11 @@ static void shell_main(void)
          * clock policy, the view pool's size) on be_svc; this thread
          * waits for them, as when it ran them itself */
         (void)be_call(BE_PASS, 0, 0, 0);
+#ifdef UI_VCPWR_WATCH
+        vcpwr_service();            /* developer builds: chip idle sleep
+                                     * and level 5 checked, latched off on
+                                     * a failure (the job owner's thread) */
+#endif
 #ifdef HAVE_ART_BCM
         /* P19 19-6: DECODE offered (the merged image's overlay loaded
          * through the strip at rest); a cover slot's FREE on the job

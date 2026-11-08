@@ -2,8 +2,8 @@
 # old HZ/20 poll on a full PCM buffer, "fullwait legacy") and after (the
 # low-watermark sleep, "fullwait on"), 20 s each with the panel asleep;
 # then a track boundary well into the dark (gapless, no underrun). The
-# default decodes on the CPU (pinned, owner 2026-10-24); the simulator
-# has one core, so no A/B mode binds a load here. Read
+# device decodes on the COP (owner 2026-11-07); the simulator has one
+# core, so no load is bound and it decodes on its one core. Read
 # the "sim_script: wakes" lines.
 #   sh tests/fixtures/p19c/make_p19c_fixtures.sh
 #   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p19c-wakes-flac.script

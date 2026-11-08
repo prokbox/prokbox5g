@@ -1,9 +1,14 @@
 # #109 H2 (docs/design/queue-by-index.md 4.2.2-3, 7): a renumbering
 # commit under a database queue whose current position has history
-# behind it. The whole Songs list plays, six songs in; a fixture sorting
-# into the first scanned folder is added and the library rebuilt
+# behind it. The whole Songs list plays, six songs in; a fixture is
+# added to each song folder (/Music, /Library) and the library rebuilt
 # (renumbered): the rebase covers every slot (history included) and the
-# block goes SEEK, then PATH (dbqpath.dat). After a restart PREV three
+# block goes SEEK, then PATH (dbqpath.dat). The scan follows the host's
+# readdir order (the sim; FAT slot order on the device), which differs
+# by filesystem: on btrfs /Audiobooks comes after both song folders, so a
+# fixture there renumbered no queued song ("result=stamp"). With one in
+# each song folder, whichever is scanned first puts its fixture ahead of
+# the other's songs on any host. After a restart PREV three
 # times walks back through the history slots: every name resolves (no
 # lost or io miss) and playback never stops.
 #   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-dbq-rebase-history.script
@@ -22,7 +27,8 @@
 
 wait 4000
 wait_db 30000
-rm_file /Audiobooks/0-dbq-h2.mp3    # leftover of a cut run (if any)
+rm_file /Music/0-dbq-h2.mp3         # leftovers of a cut run (if any)
+rm_file /Library/0-dbq-h2.mp3
 key SELECT          # Music
 wait 1000
 wheel -10 100
@@ -51,7 +57,8 @@ key PLAY            # pause (the resume point is written)
 wait 800
 audio_stop
 wait 500
-copy fixtures/refresh.mp3 /Audiobooks/0-dbq-h2.mp3
+copy fixtures/refresh.mp3 /Music/0-dbq-h2.mp3
+copy fixtures/refresh.mp3 /Library/0-dbq-h2.mp3
 rebuild_db 180000   # renumbers: rebase -> SEEK -> materialize -> PATH
 wait 3000
 reboot
@@ -73,6 +80,7 @@ expect_playing 1000
 shot back3
 audio_stop
 wait 500
-rm_file /Audiobooks/0-dbq-h2.mp3
+rm_file /Music/0-dbq-h2.mp3
+rm_file /Library/0-dbq-h2.mp3
 update_db_wait_change 60000
 quit

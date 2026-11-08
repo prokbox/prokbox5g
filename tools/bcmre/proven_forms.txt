@@ -17,6 +17,12 @@
 # match wins).  Bench check regions: the forms under test
 region | bench_vc_putv | bench | B4V PUTV, sitting 2: FAIL (the V8 D at +r y 8 is not as modelled)
 region | bench_vc_ashx | silicon | B4V ASHX, sitting 2: near32 word for word (modelled since 2026-10-26)
+region | bench_vc_hdry | bench | VF3 probe (viz-fft-vc.md section 10), never run on silicon: an H16 D's +r y (suspect 4); readlog names the reading
+region | bench_vc_vx15 | bench | VF3 probe (viz-fft-vc.md section 10), never run on silicon: x15 with a V16 A (suspect 1); readlog names the reading
+region | bench_vc_vacd | bench | VF3 probe (viz-fft-vc.md section 10), never run on silicon: acc into a V16 D through vmulhd (suspect 3); readlog names the reading
+region | bench_vc_vstp | bench | VF3 probe (viz-fft-vc.md section 10), never run on silicon: a V16 A stepping across a REP (suspect 2); readlog names the reading
+region | bench_vc_hary | bench | VF3 probe (viz-fft-vc.md section 10), never run on silicon: an unstepped H16 A's +r y; readlog names the reading
+region | bench_vc_mhdr | bench | VF3 probe (viz-fft-vc.md section 10), never run on silicon: the REP 16 vmulhd with D, A and B stepping (suspect 5); readlog names the reading
 region | bench_vc_* | silicon | B4V rows, sitting 2: every row passes as modelled
 region | bench_k_* | bench | timing kernels (bench row timings); their forms are the bench_vc rows'
 region | bench_scalar_check | bench | bench_scalar.S checks
@@ -44,7 +50,7 @@ region | jv_mix16 | silicon | the jobs: jobs self-test and the drift, sitting 2
 region | jv_shade16 | silicon | the jobs: jobs self-test, sitting 2
 region | jv_bars16* | silicon | BARV, sitting 2 (and J_VPU_BARS keeps the C if its check fails)
 # Kernels behind a start-up check (the C path if the check disagrees)
-region | jv_fft* | guard | J_VPU_FFT (viz_vpu.c: four signals at each size); never run on silicon
+region | jv_vfft* | guard | J_VPU_FFT (viz_vpu.c viz_vpu_check: three frames against the Mac's goldens and the C, J_VFFT); every form it runs is filed silicon or apple (viz_test.py), never run on silicon as a whole (#126)
 region | jv_idct* | guard | J_VPU_MAC (jdec's IDCT check); display-only J_VPU read 0x23 on silicon, sitting 2
 region | jv_dot8 | guard | J_VPU_MAC (jdec's IDCT check)
 region | jv_put* | guard | J_VPU_MAC (the put and fill ride the IDCT check); PUTV, sitting 2: a V D's +r y drops below 16 (quirk 39); jv_put keeps rows 0 to size-1 since p19-vplayer-health
@@ -113,8 +119,10 @@ vector | vadd DH16 AH16 BH16 - 80 | silicon | B4V rows, sitting 2: every row pas
 vector | vadd DH16 AH16 BH8 - 80 | guard | J_VPU_YUV (jdec's colour stage check) (jv_yuv16)
 vector | vadd DH16 AH16 Bimm - 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_addi)
 vector | vadd DH16 AH16 Bimm acc 80 | apple | Apple's self-test executes it
+vector | vadd DH16 AH16 Bimm ifnz 80 | bench | VF3's harness: ASHX's predicated copy (silicon, sitting 2) without the +r (bench_vc_hdry)
 vector | vadd DH16 AH16 Breg - 80 | silicon | B4V rows, sitting 2: every row passes as modelled (bench_vc_adrg)
 vector | vadd DH16 AH16+r BH16+r - 48 | apple | Apple's self-test executes it
+vector | vadd DH16 AH16+r Bimm - 80 | bench | VF3 probe HARY, never run on silicon: an unstepped H16 A's +r y (bench_vc_hary)
 vector | vadd DH16 AH16+r Bimm ifnz 80 | silicon | B4V ASHX, sitting 2: near32 word for word (modelled since 2026-10-26) (bench_vc_ashx)
 vector | vadd DH16 AH16+r++ BH16 - 80 | guard | J_VPU_FFT (viz_vpu.c: four signals at each size); never run on silicon (jv_fft_split)
 vector | vadd DH16 AH16+r++ Bimm - 80 | guard | J_VPU_FFT (viz_vpu.c: four signals at each size); never run on silicon (jv_fft_tw)

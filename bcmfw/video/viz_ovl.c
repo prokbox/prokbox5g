@@ -63,7 +63,8 @@ static uint32_t init(struct jref *j)
 
     for (p = (uint32_t *)__bss_start; p < (uint32_t *)__bss_end; p++)
         *p = 0;
-    fft_on = viz_vpu_init(BCMFW_VIZ_FFT_FAIL);
+    MB(BCMFW_JOBS_BLOCK + J_VFFT) = viz_vpu_check(BCMFW_VIZ_FFT_FAIL);
+    fft_on = MB(BCMFW_JOBS_BLOCK + J_VFFT) == J_VFFT_ALL;
     if (fft_on)
         MB(BCMFW_JOBS_BLOCK + J_VPU) |= J_VPU_FFT;
     bars_on = viz_bars_init(BCMFW_VIZ_FFT_FAIL);

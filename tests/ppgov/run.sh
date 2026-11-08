@@ -23,7 +23,8 @@
 #***************************************************************************
 
 # Host test of the PP5022 band governor (docs/design/pp-governor.md
-# section 10.1): firmware/pgov_core.c's rows, then the simulator's
+# section 10.1): firmware/pgov_core.c's rows, the idle read against its
+# writer (test_idle.c), then the simulator's
 # regression table at fixed parameters against sim_expected.txt (a policy
 # change that moves it fails until the table is regenerated with a reason:
 # tests/ppgov/run.sh --update).  The A/B grid: build/ppgov/sim --grid.
@@ -48,7 +49,9 @@ CF="-std=gnu99 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -DPGOV_HOST -Ifirm
 if ! "$HOSTCC" $CF ${EXTRA_CFLAGS:-} -o "$TMP/test_pgov" \
         "$T/test_pgov.c" firmware/pgov_core.c 2>"$TMP/cc.log" ||
    ! "$HOSTCC" $CF ${EXTRA_CFLAGS:-} -o "$TMP/sim" \
-        "$T/sim.c" firmware/pgov_core.c 2>>"$TMP/cc.log"; then
+        "$T/sim.c" firmware/pgov_core.c 2>>"$TMP/cc.log" ||
+   ! "$HOSTCC" $CF ${EXTRA_CFLAGS:-} -o "$TMP/test_idle" \
+        "$T/test_idle.c" 2>>"$TMP/cc.log"; then
     echo "FAIL: compiling the governor tests ($HOSTCC)"
     cat "$TMP/cc.log"
     exit 1
@@ -57,6 +60,14 @@ if "$TMP/test_pgov"; then
     echo "ok   band governor policy (pgov_core.c: selector, voltage layer, record, tables)"
 else
     echo "FAIL: band governor policy"
+    exit 1
+fi
+# the idle read against its writer, every interleaving (pgov_idle.h)
+if "$TMP/test_idle" >"$TMP/idle.txt"; then
+    echo "ok   governor idle read (seqlock, every writer/reader interleaving)"
+else
+    echo "FAIL: governor idle read"
+    cat "$TMP/idle.txt"
     exit 1
 fi
 "$TMP/sim" >"$TMP/sim.txt" || { echo "FAIL: governor simulator"; exit 1; }

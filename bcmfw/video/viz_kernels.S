@@ -27,129 +27,51 @@
     .syntax vc2
     .text
 
-/* the spectrum of 256 samples (jviz.h) */
-    .global jv_fft256
-jv_fft256:
-    push r6-r13, lr
-    mov r8, r0
-    mov r9, r2
+#ifndef JVIZ_NO_VFFT
+/* the raw powers of 512 samples (jviz.h jviz_raw_sep512; docs/design/viz-fft-vc.md) */
+    .global jv_vfft512
+jv_vfft512:
     mov r3, #32
-    vld16 d00, (r1)+=r3 rep8
-    add r1, #256
-    vld16 d20, (r1)+=r3 rep8
-    ld r4, (r9)
-    vld16 d40, (r4)+=r3 rep8
-    add r4, #256
-    vld16 d60, (r4)+=r3 rep8
-    vmulhd.1 d00, a300, b40.t++ inc rep8
-    vmulhd.1 d20.01, a300, b60.t++ inc rep8
-    ld r4, (r9+4)
-    vld16 d80, (r4)+=r3 rep8
-    add r4, #256
-    vld16 da0, (r4)+=r3 rep8
-    vsub.1 dc0, a300, b04.t++ inc rep4
-    vadd.1 d00, a300, b04.t++ inc rep4
-    vasr.1 d00, a300, #1 inc rep4
-    vsub.1 de0.01, a300, b24.t++ inc rep4
-    vadd.1 d20.01, a300, b24.t++ inc rep4
-    vasr.1 d20.01, a300, #1 inc rep4
-    vasr.1 d04.06, a200, #1
-    vasr.1 d24.07, a200, #1
-    vmul.1 d10.06, a240, #0x5a82 clra x15
-    vmul.1 d10.07, a240, #0x5a82 x15
-    vmulhd.1 d10.06, a240, #0x5a82 acc
-    vmulhd.1 d05.07, a240, #0x5a82 acc
-    vmul.1 d10.06, a240, #0xa57e clra x15
-    vmul.1 d10.07, a240, #0x5a82 x15
-    vmulhd.1 d10.06, a240, #0xa57e acc
-    vmulhd.1 d25.07, a240, #0x5a82 acc
-    vasr.1 d06.07, a280, #1
-    vrsub.1 d26.06, a280, #0
-    vasr.1 d26.01, a284, #1
-    vmul.1 d10.06, a2c0, #0xa57e clra x15
-    vmul.1 d10.07, a2c0, #0x5a82 x15
-    vmulhd.1 d10.06, a2c0, #0xa57e acc
-    vmulhd.1 d07.07, a2c0, #0x5a82 acc
-    vmul.1 d10.06, a2c0, #0xa57e clra x15
-    vmul.1 d10.07, a2c0, #0xa57e x15
-    vmulhd.1 d10.06, a2c0, #0xa57e acc
-    vmulhd.1 d27.07, a2c0, #0xa57e acc
-    vsub.1 dc0, a300, b02.t++ inc rep2
-    vadd.1 d00, a300, b02.t++ inc rep2
-    vasr.1 d00, a300, #1 inc rep2
-    vsub.1 de0.01, a300, b22.t++ inc rep2
-    vadd.1 d20.01, a300, b22.t++ inc rep2
-    vasr.1 d20.01, a300, #1 inc rep2
-    vasr.1 d02.06, a200, #1
-    vasr.1 d22.07, a200, #1
-    vasr.1 d03.07, a240, #1
-    vrsub.1 d23.06, a240, #0
-    vasr.1 d23.01, a2c0, #1
-    vsub.1 dc0, a304, b06.t++ inc rep2
-    vadd.1 d04, a304, b06.t++ inc rep2
-    vasr.1 d04, a304, #1 inc rep2
-    vsub.1 de0.01, a304, b26.t++ inc rep2
-    vadd.1 d24.01, a304, b26.t++ inc rep2
-    vasr.1 d24.01, a304, #1 inc rep2
-    vasr.1 d06.06, a200, #1
-    vasr.1 d26.07, a200, #1
-    vasr.1 d07.07, a240, #1
-    vrsub.1 d27.06, a240, #0
-    vasr.1 d27.01, a2c4, #1
-    vadd.1 d40, a200, b01.t
-    vsub.1 d44, a200, b01.t
-    vadd.1 d60.01, a200, b21.t
-    vsub.1 d64.01, a200, b21.t
-    vadd.1 d42, a280, b03.t
-    vsub.1 d46, a280, b03.t
-    vadd.1 d62.01, a280, b23.t
-    vsub.1 d66.01, a280, b23.t
-    vadd.1 d41, a204, b05.t
-    vsub.1 d45, a204, b05.t
-    vadd.1 d61.01, a204, b25.t
-    vsub.1 d65.01, a204, b25.t
-    vadd.1 d43, a284, b07.t
-    vsub.1 d47, a284, b07.t
-    vadd.1 d63.01, a284, b27.t
-    vsub.1 d67.01, a284, b27.t
-    mov r10, #512
-    bl jv_fft_tw
-    bl jv_fft_cols
-    ld r4, (r9+8)
-    vld16 d00, (r4)+=r3 rep8
-    add r4, #256
-    vld16 d20, (r4)+=r3 rep8
-    bl jv_fft_split
-    mov r0, r8
-    mov r1, #32
-    bl jv_store16
-    vadd.1 d00.01, a300, #0 inc rep16
-    mov r0, r8
-    add r0, #512
-    mov r1, #32
-    bl jv_store16
-    pop r6-r13, pc
-
-/* the spectrum of 512 samples (jviz.h) */
-    .global jv_fft512
-jv_fft512:
-    push r6-r13, lr
-    mov r8, r0
-    mov r9, r2
-    mov r3, #32
+    mov r5, #0
     vld16 d00, (r1)+=r3 rep16
     add r1, #512
     vld16 d20, (r1)+=r3 rep16
-    ld r4, (r9)
+    ld r4, (r2)
     vld16 d40, (r4)+=r3 rep16
     add r4, #512
     vld16 d60, (r4)+=r3 rep16
-    vmulhd.1 d00, a300, b40.t++ inc rep16
-    vmulhd.1 d20.01, a300, b60.t++ inc rep16
-    ld r4, (r9+4)
-    vld16 d80, (r4)+=r3 rep16
-    add r4, #512
-    vld16 da0, (r4)+=r3 rep16
+    vmulhd.1 d00, a200, b40.t
+    vmulhd.1 d20.01, a200, b60.t
+    vmulhd.1 d01, a240, b41.t
+    vmulhd.1 d21.01, a240, b61.t
+    vmulhd.1 d02, a280, b42.t
+    vmulhd.1 d22.01, a280, b62.t
+    vmulhd.1 d03, a2c0, b43.t
+    vmulhd.1 d23.01, a2c0, b63.t
+    vmulhd.1 d04, a204, b44.t
+    vmulhd.1 d24.01, a204, b64.t
+    vmulhd.1 d05, a244, b45.t
+    vmulhd.1 d25.01, a244, b65.t
+    vmulhd.1 d06, a284, b46.t
+    vmulhd.1 d26.01, a284, b66.t
+    vmulhd.1 d07, a2c4, b47.t
+    vmulhd.1 d27.01, a2c4, b67.t
+    vmulhd.1 d08, a208, b48.t
+    vmulhd.1 d28.01, a208, b68.t
+    vmulhd.1 d09, a248, b49.t
+    vmulhd.1 d29.01, a248, b69.t
+    vmulhd.1 d0a, a288, b4a.t
+    vmulhd.1 d2a.01, a288, b6a.t
+    vmulhd.1 d0b, a2c8, b4b.t
+    vmulhd.1 d2b.01, a2c8, b6b.t
+    vmulhd.1 d0c, a20c, b4c.t
+    vmulhd.1 d2c.01, a20c, b6c.t
+    vmulhd.1 d0d, a24c, b4d.t
+    vmulhd.1 d2d.01, a24c, b6d.t
+    vmulhd.1 d0e, a28c, b4e.t
+    vmulhd.1 d2e.01, a28c, b6e.t
+    vmulhd.1 d0f, a2cc, b4f.t
+    vmulhd.1 d2f.01, a2cc, b6f.t
     vsub.1 dc0, a300, b08.t++ inc rep8
     vadd.1 d00, a300, b08.t++ inc rep8
     vasr.1 d00, a300, #1 inc rep8
@@ -339,360 +261,560 @@ jv_fft512:
     vsub.1 d4f, a28c, b0f.t
     vadd.1 d67.01, a28c, b2f.t
     vsub.1 d6f.01, a28c, b2f.t
-    mov r10, #1024
-    bl jv_fft_tw
-    bl jv_fft_cols
-    ld r4, (r9+8)
-    vld16 d00, (r4)+=r3 rep16
+    ld r4, (r2+4)
+    vld16 d80, (r4)+=r3 rep16
     add r4, #512
-    vld16 d20, (r4)+=r3 rep16
-    bl jv_fft_split
-    mov r0, r8
-    mov r1, #32
-    bl jv_store16
+    vld16 da0, (r4)+=r3 rep16
+    vmulhd.1 d00.02, a200, b80.t
+    vmulhd.1 d20.03, a200, ba0.t
+    vmulhd.1 dc0.02, a200, ba0.t
+    vmulhd.1 de0.03, a200, b80.t
+    vmulhd.1 d01.02, a240, b81.t
+    vmulhd.1 d21.03, a240, ba1.t
+    vmulhd.1 dc1.02, a240, ba1.t
+    vmulhd.1 de1.03, a240, b81.t
+    vmulhd.1 d02.02, a280, b82.t
+    vmulhd.1 d22.03, a280, ba2.t
+    vmulhd.1 dc2.02, a280, ba2.t
+    vmulhd.1 de2.03, a280, b82.t
+    vmulhd.1 d03.02, a2c0, b83.t
+    vmulhd.1 d23.03, a2c0, ba3.t
+    vmulhd.1 dc3.02, a2c0, ba3.t
+    vmulhd.1 de3.03, a2c0, b83.t
+    vmulhd.1 d04.02, a204, b84.t
+    vmulhd.1 d24.03, a204, ba4.t
+    vmulhd.1 dc4.02, a204, ba4.t
+    vmulhd.1 de4.03, a204, b84.t
+    vmulhd.1 d05.02, a244, b85.t
+    vmulhd.1 d25.03, a244, ba5.t
+    vmulhd.1 dc5.02, a244, ba5.t
+    vmulhd.1 de5.03, a244, b85.t
+    vmulhd.1 d06.02, a284, b86.t
+    vmulhd.1 d26.03, a284, ba6.t
+    vmulhd.1 dc6.02, a284, ba6.t
+    vmulhd.1 de6.03, a284, b86.t
+    vmulhd.1 d07.02, a2c4, b87.t
+    vmulhd.1 d27.03, a2c4, ba7.t
+    vmulhd.1 dc7.02, a2c4, ba7.t
+    vmulhd.1 de7.03, a2c4, b87.t
+    vmulhd.1 d08.02, a208, b88.t
+    vmulhd.1 d28.03, a208, ba8.t
+    vmulhd.1 dc8.02, a208, ba8.t
+    vmulhd.1 de8.03, a208, b88.t
+    vmulhd.1 d09.02, a248, b89.t
+    vmulhd.1 d29.03, a248, ba9.t
+    vmulhd.1 dc9.02, a248, ba9.t
+    vmulhd.1 de9.03, a248, b89.t
+    vmulhd.1 d0a.02, a288, b8a.t
+    vmulhd.1 d2a.03, a288, baa.t
+    vmulhd.1 dca.02, a288, baa.t
+    vmulhd.1 dea.03, a288, b8a.t
+    vmulhd.1 d0b.02, a2c8, b8b.t
+    vmulhd.1 d2b.03, a2c8, bab.t
+    vmulhd.1 dcb.02, a2c8, bab.t
+    vmulhd.1 deb.03, a2c8, b8b.t
+    vmulhd.1 d0c.02, a20c, b8c.t
+    vmulhd.1 d2c.03, a20c, bac.t
+    vmulhd.1 dcc.02, a20c, bac.t
+    vmulhd.1 dec.03, a20c, b8c.t
+    vmulhd.1 d0d.02, a24c, b8d.t
+    vmulhd.1 d2d.03, a24c, bad.t
+    vmulhd.1 dcd.02, a24c, bad.t
+    vmulhd.1 ded.03, a24c, b8d.t
+    vmulhd.1 d0e.02, a28c, b8e.t
+    vmulhd.1 d2e.03, a28c, bae.t
+    vmulhd.1 dce.02, a28c, bae.t
+    vmulhd.1 dee.03, a28c, b8e.t
+    vmulhd.1 d0f.02, a2cc, b8f.t
+    vmulhd.1 d2f.03, a2cc, baf.t
+    vmulhd.1 dcf.02, a2cc, baf.t
+    vmulhd.1 def.03, a2cc, b8f.t
+    vsub.1 d00, a300, b20.t++ inc rep16
+    vadd.1 d20.06, a300, be0.t++ inc rep16
+    vmov.1 d40, a000, b00.1.t++ inc rep16
+    vmov.1 d60, a000, b20.1.t++ inc rep16
+    vsub.1 dc0.02, a300, b48.t++ inc rep8
+    vadd.1 d40.02, a300, b48.t++ inc rep8
+    vasr.1 d40.02, a300, #1 inc rep8
+    vsub.1 de0.03, a300, b68.t++ inc rep8
+    vadd.1 d60.03, a300, b68.t++ inc rep8
+    vasr.1 d60.03, a300, #1 inc rep8
+    vasr.1 d48.06, a200, #1
+    vasr.1 d68.07, a200, #1
+    vmul.1 d10.06, a240, #0x7641 clra x15
+    vmul.1 d10.07, a240, #0x30fb x15
+    vmulhd.1 d10.06, a240, #0x7641 acc
+    vmulhd.1 d49.07, a240, #0x30fb acc
+    vmul.1 d10.06, a240, #0xcf05 clra x15
+    vmul.1 d10.07, a240, #0x7641 x15
+    vmulhd.1 d10.06, a240, #0xcf05 acc
+    vmulhd.1 d69.07, a240, #0x7641 acc
+    vmul.1 d10.06, a280, #0x5a82 clra x15
+    vmul.1 d10.07, a280, #0x5a82 x15
+    vmulhd.1 d10.06, a280, #0x5a82 acc
+    vmulhd.1 d4a.07, a280, #0x5a82 acc
+    vmul.1 d10.06, a280, #0xa57e clra x15
+    vmul.1 d10.07, a280, #0x5a82 x15
+    vmulhd.1 d10.06, a280, #0xa57e acc
+    vmulhd.1 d6a.07, a280, #0x5a82 acc
+    vmul.1 d10.06, a2c0, #0x30fb clra x15
+    vmul.1 d10.07, a2c0, #0x7641 x15
+    vmulhd.1 d10.06, a2c0, #0x30fb acc
+    vmulhd.1 d4b.07, a2c0, #0x7641 acc
+    vmul.1 d10.06, a2c0, #0x89bf clra x15
+    vmul.1 d10.07, a2c0, #0x30fb x15
+    vmulhd.1 d10.06, a2c0, #0x89bf acc
+    vmulhd.1 d6b.07, a2c0, #0x30fb acc
+    vasr.1 d4c.07, a204, #1
+    vrsub.1 d6c.06, a204, #0
+    vasr.1 d6c.03, a20c, #1
+    vmul.1 d10.06, a244, #0xcf05 clra x15
+    vmul.1 d10.07, a244, #0x7641 x15
+    vmulhd.1 d10.06, a244, #0xcf05 acc
+    vmulhd.1 d4d.07, a244, #0x7641 acc
+    vmul.1 d10.06, a244, #0x89bf clra x15
+    vmul.1 d10.07, a244, #0xcf05 x15
+    vmulhd.1 d10.06, a244, #0x89bf acc
+    vmulhd.1 d6d.07, a244, #0xcf05 acc
+    vmul.1 d10.06, a284, #0xa57e clra x15
+    vmul.1 d10.07, a284, #0x5a82 x15
+    vmulhd.1 d10.06, a284, #0xa57e acc
+    vmulhd.1 d4e.07, a284, #0x5a82 acc
+    vmul.1 d10.06, a284, #0xa57e clra x15
+    vmul.1 d10.07, a284, #0xa57e x15
+    vmulhd.1 d10.06, a284, #0xa57e acc
+    vmulhd.1 d6e.07, a284, #0xa57e acc
+    vmul.1 d10.06, a2c4, #0x89bf clra x15
+    vmul.1 d10.07, a2c4, #0x30fb x15
+    vmulhd.1 d10.06, a2c4, #0x89bf acc
+    vmulhd.1 d4f.07, a2c4, #0x30fb acc
+    vmul.1 d10.06, a2c4, #0xcf05 clra x15
+    vmul.1 d10.07, a2c4, #0x89bf x15
+    vmulhd.1 d10.06, a2c4, #0xcf05 acc
+    vmulhd.1 d6f.07, a2c4, #0x89bf acc
+    vsub.1 dc0.02, a300, b44.t++ inc rep4
+    vadd.1 d40.02, a300, b44.t++ inc rep4
+    vasr.1 d40.02, a300, #1 inc rep4
+    vsub.1 de0.03, a300, b64.t++ inc rep4
+    vadd.1 d60.03, a300, b64.t++ inc rep4
+    vasr.1 d60.03, a300, #1 inc rep4
+    vasr.1 d44.06, a200, #1
+    vasr.1 d64.07, a200, #1
+    vmul.1 d10.06, a240, #0x5a82 clra x15
+    vmul.1 d10.07, a240, #0x5a82 x15
+    vmulhd.1 d10.06, a240, #0x5a82 acc
+    vmulhd.1 d45.07, a240, #0x5a82 acc
+    vmul.1 d10.06, a240, #0xa57e clra x15
+    vmul.1 d10.07, a240, #0x5a82 x15
+    vmulhd.1 d10.06, a240, #0xa57e acc
+    vmulhd.1 d65.07, a240, #0x5a82 acc
+    vasr.1 d46.07, a280, #1
+    vrsub.1 d66.06, a280, #0
+    vasr.1 d66.03, a284, #1
+    vmul.1 d10.06, a2c0, #0xa57e clra x15
+    vmul.1 d10.07, a2c0, #0x5a82 x15
+    vmulhd.1 d10.06, a2c0, #0xa57e acc
+    vmulhd.1 d47.07, a2c0, #0x5a82 acc
+    vmul.1 d10.06, a2c0, #0xa57e clra x15
+    vmul.1 d10.07, a2c0, #0xa57e x15
+    vmulhd.1 d10.06, a2c0, #0xa57e acc
+    vmulhd.1 d67.07, a2c0, #0xa57e acc
+    vsub.1 dc0.02, a308, b4c.t++ inc rep4
+    vadd.1 d48.02, a308, b4c.t++ inc rep4
+    vasr.1 d48.02, a308, #1 inc rep4
+    vsub.1 de0.03, a308, b6c.t++ inc rep4
+    vadd.1 d68.03, a308, b6c.t++ inc rep4
+    vasr.1 d68.03, a308, #1 inc rep4
+    vasr.1 d4c.06, a200, #1
+    vasr.1 d6c.07, a200, #1
+    vmul.1 d10.06, a240, #0x5a82 clra x15
+    vmul.1 d10.07, a240, #0x5a82 x15
+    vmulhd.1 d10.06, a240, #0x5a82 acc
+    vmulhd.1 d4d.07, a240, #0x5a82 acc
+    vmul.1 d10.06, a240, #0xa57e clra x15
+    vmul.1 d10.07, a240, #0x5a82 x15
+    vmulhd.1 d10.06, a240, #0xa57e acc
+    vmulhd.1 d6d.07, a240, #0x5a82 acc
+    vasr.1 d4e.07, a280, #1
+    vrsub.1 d6e.06, a280, #0
+    vasr.1 d6e.03, a28c, #1
+    vmul.1 d10.06, a2c0, #0xa57e clra x15
+    vmul.1 d10.07, a2c0, #0x5a82 x15
+    vmulhd.1 d10.06, a2c0, #0xa57e acc
+    vmulhd.1 d4f.07, a2c0, #0x5a82 acc
+    vmul.1 d10.06, a2c0, #0xa57e clra x15
+    vmul.1 d10.07, a2c0, #0xa57e x15
+    vmulhd.1 d10.06, a2c0, #0xa57e acc
+    vmulhd.1 d6f.07, a2c0, #0xa57e acc
+    vsub.1 dc0.02, a300, b42.t++ inc rep2
+    vadd.1 d40.02, a300, b42.t++ inc rep2
+    vasr.1 d40.02, a300, #1 inc rep2
+    vsub.1 de0.03, a300, b62.t++ inc rep2
+    vadd.1 d60.03, a300, b62.t++ inc rep2
+    vasr.1 d60.03, a300, #1 inc rep2
+    vasr.1 d42.06, a200, #1
+    vasr.1 d62.07, a200, #1
+    vasr.1 d43.07, a240, #1
+    vrsub.1 d63.06, a240, #0
+    vasr.1 d63.03, a2c0, #1
+    vsub.1 dc0.02, a304, b46.t++ inc rep2
+    vadd.1 d44.02, a304, b46.t++ inc rep2
+    vasr.1 d44.02, a304, #1 inc rep2
+    vsub.1 de0.03, a304, b66.t++ inc rep2
+    vadd.1 d64.03, a304, b66.t++ inc rep2
+    vasr.1 d64.03, a304, #1 inc rep2
+    vasr.1 d46.06, a200, #1
+    vasr.1 d66.07, a200, #1
+    vasr.1 d47.07, a240, #1
+    vrsub.1 d67.06, a240, #0
+    vasr.1 d67.03, a2c4, #1
+    vsub.1 dc0.02, a308, b4a.t++ inc rep2
+    vadd.1 d48.02, a308, b4a.t++ inc rep2
+    vasr.1 d48.02, a308, #1 inc rep2
+    vsub.1 de0.03, a308, b6a.t++ inc rep2
+    vadd.1 d68.03, a308, b6a.t++ inc rep2
+    vasr.1 d68.03, a308, #1 inc rep2
+    vasr.1 d4a.06, a200, #1
+    vasr.1 d6a.07, a200, #1
+    vasr.1 d4b.07, a240, #1
+    vrsub.1 d6b.06, a240, #0
+    vasr.1 d6b.03, a2c8, #1
+    vsub.1 dc0.02, a30c, b4e.t++ inc rep2
+    vadd.1 d4c.02, a30c, b4e.t++ inc rep2
+    vasr.1 d4c.02, a30c, #1 inc rep2
+    vsub.1 de0.03, a30c, b6e.t++ inc rep2
+    vadd.1 d6c.03, a30c, b6e.t++ inc rep2
+    vasr.1 d6c.03, a30c, #1 inc rep2
+    vasr.1 d4e.06, a200, #1
+    vasr.1 d6e.07, a200, #1
+    vasr.1 d4f.07, a240, #1
+    vrsub.1 d6f.06, a240, #0
+    vasr.1 d6f.03, a2cc, #1
+    vadd.1 d00.02, a200, b41.t
+    vsub.1 d08.02, a200, b41.t
+    vadd.1 d20.03, a200, b61.t
+    vsub.1 d28.03, a200, b61.t
+    vadd.1 d04.02, a280, b43.t
+    vsub.1 d0c.02, a280, b43.t
+    vadd.1 d24.03, a280, b63.t
+    vsub.1 d2c.03, a280, b63.t
+    vadd.1 d02.02, a204, b45.t
+    vsub.1 d0a.02, a204, b45.t
+    vadd.1 d22.03, a204, b65.t
+    vsub.1 d2a.03, a204, b65.t
+    vadd.1 d06.02, a284, b47.t
+    vsub.1 d0e.02, a284, b47.t
+    vadd.1 d26.03, a284, b67.t
+    vsub.1 d2e.03, a284, b67.t
+    vadd.1 d01.02, a208, b49.t
+    vsub.1 d09.02, a208, b49.t
+    vadd.1 d21.03, a208, b69.t
+    vsub.1 d29.03, a208, b69.t
+    vadd.1 d05.02, a288, b4b.t
+    vsub.1 d0d.02, a288, b4b.t
+    vadd.1 d25.03, a288, b6b.t
+    vsub.1 d2d.03, a288, b6b.t
+    vadd.1 d03.02, a20c, b4d.t
+    vsub.1 d0b.02, a20c, b4d.t
+    vadd.1 d23.03, a20c, b6d.t
+    vsub.1 d2b.03, a20c, b6d.t
+    vadd.1 d07.02, a28c, b4f.t
+    vsub.1 d0f.02, a28c, b4f.t
+    vadd.1 d27.03, a28c, b6f.t
+    vsub.1 d2f.03, a28c, b6f.t
+    vasr.1 d00, a300, #1 inc rep16
+    vasr.1 d20.01, a300, #1 inc rep16
+    vmov.1 d80, a000, b00.1.t++ inc rep16
+    vmov.1 da0, a000, b20.1.t++ inc rep16
+    vadd.1 dc0.04, a200, #0
+    vadd.1 de0.05, a200, #0
+    vadd.1 dc1.04, a2cc, #0
+    vadd.1 de1.05, a2cc, #0
+    vadd.1 dc2.04, a28c, #0
+    vadd.1 de2.05, a28c, #0
+    vadd.1 dc3.04, a24c, #0
+    vadd.1 de3.05, a24c, #0
+    vadd.1 dc4.04, a20c, #0
+    vadd.1 de4.05, a20c, #0
+    vadd.1 dc5.04, a2c8, #0
+    vadd.1 de5.05, a2c8, #0
+    vadd.1 dc6.04, a288, #0
+    vadd.1 de6.05, a288, #0
+    vadd.1 dc7.04, a248, #0
+    vadd.1 de7.05, a248, #0
+    vadd.1 dc8.04, a208, #0
+    vadd.1 de8.05, a208, #0
+    vadd.1 dc9.04, a2c4, #0
+    vadd.1 de9.05, a2c4, #0
+    vadd.1 dca.04, a284, #0
+    vadd.1 dea.05, a284, #0
+    vadd.1 dcb.04, a244, #0
+    vadd.1 deb.05, a244, #0
+    vadd.1 dcc.04, a204, #0
+    vadd.1 dec.05, a204, #0
+    vadd.1 dcd.04, a2c0, #0
+    vadd.1 ded.05, a2c0, #0
+    vadd.1 dce.04, a280, #0
+    vadd.1 dee.05, a280, #0
+    vadd.1 dcf.04, a240, #0
+    vadd.1 def.05, a240, #0
+    vmov.1 d40, a000, bc0.1.t++ inc rep16
+    vmov.1 d60, a000, be0.1.t++ inc rep16
+    vadd.1 d80.02, a200, #0
+    vadd.1 d81.02, a2cc, #0
+    vadd.1 d82.02, a28c, #0
+    vadd.1 d83.02, a24c, #0
+    vadd.1 d84.02, a20c, #0
+    vadd.1 d85.02, a2c8, #0
+    vadd.1 d86.02, a288, #0
+    vadd.1 d87.02, a248, #0
+    vadd.1 d88.02, a208, #0
+    vadd.1 d89.02, a2c4, #0
+    vadd.1 d8a.02, a284, #0
+    vadd.1 d8b.02, a244, #0
+    vadd.1 d8c.02, a204, #0
+    vadd.1 d8d.02, a2c0, #0
+    vadd.1 d8e.02, a280, #0
+    vadd.1 d8f.02, a240, #0
+    vadd.1 dc0.02, a200, #0
+    vadd.1 d40.04, a340, #0 inc rep16
+    vadd.1 da0.03, a200, #0
+    vadd.1 da1.03, a2cc, #0
+    vadd.1 da2.03, a28c, #0
+    vadd.1 da3.03, a24c, #0
+    vadd.1 da4.03, a20c, #0
+    vadd.1 da5.03, a2c8, #0
+    vadd.1 da6.03, a288, #0
+    vadd.1 da7.03, a248, #0
+    vadd.1 da8.03, a208, #0
+    vadd.1 da9.03, a2c4, #0
+    vadd.1 daa.03, a284, #0
+    vadd.1 dab.03, a244, #0
+    vadd.1 dac.03, a204, #0
+    vadd.1 dad.03, a2c0, #0
+    vadd.1 dae.03, a280, #0
+    vadd.1 daf.03, a240, #0
+    vadd.1 de0.03, a200, #0
+    vadd.1 d60.05, a340, #0 inc rep16
+    ld r4, (r2+12)
+    vld16 dcf, (r4)
+    vsub.1 d10.06, a2cc, r5 setf
+    vadd.1 d40.04, a300, #0 inc rep16 ifn
+    vadd.1 d60.05, a300, #0 inc rep16 ifn
+    ld r4, (r2+8)
+    vld16 d80, (r4)+=r3 rep16
+    add r4, #512
+    vld16 da0, (r4)+=r3 rep16
+    vadd.1 dc0, a300, b40.t++ inc rep16
+    vsub.1 de0, a300, b40.t++ inc rep16
+    vadd.1 d40.01, a300, b60.t++ inc rep16
+    vsub.1 d60.01, a300, b60.t++ inc rep16
+    vasr.1 dc0.06, a300, #1 inc rep16
+    vasr.1 d60.03, a300, #1 inc rep16
+    vmulhd.1 d00.02, a200, b80.t
+    vmulhd.1 d20.07, a200, ba0.t
+    vmulhd.1 d01.02, a240, b81.t
+    vmulhd.1 d21.07, a240, ba1.t
+    vmulhd.1 d02.02, a280, b82.t
+    vmulhd.1 d22.07, a280, ba2.t
+    vmulhd.1 d03.02, a2c0, b83.t
+    vmulhd.1 d23.07, a2c0, ba3.t
+    vmulhd.1 d04.02, a204, b84.t
+    vmulhd.1 d24.07, a204, ba4.t
+    vmulhd.1 d05.02, a244, b85.t
+    vmulhd.1 d25.07, a244, ba5.t
+    vmulhd.1 d06.02, a284, b86.t
+    vmulhd.1 d26.07, a284, ba6.t
+    vmulhd.1 d07.02, a2c4, b87.t
+    vmulhd.1 d27.07, a2c4, ba7.t
+    vmulhd.1 d08.02, a208, b88.t
+    vmulhd.1 d28.07, a208, ba8.t
+    vmulhd.1 d09.02, a248, b89.t
+    vmulhd.1 d29.07, a248, ba9.t
+    vmulhd.1 d0a.02, a288, b8a.t
+    vmulhd.1 d2a.07, a288, baa.t
+    vmulhd.1 d0b.02, a2c8, b8b.t
+    vmulhd.1 d2b.07, a2c8, bab.t
+    vmulhd.1 d0c.02, a20c, b8c.t
+    vmulhd.1 d2c.07, a20c, bac.t
+    vmulhd.1 d0d.02, a24c, b8d.t
+    vmulhd.1 d2d.07, a24c, bad.t
+    vmulhd.1 d0e.02, a28c, b8e.t
+    vmulhd.1 d2e.07, a28c, bae.t
+    vmulhd.1 d0f.02, a2cc, b8f.t
+    vmulhd.1 d2f.07, a2cc, baf.t
+    vadd.1 dc0.06, a300, b00.t++ inc rep16
+    vadd.1 dc0.06, a300, b20.t++ inc rep16
+    vmulhd.1 d00.02, a200, ba0.t
+    vmulhd.1 d20.07, a200, b80.t
+    vmulhd.1 d01.02, a240, ba1.t
+    vmulhd.1 d21.07, a240, b81.t
+    vmulhd.1 d02.02, a280, ba2.t
+    vmulhd.1 d22.07, a280, b82.t
+    vmulhd.1 d03.02, a2c0, ba3.t
+    vmulhd.1 d23.07, a2c0, b83.t
+    vmulhd.1 d04.02, a204, ba4.t
+    vmulhd.1 d24.07, a204, b84.t
+    vmulhd.1 d05.02, a244, ba5.t
+    vmulhd.1 d25.07, a244, b85.t
+    vmulhd.1 d06.02, a284, ba6.t
+    vmulhd.1 d26.07, a284, b86.t
+    vmulhd.1 d07.02, a2c4, ba7.t
+    vmulhd.1 d27.07, a2c4, b87.t
+    vmulhd.1 d08.02, a208, ba8.t
+    vmulhd.1 d28.07, a208, b88.t
+    vmulhd.1 d09.02, a248, ba9.t
+    vmulhd.1 d29.07, a248, b89.t
+    vmulhd.1 d0a.02, a288, baa.t
+    vmulhd.1 d2a.07, a288, b8a.t
+    vmulhd.1 d0b.02, a2c8, bab.t
+    vmulhd.1 d2b.07, a2c8, b8b.t
+    vmulhd.1 d0c.02, a20c, bac.t
+    vmulhd.1 d2c.07, a20c, b8c.t
+    vmulhd.1 d0d.02, a24c, bad.t
+    vmulhd.1 d2d.07, a24c, b8d.t
+    vmulhd.1 d0e.02, a28c, bae.t
+    vmulhd.1 d2e.07, a28c, b8e.t
+    vmulhd.1 d0f.02, a2cc, baf.t
+    vmulhd.1 d2f.07, a2cc, b8f.t
+    vadd.1 d60.03, a300, b00.t++ inc rep16
+    vsub.1 d60.03, a300, b20.t++ inc rep16
+    vmul.1 d00.06, a300, bc0.t++ inc rep16
+    vmul.1 d20.03, a300, b60.t++ inc rep16
+    vmulhd.1 d80.06, a200, bc0.t
+    vmulhd.1 da0.03, a200, b60.t
+    vmulhd.1 d81.06, a240, bc1.t
+    vmulhd.1 da1.03, a240, b61.t
+    vmulhd.1 d82.06, a280, bc2.t
+    vmulhd.1 da2.03, a280, b62.t
+    vmulhd.1 d83.06, a2c0, bc3.t
+    vmulhd.1 da3.03, a2c0, b63.t
+    vmulhd.1 d84.06, a204, bc4.t
+    vmulhd.1 da4.03, a204, b64.t
+    vmulhd.1 d85.06, a244, bc5.t
+    vmulhd.1 da5.03, a244, b65.t
+    vmulhd.1 d86.06, a284, bc6.t
+    vmulhd.1 da6.03, a284, b66.t
+    vmulhd.1 d87.06, a2c4, bc7.t
+    vmulhd.1 da7.03, a2c4, b67.t
+    vmulhd.1 d88.06, a208, bc8.t
+    vmulhd.1 da8.03, a208, b68.t
+    vmulhd.1 d89.06, a248, bc9.t
+    vmulhd.1 da9.03, a248, b69.t
+    vmulhd.1 d8a.06, a288, bca.t
+    vmulhd.1 daa.03, a288, b6a.t
+    vmulhd.1 d8b.06, a2c8, bcb.t
+    vmulhd.1 dab.03, a2c8, b6b.t
+    vmulhd.1 d8c.06, a20c, bcc.t
+    vmulhd.1 dac.03, a20c, b6c.t
+    vmulhd.1 d8d.06, a24c, bcd.t
+    vmulhd.1 dad.03, a24c, b6d.t
+    vmulhd.1 d8e.06, a28c, bce.t
+    vmulhd.1 dae.03, a28c, b6e.t
+    vmulhd.1 d8f.06, a2cc, bcf.t
+    vmulhd.1 daf.03, a2cc, b6f.t
+    vmov.1 d10, a000, b80.t clra acc
+    vmov.1 d10, a000, b00.t x15
+    vmov.1 d10, a000, b20.t x15
+    vmov.1 d10, a000, ba0.t acc
+    vmov.1 d00, a000, #0 x15
+    vmov.1 d20, a000, #0 acc
+    vmov.1 d10, a000, b81.t clra acc
+    vmov.1 d10, a000, b01.t x15
+    vmov.1 d10, a000, b21.t x15
+    vmov.1 d10, a000, ba1.t acc
+    vmov.1 d01, a000, #0 x15
+    vmov.1 d21, a000, #0 acc
+    vmov.1 d10, a000, b82.t clra acc
+    vmov.1 d10, a000, b02.t x15
+    vmov.1 d10, a000, b22.t x15
+    vmov.1 d10, a000, ba2.t acc
+    vmov.1 d02, a000, #0 x15
+    vmov.1 d22, a000, #0 acc
+    vmov.1 d10, a000, b83.t clra acc
+    vmov.1 d10, a000, b03.t x15
+    vmov.1 d10, a000, b23.t x15
+    vmov.1 d10, a000, ba3.t acc
+    vmov.1 d03, a000, #0 x15
+    vmov.1 d23, a000, #0 acc
+    vmov.1 d10, a000, b84.t clra acc
+    vmov.1 d10, a000, b04.t x15
+    vmov.1 d10, a000, b24.t x15
+    vmov.1 d10, a000, ba4.t acc
+    vmov.1 d04, a000, #0 x15
+    vmov.1 d24, a000, #0 acc
+    vmov.1 d10, a000, b85.t clra acc
+    vmov.1 d10, a000, b05.t x15
+    vmov.1 d10, a000, b25.t x15
+    vmov.1 d10, a000, ba5.t acc
+    vmov.1 d05, a000, #0 x15
+    vmov.1 d25, a000, #0 acc
+    vmov.1 d10, a000, b86.t clra acc
+    vmov.1 d10, a000, b06.t x15
+    vmov.1 d10, a000, b26.t x15
+    vmov.1 d10, a000, ba6.t acc
+    vmov.1 d06, a000, #0 x15
+    vmov.1 d26, a000, #0 acc
+    vmov.1 d10, a000, b87.t clra acc
+    vmov.1 d10, a000, b07.t x15
+    vmov.1 d10, a000, b27.t x15
+    vmov.1 d10, a000, ba7.t acc
+    vmov.1 d07, a000, #0 x15
+    vmov.1 d27, a000, #0 acc
+    vmov.1 d10, a000, b88.t clra acc
+    vmov.1 d10, a000, b08.t x15
+    vmov.1 d10, a000, b28.t x15
+    vmov.1 d10, a000, ba8.t acc
+    vmov.1 d08, a000, #0 x15
+    vmov.1 d28, a000, #0 acc
+    vmov.1 d10, a000, b89.t clra acc
+    vmov.1 d10, a000, b09.t x15
+    vmov.1 d10, a000, b29.t x15
+    vmov.1 d10, a000, ba9.t acc
+    vmov.1 d09, a000, #0 x15
+    vmov.1 d29, a000, #0 acc
+    vmov.1 d10, a000, b8a.t clra acc
+    vmov.1 d10, a000, b0a.t x15
+    vmov.1 d10, a000, b2a.t x15
+    vmov.1 d10, a000, baa.t acc
+    vmov.1 d0a, a000, #0 x15
+    vmov.1 d2a, a000, #0 acc
+    vmov.1 d10, a000, b8b.t clra acc
+    vmov.1 d10, a000, b0b.t x15
+    vmov.1 d10, a000, b2b.t x15
+    vmov.1 d10, a000, bab.t acc
+    vmov.1 d0b, a000, #0 x15
+    vmov.1 d2b, a000, #0 acc
+    vmov.1 d10, a000, b8c.t clra acc
+    vmov.1 d10, a000, b0c.t x15
+    vmov.1 d10, a000, b2c.t x15
+    vmov.1 d10, a000, bac.t acc
+    vmov.1 d0c, a000, #0 x15
+    vmov.1 d2c, a000, #0 acc
+    vmov.1 d10, a000, b8d.t clra acc
+    vmov.1 d10, a000, b0d.t x15
+    vmov.1 d10, a000, b2d.t x15
+    vmov.1 d10, a000, bad.t acc
+    vmov.1 d0d, a000, #0 x15
+    vmov.1 d2d, a000, #0 acc
+    vmov.1 d10, a000, b8e.t clra acc
+    vmov.1 d10, a000, b0e.t x15
+    vmov.1 d10, a000, b2e.t x15
+    vmov.1 d10, a000, bae.t acc
+    vmov.1 d0e, a000, #0 x15
+    vmov.1 d2e, a000, #0 acc
+    vmov.1 d10, a000, b8f.t clra acc
+    vmov.1 d10, a000, b0f.t x15
+    vmov.1 d10, a000, b2f.t x15
+    vmov.1 d10, a000, baf.t acc
+    vmov.1 d0f, a000, #0 x15
+    vmov.1 d2f, a000, #0 acc
+    vst16 d00, (r0)+=r3 rep16
     vadd.1 d00.01, a300, #0 inc rep16
-    mov r0, r8
     add r0, #512
-    mov r1, #32
-    bl jv_store16
-    pop r6-r13, pc
-
-/* step 2: B0 = B1 * W_m^(n1 k2) */
-    .global jv_fft_tw
-jv_fft_tw:
-    mov r4, #0
-jv_fft_tw_l:
-    vadd.1 dcc.04, a300+r4, #0
-    vadd.1 dcd.05, a300+r4, #0
-    vrsub.1 dce.05, a300+r4, #0
-    vmul.1 dcf.02, a300+r4, bcc.t clra x15
-    vmulhd.1 def.02, a300+r4, bcc.t acc
-    vmov.1 d10, a000, bcf.t clra x15
-    vmul.1 d10.03, a300+r4, bce.t x15
-    vmulhd.1 d00.03+r4, a300+r4, bce.t acc
-    vadd.1 d00+r4, a200+r4, bef.t
-    vmul.1 dcf.02, a300+r4, bcd.t clra x15
-    vmulhd.1 def.02, a300+r4, bcd.t acc
-    vmov.1 d10, a000, bcf.t clra x15
-    vmul.1 d10.03, a300+r4, bcc.t x15
-    vmulhd.1 d20.03+r4, a300+r4, bcc.t acc
-    vadd.1 d20.01+r4, a200+r4, bef.t
-    add r4, #64
-    cmp r4, r10
-    bne jv_fft_tw_l
+    vst16 d00, (r0)+=r3 rep16
     rts
-
-/* step 3 along the lanes, then the partners */
-    .global jv_fft_cols
-jv_fft_cols:
-    vsub.3 dc0.10, a220, b08.1.t++ inc rep8
-    vadd.3 d00.10, a220, b08.1.t++ inc rep8
-    vasr.3 d00.10, a220, #1 inc rep8
-    vsub.3 de0.11, a220, b28.1.t++ inc rep8
-    vadd.3 d20.11, a220, b28.1.t++ inc rep8
-    vasr.3 d20.11, a220, #1 inc rep8
-    vasr.3 d08.16, a200, #1
-    vasr.3 d28.17, a200, #1
-    vmul.1 d10.16, a201, #0x7641 clra x15
-    vmul.1 d10.17, a201, #0x30fb x15
-    vmulhd.1 d10.16, a201, #0x7641 acc
-    vmulhd.3 d09.17, a201, #0x30fb acc
-    vmul.1 d10.16, a201, #0xcf05 clra x15
-    vmul.1 d10.17, a201, #0x7641 x15
-    vmulhd.1 d10.16, a201, #0xcf05 acc
-    vmulhd.3 d29.17, a201, #0x7641 acc
-    vmul.1 d10.16, a202, #0x5a82 clra x15
-    vmul.1 d10.17, a202, #0x5a82 x15
-    vmulhd.1 d10.16, a202, #0x5a82 acc
-    vmulhd.3 d0a.17, a202, #0x5a82 acc
-    vmul.1 d10.16, a202, #0xa57e clra x15
-    vmul.1 d10.17, a202, #0x5a82 x15
-    vmulhd.1 d10.16, a202, #0xa57e acc
-    vmulhd.3 d2a.17, a202, #0x5a82 acc
-    vmul.1 d10.16, a203, #0x30fb clra x15
-    vmul.1 d10.17, a203, #0x7641 x15
-    vmulhd.1 d10.16, a203, #0x30fb acc
-    vmulhd.3 d0b.17, a203, #0x7641 acc
-    vmul.1 d10.16, a203, #0x89bf clra x15
-    vmul.1 d10.17, a203, #0x30fb x15
-    vmulhd.1 d10.16, a203, #0x89bf acc
-    vmulhd.3 d2b.17, a203, #0x30fb acc
-    vasr.3 d0c.17, a204, #1
-    vrsub.3 d2c.16, a204, #0
-    vasr.3 d2c.11, a20c, #1
-    vmul.1 d10.16, a205, #0xcf05 clra x15
-    vmul.1 d10.17, a205, #0x7641 x15
-    vmulhd.1 d10.16, a205, #0xcf05 acc
-    vmulhd.3 d0d.17, a205, #0x7641 acc
-    vmul.1 d10.16, a205, #0x89bf clra x15
-    vmul.1 d10.17, a205, #0xcf05 x15
-    vmulhd.1 d10.16, a205, #0x89bf acc
-    vmulhd.3 d2d.17, a205, #0xcf05 acc
-    vmul.1 d10.16, a206, #0xa57e clra x15
-    vmul.1 d10.17, a206, #0x5a82 x15
-    vmulhd.1 d10.16, a206, #0xa57e acc
-    vmulhd.3 d0e.17, a206, #0x5a82 acc
-    vmul.1 d10.16, a206, #0xa57e clra x15
-    vmul.1 d10.17, a206, #0xa57e x15
-    vmulhd.1 d10.16, a206, #0xa57e acc
-    vmulhd.3 d2e.17, a206, #0xa57e acc
-    vmul.1 d10.16, a207, #0x89bf clra x15
-    vmul.1 d10.17, a207, #0x30fb x15
-    vmulhd.1 d10.16, a207, #0x89bf acc
-    vmulhd.3 d0f.17, a207, #0x30fb acc
-    vmul.1 d10.16, a207, #0xcf05 clra x15
-    vmul.1 d10.17, a207, #0x89bf x15
-    vmulhd.1 d10.16, a207, #0xcf05 acc
-    vmulhd.3 d2f.17, a207, #0x89bf acc
-    vsub.3 dc0.10, a220, b04.1.t++ inc rep4
-    vadd.3 d00.10, a220, b04.1.t++ inc rep4
-    vasr.3 d00.10, a220, #1 inc rep4
-    vsub.3 de0.11, a220, b24.1.t++ inc rep4
-    vadd.3 d20.11, a220, b24.1.t++ inc rep4
-    vasr.3 d20.11, a220, #1 inc rep4
-    vasr.3 d04.16, a200, #1
-    vasr.3 d24.17, a200, #1
-    vmul.1 d10.16, a201, #0x5a82 clra x15
-    vmul.1 d10.17, a201, #0x5a82 x15
-    vmulhd.1 d10.16, a201, #0x5a82 acc
-    vmulhd.3 d05.17, a201, #0x5a82 acc
-    vmul.1 d10.16, a201, #0xa57e clra x15
-    vmul.1 d10.17, a201, #0x5a82 x15
-    vmulhd.1 d10.16, a201, #0xa57e acc
-    vmulhd.3 d25.17, a201, #0x5a82 acc
-    vasr.3 d06.17, a202, #1
-    vrsub.3 d26.16, a202, #0
-    vasr.3 d26.11, a206, #1
-    vmul.1 d10.16, a203, #0xa57e clra x15
-    vmul.1 d10.17, a203, #0x5a82 x15
-    vmulhd.1 d10.16, a203, #0xa57e acc
-    vmulhd.3 d07.17, a203, #0x5a82 acc
-    vmul.1 d10.16, a203, #0xa57e clra x15
-    vmul.1 d10.17, a203, #0xa57e x15
-    vmulhd.1 d10.16, a203, #0xa57e acc
-    vmulhd.3 d27.17, a203, #0xa57e acc
-    vsub.3 dc0.10, a228, b0c.1.t++ inc rep4
-    vadd.3 d08.10, a228, b0c.1.t++ inc rep4
-    vasr.3 d08.10, a228, #1 inc rep4
-    vsub.3 de0.11, a228, b2c.1.t++ inc rep4
-    vadd.3 d28.11, a228, b2c.1.t++ inc rep4
-    vasr.3 d28.11, a228, #1 inc rep4
-    vasr.3 d0c.16, a200, #1
-    vasr.3 d2c.17, a200, #1
-    vmul.1 d10.16, a201, #0x5a82 clra x15
-    vmul.1 d10.17, a201, #0x5a82 x15
-    vmulhd.1 d10.16, a201, #0x5a82 acc
-    vmulhd.3 d0d.17, a201, #0x5a82 acc
-    vmul.1 d10.16, a201, #0xa57e clra x15
-    vmul.1 d10.17, a201, #0x5a82 x15
-    vmulhd.1 d10.16, a201, #0xa57e acc
-    vmulhd.3 d2d.17, a201, #0x5a82 acc
-    vasr.3 d0e.17, a202, #1
-    vrsub.3 d2e.16, a202, #0
-    vasr.3 d2e.11, a20e, #1
-    vmul.1 d10.16, a203, #0xa57e clra x15
-    vmul.1 d10.17, a203, #0x5a82 x15
-    vmulhd.1 d10.16, a203, #0xa57e acc
-    vmulhd.3 d0f.17, a203, #0x5a82 acc
-    vmul.1 d10.16, a203, #0xa57e clra x15
-    vmul.1 d10.17, a203, #0xa57e x15
-    vmulhd.1 d10.16, a203, #0xa57e acc
-    vmulhd.3 d2f.17, a203, #0xa57e acc
-    vsub.3 dc0.10, a220, b02.1.t++ inc rep2
-    vadd.3 d00.10, a220, b02.1.t++ inc rep2
-    vasr.3 d00.10, a220, #1 inc rep2
-    vsub.3 de0.11, a220, b22.1.t++ inc rep2
-    vadd.3 d20.11, a220, b22.1.t++ inc rep2
-    vasr.3 d20.11, a220, #1 inc rep2
-    vasr.3 d02.16, a200, #1
-    vasr.3 d22.17, a200, #1
-    vasr.3 d03.17, a201, #1
-    vrsub.3 d23.16, a201, #0
-    vasr.3 d23.11, a203, #1
-    vsub.3 dc0.10, a224, b06.1.t++ inc rep2
-    vadd.3 d04.10, a224, b06.1.t++ inc rep2
-    vasr.3 d04.10, a224, #1 inc rep2
-    vsub.3 de0.11, a224, b26.1.t++ inc rep2
-    vadd.3 d24.11, a224, b26.1.t++ inc rep2
-    vasr.3 d24.11, a224, #1 inc rep2
-    vasr.3 d06.16, a200, #1
-    vasr.3 d26.17, a200, #1
-    vasr.3 d07.17, a201, #1
-    vrsub.3 d27.16, a201, #0
-    vasr.3 d27.11, a207, #1
-    vsub.3 dc0.10, a228, b0a.1.t++ inc rep2
-    vadd.3 d08.10, a228, b0a.1.t++ inc rep2
-    vasr.3 d08.10, a228, #1 inc rep2
-    vsub.3 de0.11, a228, b2a.1.t++ inc rep2
-    vadd.3 d28.11, a228, b2a.1.t++ inc rep2
-    vasr.3 d28.11, a228, #1 inc rep2
-    vasr.3 d0a.16, a200, #1
-    vasr.3 d2a.17, a200, #1
-    vasr.3 d0b.17, a201, #1
-    vrsub.3 d2b.16, a201, #0
-    vasr.3 d2b.11, a20b, #1
-    vsub.3 dc0.10, a22c, b0e.1.t++ inc rep2
-    vadd.3 d0c.10, a22c, b0e.1.t++ inc rep2
-    vasr.3 d0c.10, a22c, #1 inc rep2
-    vsub.3 de0.11, a22c, b2e.1.t++ inc rep2
-    vadd.3 d2c.11, a22c, b2e.1.t++ inc rep2
-    vasr.3 d2c.11, a22c, #1 inc rep2
-    vasr.3 d0e.16, a200, #1
-    vasr.3 d2e.17, a200, #1
-    vasr.3 d0f.17, a201, #1
-    vrsub.3 d2f.16, a201, #0
-    vasr.3 d2f.11, a20f, #1
-    vadd.3 d40.10, a200, b01.1.t
-    vasr.3 d40.12, a200, #1
-    vsub.3 d48.10, a200, b01.1.t
-    vasr.3 d48.12, a208, #1
-    vadd.3 d60.11, a200, b21.1.t
-    vasr.3 d60.13, a200, #1
-    vsub.3 d68.11, a200, b21.1.t
-    vasr.3 d68.13, a208, #1
-    vadd.3 d44.10, a202, b03.1.t
-    vasr.3 d44.12, a204, #1
-    vsub.3 d4c.10, a202, b03.1.t
-    vasr.3 d4c.12, a20c, #1
-    vadd.3 d64.11, a202, b23.1.t
-    vasr.3 d64.13, a204, #1
-    vsub.3 d6c.11, a202, b23.1.t
-    vasr.3 d6c.13, a20c, #1
-    vadd.3 d42.10, a204, b05.1.t
-    vasr.3 d42.12, a202, #1
-    vsub.3 d4a.10, a204, b05.1.t
-    vasr.3 d4a.12, a20a, #1
-    vadd.3 d62.11, a204, b25.1.t
-    vasr.3 d62.13, a202, #1
-    vsub.3 d6a.11, a204, b25.1.t
-    vasr.3 d6a.13, a20a, #1
-    vadd.3 d46.10, a206, b07.1.t
-    vasr.3 d46.12, a206, #1
-    vsub.3 d4e.10, a206, b07.1.t
-    vasr.3 d4e.12, a20e, #1
-    vadd.3 d66.11, a206, b27.1.t
-    vasr.3 d66.13, a206, #1
-    vsub.3 d6e.11, a206, b27.1.t
-    vasr.3 d6e.13, a20e, #1
-    vadd.3 d41.10, a208, b09.1.t
-    vasr.3 d41.12, a201, #1
-    vsub.3 d49.10, a208, b09.1.t
-    vasr.3 d49.12, a209, #1
-    vadd.3 d61.11, a208, b29.1.t
-    vasr.3 d61.13, a201, #1
-    vsub.3 d69.11, a208, b29.1.t
-    vasr.3 d69.13, a209, #1
-    vadd.3 d45.10, a20a, b0b.1.t
-    vasr.3 d45.12, a205, #1
-    vsub.3 d4d.10, a20a, b0b.1.t
-    vasr.3 d4d.12, a20d, #1
-    vadd.3 d65.11, a20a, b2b.1.t
-    vasr.3 d65.13, a205, #1
-    vsub.3 d6d.11, a20a, b2b.1.t
-    vasr.3 d6d.13, a20d, #1
-    vadd.3 d43.10, a20c, b0d.1.t
-    vasr.3 d43.12, a203, #1
-    vsub.3 d4b.10, a20c, b0d.1.t
-    vasr.3 d4b.12, a20b, #1
-    vadd.3 d63.11, a20c, b2d.1.t
-    vasr.3 d63.13, a203, #1
-    vsub.3 d6b.11, a20c, b2d.1.t
-    vasr.3 d6b.13, a20b, #1
-    vadd.3 d47.10, a20e, b0f.1.t
-    vasr.3 d47.12, a207, #1
-    vsub.3 d4f.10, a20e, b0f.1.t
-    vasr.3 d4f.12, a20f, #1
-    vadd.3 d67.11, a20e, b2f.1.t
-    vasr.3 d67.13, a207, #1
-    vsub.3 d6f.11, a20e, b2f.1.t
-    vasr.3 d6f.13, a20f, #1
-    vadd.3 d80.12, a20f, #0
-    vadd.3 d81.12, a20e, #0
-    vadd.3 d82.12, a20d, #0
-    vadd.3 d83.12, a20c, #0
-    vadd.3 d84.12, a20b, #0
-    vadd.3 d85.12, a20a, #0
-    vadd.3 d86.12, a209, #0
-    vadd.3 d87.12, a208, #0
-    vadd.3 d88.12, a207, #0
-    vadd.3 d89.12, a206, #0
-    vadd.3 d8a.12, a205, #0
-    vadd.3 d8b.12, a204, #0
-    vadd.3 d8c.12, a203, #0
-    vadd.3 d8d.12, a202, #0
-    vadd.3 d8e.12, a201, #0
-    vadd.3 d8f.12, a200, #0
-    vadd.3 dc1.14, a220, #0 inc rep8
-    vadd.3 dc9.14, a228, #0 inc rep4
-    vadd.3 dcd.14, a22c, #0 inc rep2
-    vadd.3 dcf.14, a22e, #0 inc
-    vadd.3 dc0.14, a20f, #0
-    vadd.3 da0.13, a20f, #0
-    vadd.3 da1.13, a20e, #0
-    vadd.3 da2.13, a20d, #0
-    vadd.3 da3.13, a20c, #0
-    vadd.3 da4.13, a20b, #0
-    vadd.3 da5.13, a20a, #0
-    vadd.3 da6.13, a209, #0
-    vadd.3 da7.13, a208, #0
-    vadd.3 da8.13, a207, #0
-    vadd.3 da9.13, a206, #0
-    vadd.3 daa.13, a205, #0
-    vadd.3 dab.13, a204, #0
-    vadd.3 dac.13, a203, #0
-    vadd.3 dad.13, a202, #0
-    vadd.3 dae.13, a201, #0
-    vadd.3 daf.13, a200, #0
-    vadd.3 de1.15, a220, #0 inc rep8
-    vadd.3 de9.15, a228, #0 inc rep4
-    vadd.3 ded.15, a22c, #0 inc rep2
-    vadd.3 def.15, a22e, #0 inc
-    vadd.3 de0.15, a20f, #0
-    rts
-
-/* the real FFT's split step and |X|^2 */
-    .global jv_fft_split
-jv_fft_split:
-    mov r4, #0
-    mov r5, #1024
-jv_fft_split_l:
-    vadd.1 dc1.04, a300+r5, #0
-    vadd.1 dc2.05, a300+r5, #0
-    vadd.1 dc3, a300+r4, #0
-    vadd.1 dc4.01, a300+r4, #0
-    vrsub.1 dc5, a300+r4, #0
-    vadd.1 dc6.02, a300+r4, bc1.t
-    vsub.1 dc7.02, a300+r4, bc1.t
-    vadd.1 dc8.03, a300+r4, bc2.t
-    vsub.1 dc9.03, a300+r4, bc2.t
-    vshl.1 d10.06, a284, #15 clra x15
-    vmul.1 dcf.06, a208, bc3.t x15
-    vasr.1 d10.06, a284, #1 acc
-    vmulhd.1 def.06, a208, bc3.t acc
-    vmov.1 d10, a000, bcf.t clra x15
-    vmul.1 d10.06, a2c4, bc4.t x15
-    vmulhd.1 dca.06, a2c4, bc4.t acc
-    vadd.1 dca.06, a288, bef.t
-    vshl.1 d10.06, a248, #15 clra x15
-    vmul.1 dcf.06, a208, bc4.t x15
-    vasr.1 d10.06, a248, #1 acc
-    vmulhd.1 def.06, a208, bc4.t acc
-    vmov.1 d10, a000, bcf.t clra x15
-    vmul.1 d10.06, a2c4, bc5.t x15
-    vmulhd.1 dcb.06, a2c4, bc5.t acc
-    vadd.1 dcb.06, a2c8, bef.t
-    vmul.1 dcf.06, a288, bca.t clra x15
-    vmulhd.1 def.06, a288, bca.t acc
-    vmov.1 d10, a000, bcf.t clra x15
-    vmul.1 d00.06+r4, a2c8, bcb.t x15
-    vmulhd.1 d20.06+r4, a2c8, bcb.t acc
-    vadd.1 d20.01+r4, a200+r4, bef.t
-    add r4, #64
-    mov r5, r10
-    sub r5, r4
-    cmp r4, r10
-    bne jv_fft_split_l
-    rts
+#endif
 
 /* one 16-row group of BARS (viz_vpu.c viz_bars) */
     .global jv_bars16

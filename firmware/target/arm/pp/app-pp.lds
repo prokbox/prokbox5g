@@ -1,3 +1,4 @@
+/* Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md. */
 #define __ASSEMBLER__
 #include "cpu.h"
 
@@ -77,6 +78,27 @@ SECTIONS
         *apps[/]ipodui[/]*(FEBE_EX .data*)
         *libfirmware.a:font.o(.data*)       /* the shell's drawing state */
         *libfirmware.a:lcd-16bit.o(.data*)
+        *libfirmware.a:bidi.o(.data*)       /* its text drawing (copfileio) */
+        *libfirmware.a:diacritic.o(.data*)
+        . = ALIGN(CACHEALIGN_SIZE);
+        /* p19-copfileio (bench 4f): the file layer and the storage driver
+         * on lines of their own too, so no static another object writes
+         * (from either core) shares a line with the open-file table, the
+         * FAT or disk cache's lists, or the ATA state.  Bench 4f linked
+         * disk_cache.c's cache_lru and bidi.c's bidi_buf on one line: the
+         * COP's text drawing wrote the line back with a stale LRU head
+         * ("file_cache_alloc - OOM").  xcore_line_check.py checks both */
+        *libfirmware.a:file.o(.data*)
+        *libfirmware.a:dir.o(.data*)
+        *libfirmware.a:file_internal.o(.data*)
+        *libfirmware.a:disk_cache.o(.data*)
+        *libfirmware.a:fat.o(.data*)
+        *libfirmware.a:fileobj_mgr.o(.data*)
+        *libfirmware.a:disk.o(.data*)
+        *libfirmware.a:rb_namespace.o(.data*)
+        *libfirmware.a:ata.o(.data*)
+        *libfirmware.a:ata-pp5020.o(.data*)
+        *libfirmware.a:storage.o(.data*)
         . = ALIGN(CACHEALIGN_SIZE);
 #endif
         *(FEBE_EX .data*)
@@ -178,6 +200,22 @@ SECTIONS
         *apps[/]ipodui[/]*(FEBE_EX .bss* FEBE_EX COMMON)
         *libfirmware.a:font.o(.bss* COMMON)
         *libfirmware.a:lcd-16bit.o(.bss* COMMON)
+        *libfirmware.a:bidi.o(.bss* COMMON)
+        *libfirmware.a:diacritic.o(.bss* COMMON)
+        . = ALIGN(CACHEALIGN_SIZE);
+        /* p19-copfileio: the file layer's and the storage driver's, as in
+         * .data above */
+        *libfirmware.a:file.o(.bss* COMMON)
+        *libfirmware.a:dir.o(.bss* COMMON)
+        *libfirmware.a:file_internal.o(.bss* COMMON)
+        *libfirmware.a:disk_cache.o(.bss* COMMON)
+        *libfirmware.a:fat.o(.bss* COMMON)
+        *libfirmware.a:fileobj_mgr.o(.bss* COMMON)
+        *libfirmware.a:disk.o(.bss* COMMON)
+        *libfirmware.a:rb_namespace.o(.bss* COMMON)
+        *libfirmware.a:ata.o(.bss* COMMON)
+        *libfirmware.a:ata-pp5020.o(.bss* COMMON)
+        *libfirmware.a:storage.o(.bss* COMMON)
         . = ALIGN(CACHEALIGN_SIZE);
 #endif
         *(FEBE_EX .bss*)

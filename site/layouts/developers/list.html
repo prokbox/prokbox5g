@@ -1,0 +1,18 @@
+{{ define "main" }}
+<div class="doc with-nav">
+  {{ partial "dev-nav.html" . }}
+  <main id="main" class="article" data-pagefind-body>
+    {{ if ne .RelPermalink (site.GetPage "/developers").RelPermalink }}<p class="crumb">{{ with .Parent }}<a href="{{ .RelPermalink }}">{{ .Title }}</a>{{ end }}</p>{{ end }}
+    <h1>{{ .Title }}</h1>
+    {{ .Content }}
+    {{ with .Pages.ByWeight }}
+    <ol class="cards" data-pagefind-ignore>
+      {{ range . }}
+      <li><a href="{{ .RelPermalink }}"><strong>{{ .Title }}</strong>{{ with .Description }}<span>{{ . }}</span>{{ end }}</a></li>
+      {{ end }}
+    </ol>
+    {{ end }}
+    {{ partial "dev-prevnext.html" . }}
+  </main>
+</div>
+{{ end }}

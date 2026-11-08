@@ -1,3 +1,4 @@
+# Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
 #             __________               __   ___.
 #   Open      \______   \ ____   ____ |  | _\_ |__   _______  ___
 #   Source     |       _//  _ \_/ ___\|  |/ /| __ \ /  _ \  \/  /
@@ -537,6 +538,17 @@ ifneq ($(THUMB_COLD_LIST),)
 THUMB_COLD_OBJS := $(patsubst %.c,$(BUILDDIR)/%.o,$(shell sed -e 's/\#.*//' $(THUMB_COLD_LIST)))
 endif
 thumb_coldflags = $(if $(THUMB_COLD_OBJS),$(if $(filter $(THUMB_COLD_OBJS),$@),-mthumb))
+
+# The simulator's device clock model (apps/ipodui/sdk/sdk.c, a UI
+# script's `sdk_devclock on`): the SDK games' code counts the basic
+# blocks it runs through gcc's trace-pc hook, which the model turns
+# into device time. Simulator builds only, the games' sources only.
+sim_gameflags = $(if $(filter sdl-sim,$(APP_TYPE)),$(if $(filter \
+	$(BUILDDIR)/apps/ipodui/games/%,$@),-fsanitize-coverage=trace-pc))
+ifeq ($(APP_TYPE),sdl-sim)
+# a game object built without the hook would take no time in the model
+$(filter $(BUILDDIR)/apps/ipodui/games/%,$(OBJ)): $(TOOLSDIR)/root.make
+endif
 # Every C object built by the rule below also depends on the list (a
 # prerequisite only when it is set), so editing it recompiles what changed
 # mode; ccache serves the rest.
@@ -555,7 +567,7 @@ fix_dep_target = sed -e '1s|^[^:]*:|$@:|' $(@:.o=.d) > $(@:.o=.d)_ && \
 # -MMD -MP: see the $(OBJ:.o=.d) comment above $(DEPFILE)'s include.
 $(BUILDDIR)/%.o: $(ROOTDIR)/%.c $(THUMB_COLD_LIST)
 	$(SILENT)mkdir -p $(dir $@)
-	$(call PRINTS,CC $(subst $(ROOTDIR)/,,$<))$(CC) $(CFLAGS) $(core_secflags) $(thumb_coldflags) -MMD -MP -c $< -o $@
+	$(call PRINTS,CC $(subst $(ROOTDIR)/,,$<))$(CC) $(CFLAGS) $(core_secflags) $(thumb_coldflags) $(sim_gameflags) -MMD -MP -c $< -o $@
 	$(SILENT)$(fix_dep_target)
 
 $(BUILDDIR)/%.o: $(ROOTDIR)/%.S

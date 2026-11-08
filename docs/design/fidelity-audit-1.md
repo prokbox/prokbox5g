@@ -12,7 +12,7 @@ Input for the polish pass (#52). This audit measures the owner's 2.0.5 photos (`
 
 1. **Rectification.**
    - The LCD's four edges are fitted with RANSAC lines on luminance steps, from automatic hints or a rough hand-picked quad for rotated or glare-heavy photos.
-   - That quad is then **refined on the LCD pixel lattice, which the phone resolves** (≈7–12 photo px per device px; FFT period 10.2 photo px in photo 1171). For 16×16 px blocks, the phase of the period-1 px luminance component locates the pixel centres. A homography plus a cubic correction for lens distortion is fitted to those offsets. The residual is 0.02–0.29 px RMS (`rect/diag.json`).
+   - That quad is then **refined on the LCD pixel lattice, which the phone resolves** (≈7–12 photo px per device px; FFT period 10.2 photo px in photo `settings-02-shuffle`). For 16×16 px blocks, the phase of the period-1 px luminance component locates the pixel centres. A homography plus a cubic correction for lens distortion is fitted to those offsets. The residual is 0.02–0.29 px RMS (`rect/diag.json`).
    - The lattice fixes positions only modulo 1 px. The integer offset is checked against the lit-area edges (column 0 lit and −1 dark, etc.) and corrected where the evidence was strong (`tools/shifts.json`).
    - **Absolute position uncertainty: ±1 px** (±0.5 px on the good frames: `music-menu`, `artists`, `main-hold`, `holdsel`, `chapters`, `backlight-values`, `s04`).
    - **Relative distances inside one frame** (pitch, cap height, word width): **±0.25–0.5 px**.
@@ -70,32 +70,32 @@ Ordered by visibility: layout first, then typography, then materials. "Owner" is
 | Lock (Hold) | 9 wide, x 108–117, y 3.5–15, 12 px before the battery | not shown in sim | — | med |
 | Play glyph look | dark grey-blue top, light cyan lower half (gel) | light centre, dark rim | material | med |
 
-### Main menu (`main-hold`, photo 1189): `list.c`, `theme.c`, `preview.c`
+### Main menu (`main-hold`, photo `main-menu-custom-hold`): `list.c`, `theme.c`, `preview.c`
 - Baselines and rows as fix #4. Text inset 6.0 vs 7. "Settings" 61.75 vs 61, "Shuffle Songs" 107.5 vs 106, "Podcasts" 70.0 vs 69.
 - Content difference by design: our menu hides Videos and Photos (owner decision). The photo also has Audiobooks and Alarms added.
 - Extras panel art not compared (needs a straight Extras capture from ours with `drift_phase`).
 
-### Music menu (photo 1212)
+### Music menu (photo `music-menu-b`)
 - Rows: fix #4. Chevron: fix #8 (7G x 145–153, y +5…+18 within a 24 px row).
 - **Cover Flow is missing from ours** (hidden deliberately in #38 end review, `0f46d045ab`). Genius Mixes is hidden by design. The 7G list therefore starts at Cover Flow and ours at Playlists.
 
-### Artists (photo 1213, full width, single line)
+### Artists (photo `artists-list-b`, full width, single line)
 - 9 rows exactly, same 25/24 pattern. Truncation "…" is the font's ellipsis glyph on the 7G; ours untested here (no long artist names in the fixture library). **Capture request:** none needed; add a long-name fixture.
 
-### Albums / artist's Albums (photo 1211, photo 1214)
+### Albums / artist's Albums (photo `albums-list-twoline-b`, photo `artist-albums-allsongs-b`)
 - 4 rows of ≈55 px with a thumbnail at the left and the selection bar starting right of it, matching ours (`list_rows_art` = 4, `art_box` 55).
 - Title and sublabel positions not measured to sub-pixel (glare). Visual: equivalent.
 
-### Songs (photo 1215)
+### Songs (photo `songs-list-scrollbar-b`)
 - 5 two-line rows of 44 px, matching ours.
 - Scrollbar: 7G thumb 3 px wide at **x 315–317**, grey ≈#7B7B7B relative, rounded, no track. Ours x 316–318. **Δ −1 px.** Conf. med.
 
-### Quick-scroll overlay (photo 1216/1217)
+### Quick-scroll overlay (photo `quickscroll-letter-S-b`/`quickscroll-123-b`)
 - See `out/fidelity/quickscroll.png` (visual only; automatic box extraction failed because the black text merges with the box).
 - The 7G square is a flat near-black with rounded corners, centred, with a white letter.
 - Ours has a **grey-to-black vertical gradient** body; by eye it is similar in size or slightly larger. Owner: `qscroll.c` box colour (make it flat ≈#101010) and size, to be measured from capture request 5. Conf. low.
 
-### Settings (photo 1166–1185): `screens/settings.c`, `screens/panels.c`
+### Settings (photo `settings-01-about`–`settings-17-reset-settings`): `screens/settings.c`, `screens/panels.c`
 | Element | 7G | Ours | Δ | Conf. |
 |---|---|---|---|---|
 | Rows | 25/24 pattern | 24.44 rounded | fix #4 | high |
@@ -109,16 +109,16 @@ Ordered by visibility: layout first, then typography, then materials. "Owner" is
 
 The caption pitch is the clearest panel delta: 7G multi-line captions are tight (≈14 px pitch, small regular face), ours ≈18. Owner: `panels.c` caption line spacing (`CAPTION_BASE`, line height); the font is `font_small`.
 
-### Backlight leaf (photo 1186)
+### Backlight leaf (photo `backlight-values`)
 Same split layout. Rows follow the 25/24 pattern (selected "10 Seconds" bar at 95–119 = row 3 of the 25-px group). Ours draws 24.44 rows (fix #4). The panel keeps the tile and value as ours does.
 
-### About (photo 1167–1169)
+### About (photo `about-1`–`about-3`)
 Not built (blank page, fix #3). Target layout from about-2/about-3: dark header with the device name centred; "19.9 GB Used" left and "128 GB Free" right at y ≈75; logo centred above; two label/value columns from y ≈130 at 12 px pitch; page dots at y ≈225.
 
-### USB (photo 1165, photo 1226)
+### USB (photo `usb-connected`, photo `usb-connected-b`)
 Not built; the sim shows the stock screen with the Rockbox logo (fix #2). Target from usb-b: dark header with the clock centred; orange disc ≈80 px diameter centred near (160, 108); "Connected" at y ≈190, second line y ≈205.
 
-### Now Playing (photo 1203, 1208, 1222; Phase 5 shots)
+### Now Playing (photo `np-normal-b`, `np-shuffle-b`, `np-audiobook-volume-b`; Phase 5 shots)
 | Element | 7G | Ours | Δ | Conf. |
 |---|---|---|---|---|
 | Title line (cap top / bottom incl. descenders) | 70–71 / 82–86 | 59 / 71 | **+11…+12** | high |
@@ -135,7 +135,7 @@ Not built; the sim shows the stock screen with the Rockbox logo (fix #2). Target
 
 The **text-block offset is the single largest layout delta in the audit**. The Apple-guide numbers in `MEASUREMENTS.md` / `now-playing.md` (title top 60, artist 81, album 98, counter 133) do not match the owner's 2.0.5 device and should be replaced by **71 / 91 / 109 / 146** *(±1)*.
 
-### Audiobook Now Playing (photo 1221)
+### Audiobook Now Playing (photo `np-audiobook-noart-chapterticks-b`)
 Same text offsets as music (+11…+13). Chapter ticks span the full bar height on the 7G (ours too). The bar spans x ≈60–270.
 
 ## Spec numbers to update (they came from rougher estimates)

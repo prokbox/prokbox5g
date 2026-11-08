@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2011 Thomas Martitz
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -200,5 +201,13 @@ bool core_test_free(void)
 void core_check_valid(void)
 {
     buflib_check_valid(&core_ctx);
+}
+#endif
+
+#ifdef HAVE_BUFLIB_HEAPCHECK
+int core_heap_walk(struct buflib_walk *w, int max_blocks)
+{
+    XCORE_ASSERT_CPU("core_heap_walk");
+    return buflib_walk(&core_ctx, w, max_blocks);
 }
 #endif

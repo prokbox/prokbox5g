@@ -46,6 +46,9 @@ extern long powerlog_max;               /* tests: "powerlog_max <bytes>" */
 #define POWERLOG_RING_BYTES  7200   /* core_alloc while on; flushed at idle */
 /* #114: present = "Drive power: standby only" (the developer switch) */
 #define POWERLOG_STOR_STANDBY   ROCKBOX_DIR "/stor_standby"
+/* the awake rows' developer mask (firmware/export/pwr_awake.h), one hex
+ * number ("3" = linger and usboff); absent = PWRAW_DEV_DEFAULT */
+#define POWERLOG_PWRAW          ROCKBOX_DIR "/pwraw.cfg"
 
 /* ipodui_main(), once: resumes a log left on (POWERLOG_CFG), with a
  * "boot <date>" mark row. No write at boot. */

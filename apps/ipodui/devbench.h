@@ -112,7 +112,8 @@ static const char *const bench_res_name[BENCH_N_RES] =
                                        it, and the next press asks the
                                        question (as for a manual step) */
 
-#define BENCH_MAX_STEPS     64      /* the table's bound (devbench.c checks) */
+#define BENCH_MAX_STEPS     96      /* the table's bound (devbench.c checks; 4g: the devtest table passed 64;
+                                       4gh: 96 for the four row groups to come; at most 127, need[] is int8_t) */
 
 /* The owner's script (bench-p19.md "Owner's script", generated from this
  * table by scripts/bench_script.py): say and say2 are the step's start
@@ -134,6 +135,9 @@ struct bench_step
     uint16_t limit_s;               /* BENCH_F_AUTO's watchdog, seconds */
     uint16_t budget_s;              /* the expected time, seconds, for the
                                        confirm screens' totals (0: limit_s) */
+    uint16_t hands_s;               /* of that, seconds of hands-off wait
+                                       inside a step that is not AUTO (the
+                                       owner's time is the rest) */
 };
 
 /* A step's expected seconds */
@@ -607,19 +611,38 @@ enum bench_mode
     BENCH_MODE_FULL = 0,
     BENCH_MODE_REVERIFY,
     BENCH_MODE_PORTCHECK,
+    BENCH_MODE_PROBE,           /* sitting 4h: the core layout probe */
+    BENCH_MODE_BATCH,           /* a chip batch's own checks (batch 5) */
     BENCH_N_MODES
 };
 
 static const char *const bench_mode_name[BENCH_N_MODES] =
 {
-    "full", "reverify", "portcheck"
+    "full", "reverify", "portcheck", "probe", "batch"
 };
+
+/* The picked runs that earn no verified line (the port write check, the
+ * core layout probe) */
+static inline bool bench_mode_verifies(int mode)
+{
+    return mode == BENCH_MODE_FULL || mode == BENCH_MODE_REVERIFY ||
+           mode == BENCH_MODE_BATCH;
+}
+
+/* The runs that may earn the clock150 token line (s4c and s6 passed in
+ * the session): the verifying ones and the chip batch's checks, which
+ * run s4c and s6 for a new image (bench_batch_picks) */
+static inline bool bench_mode_tokens(int mode)
+{
+    return bench_mode_verifies(mode) || mode == BENCH_MODE_BATCH;
+}
 
 /* The row's question, in this order: its answer (0..BENCH_N_MODES-1;
  * anything else is MENU) to a mode, -1 for cancel */
 static const char *const bench_mode_answers[BENCH_N_MODES] =
 {
-    "Full session", "Re-verify the video image", "Port write check"
+    "Full session", "Re-verify the video image", "Port write check",
+    "Core layout probe", "Chip update checks"
 };
 
 static inline int bench_mode_choice(int a)
@@ -648,7 +671,25 @@ enum bench_role
  * the table, role and needs intact, but bench_select leaves it out while
  * BENCH_HOLD_LATER (tests/autochecks turns that off to cover the roles).
  * Sitting 4d (owner, 2026-10-26: a short sitting, under 15 min) holds b3,
- * s4b, s4c, vfeed, s7, vbv and vgov; back in a run: drop the "| HELD". */
+ * s4b, s4c, vfeed, s7, vbv and vgov; back in a run: drop the "| HELD".
+ * Sitting 4e keeps them held and adds vizsoak and vlong (under 20 min of
+ * the owner's time; vlong's 10-minute play is hands off).  Sitting 4f
+ * (2026-11-05) re-runs what 4e failed (uviz, vizsoak, jvpu) and what it
+ * never reached (b13 on): it also holds respanel and c1, which passed in
+ * 4e (ucop's need on c1 then blocks nothing: a step with no result in
+ * the run blocks nothing, bench_dep_failed).  Sitting 4g re-proves the
+ * video after 4f's fixes (the restart's clock, the index window) and
+ * the visualiser's CPU split: uviz, jvpu, b5, s6, vplay and vlong after
+ * the start-up steps (jvpu and b5 earn the verified line), and b13 as a
+ * host-only A/B of the host's cache flush (BCM quirk #41, program-swap.md;
+ * no image change: round 0 in the cold start's form, round 1 in
+ * @25a's); it holds vizsoak.  19-9, the UI on the COP, is retired
+ * (owner, 2026-11-05: Apple's core layout is adopted), so the
+ * second-core group (ucop, uck1, uck2, ufeel, upanel, ucusb, ucmod,
+ * ucop2, ucoff) and the core-layout study's arms (clc, clf) are held,
+ * their code kept.  With ucop held, the session's end clears any "cop"
+ * switch an earlier session left (ucop_settle, bench_pick_held), so the
+ * unit starts on the main processor as the owner's daily driver. */
 #define BENCH_R_HELD        0x80
 #ifndef BENCH_HOLD_LATER
 #define BENCH_HOLD_LATER    1
@@ -731,7 +772,8 @@ static const struct bench_gate bench_gates[] =
  *    the program itself: b3 sets the drift's backend (dj_dev_row), the
  *    panel's DECODE and the visualizer's overlay load into the merged
  *    image's shared overlay region.  respanel before uviz: it wants an
- *    album not yet played on this build, and uviz plays one.  Needs jobs.
+ *    album not yet played on this build, and uviz plays one.  vizsoak
+ *    (sitting 4e) after uviz: the same view, a few minutes.  Needs jobs.
  * 1b. The rest of the self-tests: jvpu (J_VPU from the still resident
  *    image, 3 for the merged one; B5 boots the display-only image, which
  *    would answer 0x27), c1, then the clock flags.
@@ -743,7 +785,8 @@ static const struct bench_gate bench_gates[] =
  *    runs).  Needs s6; the fast clock comes from the image's clock150
  *    token (sitting 4c's s4c and s6), so s4c no longer gates it.  The
  *    step drops this unit's check result first (vplayer_check_reset), so
- *    the check runs again on the unit that already has one.
+ *    the check runs again on the unit that already has one.  Then vlong
+ *    (sitting 4e): the test episode, 10 minutes hands off; needs s6.
  * 6. The UI on the second core, last.  ucop's restart moves the UI to
  *    the COP for the rest of the session, and the video group can't run
  *    there: the bench runs its steps on the UI thread, and the devtest's
@@ -752,11 +795,26 @@ static const struct bench_gate bench_gates[] =
  *    the devtest's flags directly; p19-ui-on-cop.md).  The restart also
  *    brings the merged image back after the stage plays.  Needs c1
  *    (engine 2 from the COP); ucop failing (the UI didn't move) skips the
- *    rest. */
+ *    rest.
+ * 4b. The rows that may freeze (sitting 4gh): p2, p1 (the core layout
+ *    probe), after s6, before the long plays.
+ * 7. duty, the long dark row, at the very end. */
 static const struct bench_pick bench_reverify_picks[] =
 {
     /* 1. start-up and self-tests */
     { "pre",    BENCH_R_PRE, { NULL } },
+    /* SLOT RO (the final sitting, owner 2026-11-05): the read-only rows,
+       first: pgrd, preg, the PP id line (devbench_pwr.c).  One line a
+       row, BENCH_R_ALSO, no needs.  awxm (p19-pwr-awake, AW-8 and AW-9:
+       the memory setting and the ADC's done bit, logged), with the
+       battery probes' read-only pair (p19-pwr-probes, devbench_pwr.h
+       bench_pwr_picks: pgrd the speed grade, preg the power registers,
+       logged before any probe writes them), then prtc (hands off, about
+       15 s, three clocks compared; harmless).  One hands-off block */
+    { "pgrd",   BENCH_R_ALSO, { NULL } },
+    { "preg",   BENCH_R_ALSO, { NULL } },
+    { "awxm",   BENCH_R_ALSO, { NULL } },
+    { "prtc",   BENCH_R_ALSO, { NULL } },
     { "s05",    BENCH_R_IFPRE, { NULL } },
     /* s05 rewrote the stage flags: the boot path reads them only at a
        start, so the merged image becomes the display driver only after a
@@ -775,13 +833,41 @@ static const struct bench_pick bench_reverify_picks[] =
     { "b3",     BENCH_R_OPT | BENCH_R_HELD, { "jobs" } },
     /* batch 3: the panel decoded on the chip by the merged image's DECODE
        overlay and kept resident (RESPANEL); a reading, not the line */
-    { "respanel", BENCH_R_ALSO, { "jobs" } },
+    { "respanel", BENCH_R_ALSO | BENCH_R_HELD, { "jobs" } },
     /* 0.8.0: the visualizer on the chip (release path), its CPU and the
        DECODE/VIZ swap at a track change */
     { "uviz",   BENCH_R_ALSO, { "jobs" } },
+    /* sitting 4e: the visualiser a few minutes on the chip (day 4c's
+       "viz soak" line): every frame on the BCM, no CPU fallback */
+    /* sitting 4g: VF0, the BCM's SPECTRUM (its C path, today's) against
+       the Mac's goldens, hands off (viz-fft-vc.md section 10) */
+    { "vf0",    BENCH_R_ALSO, { "jobs" } },
+    { "vizsoak", BENCH_R_ALSO | BENCH_R_HELD, { "jobs" } },
+    /* SLOT AWAKE, the VC's part (p19-vcpwr, devbench_vcpwr.h
+       bench_vcpwr_picks): the chip's awake-time A/Bs want the merged
+       image as the display driver with its jobs up, so they run here,
+       before jvpu (everything after jvpu may hand the chip to Apple's
+       program).  s1 idle sleep, l5 core level 5, ck block clocks.
+       Then the LCD supply pair, on our resident image: pldo
+       (p19-pwr-probes S-4: the LCD's supply in Apple's sleep mode once,
+       5 s, with a question; then the codec's, the album playing) and
+       awld (p19-pwr-awake, AW-4: the daily code's mode 010 across five
+       dark/wake cycles), pldo first, as the less likely to leave the
+       screen dark.  pwraw-lcdldo is for the daily path, so both run with
+       our resident image driving the screen; the token line is awld's
+       (bench_awake_tokens), pldo's answers sit beside it in the file.
+       Either may leave the screen dark: the owner restarts by hand, and
+       Resume records the step as hung and carries on (pre, s05 and boot
+       already have their results; the stage flags bring the resident
+       image back at that start: ipodui-p19-bench-awldhang) */
+    { "s1",     BENCH_R_ALSO, { "jobs" } },
+    { "l5",     BENCH_R_ALSO, { "jobs" } },
+    { "ck",     BENCH_R_ALSO, { "jobs" } },
+    { "pldo",   BENCH_R_ALSO, { NULL } },
+    { "awld",   BENCH_R_ALSO, { NULL } },
     { "jvpu",   BENCH_R_NEED, { NULL } },
     /* engine 2 from the COP (19-9's B10) */
-    { "c1",     BENCH_R_ALSO, { NULL } },
+    { "c1",     BENCH_R_ALSO | BENCH_R_HELD, { NULL } },
     /* 4c's precondition: its flag names this build's 150 MHz bench */
     { "s4b",    BENCH_R_ALSO | BENCH_R_HELD, { NULL } },
     /* the clock flag s6 plays at */
@@ -802,18 +888,106 @@ static const struct bench_pick bench_reverify_picks[] =
     { "s7",     BENCH_R_ALSO | BENCH_R_HELD, { "s6" } },
     { "vbv",    BENCH_R_ALSO | BENCH_R_HELD, { "s6" } },
     { "vgov",   BENCH_R_ALSO | BENCH_R_HELD, { "s6" } },
+    /* The final sitting's order (owner, 2026-11-05): read-only rows
+       (SLOT RO, above), the awake A/Bs, VS, the rows that may freeze,
+       then the long hands-off rows last (vlong, k1, duty).  Each group
+       to come adds one line a row at its slot (BENCH_R_ALSO: readings,
+       never the verified line), its rows in devbench.c's table, and
+       its screens in scripts/bench_sim_script.py.  The slots come after
+       everything the verified line needs (s6), so a row that disturbs
+       the chip or freezes the unit can't cost the line.
+       SLOT AWAKE: the awake A/Bs.  The VC's (s1, l5, ck) sit before
+       jvpu (above: they need the resident image); "Battery savings"
+       (devbench_awake.c, bench_awake_picks), PP-side, here, none
+       needing the video chip: the cable steps together (the headphone
+       socket, a USB-C sound adapter, a charger then the computer), so
+       the owner handles the cables once.  Each starts the album uviz
+       played when it needs music.  awd2c needs awd2 (the same toggle
+       proven on the headphones first); awus leaves the session for the
+       computer and asks at Go on.  The rest of the group sits
+       elsewhere: awxm at SLOT RO, awld after ck (the resident image),
+       awi2 at SLOT FREEZE, awlg at SLOT LONG; pldo (devbench_pwr.c) goes
+       just before awld.
+       SLOT VS: vs (devbench_vcpwr.c; about 4 min; needs s6, plays as
+       vgov does), below, after the cable steps.
+       SLOT FREEZE: p2 and p1, awi2 (the codec clock gate), then the
+       battery probes that write (p19-pwr-probes), least risky first:
+       pstl (timed self-stalls, seconds), pden (unused DEV_EN blocks off
+       one at a time, a key press each), psrf (SDRAM self-refresh from
+       IRAM).  pden and psrf need preg (the starting words logged).  Each
+       puts back exactly what it found (devbench_pwr.h), so vplay, vlong,
+       awlg and duty find the unit as before; all may freeze.  sd, the other row that
+       may freeze, ends in a cut that drops the resident image for the
+       rest of the boot, so it runs last of all (below duty).
+       4b. sitting 4gh: the core layout probe's rows that may freeze
+       (bench_probe_picks has the reasons): p2 (the COP's own Timer 2
+       interrupt) and p1 (the PCM DMA's FIQ on the COP, the tone and its
+       question).  p1 failing skips nothing.  Neither touches the video
+       chip or needs a restart */
+    { "awd2",   BENCH_R_ALSO, { NULL } },
+    { "awd2c",  BENCH_R_ALSO, { "awd2" } },
+    { "awus",   BENCH_R_ALSO, { NULL } },
+    { "vs",     BENCH_R_ALSO, { "s6" } },
+    { "p2",     BENCH_R_ALSO, { NULL } },
+    { "p1",     BENCH_R_ALSO, { NULL } },
+    /* core layout A (devbench_core.h): pcm-pp.c's own driver with the
+       FIQ on the COP, after the raw form (p1) proved the route */
+    { "pcop",   BENCH_R_ALSO, { "p1" } },
+    { "awi2",   BENCH_R_ALSO, { NULL } },
+    { "pstl",   BENCH_R_ALSO, { NULL } },
+    { "pden",   BENCH_R_ALSO, { "preg" } },
+    { "psrf",   BENCH_R_ALSO, { "preg" } },
     /* 5. a normal play from Videos (the first-use check).  s6 alone
        gates it: the image's clock150 token (bcmfw/verified.txt) opens
        the fast clock without s4c's flag (sitting 4d) */
     { "vplay",  BENCH_R_ALSO, { "s6" } },
+    /* sitting 4e: the test episode from Videos, 10 minutes hands off
+       (day 4c's stall came about 10 minutes in): the pictures in step
+       with the audio to the end, any still recovered by itself */
+    { "vlong",  BENCH_R_ALSO, { "s6" } },
+    /* sitting 4g: the core-layout study's comparison rows
+       (docs/design/core-layout-decision.md section 5), existing switches
+       only: L-1 (lit Now Playing) and a shortened R-1 (audio under
+       stress) in one outside step per arm, C (the decode on the CPU,
+       input boost) then F (Fit-2, on the COP); each arm sets the
+       decode's core, tags the log and puts the core back at its
+       question.  Arm B is ucop2's soak with the UI on the COP (tagged
+       there).  Before ucop's restart: the UI must be on the CPU */
+    { "clc",    BENCH_R_ALSO | BENCH_R_HELD, { NULL } },
+    { "clf",    BENCH_R_ALSO | BENCH_R_HELD, { NULL } },
     /* 6. 19-9's UI on the COP: a restart, p19-ucop-fix's four owner rows
        on the second core, then the soak outside */
-    { "ucop",   BENCH_R_ALSO, { "c1" } },
-    { "uck1",   BENCH_R_ALSO, { "ucop" } },
-    { "uck2",   BENCH_R_ALSO, { "ucop" } },
-    { "ufeel",  BENCH_R_ALSO, { "ucop" } },
-    { "upanel", BENCH_R_ALSO, { "ucop" } },
-    { "ucop2",  BENCH_R_ALSO, { "ucop" } },
+    { "ucop",   BENCH_R_ALSO | BENCH_R_HELD, { "c1" } },
+    { "uck1",   BENCH_R_ALSO | BENCH_R_HELD, { "ucop" } },
+    { "uck2",   BENCH_R_ALSO | BENCH_R_HELD, { "ucop" } },
+    { "ufeel",  BENCH_R_ALSO | BENCH_R_HELD, { "ucop" } },
+    { "upanel", BENCH_R_ALSO | BENCH_R_HELD, { "ucop" } },
+    /* sitting 4g: the cheap second-core checks after p19-copfileio (the
+       file layer, the USB path, a module); the power-off last, after
+       the soak: it ends the start, its question comes at the next
+       start's Go on */
+    { "ucusb",  BENCH_R_ALSO | BENCH_R_HELD, { "ucop" } },
+    { "ucmod",  BENCH_R_ALSO | BENCH_R_HELD, { "ucop" } },
+    { "ucop2",  BENCH_R_ALSO | BENCH_R_HELD, { "ucop" } },
+    { "ucoff",  BENCH_R_ALSO | BENCH_R_HELD, { "ucop" } },
+    /* SLOT LONG: the long hands-off rows, after vlong, before duty.  awlg (p19-pwr-awake, AW-1: the drive's
+       release linger forced on, about 20 min dark) gets its own soak:
+       it changes when the drive sleeps, so it would move duty's wake
+       counts, and duty's decode arms (C F C F) would move its refills */
+    { "awlg",   BENCH_R_ALSO, { NULL } },
+    /* core layout A's K-1 (devbench_core.h): the parked COP against
+       today's pulse, its own dark soak (Hold on); duty moves the decode's
+       core, so they can't share one */
+    { "k1",     BENCH_R_ALSO, { NULL } },
+    /* 7. sitting 4gh: the long dark row at the very end (duty, about
+       15 min hands off; it plays the album uviz started; a reading) */
+    { "duty",   BENCH_R_ALSO, { NULL } },
+    /* 8. last of all: sd (p19-vcpwr, may freeze).  Its restore is always
+       a cut, which drops the resident image for the rest of the boot;
+       every step before it (vplay, vlong, duty's dark play on the daily
+       display driver) wants that image, so nothing runs after it.  The
+       owner is back at duty's end anyway */
+    { "sd",     BENCH_R_ALSO, { "jobs" } },
 };
 
 /* The port write check (bench 2026-10-25: COMMIT failed, open question
@@ -824,6 +998,109 @@ static const struct bench_pick bench_portcheck_picks[] =
     { "pre",    BENCH_R_PRE, { NULL } },
     { "s05",    BENCH_R_IFPRE, { NULL } },
     { "cr1",    BENCH_R_NEED, { NULL } },
+};
+
+/* The core layout probe (sitting 4h, owner 2026-11-05: Apple's layout (A),
+ * the audio engine on the COP, if the CPU is essentially asleep with the
+ * screen off while music plays; docs/design/core-layout-decision.md
+ * section 5).  Basic to advanced, the owner's time first:
+ *
+ * 1. p2, hands off, silent: can the COP take an interrupt of its own at
+ *    all (Timer 2, 100 Hz, 10 s)?  The COP's deadline source in (A).
+ * 2. p1, a tone in the headphones: the PCM DMA's FIQ served by the COP,
+ *    then the question.  The gate for (A).  It runs whatever p2 found
+ *    (an IRQ and a FIQ are separate paths, and every way out of p1 puts
+ *    the route back from the CPU's side, so a COP that serves nothing
+ *    leaves nothing behind): the sitting carries both answers.
+ * 3. duty, hands off, dark, about 14 min: today's CPU duty with the screen
+ *    off, decode on the CPU and on the COP.  Needs nothing: it reads the
+ *    existing layout, whatever the probes found.
+ *
+ * Nothing here touches the video chip, and no step earns a verified
+ * line.  None needs a restart. */
+static const struct bench_pick bench_probe_picks[] =
+{
+    { "p2",     BENCH_R_NEED, { NULL } },
+    { "p1",     BENCH_R_NEED, { NULL } },
+    { "duty",   BENCH_R_ALSO, { NULL } },
+};
+
+/* The chip batch's own checks (batch 5, merged-image-batch.md section
+ * 8; sitting 4gh-b5): what the re-verify run leaves out for a new merged
+ * image, and (since sitting 4gh ran its 34 steps on 23693ff4 first) the
+ * 4gh rows whose answer batch 5 can change.  Owner, after 4gh: a row
+ * that passed in 4gh is cut unless batch 5 changes the code or image it
+ * exercises, so l5 and ck (regulator and clock words: unchanged in
+ * b9bcbe57) and vlong (the decoder: unchanged; s6 and vs play on the new
+ * image) are out; s1 (the adaptive tick), vs and b13 (their 4gh failures
+ * were the rule and the host flush: quirks #56, #57), sd (never ran: its
+ * guard, #58) and sdc (new) stay.  Then the PP reruns
+ * (docs/bench-reruns.md), by the same rule: preg (read-only; psrf's
+ * starting words), pldo (its codec part; the screen part is its gate)
+ * on the resident image before jvpu, then after every video row (each
+ * puts a clip in the audio playlist, #154): p1 then pcop (the COP's own
+ * FIQ unmask), psrf (music stopped), alb (the owner plays an album:
+ * awlg and duty need it), awlg and duty (arm F's codec load on the
+ * COP), the long dark rows; k1 is settled.  sd stays last (its cut).  The image (b9bcbe57) has no clock150 token,
+ * and batch 5 regenerated the stage 4 bench (VF3, the out[] guard) and
+ * so the 150 MHz bench the 4b flag names: until s05, s4b and s4c pass on
+ * this build, every video play runs the chip at 27 MHz
+ * (bcm_devtest_fast_clock_allowed), the re-verify run's too.  Basic to
+ * advanced:
+ *
+ * 1. pre, then s05 always (not IFPRE): stages 0 to 5 with the stage 4
+ *    bench (VF3's six probes, GTHR in the guarded out[]); its new stage 4
+ *    flag opens s4b.  s05 failing ends the session (its gate).
+ * 2. s4b (the 150 MHz bench, hands off) and s4c (its pictures, a
+ *    question): their flags let the player run 150 MHz on this unit.
+ * 3. boot: the restart that brings the merged image back as the display
+ *    driver (s05 and the stages left Apple's program running).
+ * 4. On the resident image: jobs (the heartbeat on the adaptive tick),
+ *    b3 (the drift: the jobs animation's 1 ms tick), vf0 (loads the
+ *    visualiser overlay: its FFT start-up check and SPECTRUM against the
+ *    Mac's SEP goldens), then s1 (idle sleep on the adaptive 10 ms
+ *    tick), then jvpu (the vfft word).
+ * 5. s6 at 150 MHz: with s4c, the clock150 token line
+ *    (bench_mode_tokens).  vs (idle sleep inside a session, clips).
+ * 6. sdc: SDRAM idle at the first-use check's CLOSE, then the play; may
+ *    freeze the video chip.  Needs s6.
+ * 7. sd last of all, as in the re-verify run: its restore is a cut, which
+ *    drops the resident image for the rest of the boot.
+ *
+ * b13 and b5 (the program swap and the window test) after jvpu, as in
+ * the re-verify run: they hand the chip to Apple's program until the next
+ * start, so every step on the resident image comes before them; the
+ * video steps after them load the merged image themselves.  With jobs,
+ * jvpu, b5 and s6 (NEED) passing the run earns b9bcbe57's verified line
+ * (bench_batch_ok), the drift (b3, OPT) counted as in the re-verify. */
+static const struct bench_pick bench_batch_picks[] =
+{
+    { "pre",    BENCH_R_PRE, { NULL } },
+    { "preg",   BENCH_R_ALSO, { NULL } },
+    { "s05",    BENCH_R_NEED, { NULL } },
+    { "s4b",    BENCH_R_ALSO, { "s05" } },
+    { "s4c",    BENCH_R_ALSO, { "s4b" } },
+    { "boot",   BENCH_R_ALSO, { NULL } },
+    { "jobs",   BENCH_R_NEED, { NULL } },
+    { "b3",     BENCH_R_OPT, { "jobs" } },
+    { "vf0",    BENCH_R_ALSO, { "jobs" } },
+    { "s1",     BENCH_R_ALSO, { "jobs" } },
+    { "pldo",   BENCH_R_ALSO, { NULL } },
+    { "jvpu",   BENCH_R_NEED, { NULL } },
+    { "b13",    BENCH_R_ALSO, { NULL } },
+    { "b5",     BENCH_R_NEED, { NULL } },
+    { "s6",     BENCH_R_NEED, { NULL } },
+    { "vs",     BENCH_R_ALSO, { "s6" } },
+    { "sdc",    BENCH_R_ALSO, { "s6" } },
+    { "p1",     BENCH_R_ALSO, { NULL } },
+    { "pcop",   BENCH_R_ALSO, { "p1" } },
+    { "psrf",   BENCH_R_ALSO, { "preg" } },
+    { "alb",    BENCH_R_ALSO, { NULL } },
+    { "awlg",   BENCH_R_ALSO, { "alb" } },
+    { "duty",   BENCH_R_ALSO, { "alb" } },
+    /* sitting 4gh-b5: the heap A/B (an album playing), before sd's cut */
+    { "heap",   BENCH_R_ALSO, { "alb" } },
+    { "sd",     BENCH_R_ALSO, { "jobs" } },
 };
 
 /* A session's steps, in run order: table indices and their roles */
@@ -843,12 +1120,19 @@ static inline int bench_select_hold(int mode, const struct bench_step *t,
     int k, p;
 
     run->n = 0;
-    if (mode == BENCH_MODE_REVERIFY || mode == BENCH_MODE_PORTCHECK)
+    if (mode == BENCH_MODE_REVERIFY || mode == BENCH_MODE_PORTCHECK ||
+        mode == BENCH_MODE_PROBE || mode == BENCH_MODE_BATCH)
     {
         const struct bench_pick *picks = mode == BENCH_MODE_REVERIFY
-            ? bench_reverify_picks : bench_portcheck_picks;
+            ? bench_reverify_picks : mode == BENCH_MODE_PROBE
+            ? bench_probe_picks : mode == BENCH_MODE_BATCH
+            ? bench_batch_picks : bench_portcheck_picks;
         int np = mode == BENCH_MODE_REVERIFY
             ? (int)(sizeof(bench_reverify_picks) / sizeof(bench_reverify_picks[0]))
+            : mode == BENCH_MODE_PROBE
+            ? (int)(sizeof(bench_probe_picks) / sizeof(bench_probe_picks[0]))
+            : mode == BENCH_MODE_BATCH
+            ? (int)(sizeof(bench_batch_picks) / sizeof(bench_batch_picks[0]))
             : (int)(sizeof(bench_portcheck_picks) / sizeof(bench_portcheck_picks[0]));
 
         for (p = 0; p < np; p++)
@@ -865,7 +1149,17 @@ static inline int bench_select_hold(int mode, const struct bench_step *t,
             {
                 int kd = picks[p].need[d]
                          ? bench_find(t, n, picks[p].need[d]) : -1;
+                int q;
 
+                /* a need held out of this run (sitting 4f: ucop's c1,
+                   passed in 4e) gates nothing */
+                for (q = 0; hold && kd >= 0 && q < np; q++)
+                    if (!strcmp(picks[q].id, picks[p].need[d]))
+                    {
+                        if (picks[q].role & BENCH_R_HELD)
+                            kd = -1;
+                        break;
+                    }
                 run->need[run->n][d] = (int8_t)(kd < BENCH_MAX_STEPS ? kd
                                                                       : -1);
             }
@@ -956,6 +1250,37 @@ static inline unsigned long bench_run_sum(const struct bench_run *run,
     if (count)
         *count = n;
     return secs;
+}
+
+/* The hands-off part of the main steps' time (the confirm screen's
+ * "plus about N min hands-off"): BENCH_F_AUTO steps whole, others their
+ * hands_s.  Same selection as bench_run_sum(BENCH_SUM_MAIN); the owner's
+ * time is that sum minus this. */
+static inline unsigned long bench_run_hands(const struct bench_run *run,
+                                            const struct bench_step *t)
+{
+    unsigned long h = 0;
+    int p;
+
+    for (p = 0; p < run->n; p++)
+    {
+        const struct bench_step *s = &t[run->k[p]];
+
+        if ((s->flags & BENCH_F_OPTIONAL) || run->role[p] == BENCH_R_IFPRE ||
+            run->role[p] == BENCH_R_IFBOOT)
+            continue;
+        h += (s->flags & BENCH_F_AUTO) ? bench_step_secs(s) : s->hands_s;
+    }
+    return h;
+}
+
+/* Seconds as whole minutes, rounded to the nearest (a nonzero time is at
+ * least 1); the confirm screen's split uses this */
+static inline unsigned bench_minutes_near(unsigned long secs)
+{
+    unsigned m = (unsigned)((secs + 30) / 60);
+
+    return secs && !m ? 1 : m;
 }
 
 /* Seconds as whole minutes, rounded up (at least 1) */
@@ -1166,6 +1491,27 @@ static inline bool bench_picks_ok(const struct bench_run *run,
     return true;
 }
 
+/* Is the re-verify pick id held out of this sitting's run? */
+static inline bool bench_pick_held(const char *id)
+{
+    int p, np = (int)(sizeof(bench_reverify_picks) /
+                      sizeof(bench_reverify_picks[0]));
+
+    for (p = 0; BENCH_HOLD_LATER && p < np; p++)
+        if (!strcmp(bench_reverify_picks[p].id, id))
+            return (bench_reverify_picks[p].role & BENCH_R_HELD) != 0;
+    return false;
+}
+
+/* Did every must-pass step of the chip update checks pass?  The same
+ * rules as the re-verify run's, on its own picks (bench_batch_picks) */
+static inline bool bench_batch_ok(const struct bench_run *run,
+                                  const struct bench_state *st)
+{
+    return st->mode == BENCH_MODE_BATCH &&
+           bench_picks_ok(run, st, BENCH_MODE_BATCH, NULL);
+}
+
 /* Did every step of a re-verify run pass?  (bench_picks_ok) */
 static inline bool bench_reverify_ok(const struct bench_run *run,
                                      const struct bench_state *st)
@@ -1253,6 +1599,28 @@ static inline int bench_fmt_session(char *buf, size_t n, const char *build,
                     bench_mode_name[mode], bytes, (unsigned long)fnv, kind);
 }
 
+/* Sitting 4g: the PP's id words (pp5020.h PP_VER1, PP_VER2 at
+ * 0x70000000/4) after the session line, to settle PP5021C against PP5022C
+ * for this unit (pp5022-reference open question 22).  The id is their 8
+ * ASCII bytes in debug-pp.c's order ("PP5022C"-style: PP_VER2 then
+ * PP_VER1, each from its top byte), a byte outside ' '..'~' as '.' */
+static inline int bench_fmt_pp(char *buf, size_t n, uint32_t v1, uint32_t v2)
+{
+    char id[9];
+    int i;
+
+    for (i = 0; i < 8; i++)
+    {
+        uint32_t w = i < 4 ? v2 : v1;
+        unsigned c = (w >> (8 * (3 - (i & 3)))) & 0xFF;
+
+        id[i] = c >= ' ' && c <= '~' ? (char)c : '.';
+    }
+    id[8] = '\0';
+    return snprintf(buf, n, "pp ver1=0x%08lx ver2=0x%08lx id=\"%s\"\n",
+                    (unsigned long)v1, (unsigned long)v2, id);
+}
+
 static inline uint32_t bench_hex(const char *s)
 {
     uint32_t v = 0;
@@ -1301,7 +1669,8 @@ static inline int bench_fmt_verified_in(char *buf, size_t n, uint32_t fnv,
                     "%s, build %s", (unsigned long)fnv, bytes,
                     drift >= 2 ? ", drift B3 and drill 2 PASS" :
                     drift == 1 ? ", drift B3 PASS" : "",
-                    mode == BENCH_MODE_FULL ? "full" : "re-verify",
+                    mode == BENCH_MODE_FULL ? "full" :
+                    mode == BENCH_MODE_BATCH ? "chip update" : "re-verify",
                     date && *date ? date : "-", build);
 }
 
@@ -1679,11 +2048,111 @@ static inline uint32_t bench_vpu_expect(uint32_t ops)
     return J_VPU_CHECKED | J_VPU_SHIFT | (decodes ? J_VPU_MAC | J_VPU_YUV : 0);
 }
 
+/* The bits the image's own start-up checks write (jobs_init).  A loaded
+ * visualiser overlay adds its own (FFT, BARS, FLIP: sitting 4e read 0x53,
+ * the merged image's 3 plus BARS and FLIP, after uviz loaded
+ * viz-ovl-m.bin: ipodui.log "bcmjob overlay ok ... vpu=0x53"); those
+ * are the overlay's, not this verdict's */
+#define BENCH_VPU_IMAGE (J_VPU_CHECKED | J_VPU_SHIFT | J_VPU_MAC | J_VPU_YUV)
+
 static inline enum bench_res bench_vpu_verdict(uint32_t vpu, uint32_t ops)
 {
     if (!(vpu & J_VPU_CHECKED))
         return BENCH_FAIL;      /* the start-up checks never ran */
-    return vpu == bench_vpu_expect(ops) ? BENCH_PASS : BENCH_FAIL;
+    return (vpu & BENCH_VPU_IMAGE) == bench_vpu_expect(ops) ? BENCH_PASS
+                                                            : BENCH_FAIL;
+}
+
+/* ---- Sitting 4e's two soaks ----------------------------------------------
+ * vlong: the owner plays the test episode from Videos and leaves it at
+ * least 10 minutes (day 4c's stall came about 10 minutes in).  The
+ * player's long-play record (vplayer.h struct vplayer_prog, the figures
+ * of its "video prog" lines) is copied here as plain numbers.  PASS: at
+ * least min_s of audio played, the pictures in step with it over the
+ * whole play (pics against the audio's time at the file's own rate:
+ * about 30 a second for a 30 fps file, 24 for Sintel) and over its last
+ * one to two minutes, so a still, if any, ended by itself.  A file of
+ * unknown rate is judged against 24 (low) and 30 (high). */
+struct bench_vlong
+{
+    bool valid;                 /* a play since the step's start */
+    uint32_t pics, played_ms, fps_x100, tail_pics, tail_ms;
+};
+
+#define BENCH_VLONG_HI_PCT  115 /* restarts re-show a few pictures */
+/* Sitting 4f: the owner watched about 5 min in vplay, then vlong's step
+ * cleared that record and failed with "no play from Videos since the
+ * step".  A record this long (a play still running, or the last one) is
+ * kept at vlong's step and judged at the question, its minimum this
+ * instead of the step's 10 min; a new play from Videos replaces it. */
+#define BENCH_VLONG_CARRY_S 180
+
+static inline bool bench_vlong_keeps(const struct bench_vlong *p,
+                                     unsigned carry_s)
+{
+    return p->valid && p->played_ms >= carry_s * 1000u;
+}
+#define BENCH_VLONG_TAIL_MS 20000   /* a shorter tail is not judged */
+
+/* pictures against the audio's time, per cent of the rate (fps_x100) */
+static inline uint32_t bench_pace_pct(uint32_t pics, uint32_t ms,
+                                      uint32_t fps_x100)
+{
+    uint64_t want = (uint64_t)ms * fps_x100 / 100000;
+
+    return want ? (uint32_t)((uint64_t)pics * 100 / want) : 0;
+}
+
+static inline enum bench_res bench_vlong_verdict(const struct bench_vlong *p,
+                                                 unsigned min_s,
+                                                 unsigned min_pct,
+                                                 const char **why)
+{
+    uint32_t lo = p->fps_x100 ? p->fps_x100 : 2400;
+    uint32_t hi = p->fps_x100 ? p->fps_x100 : 3000;
+
+    if (!p->valid)
+        return *why = "no play from Videos since the step", BENCH_FAIL;
+    if (p->played_ms < min_s * 1000u)
+        return *why = "played too short to judge", BENCH_FAIL;
+    if (bench_pace_pct(p->pics, p->played_ms, lo) < min_pct)
+        return *why = "pictures fell behind the audio", BENCH_FAIL;
+    if (bench_pace_pct(p->pics, p->played_ms, hi) > BENCH_VLONG_HI_PCT)
+        return *why = "more pictures than the audio's time", BENCH_FAIL;
+    if (p->tail_ms >= BENCH_VLONG_TAIL_MS &&
+        bench_pace_pct(p->tail_pics, p->tail_ms, lo) < min_pct)
+        return *why = "pictures stopped near the end", BENCH_FAIL;
+    return *why = "pictures in step with the audio", BENCH_PASS;
+}
+
+/* vizsoak: the visualiser on Now Playing for a few minutes; its views'
+ * sums (viz.h struct viz_soak).  PASS: at least min_s on screen, every
+ * frame drawn on the BCM, no CPU fallback. */
+struct bench_vizsoak
+{
+    uint32_t views, secs, bcm, cpu;
+    bool fb;
+    uint32_t dark;              /* views the screen going dark closed */
+};
+
+static inline enum bench_res bench_vizsoak_verdict(
+    const struct bench_vizsoak *s, unsigned min_s, const char **why)
+{
+    if (!s->views)
+        return *why = "the visualiser never opened since the step began",
+               BENCH_FAIL;
+    /* the view holds the light (viz.c hold_light()): a view the dark
+       closed is the firmware's fault, never the owner's */
+    if (s->dark)
+        return *why = "the screen went dark under the visualiser",
+               BENCH_FAIL;
+    if (s->fb || s->cpu)
+        return *why = "CPU fallback: frames drawn on the PP", BENCH_FAIL;
+    if (!s->bcm)
+        return *why = "no frame drawn on the chip", BENCH_FAIL;
+    if (s->secs < min_s)
+        return *why = "on screen too short to judge", BENCH_FAIL;
+    return *why = "every frame on the chip", BENCH_PASS;
 }
 
 #endif /* _IPODUI_DEVBENCH_H_ */

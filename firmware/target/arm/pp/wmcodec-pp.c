@@ -14,6 +14,7 @@
  * Original file: linux/arch/armnommu/mach-ipod/audio.c
  *
  * Copyright (c) 2003-2005 Bernard Leach (leachbj@bouncycastle.org)
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -28,6 +29,9 @@
 #include "system.h"
 #include "audiohw.h"
 #include "i2c-pp.h"
+#ifdef HAVE_PWR_AWAKE
+#include "pwr_awake.h"
+#endif
 #include "i2s.h"
 #include "wmcodec.h"
 
@@ -109,3 +113,57 @@ void wmcodec_write(int reg, int data)
 {
     pp_i2c_send(I2C_AUDIO_ADDRESS, (reg<<1) | ((data&0x100)>>8),data&0xff);
 }
+
+#if defined(HAVE_PWR_I2SGATE) && defined(HAVE_DAC_STANDBY)
+/* ProkBox AW-5 (apple-power-catalog.md, T-I2SGATE): in DAC standby the
+ * codec's master clock (DEV_EXTCLOCKS) and the I2S block (DEV_I2S) are
+ * gated, and set again before the DAC wakes. Apple 1.3 clears
+ * DEV_EXTCLOCKS with the codec's power and gates I2S only when the audio
+ * engine stops [apple-RE]. Called by wm8758.c under its codec mutex, with
+ * PCM stopped (nothing touches an I2S register while gated). The I2S
+ * configuration is kept and compared at the ungate: a change is the
+ * failure signal (restored, the row off for the session). */
+static unsigned long gate_bits SHAREDBSS_ATTR;
+static unsigned long gate_cfg SHAREDBSS_ATTR, gate_fifo SHAREDBSS_ATTR;
+unsigned long wmcodec_gate_mask SHAREDBSS_ATTR = DEV_EXTCLOCKS | DEV_I2S;
+
+void wmcodec_clocks_gate(bool gate)
+{
+    int ost;
+
+    if (gate)
+    {
+        if (gate_bits || !pwraw_active(PWRAW_I2SGATE) || !wmcodec_gate_mask)
+            return;
+        gate_cfg = IISCONFIG;
+        gate_fifo = IISFIFO_CFG;
+        ost = disable_irq_save();
+        gate_bits = wmcodec_gate_mask & (DEV_EXTCLOCKS | DEV_I2S);
+        DEV_EN &= ~gate_bits;
+        restore_irq(ost);
+        pwraw_note(PWRAW_I2SGATE, true, gate_cfg, gate_bits);
+        return;
+    }
+    if (!gate_bits)
+        return;
+    ost = disable_irq_save();
+    DEV_EN |= gate_bits;
+    restore_irq(ost);
+    gate_bits = 0;
+    udelay(10);
+    if (IISCONFIG != gate_cfg || IISFIFO_CFG != gate_fifo)
+    {
+        unsigned long found = IISCONFIG;
+        IISCONFIG = gate_cfg;
+        IISFIFO_CFG = gate_fifo;
+        pwraw_fail(PWRAW_I2SGATE, found, gate_cfg);
+    }
+    else
+        pwraw_note(PWRAW_I2SGATE, false, gate_cfg, gate_fifo);
+}
+
+bool wmcodec_clocks_gated(void)
+{
+    return gate_bits != 0;
+}
+#endif

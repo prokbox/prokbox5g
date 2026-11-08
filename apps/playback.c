@@ -81,6 +81,9 @@
 #include "splash.h"
 #include "lang.h"
 #endif
+#ifdef HAVE_COP_CODEC
+#include "codec_id3.h"      /* #196: the codec's id3, coherent for both cores */
+#endif
 
 /* TODO: The audio thread really is doing multitasking of acting like a
          consumer and producer of tracks. It may be advantageous to better
@@ -104,10 +107,14 @@
 #include "ipodui/anim.h"           /* UPDATE_TRACE */
 #include "ipodui/dbqueue_core.h"    /* #109: dbq_is_sentinel() */
 #include "ipodui/uilog.h"          /* ui_log (fb-stall) */
+#include "ipodui/heapchk.h"        /* 4gh-b5: the heap walk at a shrink */
 #include "quiet_wait_core.h"        /* P19 19-1a: qw_audio_wait() */
 #endif
-#ifdef HAVE_UI_THREAD_SPLIT
+#if defined(HAVE_UI_THREAD_SPLIT) || defined(HAVE_CORE_LAYOUT_A)
 #include "xcore.h"                  /* P19: XCORE_BSS */
+/* rc.6 (layout A): the PCM's FIQ on the COP reads play_status,
+ * pause_on_track_change and position_key (audio_pcmbuf_may_play(),
+ * pcmbuf's position mailbox) and bumps track_change.in: all uncached */
 /* ProkBox P19 (ucop-fix): the words audio_status() reads, uncached, so the
  * UI on the COP reads them directly (febe_rpc.list "direct:"), not by a
  * remote call per read; one writer, the audio thread.  Only builds that
@@ -174,7 +181,14 @@ static enum play_status
 /* Sizeable things that only need exist during playback and not when stopped */
 static struct audio_scratch_memory
 {
+#ifdef HAVE_COP_CODEC
+    /* #196: the codec's id3 on cache lines of its own, reached by both
+     * cores through the uncached alias only (codec_id3.c); use
+     * codec_id3 below, never the slot itself */
+    unsigned char codec_id3_slot[CODEC_ID3_SLOT_SIZE(sizeof (struct mp3entry))];
+#else
     struct mp3entry codec_id3; /* (A,C) */
+#endif
     struct mp3entry unbuffered_id3;
     struct cuesheet *curr_cue; /* Will follow this structure */
     struct audiobook_chapters *curr_ab;
@@ -205,6 +219,10 @@ enum audio_id3_types
     CODEC_ID3,
 };
 static struct mp3entry static_id3_entries[ID3_TYPE_NUM_STATIC]; /* (A,O) */
+#ifdef HAVE_COP_CODEC
+/* #196: CODEC_ID3, the uncached view of its slot (scratch_mem_init()) */
+static struct mp3entry *codec_id3;
+#endif
 
 struct audio_resume_info
 {
@@ -368,14 +386,14 @@ static unsigned int track_event_flags = TEF_NONE; /* (A, O-) */
 static int skip_offset = 0; /* (A, O) */
 
 static bool track_skip_is_manual = false;
-static bool pause_on_track_change = false;
+static bool pause_on_track_change PLAY_STATUS_XCORE;
 
 /* Track change notification */
 static struct
 {
     unsigned int in;  /* Number of pcmbuf posts (audio isr) */
     unsigned int out; /* Number of times audio has read the difference */
-} track_change = { 0, 0 };
+} track_change PLAY_STATUS_XCORE;
 
 /** Codec status **/
 /* Did the codec notify us it finished while we were paused or while still
@@ -392,7 +410,7 @@ static struct
 static bool codec_skip_pending = false;
 static int  codec_skip_status;
 static bool codec_seeking = false;          /* Codec seeking ack expected? */
-static unsigned int position_key = 0;
+static unsigned int position_key PLAY_STATUS_XCORE;
 
 #define PLAYBACK_LOG_PATH ROCKBOX_DIR "/playback.log"
 #define PLAYBACK_LOG_MAX_FILESZ_BYTES (511 << 10) /* 512k approx 1000-2500 tracks */
@@ -478,7 +496,11 @@ static inline struct mp3entry * id3_get(enum audio_id3_types id3_num)
     case UNBUFFERED_ID3:
         return &audio_scratch_memory->unbuffered_id3;
     case CODEC_ID3:
+#ifdef HAVE_COP_CODEC
+        return codec_id3;
+#else
         return &audio_scratch_memory->codec_id3;
+#endif
     default:
         return &static_id3_entries[id3_num];
     }
@@ -902,6 +924,10 @@ static size_t scratch_ab_offset(void)
 static void scratch_mem_init(void *mem)
 {
     audio_scratch_memory = (struct audio_scratch_memory *)mem;
+#ifdef HAVE_COP_CODEC
+    /* #196: before anything writes it (the codec is stopped here) */
+    codec_id3 = codec_id3_place(audio_scratch_memory->codec_id3_slot);
+#endif
     id3_write_locked(UNBUFFERED_ID3, NULL);
     id3_write(CODEC_ID3, NULL);
     ci.id3 = id3_get(CODEC_ID3);
@@ -1083,6 +1109,9 @@ static int shrink_callback(int handle, unsigned hints, void* start, size_t old_s
     ui_log("audio", "shrink want=%u status=%d thread=%x",
            (unsigned)(hints & BUFLIB_SHRINK_SIZE_MASK), audio_status(),
            thread_self());
+    /* 4gh-b5 (developer builds): the heap walked before and after every
+     * audio-buffer shrink (buflib's state is whole inside its callback) */
+    heapchk_at("shrink<");
 #endif
 
     /* filebuflen is, at this point, the buffering.c buffer size,
@@ -1222,6 +1251,9 @@ static int shrink_callback(int handle, unsigned hints, void* start, size_t old_s
             audio_reset_buffer_noalloc(start + wanted_size);
             break;
     }
+#ifdef HAVE_IPOD_UI
+    heapchk_at("shrink>");
+#endif
     if (playing || play_queued)
     {
         /* post, to make subsequent calls not break the resume position */
@@ -1290,6 +1322,7 @@ static void audio_on_give(struct audio_give *g)
 #ifdef PLAYBACK_VOICE
     voice_stop();
 #endif
+    heapchk_at("give<");            /* 4gh-b5: the decode stopped */
     if (bytes)
     {
         char *start = core_get_data(audiobuf_handle);
@@ -1317,6 +1350,7 @@ static void audio_on_give(struct audio_give *g)
     }
     else
         audio_reset_buffer();       /* all the free memory again */
+    heapchk_at("give>");
     ab_keep_slot = -1;
     g->result = 1;
 #ifdef SIMULATOR
@@ -2728,6 +2762,12 @@ static int audio_finish_load_track(struct track_info *infop)
     {
         // frequency switch requires full re-buffering, so stop buffering
         filling = STATE_STOPPED;
+#if defined(HAVE_BCMFW_VIDEO) || defined(HAVE_IPOD_UI)
+        /* ProkBox: the playing track now runs out to an empty buffer by
+           design: a rate gap, not an underrun (pcmbuf.c) */
+        if (!is_current_user)
+            pcmbuf_rate_gap_expected(true);
+#endif
         logf("buffering stopped (current_track: %b, current_user: %b)", infop->self_hid == cur_info.self_hid, is_current_user);
         if (is_current_user)
             // audio_finish_load_track_exit not needed as playback restart is already initiated
@@ -3660,6 +3700,13 @@ static void audio_stop_playback(void)
     /* Save resume information  - "filling" might have been set to
        "STATE_ENDED" by caller in order to facilitate end of playlist */
 #ifdef HAVE_IPOD_UI
+    /* #165: the codec's end (audio_on_codec_complete()) sets TEF_AUTO_SKIP
+     * while the PCM buffer still holds the track's last seconds. Only the
+     * end of the playlist stops with STATE_ENDED; any other stop (USB,
+     * MENU, a new queue) cuts the track short and is not its natural end,
+     * which would reset its resume point to 0 (tagtree's finish event) */
+    if (filling != STATE_ENDED)
+        track_event_flags &= ~TEF_AUTO_SKIP;
     if (quiet)                  /* the same spot again in a moment */
         playlist_update_resume_info(valid_mp3entry(id3_get(PLAYING_ID3)));
     else
@@ -4433,6 +4480,15 @@ void audio_pcmbuf_sync_position(void)
     audio_pcmbuf_position_callback(ci.id3->elapsed, ci.id3->offset,
                                    pcmbuf_get_position_key());
 }
+
+#ifdef HAVE_CORE_LAYOUT_A
+/* rc.6: the FIQ's notice (on the COP), the counter alone: no queue call
+ * from a FIQ on the other core (cop_shared_check.py --fiq) */
+void audio_pcmbuf_track_change_fiq(void)
+{
+    audio_pcmbuf_track_change_post();
+}
+#endif
 
 /* Post message from pcmbuf that the end of the previous track has just
  * been played */

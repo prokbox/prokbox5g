@@ -1,0 +1,23 @@
+{{- /* The Developers section's sidebar: the edition page, then each Part
+       (a section of docs/manual/) with its chapters, by weight. */ -}}
+{{ $cur := . }}
+{{ with site.GetPage "/developers" }}
+<nav class="guide-nav" aria-label="Developer reference">
+  <details open>
+    <summary>The ProkBox Reference</summary>
+    <ol>
+      <li><a href="{{ .RelPermalink }}"{{ if eq $cur . }} aria-current="page"{{ end }}>About this edition</a></li>
+      {{ range .Sections.ByWeight }}
+      <li><a href="{{ .RelPermalink }}"{{ if eq $cur . }} aria-current="page"{{ end }}>{{ .Title }}</a>
+        <ol>
+          {{ range .Pages.ByWeight }}
+          <li><a href="{{ .RelPermalink }}"{{ if eq $cur . }} aria-current="page"{{ end }}>{{ .Title }}</a></li>
+          {{ end }}
+        </ol>
+      </li>
+      {{ end }}
+    </ol>
+  </details>
+</nav>
+<script>if (matchMedia('(max-width: 900px)').matches) document.querySelector('.guide-nav details').removeAttribute('open');</script>
+{{ end }}

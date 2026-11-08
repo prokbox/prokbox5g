@@ -36,6 +36,10 @@ can move to the COP only when the count is 0 (fe_be.c's fe_cop_refusal()).
 Warn mode (default) prints the families, the worst objects and the total,
 and exits 0.  --strict (S4) exits 1 on any reference.
 
+With BUILD_DIR/rockbox.map present it also runs febe_reach_check.py (the
+walk through everything those calls run): --strict fails on a path from
+the ui thread into the file layer that does not cross.
+
 Either mode exits 1 when a name in febe_rpc.list (wrapped or direct:) is a
 data object in the linked rockbox.elf: --wrap redirects every reference,
 so a wrapped object reads the stub's code (p19-bssfix: fat_slot_fault's
@@ -43,6 +47,7 @@ so a wrapped object reads the stub's code (p19-bssfix: fat_slot_fault's
 """
 import os
 import re, subprocess, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # back-end families (design section 4); a prefix ends in '*'
 BE_FAMILIES = {
@@ -54,11 +59,15 @@ BE_FAMILIES = {
                   'closedir', 'mkdir', 'rmdir', 'open_utf8', 'fdprintf',
                   'read_line', 'copy_file*', 'rbfs_*', 'fat_*',
                   'dircache_*'],
-    'storage':   ['storage_*', 'ata_*', 'disk_*'],
+    'storage':   ['storage_*', 'ata_*', 'disk_*', 'volume_*'],
     'buflib':    ['core_alloc*', 'core_free', 'core_pin', 'core_unpin',
                   'core_get_data*', 'core_shrink', 'core_available',
                   'buflib_*'],
-    'settings':  ['settings_save', 'settings_apply*', 'settings_load*'],
+    'settings':  ['settings_save', 'settings_apply*', 'settings_load*',
+                  'status_save'],
+    # p19-copfileio: misc.c's system events (the USB screen, the power-off,
+    # the codepage and language loads: file I/O from the COP otherwise)
+    'system events': ['default_event_handler'],
     'power':     ['sys_poweroff', 'sys_reboot', 'power_off', 'system_reboot',
                   'rolo_load', 'power_sleep', 'lcd_sleep', 'lcd_awake',
                   'backlight_hw_off'],
@@ -101,6 +110,10 @@ SHELL_BE_OBJECTS = {
     # writes the ring on the CPU: the hook, the clean and the free run
     # there; viz_tap_read() is built for either core, below)
     'audio_out.o', 'viz_tap.o',
+    # #137: the Apple fallback's job (developer builds; part of MOD_XINDEX
+    # in a module build): called only from the indexer's job on the
+    # storage worker (xindex.c job_run), never from the front end
+    'afb.o', 'afb_fat.o',
 }
 # pure functions or uncached single-word reads, called directly
 SHELL_DIRECT = {
@@ -287,7 +300,22 @@ def main(argv):
                                                 len(fam_syms[fam])))
     for n, o in sorted(per_obj, reverse=True)[:top]:
         print('  %4d %s' % (n, o))
-    return 1 if (bad_data or bad_zero or (strict and total)) else 0
+    # p19-copfileio: the transitive walk from the ui thread (what the
+    # shell's calls run in turn: febe_reach_check.py); --strict fails on a
+    # path into the file layer that does not cross
+    bad_reach = False
+    if os.path.exists(os.path.join(args[0], 'rockbox.map')):
+        import febe_reach_check as rc
+        fs, line = rc.check(args[0])
+        if fs is not None:
+            print('febe reach: %d file-layer entries, %d cached statics '
+                  'outside the front-end region (warn; '
+                  'scripts/febe_reach_check.py --list)' % (len(fs), len(line)))
+            for what, p in fs:
+                print('  fs   %-40s %s' % (what, p))
+            bad_reach = strict and bool(fs)
+    return 1 if (bad_data or bad_zero or bad_reach or (strict and total)) \
+        else 0
 
 
 if __name__ == '__main__':

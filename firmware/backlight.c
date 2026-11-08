@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2002 by Linus Nielsen Feltzing
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  * Additional work by Martin Ritter (2007) and Thomas Martitz (2008)
  *                  for backlight thread fading
  *

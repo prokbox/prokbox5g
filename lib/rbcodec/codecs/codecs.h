@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2002 Björn Stenberg
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -231,9 +232,10 @@ struct codec_api {
 #ifdef HAVE_IPOD_UI
     /* ProkBox P19 19-1c (iii): this run may put the codec's helper work
        on the second core (MP3's synthesis filter). Set by playback before
-       each run, read by the codec at the run's start. False by default
-       (decoding is pinned to the CPU, owner 2026-10-24); true only in a
-       developer A/B mode that decodes on the COP */
+       each run, read by the codec at the run's start. True for a run on
+       the COP (the default since owner 2026-11-07); false for a run on
+       the CPU (a video's soundtrack, a COP that would not start, the
+       developer CPU arm) */
     bool cop_assist;
 #endif
 };

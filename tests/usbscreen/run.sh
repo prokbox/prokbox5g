@@ -25,8 +25,9 @@
 # Round trip of the native USB screen's art (Phase 8a, §3.2):
 #   1. art/usb/usbscreen.py regenerates the tables and PNGs into a temp
 #      dir; the committed apps/ipodui/usbscreen_data.h and
-#      docs/design/usb/*.png must be byte-identical (the generator is the
-#      source of truth).
+#      docs/design/usb/*.png must match it (the generator is the source of
+#      truth): the header byte for byte, the PNGs pixel for pixel (zlib
+#      and zlib-ng, Fedora's, compress the same pixels to different bytes).
 #   2. apps/ipodui/usbscreen.c's pure part, built on the host, composes
 #      the strip as the firmware does; every screen must match the
 #      reference PNGs pixel for pixel (check.py).
@@ -61,7 +62,9 @@ else
 fi
 for p in "$TMP"/png/*.png; do
     b=$(basename "$p")
-    if ! cmp -s "$p" "docs/design/usb/$b"; then
+    if ! cmp -s "$p" "docs/design/usb/$b" \
+            && ! python3 scripts/pngdiff.py "docs/design/usb/$b" "$p" \
+                >/dev/null 2>&1; then
         echo "FAIL docs/design/usb/$b differs from the generator"
         fail=1
     fi

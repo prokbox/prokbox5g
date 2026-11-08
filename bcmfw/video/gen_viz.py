@@ -23,46 +23,40 @@
 #***************************************************************************
 
 """Generate the visualizer's tables (bcmfw/jobs/jviz_tab.h) and its vector
-kernels (bcmfw/video/viz_kernels.S): the spectrum of 256 or 512 real
-samples and the bars, bit for bit bcmfw/jobs/jviz.c's reference (jviz.h;
+kernels (bcmfw/video/viz_kernels.S): the spectrum of 512 real samples and
+the bars, bit for bit bcmfw/jobs/jviz.c's definitions (jviz.h;
 docs/research/bcm2722/visualizer.md).
 
-  jv_fft256(raw r0, pcm r1, tabs r2), jv_fft512(raw r0, pcm r1, tabs r2)
-      pcm: n samples in split order (evens, then odds), 32-byte aligned;
-      tabs: the size's struct jviz_tabs (win, tw, ws); raw: JVIZ_RAW_HW
-      halfwords, 32-byte aligned: the powers' low halves (16 rows of 16),
-      then their high halves; bin k = k2 + rows k1 at row k2, lane k1.
+  jv_vfft512(raw r0, pcm r1, tabs r2)
+      pcm: 512 samples in split order (evens, then odds), 32-byte
+      aligned; tabs: jviz.h struct jviz_vtabs (jviz_vfft_tabs); raw:
+      JVIZ_RAW_HW halfwords, 32-byte aligned: bin k's power's low half at
+      k, its high half at 256 + k (natural order).
 
-The FFT (m = n / 2 complex points, m = rows x 16, rows 8 or 16):
-  - Load and window: H16 rows 0.. (block 0): z[16 r + l] = x[2 (16 r + l)]
-    + i x[2 (16 r + l) + 1] at row r, lane l (real parts at x 0, imaginary
-    at x 32), each (pcm * win) >> 16 by one vmulhd.
-  - Step 1, down the rows (radix-2 DIF over the rows; the 16 lanes are 16
-    independent transforms): per stage, REP h vsub/vadd/vasr over whole
-    rows, then each b row times its scalar twiddle W_16^e: e = 0 a shift,
-    e = 4 (-i) a swap, else four exact products a component (vmul x15 for
-    the low halves, vmulhd acc for the high: one floor of the exact sum).
-    The last stage (h = 1) is unscaled, into block 1 in natural order.
-  - Step 2 (jv_fft_tw): every element times W_m^(n1 k2), Q15, floored by
-    2^16 (the last stage's halving), block 1 to block 0.
-  - Step 3 (jv_fft_cols), along the lanes: the same stages over V16
-    columns of block 0 (the transpose is free: H16 rows and V16 columns
-    alias), the last into block 1's columns in natural order; then the
-    partners: block 2 = block 1 with its columns reversed (Z[m - k] for
-    rows past 0), block 3 the same rotated one column (row 0's).
-  - The split (jv_fft_split), a row at a time: S, D, T, U of Z and its
-    partner, X = (S 2^15 + Wr T + Wi D) / 2^16 + i (U 2^15 + Wi T - Wr D)
-    / 2^16, then |X|^2 exactly (its halves to block 0).
-Every add stays in 16 bits for a window peak below JVIZ_HANN_PEAK (the
-complex samples stay under 2^14).
-
-Forms (none checked on silicon; the IDCT's, gen_jdec.py, plus): x15 and
-vmulhd acc chains with immediate and fixed-row B operands; vshl #15 x15
-and vasr #1 acc (a 16-bit value times 2^15 into the accumulator); V16 A,
-B and D operands stepping per REP in vadd/vsub/vasr; vrsub #0; vld16 into
-rows past 15 and x 32.  The image runs a start-up check against the C
-(viz_vpu.c) and keeps the C if it disagrees.
-
+The FFT (#126, docs/design/viz-fft-vc.md; its host model and proof are
+tests/vizfft/vfft_vpu.c, which this emits instruction for instruction):
+a 256-point complex FFT of x[2j] + i x[2j+1] as a four-step FFT on one
+16 x 16 block (real parts at x 0, imaginary at x 32), then the real
+split and |X|^2:
+  - window: each sample times the window by one vmulhd;
+  - step 1: a 16-point radix-2 DIF down the rows (REP h butterflies over
+    whole rows; each b row times W_16^e: a shift, a swap, or four exact
+    products a component by immediates, vmul x15 / vmulhd acc), the last
+    stage straight to bit-reversed rows (natural order, no permutation);
+  - step 2: each element times W_256^(n2 k2), each product floored on its
+    own (vmulhd) and the products added in 16 bits (jviz.c's "sep");
+  - step 3: one transpose (vmov from V16 columns, REP 16: bench GTHR's
+    form) and the same row stages, halved: Z[k] at row k >> 4, lane k & 15;
+  - the partner Z[256 - k]: a lane reversal by two transposes and row
+    moves, lane 0 one row further by a predicated copy (setf / ifn);
+  - the split X = S/2 + T Wr + D Wi + i (U/2 + T Wi - D Wr), each product
+    floored on its own; |X|^2 exact in the accumulator (vmul low halves,
+    vmulhd high halves, summed by vmov acc/x15, read back).
+Every one of its 26 vector forms is filed silicon or apple in
+tools/bcmre/proven_forms.txt (viz_test.py checks it): no V16 A operand, no
+accumulator op with a vertical operand, no +r.  The image runs a start-up
+check (viz_vpu.c viz_vpu_check: three frames against the Mac's goldens
+and the C, jobs.h J_VFFT) and keeps the C if it disagrees.
 The bars (BARS on the vector unit; viz_vpu.c viz_bars, the C driver):
 
   jv_bars16(job r0, d r1, rr r2, rows r3, group bit r4)
@@ -135,21 +129,12 @@ HANN_PEAK = 23000       # jviz.h JVIZ_HANN_PEAK
 Q = 32767               # twiddles: round(Q cos), round(-Q sin)
 
 MUTATE = None
-MUTATIONS = {'sign': 'step 3, stage 1: W_16^1\'s imaginary part with the wrong sign',
-             'scale': 'step 1, stage 1: the a rows\' real parts not halved',
-             'lane': 'the partner block: column 3 taken from column 11 (for 12)',
+MUTATIONS = {'lane0': 'jv_vfft512: the partner\'s lane-0 fix skipped',
+             'twsign': 'jv_vfft512: step 2, the sine\'s sign flipped',
+             'brev': 'jv_vfft512: step 3\'s last stage, bit-reversed rows 1 and 2 swapped',
              'mask': 'jv_bars16: the bar mask 1 for a kept pixel (vlsr for vasr)',
              'grad': 'jv_bars16: the gradient row of the group below (rows 16 off)',
-             'cap': 'jv_bars16: a pixel in either of its cap bounds is capped (vmax)',
-             'tw1': 'jv_fft_tw: each component\'s two products in one chain (the form '
-                    'before: past 2^31 it saturates on silicon)',
-             'acc1': 'every sum in one chain: the kernel before the saturating '
-                     'accumulator (quirks #31, #32), byte for byte'}
-
-
-def one_chain(kind):
-    """the mutation keeps this chain's one-chain form (the kernel before)"""
-    return MUTATE == kind or MUTATE == 'acc1'
+             'cap': 'jv_bars16: a pixel in either of its cap bounds is capped (vmax)'}
 
 
 def tw16():
@@ -206,244 +191,186 @@ def gen_h():
         arr('jviz_win%d' % n, win)
         arr('jviz_tw%d' % n, tw)
         arr('jviz_ws%d' % n, ws)
+    # the vector kernel's (jv_vfft512): the split's W_512^k in natural
+    # order (row k >> 4, lane k & 15), and the lane-0 flag row
+    win, tw, ws = tables(512)
+    nat = [ws[16 * (k & 15) + (k >> 4)] for k in range(256)] + \
+          [ws[256 + 16 * (k & 15) + (k >> 4)] for k in range(256)]
+    arr('jviz_wsn512', nat)
+    arr('jviz_lane0', [-1] + [0] * 15)
     out += ['#endif /* JVIZ_N256_ONLY */', '', '#endif /* BCMFW_JVIZ_TAB_H */', '']
     return '\n'.join(out)
 
 
 # --------------------------------------------------------------------------
-# The kernel.  VRF blocks (16 rows each; real parts at x 0, imaginary at
-# x 32): B0 rows 0-15, B1 16-31, B2 32-47, B3 48-63.
+# The FFT kernel, jv_vfft512 (#126; docs/design/viz-fft-vc.md section 6):
+# tests/vizfft/vfft_vpu.c's program, instruction for instruction and in
+# the same order (VFFT_SEP), so the host model's proof that it equals the
+# definition carries over; viz_test.py checks the emitted kernel in
+# vc2sim against jviz.c's jviz_raw_sep512 and that every form it uses is
+# filed silicon or apple in tools/bcmre/proven_forms.txt.  VRF blocks (16
+# rows each; real parts at x 0, imaginary at x 32): B0 rows 0-15, B1
+# 16-31, B2 32-47, B3 48-63.
 B0, B1, B2, B3 = 0, 16, 32, 48
-# B3's fixed rows (H16 at x 0): the split's and step 2's temporaries; row
-# 48 is block 3's row 0 (the partner of row 0), rows 48-55 step 1's d
-TMP = {'pr': 49, 'pi': 50, 'wr': 51, 'wi': 52, 'nwr': 53, 's': 54, 'd': 55,
-       't': 56, 'u': 57, 'xr': 58, 'xi': 59, 'tr': 60, 'ti': 61, 'nti': 62}
-# a split sum's first chain (chain()): its low half (row 63 x 0) and high
-# half (row 63 x 32); B3's rows past 48 are free in steps 2 and the split
-CL, CH = H16(63, 0), H16(63, 32)
+RE, IM = 0, 32
+ZERO = 5                # r5 = 0: the lane-0 flag's B operand
+STRIDE = 3              # r3 = 32: a row of 16 halfwords
 
 
-def T(name):
-    return H16(TMP[name], 0)
+def brev4(i):
+    return (i & 1) << 3 | (i & 2) << 1 | (i & 4) >> 1 | (i & 8) >> 3
 
 
-def vec(orient, y0, idx, comp, step=False, reg=None):
-    """Element idx of a transform's sequence: a row (H16) or a column
-    (V16) of the block at y0; comp 0 real, 1 imaginary"""
-    if orient == 'row':
-        return H16(y0 + idx, 32 * comp, step, reg)
-    return V16(y0, idx + 32 * comp, step, reg)
+def H(y, x, rep=1):
+    """an H16 row operand, stepping a row per repetition at REP > 1"""
+    return H16(y, x, rep > 1)
 
 
-def brev(i, bits):
-    r = 0
-    for _ in range(bits):
-        r, i = r << 1 | (i & 1), i >> 1
-    return r
+def chain_imm(d, a1, w1, a2, w2):
+    """d = the floor of (a1 w1 + a2 w2) / 2^16, exactly: low halves by vmul
+    x15, high halves by vmulhd acc (silicon X15M; Apple's centre half-pel)"""
+    return [alu('vmul', DISCARD, a1, w1, clra=True, x15=True),
+            alu('vmul', DISCARD, a2, w2, x15=True),
+            alu('vmulhd', DISCARD, a1, w1, acc=True),
+            alu('vmulhd', d, a2, w2, acc=True)]
 
 
-def twiddle(o, bdst, d, e, stage1=False):
-    """b = d * W_16^e / 2 (jviz.c twiddle); d: (re, im) operands"""
-    br, bi = bdst
-    dr, di = d
-    if e == 0:
-        return [alu('vasr', br, dr, 1), alu('vasr', bi, di, 1)]
-    if e == 4:
-        return [alu('vasr', br, di, 1), alu('vrsub', bi, dr, 0), alu('vasr', bi, bi, 1)]
-    wr, wi = tw16()[e]
-    if MUTATE == 'sign' and stage1 and e == 1:
-        wi = -wi
-    return [alu('vmul', DISCARD, dr, wr, clra=True, x15=True),
-            alu('vmul', DISCARD, di, -wi, x15=True),
-            alu('vmulhd', DISCARD, dr, wr, acc=True),
-            alu('vmulhd', br, di, -wi, acc=True),
-            alu('vmul', DISCARD, dr, wi, clra=True, x15=True),
-            alu('vmul', DISCARD, di, wr, x15=True),
-            alu('vmulhd', DISCARD, dr, wi, acc=True),
-            alu('vmulhd', bi, di, wr, acc=True)]
-
-
-def chain(dst, first, second, lo_dst=DISCARD, one=False):
-    """dst = the high half of the sum of first's and second's terms, exact
-    mod 2^32 as jviz.c's: each term (lo op, its B, hi op, its B, A) adds
-    its low 16 bits by an x15 op and its high half by an acc op.  Silicon's
-    accumulator saturates past +-2^31 (quirks #31, #32; vc2sim
-    v_acc_sat), where C's sum wraps, so the terms are summed as two chains,
-    each under 2^31 for any 16-bit operands: the first gives its low half
-    CL and high half CH; the second starts from CL alone (clra x15:
-    zero-extended), adds its terms and gives the sum's low half (lo_dst:
-    the power's) and its high half less CH; CH is then added in wrapping
-    16-bit lanes (gen_jdec.py's jv_dot8 does the same).  one: the form
-    before, one chain (the mutations).
-
-    Which sums can pass 2^31 in one chain (jviz.c's wrap them):
-      - step 2's (jv_fft_tw), with tables past |W| <= 1: y = (-32768,
-        -32768) times tr = -32768 and -ti = -32768 is 2^31 exactly; the
-        start-up check feeds it that (viz_vpu.c).  With the shipped
-        tables (|wr| + |wi| <= 46,340) no input reaches it;
-      - the split's: bounded by step 3's last halving (Z in -16,384 ..
-        16,383, so |S| + |D| <= 32,768 and |T| <= 32,768): S 2^15 + T Wr
-        + D Wi stays within +-(2^31 - 32,768) (a search over the corners
-        and 2 M random points near them agrees);
-      - the power's: only X = (-32768, -32768) reaches 2^31, and no Z or
-        W gives both (the same search);
-      - steps 1 and 3's twiddles: immediates, at most 32,768 x 46,340.
-    The split and the power go in two chains anyway (6 ops a row), so no
-    bound rests on another step's scaling."""
-    def run(terms, clra, lo_last, hi_last):
-        out = []
-        for k, (lo, blo, hi, bhi, a) in enumerate(terms):
-            out.append(alu(lo, lo_last if k == len(terms) - 1 else DISCARD, a, blo,
-                           clra=clra and not k, x15=True))
-        for k, (lo, blo, hi, bhi, a) in enumerate(terms):
-            out.append(alu(hi, hi_last if k == len(terms) - 1 else DISCARD, a, bhi,
-                           acc=True))
-        return out
-    if one:
-        return run(first + second, True, lo_dst, dst)
-    return (run(first, True, CL, CH) + [alu('vmov', DISCARD, None, CL, clra=True, x15=True)] +
-            run(second, False, lo_dst, dst) + [alu('vadd', dst, dst, CH)])
-
-
-def prod(a, b):
-    """the term a * b: vmul x15 (its low half), vmulhd acc (its high)"""
-    return ('vmul', b, 'vmulhd', b, a)
-
-
-def shl15(a):
-    """the term a * 2^15: vshl #15 x15 (its low half), vasr #1 acc (high)"""
-    return ('vshl', 15, 'vasr', 1, a)
-
-
-def stages(o, y0, L):
-    """jviz.c stages(): radix-2 DIF over L elements, h = L / 2 .. 2"""
+def dif16(x, tmp, y, half):
+    """vfft_vpu.c dif16: a 16-point radix-2 DIF down the rows of block x,
+    every lane at once; d in block tmp; the last stage into block y's rows
+    in bit-reversed order (y in natural order), halved if half"""
     out = []
-    h = L // 2
+    h = 8
     while h >= 2:
-        for g in range(0, L, 2 * h):
-            for c in (0, 1):
-                a = vec(o, y0, g, c, step=True)
-                b = vec(o, y0, g + h, c, step=True)
-                t = vec(o, B3, 0, c, step=True)
-                out += [alu('vsub', t, a, b, rep=h), alu('vadd', a, a, b, rep=h)]
-                if not (MUTATE == 'scale' and o == 'row' and h == L // 2 and c == 0):
-                    out.append(alu('vasr', a, a, 1, rep=h))
+        for g in range(0, 16, 2 * h):
+            a0, b0 = x + g, x + g + h
+            for c in (RE, IM):
+                out += [alu('vsub', H(tmp, c, h), H(a0, c, h), H(b0, c, h), rep=h),
+                        alu('vadd', H(a0, c, h), H(a0, c, h), H(b0, c, h), rep=h),
+                        alu('vasr', H(a0, c, h), H(a0, c, h), 1, rep=h)]
             for j in range(h):
-                out += twiddle(o, (vec(o, y0, g + j + h, 0), vec(o, y0, g + j + h, 1)),
-                               (vec(o, B3, j, 0), vec(o, B3, j, 1)), j * (16 // (2 * h)),
-                               stage1=(o == 'col' and h == 8))
+                dr, di = H(tmp + j, RE), H(tmp + j, IM)
+                b = b0 + j
+                e = j * (8 // h)
+                if e == 0:
+                    out += [alu('vasr', H(b, RE), dr, 1), alu('vasr', H(b, IM), di, 1)]
+                elif e == 4:
+                    out += [alu('vasr', H(b, RE), di, 1), alu('vrsub', H(b, IM), dr, 0),
+                            alu('vasr', H(b, IM), H(b, IM), 1)]
+                else:
+                    wr, wi = tw16()[e]
+                    out += chain_imm(H(b, RE), dr, wr, di, -wi)
+                    out += chain_imm(H(b, IM), dr, wi, di, wr)
         h //= 2
-    return out
-
-
-def fft_n(n):
-    """jv_fft<n>: the size's own code (loads, step 1), then the shared
-    steps"""
-    rows = n // 32
-    bits = 4 if rows == 16 else 3
-    out = ['push r6-r13, lr', 'mov r8, r0', 'mov r9, r2', 'mov r3, #32',
-           mem('vld16', H16(B0, 0), 1, 0, 3, rows),
-           'add r1, #%d' % (32 * rows),
-           mem('vld16', H16(B0, 32), 1, 0, 3, rows),
-           'ld r4, (r9)',
-           mem('vld16', H16(B1, 0), 4, 0, 3, rows),
-           'add r4, #%d' % (32 * rows),
-           mem('vld16', H16(B1, 32), 4, 0, 3, rows),
-           alu('vmulhd', H16(B0, 0, True), H16(B0, 0, True), H16(B1, 0, True), rep=rows),
-           alu('vmulhd', H16(B0, 32, True), H16(B0, 32, True), H16(B1, 32, True), rep=rows),
-           'ld r4, (r9+4)',
-           mem('vld16', H16(B2, 0), 4, 0, 3, rows),
-           'add r4, #%d' % (32 * rows),
-           mem('vld16', H16(B2, 32), 4, 0, 3, rows)]
-    out += stages('row', B0, rows)
-    # the last stage, unscaled, to B1 in natural order
-    for i in range(0, rows, 2):
-        for c in (0, 1):
-            a, b = H16(B0 + i, 32 * c), H16(B0 + i + 1, 32 * c)
-            out += [alu('vadd', H16(B1 + brev(i, bits), 32 * c), a, b),
-                    alu('vsub', H16(B1 + brev(i + 1, bits), 32 * c), a, b)]
-    out += ['mov r10, #%d' % (64 * rows), 'bl jv_fft_tw', 'bl jv_fft_cols',
-            'ld r4, (r9+8)',
-            mem('vld16', H16(B0, 0), 4, 0, 3, rows),
-            'add r4, #%d' % (32 * rows),
-            mem('vld16', H16(B0, 32), 4, 0, 3, rows),
-            'bl jv_fft_split',
-            'mov r0, r8', 'mov r1, #32', 'bl jv_store16',
-            alu('vadd', H16(0, 0, True), H16(0, 32, True), 0, rep=16),
-            'mov r0, r8', 'add r0, #512', 'mov r1, #32', 'bl jv_store16',
-            'pop r6-r13, pc']
-    return out
-
-
-def fft_tw():
-    """jv_fft_tw (r10 = rows * 64): B0 row = B1 row * B2 row (W_m^(n1 k2)),
-    each component one exact sum floored, its two products in two chains
-    (chain(): any 16-bit operands, the tables' included, stay exact)"""
-    a = lambda y, c: H16(y, 32 * c, True, 4)        # noqa: E731
-    one = one_chain('tw1')
-    return (['mov r4, #0', 'jv_fft_tw_l:',
-             alu('vadd', T('tr'), a(B2, 0), 0),
-             alu('vadd', T('ti'), a(B2, 1), 0),
-             alu('vrsub', T('nti'), a(B2, 1), 0)] +
-            chain(H16(B0, 0, reg=4), [prod(a(B1, 0), T('tr'))], [prod(a(B1, 1), T('nti'))],
-                  one=one) +
-            chain(H16(B0, 32, reg=4), [prod(a(B1, 0), T('ti'))], [prod(a(B1, 1), T('tr'))],
-                  one=one) +
-            ['add r4, #64', 'cmp r4, r10', 'bne jv_fft_tw_l', 'rts'])
-
-
-def fft_cols():
-    """jv_fft_cols: step 3 over B0's columns, the last stage into B1's
-    columns in natural order; the partners: B2 = B1's columns reversed,
-    B3 = B2's rotated one column on"""
-    out = stages('col', B0, 16)
     for i in range(0, 16, 2):
-        for c in (0, 1):
-            a, b = V16(B0, i + 32 * c), V16(B0, i + 1 + 32 * c)
-            p, q = V16(B1, brev(i, 4) + 32 * c), V16(B1, brev(i + 1, 4) + 32 * c)
-            out += [alu('vadd', p, a, b), alu('vasr', p, p, 1),
-                    alu('vsub', q, a, b), alu('vasr', q, q, 1)]
-    for c in (0, 1):
-        for k in range(16):
-            src = 15 - k
-            if MUTATE == 'lane' and k == 3 and c == 0:
-                src = 11
-            out.append(alu('vadd', V16(B2, k + 32 * c), V16(B1, src + 32 * c), 0))
-        # B3 column k = B2 column k - 1, column 0 = B2's 15
-        k = 1
-        for rep in (8, 4, 2, 1):
-            out.append(alu('vadd', V16(B3, k + 32 * c, True), V16(B2, k - 1 + 32 * c, True), 0,
-                           rep=rep))
-            k += rep
-        out.append(alu('vadd', V16(B3, 32 * c), V16(B2, 15 + 32 * c), 0))
-    return out + ['rts']
+        ri, rj = brev4(i), brev4(i + 1)
+        if MUTATE == 'brev' and half and ri in (1, 2):
+            ri ^= 3
+        for c in (RE, IM):
+            out += [alu('vadd', H(y + ri, c), H(x + i, c), H(x + i + 1, c)),
+                    alu('vsub', H(y + rj, c), H(x + i, c), H(x + i + 1, c))]
+    if half:
+        for c in (RE, IM):
+            out.append(alu('vasr', H(y, c, 16), H(y, c, 16), 1, rep=16))
+    return out
 
 
-def fft_split():
-    """jv_fft_split (r10 = rows * 64): per row k2, Z (B1 + r4) and its
-    partner (B2 + r5: row rows - k2, or B3's row 0 for k2 = 0), the split
-    twiddles (B0 + r4), to |X|^2's halves in B0's row (x 0 low, x 32
-    high).  X's three terms and |X|^2's two squares each in two chains
-    (chain()), exact for any 16-bit operands"""
-    a = lambda y, c, r: H16(y, 32 * c, True, r)      # noqa: E731
-    out = ['mov r4, #0', 'mov r5, #%d' % (64 * (B3 - B2)), 'jv_fft_split_l:',
-           alu('vadd', T('pr'), a(B2, 0, 5), 0),
-           alu('vadd', T('pi'), a(B2, 1, 5), 0),
-           alu('vadd', T('wr'), a(B0, 0, 4), 0),
-           alu('vadd', T('wi'), a(B0, 1, 4), 0),
-           alu('vrsub', T('nwr'), a(B0, 0, 4), 0),
-           alu('vadd', T('s'), a(B1, 0, 4), T('pr')),
-           alu('vsub', T('d'), a(B1, 0, 4), T('pr')),
-           alu('vadd', T('t'), a(B1, 1, 4), T('pi')),
-           alu('vsub', T('u'), a(B1, 1, 4), T('pi'))]
-    for x, base, p1, p2 in (('xr', 's', ('t', 'wr'), ('d', 'wi')),
-                            ('xi', 'u', ('t', 'wi'), ('d', 'nwr'))):
-        out += chain(T(x), [shl15(T(base)), prod(T(p1[0]), T(p1[1]))],
-                     [prod(T(p2[0]), T(p2[1]))], one=MUTATE == 'acc1')
-    out += chain(H16(B0, 32, reg=4), [prod(T('xr'), T('xr'))], [prod(T('xi'), T('xi'))],
-                 lo_dst=H16(B0, 0, reg=4), one=MUTATE == 'acc1')
-    return out + ['add r4, #64', 'mov r5, r10', 'sub r5, r4',
-                  'cmp r4, r10', 'bne jv_fft_split_l', 'rts']
+def load16(y, x, base):
+    """16 rows of 16 halfwords from r(base), 32 bytes apart (REP 16)"""
+    return mem('vld16', H16(y, x), base, 0, STRIDE, 16)
+
+
+def vfft512():
+    """jv_vfft512(raw r0, pcm r1, tabs r2): tabs is viz_vpu.c's struct
+    jv_vfft_tabs (win, tw, wsn, lane0: jviz_tab.h's 512-sample tables)"""
+    out = ['mov r%d, #32' % STRIDE, 'mov r%d, #0' % ZERO]
+    # 0. load and window: B0 = the samples, B1 = the window, B0 = B0 B1 >> 16
+    out += [load16(B0, RE, 1), 'add r1, #512', load16(B0, IM, 1),
+            'ld r4, (r2)', load16(B1, RE, 4), 'add r4, #512', load16(B1, IM, 4)]
+    for r in range(16):
+        for c in (RE, IM):
+            out.append(alu('vmulhd', H(B0 + r, c), H(B0 + r, c), H(B1 + r, c)))
+    # 1. step 1: B0 down the rows into B1 (natural order), d in B3
+    out += dif16(B0, B3, B1, False)
+    # 2. step 2: B1 times W_256^(n2 k2) (B2), each product floored: B0
+    out += ['ld r4, (r2+4)', load16(B2, RE, 4), 'add r4, #512', load16(B2, IM, 4)]
+    for r in range(16):
+        out += [alu('vmulhd', H(B0 + r, RE), H(B1 + r, RE), H(B2 + r, RE)),
+                alu('vmulhd', H(B0 + r, IM), H(B1 + r, IM), H(B2 + r, IM)),
+                alu('vmulhd', H(B3 + r, RE), H(B1 + r, RE), H(B2 + r, IM)),
+                alu('vmulhd', H(B3 + r, IM), H(B1 + r, IM), H(B2 + r, RE))]
+    if MUTATE == 'twsign':          # the sine's sign flipped
+        out += [alu('vadd', H(B0, RE, 16), H(B0, RE, 16), H(B0, IM, 16), rep=16),
+                alu('vsub', H(B0, IM, 16), H(B3, IM, 16), H(B3, RE, 16), rep=16)]
+    else:
+        out += [alu('vsub', H(B0, RE, 16), H(B0, RE, 16), H(B0, IM, 16), rep=16),
+                alu('vadd', H(B0, IM, 16), H(B3, RE, 16), H(B3, IM, 16), rep=16)]
+    # 3. the transpose (bench GTHR's form): B1 row n2 = B0 column n2
+    out += [alu('vmov', H16(B1, RE, True), None, V16(B0, 0, True), rep=16),
+            alu('vmov', H16(B1, IM, True), None, V16(B0, 32, True), rep=16)]
+    # 4. step 3: B1 down the rows, halved, into B0: Z[k] at row k >> 4,
+    #    lane k & 15
+    out += dif16(B1, B3, B0, True)
+    # 5. the partner P[a][b] = Z[(256 - 16 a - b) & 255] into B1: a lane
+    #    reversal by transposes, rows reversed, lane 0 by a predicated copy
+    out += [alu('vmov', H16(B2, RE, True), None, V16(B0, 0, True), rep=16),
+            alu('vmov', H16(B2, IM, True), None, V16(B0, 32, True), rep=16)]
+    for b in range(16):
+        for c in (RE, IM):
+            out.append(alu('vadd', H(B3 + b, c), H(B2 + ((16 - b) & 15), c), 0))
+    out += [alu('vmov', H16(B1, RE, True), None, V16(B3, 0, True), rep=16),
+            alu('vmov', H16(B1, IM, True), None, V16(B3, 32, True), rep=16)]
+    for c in (RE, IM):
+        out.append(alu('vadd', H(32, c), H(B1, c), 0))
+        for a in range(16):
+            out.append(alu('vadd', H(33 + a, c), H(B1 + 15 - a, c), 0))
+        out.append(alu('vadd', H(B1, c, 16), H(33, c, 16), 0, rep=16))
+    out += ['ld r4, (r2+12)', mem('vld16', H16(63, RE), 4),
+            alu('vsub', DISCARD, H(63, RE), Reg(ZERO), setf=True)]
+    if MUTATE != 'lane0':
+        for c in (RE, IM):
+            out.append(alu('vadd', H(B1, c, 16), H(32, c, 16), 0, rep=16, pred='ifn'))
+    # 6. the split: Z (B0), P (B1), W_512^k (B2, natural order) to X:
+    #    Xr = S/2 + T Wr + D Wi in B3 x 0, Xi = U/2 + T Wi - D Wr in B1 x 32
+    out += ['ld r4, (r2+8)', load16(B2, RE, 4), 'add r4, #512', load16(B2, IM, 4)]
+    R16 = lambda y, c: H(y, c, 16)     # noqa: E731
+    out += [alu('vadd', R16(B3, RE), R16(B0, RE), R16(B1, RE), rep=16),
+            alu('vsub', R16(B3, IM), R16(B0, RE), R16(B1, RE), rep=16),
+            alu('vadd', R16(B1, RE), R16(B0, IM), R16(B1, IM), rep=16),
+            alu('vsub', R16(B1, IM), R16(B0, IM), R16(B1, IM), rep=16),
+            alu('vasr', R16(B3, RE), R16(B3, RE), 1, rep=16),
+            alu('vasr', R16(B1, IM), R16(B1, IM), 1, rep=16)]
+    for r in range(16):
+        out += [alu('vmulhd', H(B0 + r, RE), H(B1 + r, RE), H(B2 + r, RE)),
+                alu('vmulhd', H(B0 + r, IM), H(B3 + r, IM), H(B2 + r, IM))]
+    out += [alu('vadd', R16(B3, RE), R16(B3, RE), R16(B0, RE), rep=16),
+            alu('vadd', R16(B3, RE), R16(B3, RE), R16(B0, IM), rep=16)]
+    for r in range(16):
+        out += [alu('vmulhd', H(B0 + r, RE), H(B1 + r, RE), H(B2 + r, IM)),
+                alu('vmulhd', H(B0 + r, IM), H(B3 + r, IM), H(B2 + r, RE))]
+    out += [alu('vadd', R16(B1, IM), R16(B1, IM), R16(B0, RE), rep=16),
+            alu('vsub', R16(B1, IM), R16(B1, IM), R16(B0, IM), rep=16)]
+    # 7. the power, exact: low halves by vmul (REP 16), high halves by
+    #    vmulhd, summed per row in the accumulator by vmov, read back
+    out += [alu('vmul', R16(B0, RE), R16(B3, RE), R16(B3, RE), rep=16),
+            alu('vmul', R16(B0, IM), R16(B1, IM), R16(B1, IM), rep=16)]
+    for r in range(16):
+        out += [alu('vmulhd', H(B2 + r, RE), H(B3 + r, RE), H(B3 + r, RE)),
+                alu('vmulhd', H(B2 + r, IM), H(B1 + r, IM), H(B1 + r, IM))]
+    for r in range(16):
+        out += [alu('vmov', DISCARD, None, H(B2 + r, RE), clra=True, acc=True),
+                alu('vmov', DISCARD, None, H(B0 + r, RE), x15=True),
+                alu('vmov', DISCARD, None, H(B0 + r, IM), x15=True),
+                alu('vmov', DISCARD, None, H(B2 + r, IM), acc=True),
+                alu('vmov', H(B0 + r, RE), None, 0, x15=True),
+                alu('vmov', H(B0 + r, IM), None, 0, acc=True)]
+    # 8. the stores from B0's rows at x 0 (the store form silicon ran)
+    out += [mem('vst16', H16(0, 0), 0, 0, STRIDE, 16),
+            alu('vadd', R16(B0, RE), R16(B0, IM), 0, rep=16),
+            'add r0, #512',
+            mem('vst16', H16(0, 0), 0, 0, STRIDE, 16),
+            'rts']
+    return out
 
 
 def bars_cb_max():
@@ -562,11 +489,8 @@ def bars16():
 
 
 def kernels():
-    return (('jv_fft256', lambda: fft_n(256), 'the spectrum of 256 samples (jviz.h)'),
-            ('jv_fft512', lambda: fft_n(512), 'the spectrum of 512 samples (jviz.h)'),
-            ('jv_fft_tw', fft_tw, 'step 2: B0 = B1 * W_m^(n1 k2)'),
-            ('jv_fft_cols', fft_cols, 'step 3 along the lanes, then the partners'),
-            ('jv_fft_split', fft_split, 'the real FFT\'s split step and |X|^2'),
+    return (('jv_vfft512', vfft512, 'the raw powers of 512 samples (jviz.h '
+             'jviz_raw_sep512; docs/design/viz-fft-vc.md)'),
             ('jv_bars16', bars16, 'one 16-row group of BARS (viz_vpu.c viz_bars)'))
 
 
@@ -575,8 +499,13 @@ def gen_s():
              ' * vector kernel (viz_vpu.c; jviz.h, visualizer.md). */',
              '', '    .syntax vc2', '    .text', '']
     for name, fn, what in kernels():
-        lines += ['/* %s */' % what, '    .global ' + name, name + ':']
-        lines += ['    ' + l if not l.endswith(':') else l for l in fn()] + ['']
+        # the vector FFT is left out where its 7.7 KB doesn't fit (the
+        # display-only image's overlay: build.py build_overlay)
+        vfft = name == 'jv_vfft512'
+        lines += (['#ifndef JVIZ_NO_VFFT'] if vfft else []) + \
+            ['/* %s */' % what, '    .global ' + name, name + ':']
+        lines += ['    ' + l if not l.endswith(':') else l for l in fn()] + \
+            (['#endif', ''] if vfft else [''])
     return '\n'.join(lines)
 
 

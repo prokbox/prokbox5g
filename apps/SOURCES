@@ -1,3 +1,4 @@
+/* Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md. */
 #ifdef ROCKBOX_HAS_LOGF
 logfdisp.c
 #endif
@@ -126,6 +127,14 @@ ipodui/extras.c
 ipodui/screens/extras.c
 ipodui/xindex.c
 ipodui/xindex_core.c
+#ifdef HAVE_IPOD_UI_DEVMODE /* #137: the Apple fallback's resident hook */
+ipodui/afb_hook.c
+#if !defined(IPODUI_MODULES) || defined(SIMULATOR) /* its job: MOD_XINDEX */
+ipodui/afb.c
+ipodui/afb_core.c
+ipodui/afb_fat.c
+#endif
+#endif
 #if !defined(IPODUI_MODULES) || defined(SIMULATOR) /* P12 W1-N: modules */
 ipodui/modules/notes_mod.c
 ipodui/screens/notes.c
@@ -213,6 +222,9 @@ ipodui/shuffle_core.c
 ipodui/lib_shuffle_rec.c
 ipodui/usbscreen.c
 ipodui/uilog.c
+#ifdef HAVE_IPOD_UI_DEVMODE    /* a release links nothing of it (fw-ship byte for byte) */
+ipodui/heapchk.c            /* 4gh-b5: the heap walk (developer builds) */
+#endif
 ipodui/fe_be_core.c         /* P19 S1: the UI boundary, pure logic */
 ipodui/fe_be.c
 #if defined(HAVE_UI_THREAD_SPLIT) && !defined(SIMULATOR)
@@ -240,6 +252,9 @@ ipodui/powerlog.c
 ipodui/litmiss.c
 ipodui/devjobfail.c
 ipodui/apath.c
+#ifdef HAVE_USB_ISOPROBE
+ipodui/dev_isoprobe.c
+#endif
 #ifdef HAVE_ATA_UDMA_FORCE
 ipodui/udmatest.c
 #endif
@@ -256,6 +271,11 @@ ipodui/devbcm_probes.c
 ipodui/devbench.c
 ipodui/devbench_power.c
 ipodui/devbench_vclk.c
+ipodui/devbench_cop.c
+ipodui/devbench_vcpwr.c
+ipodui/devbench_awake.c
+ipodui/devbench_pwr.c
+ipodui/devbench_core.c
 #endif
 #if defined(SIMULATOR) && defined(HAVE_BCMFW_VIDEO) && \
     defined(HAVE_IPOD_UI) && defined(HAVE_IPOD_UI_DEVMODE)
@@ -263,6 +283,10 @@ ipodui/devbench_vclk.c
    (devbench_sim.h: DEVBENCH_SIM) */
 ipodui/devbench.c
 ipodui/devbench_sim.c
+ipodui/devbench_vcpwr.c
+ipodui/devbench_awake.c
+ipodui/devbench_pwr.c
+ipodui/devbench_core.c
 #endif
 #if defined(HAVE_BCMFW_VIDEO) || defined(HAVE_BCMFW_RESIDENT)
 /* the image files and the boot path's resident image (p19-release-noplayer:
@@ -539,8 +563,10 @@ audio_path.c
 audio_thread.c
 pcmbuf.c
 codec_thread.c
+audio_cop.c
 #ifdef HAVE_COP_CODEC
 codec_cop.c
+codec_id3.c
 #endif
 #ifdef HAVE_IPOD_UI
 codec_place_core.c

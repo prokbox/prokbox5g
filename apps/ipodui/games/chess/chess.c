@@ -114,8 +114,17 @@ static const struct { int8_t depth; uint16_t cap_ms; int8_t noise; }
     { 4, 4000, 6 },                     /* Medium */
     { 6, 10000, 0 },                    /* Hard */
 };
-#define THINK_SLICE_US  10000           /* of the SDK's 20 ms slice */
-#define THINK_NODES     16              /* nodes between two clock reads */
+/* A step's work against the SDK's 20 ms Class A slice (the device's
+ * 30 MHz; qemu ARM counts in docs/design/games.md 5.6): the search runs
+ * until THINK_SLICE_US after the step began, everything before it
+ * included, reading the clock every THINK_STEPS search steps (each at
+ * most ~11 k ARM instructions, about 0.6 ms). A step that searched
+ * does nothing else: the reply is played, and the next turn's legal
+ * moves found, in the step after; a step that began a turn doesn't
+ * search. The worst step stays near half the slice. */
+#define THINK_SLICE_US  8000
+#define THINK_STEPS     4
+#define REPLAY_SLICE_US 8000
 #define THINK_MIN_MS    350             /* a reply never lands at once */
 
 /* the menus; Exit is the SDK's row */
@@ -227,8 +236,16 @@ static struct ch_rec *rec;
 static int ax, ay, aw, ah, by;          /* the play area, the board's top */
 static uint8_t phase, n_legal, picked, end_kind, level_now;
 static uint16_t replay_to, last_move, promo_move;
+static uint16_t reply;                  /* the engine's move, played at the
+                                           next step (think()) */
 static bool promo_open, dirty_all, dirty_panel;
-static uint32_t think_t0;
+static bool turn_new;                   /* this step began a turn */
+static uint32_t think_t0, step_t0;
+/* the squares with a legal move, and the picked piece's targets
+ * (tgt_for: the square they are for, NOSQ: none worked out): look()
+ * asks for every square at every step */
+static uint64_t from_mask, tgt_mask;
+static uint8_t tgt_for;
 static struct cp_pad pad;
 
 /* -- squares on screen ------------------------------------------------------ */
@@ -264,46 +281,54 @@ static void prerender(void)
 }
 
 /* -- drawing ------------------------------------------------------------------ */
+/* log2 of a power of two (de Bruijn): no CLZ on the ARM7TDMI */
+static int log2_pow2(uint32_t v)
+{
+    static const uint8_t pos[32] = {
+        0, 1, 28, 2, 29, 14, 24, 3, 30, 22, 20, 15, 25, 17, 4, 8,
+        31, 27, 13, 23, 21, 19, 16, 7, 26, 12, 18, 6, 11, 5, 10, 9 };
+
+    return pos[(v * 0x077cb531u) >> 27];
+}
+
+/* the set bits of a glyph row as fills, a run at a time (bit GW-1 is
+ * the left column). A piece is ~2-3 k ARM instructions this way, a
+ * whole board ~100 k: the bit-by-bit scan it replaces was ~10 k a
+ * piece, ~340 k for a resume's full redraw (qemu, games.md 5.6) */
 static void runs(struct sdk_ctx *c, int x, int y, uint32_t bits,
                  const sdk_px *row_col, sdk_px flat)
 {
-    int k = 0;
-
-    while (k < GW)
+    while (bits)
     {
-        int n;
+        uint32_t low = bits & (~bits + 1u);
+        uint32_t top = (bits + low) & ~bits;    /* the bit above the run */
+        int hi = log2_pow2(top), n = hi - log2_pow2(low);
 
-        if (!(bits & (1u << (GW - 1 - k))))
-        {
-            k++;
-            continue;
-        }
-        for (n = 1; k + n < GW && (bits & (1u << (GW - 1 - k - n))); n++)
-            ;
         if (row_col)
-            sdk_rows(c, x + k, y, n, 1, row_col);
+            sdk_rows(c, x + GW - hi, y, n, 1, row_col);
         else
-            sdk_fill(c, x + k, y, n, 1, flat);
-        k += n;
+            sdk_fill(c, x + GW - hi, y, n, 1, flat);
+        bits &= ~(top - 1u);
     }
 }
 
 static void draw_piece(struct sdk_ctx *c, int x, int y, int pc)
 {
-    const uint32_t *g = glyph_sil[CS_TYPE(pc) - 1];
+    const int t = CS_TYPE(pc) - 1;
+    const uint32_t *g = glyph_sil[t];
     const sdk_px *tone = CS_COLOR(pc) ? wk->fill_b : wk->fill_w;
     sdk_px out = CS_COLOR(pc) ? C_OUT_B : C_OUT_W;
+    uint32_t det[GH] = { 0 };
     unsigned r, i;
 
+    for (i = 0; i < sizeof(glyph_det) / sizeof(glyph_det[0]); i++)
+        if (glyph_det[i].piece == t)
+            det[glyph_det[i].row] |= glyph_det[i].bits;
     for (r = 0; r < GH; r++)
     {
         uint32_t s = g[r], up = r ? g[r - 1] : 0, dn = r + 1 < GH ? g[r + 1] : 0;
-        uint32_t in = s & (s << 1) & (s >> 1) & up & dn, det = 0;
+        uint32_t in = s & (s << 1) & (s >> 1) & up & dn & ~det[r];
 
-        for (i = 0; i < sizeof(glyph_det) / sizeof(glyph_det[0]); i++)
-            if (glyph_det[i].piece == CS_TYPE(pc) - 1 && glyph_det[i].row == r)
-                det |= glyph_det[i].bits;
-        in &= ~det;
         runs(c, x, y + (int)r, s & ~in, NULL, out);
         runs(c, x, y + (int)r, in, &tone[r], 0);
     }
@@ -315,10 +340,15 @@ static bool is_target(int s)
 
     if (picked == NOSQ)
         return false;
-    for (i = 0; i < n_legal; i++)
-        if (CS_FROM(wk->legal[i]) == picked && CS_TO(wk->legal[i]) == s)
-            return true;
-    return false;
+    if (tgt_for != picked)
+    {
+        tgt_mask = 0;
+        for (i = 0; i < n_legal; i++)
+            if (CS_FROM(wk->legal[i]) == picked)
+                tgt_mask |= 1ull << CS_TO(wk->legal[i]);
+        tgt_for = picked;
+    }
+    return (tgt_mask >> s) & 1;
 }
 
 /* what square s should show: the piece, the backdrop (L_*), a target
@@ -520,9 +550,16 @@ static bool replay_one(uint16_t m)
 static void turn_begin(struct sdk_ctx *c, uint32_t now_ms)
 {
     struct cs_pos *p = &wk->pos;
+    int i;
 
     picked = NOSQ;
+    reply = 0;
+    turn_new = true;                    /* no search in this step */
     n_legal = (uint8_t)cs_legal(p, wk->legal);
+    from_mask = 0;
+    for (i = 0; i < n_legal; i++)
+        from_mask |= 1ull << CS_FROM(wk->legal[i]);
+    tgt_for = NOSQ;
     end_kind = (uint8_t)cs_end(p, n_legal);
     if (end_kind == CS_PLAYING && rec->n >= CH_PLIES_MAX)
         end_kind = CS_DRAW_50;          /* the record is full: a draw */
@@ -578,10 +615,11 @@ static void new_game(struct sdk_ctx *c, uint32_t now_ms)
             rec->mode);
 }
 
-/* replay the saved moves up to replay_to, a slice at a time */
-static void replay_step(struct sdk_ctx *c, uint32_t budget_us, uint32_t now_ms)
+/* replay the saved moves up to replay_to, a slice at a time (budget_us
+ * from t0, the step's start) */
+static void replay_step(struct sdk_ctx *c, uint32_t t0, uint32_t budget_us,
+                        uint32_t now_ms)
 {
-    uint32_t t0 = sdk_now_us(c);
     struct cs_pos *p = &wk->pos;
 
     while (p->ply < replay_to)
@@ -616,10 +654,12 @@ static void take_back(struct sdk_ctx *c)
     uint16_t n = cs_take_back(rec->n, rec->human, rec->mode,
                               phase == PH_THINK);
 
+    if (n == rec->n)
+        return;                         /* nothing to take back: the
+                                           engine, if it thinks, goes on */
     if (phase == PH_THINK)
         ce_stop(&wk->eng);              /* and the move it was answering */
-    if (n == rec->n)
-        return;
+    reply = 0;
     sdk_log(c, "take back %u -> %u", rec->n, n);
     rec->cursor = (uint8_t)CS_FROM(rec->mv[n]);     /* where it came from */
     replay_from_start(n);
@@ -647,12 +687,7 @@ static void cursor_dir(struct sdk_ctx *c, int dir)
 
 static bool has_moves(int s)
 {
-    int i;
-
-    for (i = 0; i < n_legal; i++)
-        if (CS_FROM(wk->legal[i]) == s)
-            return true;
-    return false;
+    return (from_mask >> s) & 1;
 }
 
 /* the squares the wheel steps through, in reading order */
@@ -732,27 +767,34 @@ static void promote(struct sdk_ctx *c, int row, uint32_t now_ms)
         }
 }
 
-/* the engine's slice of this frame */
+/* the engine's part of this step: play the reply chosen at an earlier
+ * step, or search until THINK_SLICE_US after the step began */
 static void think(struct sdk_ctx *c, uint32_t now_ms)
 {
-    uint32_t t0 = sdk_now_us(c);
     const int l = level(c);
-    int st = CE_RUN;
+    int st = CE_RUN, i;
     uint16_t m;
 
-    while (st == CE_RUN && sdk_now_us(c) - t0 < THINK_SLICE_US)
-        st = ce_run(&wk->eng, THINK_NODES);
+    if (reply)
+    {
+        if (now_ms - think_t0 >= THINK_MIN_MS)
+            play_move(c, reply, now_ms);
+        return;
+    }
+    if (turn_new)
+        return;                         /* this step began the turn */
+    while (st == CE_RUN && sdk_now_us(c) - step_t0 < THINK_SLICE_US)
+        st = ce_run(&wk->eng, THINK_STEPS);
     if (st == CE_RUN && now_ms - think_t0 < levels[l].cap_ms)
         return;
-    if (now_ms - think_t0 < THINK_MIN_MS)
-        return;
     m = ce_stop(&wk->eng);
-    if (!m || !cs_is_legal(&wk->pos, m))
-        m = n_legal ? wk->legal[0] : 0;
+    for (i = 0; i < n_legal && wk->legal[i] != m; i++)
+        ;
+    if (i == n_legal)
+        m = n_legal ? wk->legal[0] : 0; /* never: the engine's move is legal */
     sdk_log(c, "engine d=%d nodes=%u ms=%u", wk->eng.done_depth,
             (unsigned)wk->eng.nodes, (unsigned)(now_ms - think_t0));
-    if (m)
-        play_move(c, m, now_ms);
+    reply = m;                          /* played at the next step */
 }
 
 /* -- the SDK's entry points ----------------------------------------------- */
@@ -789,7 +831,8 @@ static int ch_init(struct sdk_ctx *c)
         sdk_log(c, "resume plies=%u side=%u mode=%u", rec->n, rec->human,
                 rec->mode);
         replay_from_start(rec->n);
-        replay_step(c, 40000, now);     /* the rest in the next steps */
+        replay_step(c, sdk_now_us(c), 40000, now);  /* the rest in the
+                                                       next steps */
     }
     draw_all(c);
     dirty_all = dirty_panel = false;
@@ -802,6 +845,8 @@ static int ch_step(struct sdk_ctx *c, const struct sdk_input *in,
     int i, pos, dir;
     bool t, other;
 
+    step_t0 = sdk_now_us(c);
+    turn_new = false;
     if (in->flags & SDK_INF_SETTINGS || level_now != level(c))
     {
         level_now = (uint8_t)level(c);
@@ -846,7 +891,7 @@ static int ch_step(struct sdk_ctx *c, const struct sdk_input *in,
     if (in->steps && !sdk_menu_is_open(c))
         cursor_steps(c, in->steps);
     if (phase == PH_REPLAY)
-        replay_step(c, 8000, now_ms);
+        replay_step(c, step_t0, REPLAY_SLICE_US, now_ms);
     else if (phase == PH_THINK && !sdk_menu_is_open(c)
              && !(in->flags & SDK_INF_DARK))
         think(c, now_ms);

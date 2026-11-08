@@ -437,6 +437,16 @@ static volatile int hint_seq;       /* + 1 per new key */
 #ifdef SIMULATOR
 static volatile bool sim_blocked;   /* the thread waits for a request */
 static volatile long sim_panel_hold; /* art_panel_hold (ms) */
+
+/* art_panel_hold's wait: the builder is idle for the hang watcher (a held
+ * block is the test's, not a stuck thread; scripts/check_hang_rule.py) */
+static void sim_hold_sleep(long ms)
+{
+    int hw = hang_idle_begin();
+
+    sleep(ms * HZ / 1000);
+    hang_idle_end(hw);
+}
 static volatile int sim_done_gen = -1; /* db generation of the last full
                                           pass */
 static unsigned sim_progress_seen, sim_progress_advanced;
@@ -1377,6 +1387,7 @@ static void pace_defer(void)
 {
     bool fb = FAST_BOOSTED();
     long t0 = current_tick;
+    int hw;
 
     resize_boost_release();
     fast_boost(false);              /* never boosted while it waits */
@@ -1387,7 +1398,9 @@ static void pace_defer(void)
 
         if (npf_req)
             np_serve();
+        hw = hang_idle_begin();     /* deferring to the wheel: idle, not hung */
         sleep(MAX(left, HZ / 20));
+        hang_idle_end(hw);
     }
     if (fb)
         fast_boost(true);
@@ -5495,7 +5508,7 @@ static int panel_build(struct bwork *w, const struct artalb_rec *t,
         sim_panel_hold = 0;
         UPDATE_TRACE("art panel build held ms=%ld filebuf=%lu", ms,
                      (unsigned long)audio_get_filebuflen());
-        sleep(ms * HZ / 1000);
+        sim_hold_sleep(ms);
     }
 #endif
     w->lit = false;
@@ -6233,7 +6246,7 @@ static void npr_run_impl(struct bwork *w)
 
             sim_panel_hold = 0;
             UPDATE_TRACE("art npcover held ms=%ld", ms);
-            sleep(ms * HZ / 1000);
+            sim_hold_sleep(ms);
         }
 #endif
         ok = io_go(w, "write", key) && npc_write_hdr(w);
@@ -6996,7 +7009,7 @@ static int chapter_book(struct bwork *w, const struct artalb_rec *t,
         sim_panel_hold = 0;
         UPDATE_TRACE("art chapter block held ms=%ld filebuf=%lu", ms,
                      (unsigned long)audio_get_filebuflen());
-        sleep(ms * HZ / 1000);
+        sim_hold_sleep(ms);
     }
 #endif
     ART_PACE();                     /* (the block is checked below) */

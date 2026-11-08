@@ -22,7 +22,7 @@
  ****************************************************************************/
 
 /* Extras > Clocks (P12 W1-C; docs/phase12-brief.md Q13, Q27; owner photos
- * photo 1193 clocks.jpg by day, VIDEO-2 A3 clocks-reveal-08 by night).
+ * photo `clocks` clocks.jpg by day, VIDEO-2 A3 clocks-reveal-08 by night).
  *
  * The page has no header. Each clock is a full-width blue band, 80 px
  * high: the city at the left (white, Bold 15), a round analog face in the
@@ -92,7 +92,7 @@
 #error "clocks.c composes RGB565"
 #endif
 
-/* -- layout (from photo 1193, 320 x 240) ------------------------------------ */
+/* -- layout (from photo `clocks`, 320 x 240) ------------------------------------ */
 
 #define BAND_H          80
 #define BANDS_VIS       (LCD_HEIGHT / BAND_H)   /* 3 */

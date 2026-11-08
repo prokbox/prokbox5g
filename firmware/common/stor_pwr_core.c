@@ -38,6 +38,47 @@ void stor_pwr_init(struct stor_pwr *s, long now, bool on)
     s->fail_run = 0;
     s->dirty_run = s->gave_up = false;
     s->on = on;
+    s->linger_cut = s->linger_off = false;
+    s->rewake_run = 0;
+    s->linger_at = s->linger = s->linger_cut_at = 0;
+    s->lingers = s->rewakes = 0;
+}
+
+void stor_pwr_linger_arm(struct stor_pwr *s, long now, long linger)
+{
+    if (s->linger_off || linger <= 0)
+        return;
+    s->linger_at = now;
+    s->linger = linger;
+}
+
+bool stor_pwr_linger_live(const struct stor_pwr *s, long last_xfer,
+                          bool lit)
+{
+    return s->linger > 0 && !lit && !s->backoff && !s->linger_off &&
+           !TICK_AFTER(last_xfer, s->linger_at);
+}
+
+long stor_pwr_off_deadline(const struct stor_pwr *s,
+                           const struct stor_pwr_tune *t, long last_access,
+                           long last_xfer, bool lit)
+{
+    long d = last_access + stor_pwr_hold(s, t, lit);
+    long l = s->linger_at + s->linger;
+
+    if (stor_pwr_linger_live(s, last_xfer, lit) && TICK_AFTER(d, l))
+        return l;
+    return d;
+}
+
+bool stor_pwr_off_due_x(const struct stor_pwr *s,
+                        const struct stor_pwr_tune *t, long now,
+                        long last_access, long last_xfer, bool lit)
+{
+    if (!s->on)
+        return false;
+    return TICK_AFTER(now, stor_pwr_off_deadline(s, t, last_access,
+                                                 last_xfer, lit));
 }
 
 long stor_pwr_hold(const struct stor_pwr *s, const struct stor_pwr_tune *t,
@@ -51,9 +92,7 @@ bool stor_pwr_off_due(const struct stor_pwr *s,
                       const struct stor_pwr_tune *t, long now,
                       long last_access, bool lit)
 {
-    if (!s->on)
-        return false;
-    return TICK_AFTER(now, last_access + stor_pwr_hold(s, t, lit));
+    return stor_pwr_off_due_x(s, t, now, last_access, last_access, lit);
 }
 
 static uint16_t ticks_ms(long ticks, int tick_ms)
@@ -86,6 +125,13 @@ long stor_pwr_note_off(struct stor_pwr *s, long now, int reason,
     s->on_ticks += (uint32_t)(len < 0 ? 0 : len);
     s->changed = now;
     s->offs++;
+    s->linger = 0;
+    s->linger_cut = reason == STOR_PWR_R_LINGER;
+    if (s->linger_cut)
+    {
+        s->lingers++;
+        s->linger_cut_at = now;
+    }
     record(s, now, ticks_ms(len, tick_ms), false, reason);
     return len;
 }
@@ -111,6 +157,18 @@ long stor_pwr_note_on(struct stor_pwr *s, const struct stor_pwr_tune *t,
     }
     else if (len >= t->relax)
         s->backoff = 0;
+    if (s->linger_cut)
+    {
+        if (t->linger_rewake && len <= t->linger_rewake)
+        {
+            s->rewakes++;
+            if (++s->rewake_run >= STOR_PWR_LINGER_TRIP)
+                s->linger_off = true;
+        }
+        else
+            s->rewake_run = 0;
+        s->linger_cut = false;
+    }
     s->on = true;
     s->fail_run = 0;
     /* the on period starts when the power came back, before the re-init */
@@ -195,7 +253,8 @@ const struct stor_pwr_event *stor_pwr_event_at(const struct stor_pwr *s,
 const char *stor_pwr_reason_name(int reason)
 {
     static const char *const n[STOR_PWR_R_COUNT] = {
-        "idle", "access", "sleep", "usb", "api", "fail", "giveup", "dirty"
+        "idle", "access", "sleep", "usb", "api", "fail", "giveup", "dirty",
+        "linger"
     };
     return (reason >= 0 && reason < STOR_PWR_R_COUNT) ? n[reason] : "?";
 }

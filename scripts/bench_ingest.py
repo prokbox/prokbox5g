@@ -87,6 +87,20 @@ import readlog  # noqa: E402
 MAX_BYTES = 64 << 20            # per file: a log past this is cut and said so
 CONTEXT = 30
 
+
+def _max_steps():
+    """devbench.h's BENCH_MAX_STEPS (the table's bound; 4g raised it past
+    64, and a fixed 64 here dropped the later rows: vf0, p2, p1, duty)"""
+    try:
+        with open(os.path.join(ROOT, 'apps', 'ipodui', 'devbench.h')) as f:
+            m = re.search(r'#define\s+BENCH_MAX_STEPS\s+(\d+)', f.read())
+        return int(m.group(1)) if m else 80
+    except OSError:
+        return 80
+
+
+MAX_STEPS = _max_steps()
+
 # ---- devbench.h's enums ------------------------------------------------------
 RES = ('none', 'start', 'pass', 'fail', 'skip', 'done', 'hang')
 NONE, START, PASS, FAIL, SKIP, DONE, HANG = range(7)
@@ -94,8 +108,9 @@ ANSWERS = 4
 F = dict(BENCH_F_AUTO=0x01, BENCH_F_COP=0x02, BENCH_F_REBOOTS=0x04,
          BENCH_F_GO=0x08, BENCH_F_OPTIONAL=0x10, BENCH_F_OWN=0x20,
          BENCH_F_PICKED=0x40, BENCH_F_LEAVES=0x80)
-MODE_FULL, MODE_REVERIFY, MODE_PORTCHECK = 0, 1, 2
-MODE_NAMES = {'reverify': MODE_REVERIFY, 'portcheck': MODE_PORTCHECK}
+MODE_FULL, MODE_REVERIFY, MODE_PORTCHECK, MODE_PROBE, MODE_BATCH = 0, 1, 2, 3, 4
+MODE_NAMES = {'reverify': MODE_REVERIFY, 'portcheck': MODE_PORTCHECK,
+              'probe': MODE_PROBE, 'batch': MODE_BATCH}
 
 
 def parse_mode(v):
@@ -104,7 +119,8 @@ def parse_mode(v):
 
 
 def mode_name(m):
-    return {MODE_REVERIFY: 'reverify', MODE_PORTCHECK: 'portcheck'}.get(m, 'full')
+    return {MODE_REVERIFY: 'reverify', MODE_PORTCHECK: 'portcheck',
+            MODE_PROBE: 'probe', MODE_BATCH: 'batch'}.get(m, 'full')
 R_RUN, R_PRE, R_IFPRE, R_NEED, R_OPT, R_ALSO, R_IFBOOT = range(7)
 ROLE = dict(BENCH_R_RUN=R_RUN, BENCH_R_PRE=R_PRE, BENCH_R_IFPRE=R_IFPRE,
             BENCH_R_NEED=R_NEED, BENCH_R_OPT=R_OPT, BENCH_R_ALSO=R_ALSO,
@@ -297,9 +313,38 @@ def parse_flags(expr, macros):
     return v
 
 
-def parse_steps(c_src, h_src):
+ROWS_INCLUDE = re.compile(r'^#define[ \t]+(DEVBENCH_\w+_ROWS)\b[^\n]*\n'
+                          r'#include[ \t]+"([\w.]+)"[^\n]*$', re.M)
+
+
+def _read_ipodui(name):
+    with open(os.path.join(ROOT, 'apps', 'ipodui', name)) as f:
+        return f.read()
+
+
+def expand_rows(c_src, load=None):
+    """A row group's rows included into steps[] (sitting 4gh: the
+    "#define DEVBENCH_<GROUP>_ROWS / #include "<header>"" hook, as
+    devbench_awake.h): the header's block between "#ifdef <macro>" and
+    its "#else" put in place, so the parsers see one table"""
+    load = load or _read_ipodui
+
+    def one(m):
+        h = load(m.group(2))
+        a = re.search(r'^#ifdef\s+%s\s*$' % m.group(1), h, re.M)
+        b = re.search(r'^#else\b.*$', h[a.end():], re.M) if a else None
+        if not a or not b:
+            raise ValueError('%s: no %s block' % (m.group(2), m.group(1)))
+        block = h[a.end():a.end() + b.start()]
+        return re.sub(r'^#undef\s+%s\s*\n' % m.group(1), '', block,
+                      flags=re.M).strip('\n')
+    return ROWS_INCLUDE.sub(one, c_src)
+
+
+def parse_steps(c_src, h_src, load=None):
     """devbench.c's steps[]: a list of dicts (id, title, fn, ask, answers,
     flags, cond: the #ifdef it sits under or None)."""
+    c_src = expand_rows(c_src, load)
     macros = dict(F)
     for m in re.finditer(r'^#define\s+(BENCH_F_\w+)\s+(0x[0-9a-fA-F]+|\d+)', h_src, re.M):
         macros[m.group(1)] = int(m.group(2), 0)
@@ -425,19 +470,27 @@ class Rules:
                 raise ValueError('a commit is a hash or a ref')
             c_src = git_show(repo, commit, 'apps/ipodui/devbench.c')
             h_src = git_show(repo, commit, 'apps/ipodui/devbench.h')
+            load = lambda n: git_show(repo, commit, 'apps/ipodui/' + n)
         else:
             c_src = open(os.path.join(repo, 'apps/ipodui/devbench.c')).read()
             h_src = open(os.path.join(repo, 'apps/ipodui/devbench.h')).read()
-        self.all_steps = parse_steps(c_src, h_src)
+            load = lambda n: open(os.path.join(repo, 'apps/ipodui', n)).read()
+        self.all_steps = parse_steps(c_src, h_src, load)
         self.picks, self.again, self.full_earns = parse_picks(h_src)
         # the port write check (bench_portcheck_picks; none in older builds)
         self.port_picks = parse_pick_table(h_src, 'bench_portcheck_picks')
+        # sitting 4h's core layout probe (bench_probe_picks)
+        self.probe_picks = parse_pick_table(h_src, 'bench_probe_picks')
+        # a chip batch's own checks (batch 5: bench_batch_picks)
+        self.batch_picks = parse_pick_table(h_src, 'bench_batch_picks')
         self.needs = parse_pick_needs(h_src, 'bench_reverify_picks')
         self.gates = parse_gates(h_src)
         self.steps = self.all_steps
 
     def picks_for(self, mode):
-        return self.port_picks if mode == MODE_PORTCHECK else self.picks
+        return (self.port_picks if mode == MODE_PORTCHECK else
+                self.probe_picks if mode == MODE_PROBE else
+                self.batch_picks if mode == MODE_BATCH else self.picks)
 
     def choose(self, ids, n_session, mode):
         """The table variant this file was written by: the #ifdef'd steps
@@ -571,7 +624,7 @@ class State:
 
     def set(self, k, r):
         self.count(r)
-        if 0 <= k < 64:
+        if 0 <= k < MAX_STEPS:
             self.res[k] = r
 
     def uncount(self, r):
@@ -613,7 +666,7 @@ def replay(st, t, line):
             st.dangling = k
     elif kind == 'retry':
         k = find(t, sid)
-        if 0 <= k < 64 and st.res.get(k, NONE) != NONE:
+        if 0 <= k < MAX_STEPS and st.res.get(k, NONE) != NONE:
             st.uncount(st.res[k])
             st.res[k] = NONE
     elif kind == 'result':
@@ -647,7 +700,7 @@ def select(mode, t, picks, seen=None):
     """bench_select: [(k, role)]; seen: the step ids the file has results
     for (a held pick counts only when it ran)"""
     run = []
-    if mode in (MODE_REVERIFY, MODE_PORTCHECK):
+    if mode in (MODE_REVERIFY, MODE_PORTCHECK, MODE_PROBE, MODE_BATCH):
         for pid, role, *held in picks:
             # held for a later sitting (devbench.h BENCH_R_HELD): left out,
             # unless the file ran it (an older build's run, or the full
@@ -655,10 +708,10 @@ def select(mode, t, picks, seen=None):
             if held and held[0] and (seen is None or pid not in seen):
                 continue
             k = find(t, pid)
-            if 0 <= k < 64:
+            if 0 <= k < MAX_STEPS:
                 run.append((k, role))
         return run
-    return [(k, R_RUN) for k, s in enumerate(t[:64])
+    return [(k, R_RUN) for k, s in enumerate(t[:MAX_STEPS])
             if not s['flags'] & F['BENCH_F_PICKED']]
 
 
@@ -703,6 +756,12 @@ def earned(rules, st):
     picks = select(MODE_REVERIFY, t, rules.picks, seen)
     if st.mode == MODE_PORTCHECK:
         return False, 'the port write check earns no line', picks
+    if st.mode == MODE_PROBE:
+        return False, 'the core layout probe earns no line', picks
+    if st.mode == MODE_BATCH:
+        run = select(MODE_BATCH, t, rules.batch_picks, seen)
+        ok, why = picks_ok(run, st, MODE_BATCH)
+        return ok, why, run
     if st.mode == MODE_REVERIFY:
         ok, why = picks_ok(picks, st, MODE_REVERIFY)
         return ok, why, picks
@@ -738,7 +797,8 @@ def fmt_verified(st, build, drift):
             'build %s' % (st.image_fnv, st.image_bytes,
                           ', drift B3 and drill 2 PASS' if drift >= 2 else
                           ', drift B3 PASS' if drift == 1 else '',
-                          'full' if st.mode == MODE_FULL else 're-verify',
+                          'full' if st.mode == MODE_FULL else
+                          'chip update' if st.mode == MODE_BATCH else 're-verify',
                           st.date or '-', build))
 
 
@@ -1550,6 +1610,113 @@ def video_check(p, bcm, ui, anomalies):
                           bad))
 
 
+VPROG = re.compile(r'\bvideo prog (minute|end) pics=(\d+) audio_ms=(-?\d+)')
+VPROG2 = re.compile(r'\bvideo prog (minute|end) still=(\d+) behind=(\d+) '
+                    r'data=(\d+) ref=(\d+)')
+VLONG_EV = re.compile(r'\bvideo: (still|data still|FEED refused|first decode '
+                      r'error)')
+VLONG_STEP = re.compile(r'\bvlong(: | s=| still=)')
+VLONG_MINUTE_PCT = 90       # a minute under this share of the play's median
+
+
+def long_play(p, bcm, ui, anomalies):
+    """vlong (sitting 4e): the test episode from Videos, 10 minutes hands
+    off (day 4c's stall: the pictures stood about 10 minutes in, the sound
+    on).  The player's "video prog" lines, minute by minute: the pictures
+    shown in each minute against the audio's time, a minute that fell
+    behind the play's own pace, the watchdog's counts at the end; the
+    stills, refused FEEDs and decode errors in between; the step's own
+    figures and verdict (vlong_end)"""
+    p.head('long play: the test episode (vlong)')
+    rows = [ln for ln in ui + bcm if VPROG.search(ln.text) or
+            VPROG2.search(ln.text) or VLONG_EV.search(ln.text) or
+            VLONG_STEP.search(ln.text)]
+    if not rows:
+        p('no long-play lines (no video played to a minute this session)')
+        return
+    # the plays: each runs to its "end" line
+    plays, cur = [], []
+    for ln in ui:
+        m = VPROG.search(ln.text)
+        if not m:
+            continue
+        cur.append((m.group(1), int(m.group(2)), int(m.group(3)), ln))
+        if m.group(1) == 'end':
+            plays.append(cur)
+            cur = []
+    if cur:
+        plays.append(cur)
+    slow = []
+    for n, play in enumerate(plays, 1):
+        steps = []
+        for (_, p0, a0, _), (_, p1, a1, ln) in zip(play, play[1:]):
+            if a1 > a0:
+                steps.append((p1 - p0, a1 - a0, ln))
+        rates = sorted(d * 1000.0 / ms for d, ms, _ in steps if ms >= 20000)
+        med = rates[len(rates) // 2] if rates else 0
+        last = play[-1]
+        p('play %d: %d lines, %s pictures by %.1f s of audio; median %.2f a '
+          'second over its minutes' % (n, len(play), last[1], last[2] / 1000.0,
+                                       med))
+        for d, ms, ln in steps:
+            r = d * 1000.0 / ms
+            if ms >= 20000 and med and r * 100 < med * VLONG_MINUTE_PCT:
+                slow.append('play %d: %.2f a second (median %.2f): %s' % (
+                    n, r, med, ln.show()))
+    for ln in rows:
+        p('  ' + ln.show())
+    ends = [VPROG2.search(ln.text) for ln in rows]
+    ends = [m for m in ends if m and m.group(1) == 'end']
+    if ends:
+        p('watchdog at the last end: %s stills (%s behind, %s data), %s '
+          'FEEDs refused' % ends[-1].groups()[1:])
+    if slow:
+        anomalies.append(('long play: a minute fell behind the play\'s own '
+                          'pace (the pictures stood while the sound played)',
+                          slow))
+    bad = [ln.show() for ln in rows if 'vlong: FAIL' in ln.text or
+           'first decode error' in ln.text]
+    if bad:
+        anomalies.append(('long play: the step failed, or a decode error',
+                          bad))
+
+
+VSOAK = re.compile(r'\bviz soak s=(\d+) bcm=(\d+) cpu=(\d+) hold=(\d+)/(\d+)ms '
+                   r'fb=(\d)')
+VSOAK_ROW = re.compile(r'\bviz soak |\bvizsoak[: ]|CPU FALLBACK|\bhang '
+                       r'(recovered|record)')
+
+
+def viz_soak(p, bcm, ui, anomalies):
+    """vizsoak (sitting 4e): the visualiser a few minutes on Now Playing;
+    each view's close line (viz.c "viz soak": its seconds, frames by who
+    drew them, the overlay holds, the CPU fallback flag), the step's sums
+    and verdict (vizsoak_end), any CPU FALLBACK or hang lines"""
+    p.head('visualiser soak: frames on the chip (vizsoak)')
+    rows = [ln for ln in ui + bcm if VSOAK_ROW.search(ln.text)]
+    soaks = [m for m in (VSOAK.search(ln.text) for ln in ui) if m]
+    if not rows:
+        p('no visualiser soak lines (the view did not run this session)')
+        return
+    secs = sum(int(m.group(1)) for m in soaks)
+    p('views: %d, %d s on screen; frames: %d on the chip, %d on the PP; '
+      'holds %d, longest %s ms' % (
+          len(soaks), secs, sum(int(m.group(2)) for m in soaks),
+          sum(int(m.group(3)) for m in soaks),
+          sum(int(m.group(4)) for m in soaks),
+          max([int(m.group(5)) for m in soaks] or [0])))
+    for ln in rows:
+        p('  ' + ln.show())
+    bad = [ln.show() for ln in rows if 'vizsoak: FAIL' in ln.text or
+           'CPU FALLBACK' in ln.text or VSOAK_ROW.search(ln.text).group(1)]
+    bad += [ln.show() for ln in ui if VSOAK.search(ln.text) and
+            (VSOAK.search(ln.text).group(3) != '0' or
+             VSOAK.search(ln.text).group(6) != '0')]
+    if bad:
+        anomalies.append(('visualiser soak: off the chip, or a hang',
+                          sorted(set(bad), key=bad.index)))
+
+
 def drift_verdict(ui, bcm, marker):
     """The candidate that fits the lines best: (a) a job marked failed or
     slow; (b) PRESENT/FENCE never completing; (c) the frame_due hook
@@ -2086,6 +2253,8 @@ def main(argv):
     video_pace(body, bcm, ui, anomalies)
     visualizer(body, bcm, ui, anomalies)
     video_check(body, bcm, ui, anomalies)
+    long_play(body, bcm, ui, anomalies)
+    viz_soak(body, bcm, ui, anomalies)
 
     # ---- the verified line
     body.head('verified line')
@@ -2114,7 +2283,8 @@ def main(argv):
             body('patch: not made (--mkdevtest none)')
         else:
             evidence = 'bench %s session %s, build %s' % (
-                'full' if s.st.mode == MODE_FULL else 're-verify', s.st.date or '-',
+                'full' if s.st.mode == MODE_FULL else
+                'chip update' if s.st.mode == MODE_BATCH else 're-verify', s.st.date or '-',
                 re.sub(r'[^A-Za-z0-9-]', '', s.build or '') or 'x')
             path = opts['--patch'] or os.path.join(tempfile.gettempdir(), 'bench-ingest',
                                                    '%s-verified.patch' % m.group(1))

@@ -49,6 +49,7 @@ vc2sim agrees with it, and the device checks that silicon does.
 
 Usage: bcmfw/bench/gen_bench.py [--check]
 """
+import collections
 import os
 import random
 import sys
@@ -471,7 +472,7 @@ class VCase:
     back through the scalar-result unit, no vector store); the rest of
     that 32-byte slot keeps the fill, and the rows follow it."""
     def __init__(self, tag, form, rows, test, outs, model, pre=(), post=(), regs=(),
-                 note='', scal=(), raw=False, info=False):
+                 note='', scal=(), raw=False, info=False, comments=()):
         assert len(tag) == 4
         self.tag, self.form, self.rows, self.test = tag, form, rows, list(test)
         self.outs, self.model = outs, model
@@ -479,6 +480,7 @@ class VCase:
         self.scal = list(scal)
         self.raw = raw      # store with the old load-style fields (control)
         self.info = info    # informational: not in BR_VEC_ALL, may use t5 blocks
+        self.comments = list(comments)  # extra comment lines (VF3's predictions)
         assert len(self.scal) <= 1
 
     @property
@@ -505,8 +507,9 @@ class VCase:
         return out + [h & 0xffff for r in self.outs for h in v.get16(*_yx(r))]
 
     def asm(self):
-        out = ['/* %s: %s */' % (self.tag, self.note or self.form),
-               '    .global %s' % self.name, '%s:' % self.name]
+        out = ['/* %s: %s */' % (self.tag, self.note or self.form)]
+        out += ['/*   %s */' % c for c in self.comments]
+        out += ['    .global %s' % self.name, '%s:' % self.name]
         out += ['    mov r%d, #%d' % (r, v) for r, v in self.regs]
         for j, (r, _) in enumerate(self.rows):
             out.append('    ' + V.mem('vld16', H16(*_yx(r)), 0, off=32 * j))
@@ -1038,6 +1041,7 @@ def x15_cases():
     C.append(barv_case(xr))
     C += vpu_fit_cases()
     C += hwld_cases()
+    C += vf3_cases()
     return C
 
 
@@ -1263,6 +1267,259 @@ def putv_case(xr):
                  note='informational: jdec\'s put (a V8 D at +r, y 8 and x 17, from '
                       'an H8 A at +r x 8) and fill (vmov D8 at +r x 16 ifnz rep16 '
                       'after vbitplanes #0x5555)')
+
+
+# ---- VF3: single-instruction probes (docs/design/viz-fft-vc.md section 10,
+# the suspects of section 6.7.2; isa-vector.md "open readings") ------------
+# Each probe runs one open reading of a vector form alone, on a known
+# block: rows 0-15 at x 0 hold a(r, l), the same rows at x 32 hold b(r, l).
+# The probe's own instructions are the design's; around them only
+# silicon-proven forms: the VRF clear (vmov DH16++ AH8 #imm rep16), row
+# copies into block 0 (vadd DH16 AH16 #0, ADDI), lanes merged under
+# vbitplanes and ifnz (ASHX) and the transpose (vmov DH16++ AH8 BV16++
+# rep16, GTHR), since only block 0's rows at x 0 are proven for vst16.
+# A record logs only out[0..3] (bench.h BV_GOT), so a probe whose
+# hypotheses differ in several rows stores a summary row first (row 8):
+# lanes taken from each result row so that its first four words name the
+# hypothesis.  The full rows follow it.  The model is vc2sim's reading
+# (the first hypothesis); the others are written out beside it, and their
+# words are the predictions (made on the Mac, before any silicon run).
+
+VF3_TAGS = ('HDRY', 'VX15', 'VACD', 'VSTP', 'HARY', 'MHDR')
+VF3_W = -23170          # the twiddle the design's probes multiply by
+
+
+def vf3_a(r, l):
+    return s16((16 * r + l) * 2971 + 12345)
+
+
+def vf3_b(r, l):
+    return s16((16 * r + l) * 40503 + 777)
+
+
+def vf3_rows():
+    """The shared input: rows 0-15 at x 0 (a), at x 32 (b)"""
+    return [(r, [vf3_a(r, l) for l in range(16)]) for r in range(16)] + \
+        [((r, 32), [vf3_b(r, l) for l in range(16)]) for r in range(16)]
+
+
+def vf3_ops(ops):
+    """Harness ops as (asm lines, model fns): ('clear', y0, imm): rows
+    y0..y0+15 at x 0 = imm (the VRF clear's form); ('copy', dst, src): row
+    src to row dst (ADDI's form); ('pcopy', dst, src, mask): the lanes of
+    mask only (vbitplanes, then ADDI's form ifnz: ASHX); ('tr', y0): rows
+    0-15 = the columns 0-15 of rows y0..y0+15 (GTHR's transpose)"""
+    asm, fns = [], []
+    for op in ops:
+        k = op[0]
+        if k == 'clear':
+            y0, imm = op[1], op[2]
+            asm.append(V.alu('vmov', H16(y0, 0, True), None, imm, rep=16))
+            fns.append(lambda v, y0=y0, imm=imm: [v.put16(y0 + i, [imm] * 16)
+                                                  for i in range(16)])
+        elif k == 'copy':
+            d, s = op[1], op[2]
+            asm.append(V.alu('vadd', H16(d, 0), H16(s, 0), 0))
+            fns.append(lambda v, d=d, s=s: v.put16(d, v.get16(s)))
+        elif k == 'pcopy':
+            d, s, m = op[1], op[2], op[3]
+            asm += [V.bitplanes(m), V.alu('vadd', H16(d, 0), H16(s, 0), 0, pred='ifnz')]
+            fns.append(lambda v, d=d, s=s, m=m: v.put16(
+                d, v.get16(s), lanes=[i for i in range(16) if m >> i & 1]))
+        elif k == 'tr':
+            y0 = op[1]
+            asm.append(V.alu('vmov', H16(0, 0, True), None, V16(y0, 0, True), rep=16))
+
+            def tr(v, y0=y0):
+                cols = [[v.get16(y0 + i)[c] for i in range(16)] for c in range(16)]
+                for c in range(16):
+                    v.put16(c, cols[c])
+            fns.append(tr)
+        else:
+            raise ValueError(op)
+    return asm, fns
+
+
+class VF3Probe:
+    """One probe: test (the design's instructions), step(v, hyp) their
+    semantics under each hypothesis (hyps: (name, text), the model first)"""
+    def __init__(self, tag, form, test, step, hyps, outs, pre=(), post=(), regs=(),
+                 note=''):
+        self.tag, self.form, self.test, self.step = tag, form, test, step
+        self.hyps, self.outs, self.regs, self.note = hyps, outs, list(regs), note
+        self.pre_asm, self.pre_fn = vf3_ops(pre)
+        self.post_asm, self.post_fn = vf3_ops(post)
+
+    def model(self, v, hyp):
+        for f in self.pre_fn:
+            f(v)
+        self.step(v, hyp)
+        for f in self.post_fn:
+            f(v)
+
+    def run(self, hyp):
+        """The stored rows (16 halfwords each) under hyp"""
+        v = VRF()
+        for r, hs in vf3_rows():
+            y, x = _yx(r)
+            v.put16(y, hs, x=x)
+        self.model(v, hyp)
+        return [[h & 0xffff for h in v.get16(y)] for y in self.outs]
+
+    def predictions(self):
+        """{hyp: [the first 4 words of each stored row]}, lane 0 low"""
+        out = collections.OrderedDict()
+        for h, _ in self.hyps:
+            out[h] = [[r[i] | r[i + 1] << 16 for i in range(0, 8, 2)] for r in self.run(h)]
+        return out
+
+    def comments(self):
+        lines = ['predictions [mac], first 4 words of each stored row (rows %s):' % (
+            ', '.join(str(y) for y in self.outs))]
+        for (h, text), rows in zip(self.hyps, self.predictions().values()):
+            lines.append('%s: %s' % (h, text))
+            lines += ['  row %d: %s' % (y, ' '.join('%08x' % w for w in ws))
+                      for y, ws in zip(self.outs, rows)]
+        return lines
+
+    def case(self):
+        return VCase(self.tag, self.form, vf3_rows(), self.test, list(self.outs),
+                     lambda v, r: self.model(v, self.hyps[0][0]),
+                     pre=self.pre_asm, post=self.post_asm, regs=self.regs,
+                     note=self.note, info=True, comments=self.comments())
+
+
+def vf3_probes():
+    P = []
+
+    def rowcopy(v, d, s):
+        v.put16(d, v.get16(s))
+
+    # HDRY (suspect 4): an H16 D's +r y.  r3 = 1344 = y 21, x 0.
+    def s_hdry(v, h):
+        rowcopy(v, {'model': 37, 'align16': 32, 'dropped': 16}[h], 0)
+    P.append(VF3Probe(
+        'HDRY', 'vadd D16 A16 Bimm, D at +r3 (y 21)',
+        [V.alu('vadd', H16(16, 0, reg=3), H16(0, 0), 0)], s_hdry,
+        (('model', 'the +r y is applied: row 37 = row 0'),
+         ('align16', 'the +r y aligns down to 16: row 32 = row 0'),
+         ('dropped', 'the +r is dropped: row 16 = row 0')),
+        [8, 9, 10, 11], regs=[(3, 1344)],
+        pre=[('clear', 16, 0x5555), ('clear', 32, 0x5555)],
+        post=[('copy', 9, 37), ('copy', 10, 32), ('copy', 11, 16), ('copy', 8, 37),
+              ('pcopy', 8, 32, 0x000C), ('pcopy', 8, 16, 0x0030)],
+        note='informational, VF3: vadd d(row 16)+r3, a(row 0), #0 with r3 = 1344 (y 21) '
+             'over rows 16-47 = 0x5555; row 8 = row 37 with lanes 2-3 of row 32 and 4-5 '
+             'of row 16; rows 9-11 = rows 37, 32, 16'))
+
+    # VX15 (suspect 1): x15 with a V16 A; the halves read back as Apple's
+    # context save does (vmov #0 x15, vmov #0 acc).
+    def s_vx15(v, h):
+        p = [vf3_a(i, 3) * VF3_W for i in range(16)]
+        lo = [0] * 16 if h == 'x15_ignored' else [x & 0xFFFF for x in p]
+        v.put16(32, lo)
+        v.put16(33, [x >> 16 for x in p])
+    P.append(VF3Probe(
+        'VX15', 'vmul Ddiscard A16 Bimm clra x15, A a V16 column; vmulhd acc; lo, hi read',
+        [V.alu('vmul', DISCARD, V16(0, 3), VF3_W, clra=True, x15=True),
+         V.alu('vmulhd', DISCARD, V16(0, 3), VF3_W, acc=True),
+         V.alu('vmov', H16(32, 0), None, 0, x15=True),
+         V.alu('vmov', H16(33, 0), None, 0, acc=True)], s_vx15,
+        (('model', 'x15 adds lane i\'s low half: lane i = a(i, 3) * -23170, exact'),
+         ('x15_ignored', 'x15 ignored with a vertical A: lo 0, hi as modelled')),
+        [8, 9, 10],
+        post=[('copy', 9, 32), ('copy', 10, 33), ('copy', 8, 32), ('pcopy', 8, 33, 0x00F0)],
+        note='informational, VF3: vmul discard, a V16 (column 3), #-23170 clra x15; '
+             'vmulhd acc; row 32 = lo (vmov x15), row 33 = hi (vmov acc); row 8 = lo '
+             'lanes 0-3, hi lanes 4-7; rows 9, 10 = rows 32, 33'))
+
+    # VACD (suspect 3): acc into a V16 D through vmulhd.
+    def s_vacd(v, h):
+        q = [(vf3_a(i, 3) * VF3_W) >> 16 for i in range(16)]
+        acc = [0x1234 + x for x in q]
+        col = acc if h == 'model' else q
+        row = acc if h in ('model', 'plain_write') else [0x1234] * 16
+        for i in range(16):
+            v.put16(16 + i, [col[i]] * 16, lanes=[2])
+        v.put16(34, row)
+    P.append(VF3Probe(
+        'VACD', 'vmulhd D16 A16 Bimm acc, D and A V16 columns',
+        [V.alu('vmov', DISCARD, None, 0x1234, clra=True, acc=True),
+         V.alu('vmulhd', V16(16, 2), V16(0, 3), VF3_W, acc=True),
+         V.alu('vmov', H16(34, 0), None, 0, acc=True)], s_vacd,
+        (('model', 'acc applies to a V16 D: column = row 34 = 0x1234 + floor(a(i, 3) * '
+                   '-23170 / 2^16)'),
+         ('acc_ignored', 'acc ignored on a V16 D: column = the floor alone, row 34 = '
+                         '0x1234'),
+         ('plain_write', 'the V16 D gets the floor alone, the accumulator still adds: '
+                         'row 34 as modelled')),
+        [8, 2, 10],
+        pre=[('clear', 16, 0)],
+        post=[('tr', 16), ('copy', 10, 34), ('copy', 8, 2), ('pcopy', 8, 34, 0x00F0)],
+        note='informational, VF3: vmov discard #0x1234 clra acc; vmulhd d(column 2 of '
+             'rows 16-31), a(column 3 of rows 0-15), #-23170 acc; vmov row 34 #0 acc; '
+             'rows 16-31 transposed into rows 0-15: row 2 = the column; row 8 = column '
+             'lanes 0-3, row 34 lanes 4-7; row 10 = row 34'))
+
+    # VSTP (suspect 2): a V16 A stepping across a REP.
+    def s_vstp(v, h):
+        for k in range(4):
+            src = 0 if h == 'a_unstepped' else k
+            dst = 0 if h == 'd_unstepped' else k
+            col = [v.get16(i)[src] for i in range(16)]
+            for i in range(16):
+                v.put16(16 + i, [col[i]] * 16, lanes=[dst])
+    P.append(VF3Probe(
+        'VSTP', 'vadd D16 A16 Bimm rep, D and A V16 columns stepping',
+        [V.alu('vadd', V16(16, 0, True), V16(0, 0, True), 0, rep=4)], s_vstp,
+        (('model', 'A steps a column per REP: columns 0-3 copied'),
+         ('a_unstepped', 'A does not step: every column = column 0'),
+         ('d_unstepped', 'D does not step: column 0 = column 3, columns 1-3 clear')),
+        [8, 9],
+        pre=[('clear', 16, 0)], post=[('copy', 8, 16), ('copy', 9, 17)],
+        note='informational, VF3: vadd d(column 0 of rows 16-31)++, a(column 0 of rows '
+             '0-15)++, #0 rep 4 over cleared rows 16-31; rows 8, 9 = rows 16, 17'))
+
+    # HARY: an H16 A's +r y, unstepped.  r3 = 320 = y 5.
+    def s_hary(v, h):
+        rowcopy(v, 40, {'model': 5, 'dropped': 0}[h])
+    P.append(VF3Probe(
+        'HARY', 'vadd D16 A16 Bimm, A at +r3 (y 5), unstepped',
+        [V.alu('vadd', H16(40, 0), H16(0, 0, reg=3), 0)], s_hary,
+        (('model', 'the +r y is applied: row 40 = row 5'),
+         ('dropped', 'the +r is dropped (or y aligned down to 16): row 40 = row 0')),
+        [8], regs=[(3, 320)], post=[('copy', 8, 40)],
+        note='informational, VF3: vadd d(row 40), a(row 0)+r3, #0 with r3 = 320 (y 5); '
+             'row 8 = row 40'))
+
+    # MHDR (suspect 5, and F5): the window's REP 16 vmulhd, all stepping.
+    def s_mhdr(v, h):
+        for k in range(16):
+            j = 0 if h == 'unstepped' else k
+            a, b = v.get16(j), v.get16(j, 32)
+            if h == 'round':
+                v.put16(48 + k, [-((-x * y + 0x8000) >> 16) if x * y < 0 else
+                                 (x * y + 0x8000) >> 16 for x, y in zip(a, b)])
+            else:
+                v.put16(48 + k, [(x * y) >> 16 for x, y in zip(a, b)])
+    P.append(VF3Probe(
+        'MHDR', 'vmulhd D16 A16 B16 rep, D, A and B H16 rows stepping',
+        [V.alu('vmulhd', H16(48, 0, True), H16(0, 0, True), H16(0, 32, True), rep=16)],
+        s_mhdr,
+        (('model', 'floor(a * b / 2^16), every operand steps'),
+         ('round', 'rounded (ties away from zero) instead of floored'),
+         ('unstepped', 'A and B do not step: every row = row 48')),
+        [8, 9, 10],
+        pre=[('clear', 48, 0)],
+        post=[('copy', 9, 48), ('copy', 10, 63), ('copy', 8, 48), ('pcopy', 8, 63, 0x00F0)],
+        note='informational, VF3: vmulhd d(row 48)++, a(row 0)++, b(row 0, x 32)++ rep 16; '
+             'row 8 = row 48 lanes 0-3, row 63 lanes 4-7; rows 9, 10 = rows 48, 63'))
+    assert tuple(p.tag for p in P) == VF3_TAGS
+    return P
+
+
+def vf3_cases():
+    return [p.case() for p in vf3_probes()]
 
 
 def barv_case(xr):
@@ -1588,7 +1845,11 @@ def generate():
     K, C = kernels(), vcases()
     tags = [k.tag for k in K] + [c.tag for c in C]
     assert len(tags) == len(set(tags)), 'duplicate tags'
-    assert len(C) <= 64                     # bench.h: two pass words
+    # bench.h: BENCH_MAX_VCASES records; two pass words, so checks 64 on
+    # are informational (their record's flags carry pass and late pass)
+    assert len(C) <= 80 and all(c.info for c in C[64:])
+    # bench.h BENCH_OUT_WORDS: every check's stores fit bench.c's out[]
+    assert all(c.nwords() <= 128 for c in C), [c.tag for c in C if c.nwords() > 128]
     return gen_s(K, C), gen_c(K, C)
 
 

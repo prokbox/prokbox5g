@@ -52,21 +52,34 @@
 #include "file.h"
 #include "dir.h"
 #include "misc.h"
+#include "playlist.h"           /* #154: a step's video session ends */
 #include "timefuncs.h"
 #include "version.h"
 #include "bcm-devtest.h"
 #include "devbcm.h"
 #include "devbench.h"
 #include "devbench_power.h"      /* p19-battery: the battery rows */
+#include "devbench_cop.h"        /* sitting 4h: the core layout probe */
+#include "devbench_pwr.h"        /* the battery probes (S-1..S-8) */
+#include "devbench_core.h"       /* core layout A: k1, pcop */
 #ifdef HAVE_PLL_IDLE
 #include "ipodui/clockpol.h"     /* lit24ui */
 #endif
 #include "ipodui/litmiss.h"      /* lit24ui's frame counters */
 #include "ipodui/fe_be.h"        /* P19 19-9: the UI-on-COP soak */
 #include "devbench_vclk.h"       /* P19 PW4: the clock bands, the governor */
+#include "devbench_vcpwr.h"      /* p19-vcpwr: the chip's awake-time power */
+#include "devbench_awake.h"      /* p19-pwr-awake: the awake battery rows */
 #include "uilog.h"
+#include "heapchk.h"              /* 4gh-b5: the heap walk at each step */
 #include "hang_watch.h"          /* the hang record's bench step */
 #include "ipodui/devstatus.h"    /* the session's own switches */
+#include "ipodui/viz.h"          /* sitting 4e: the visualiser's soak */
+#ifdef HAVE_COP_CODEC
+#include "codec_cop.h"           /* 4g: the core-layout arms */
+#include "codec_place_core.h"
+#endif
+#include "ipodui/art_bcm.h"      /* 4f: the soak's loop runs the art pass */
 #include "storage.h"
 #include "backlight.h"
 #include "lcd.h"
@@ -569,7 +582,11 @@ static int s_jobs(void)
         say(line);
         return BENCH_SKIP;
     }
-    snprintf(line, sizeof(line), "jobs: self-test rc %d", r);
+    /* sitting 4gh-b5 (20 ms): what it checked, so a fast pass reads as
+       one, not as a skip */
+    snprintf(line, sizeof(line), "jobs: self-test rc %d (checked: 1 FILL "
+             "32x16 on the back surface, 1 FENCE through the ring, 1 word "
+             "read back)", r);
     say(line);
     return r == 0 ? BENCH_PASS : BENCH_FAIL;
 #else
@@ -588,6 +605,8 @@ struct vpu_ctx
     uint32_t block, version, vpu, ops;
     /* batch 4 (jobs.h J_VPU2, J_LAT_*): information, never the verdict */
     uint32_t vpu2, fail, got, exp, lat_sd, lat_sr, lat_mhz;
+    /* batch 5 (jobs.h J_VFFT): the visualiser overlay's FFT check */
+    uint32_t vfft;
     int rc;
 };
 
@@ -617,6 +636,8 @@ static int vpu_pre(void *ctx)
         bcm_video_rd(c->block + J_LAT_SRAM, &c->lat_sr) < 0 ||
         bcm_video_rd(c->block + J_LAT_MHZ, &c->lat_mhz) < 0)
         c->vpu2 = c->lat_mhz = 0;
+    if (bcm_video_rd(c->block + J_VFFT, &c->vfft) < 0)
+        c->vfft = 0;
     c->rc = c->version == J_VERSION_WORD ? 0 : 2;
     return 0;
 }
@@ -679,7 +700,7 @@ static void jvpu_batch4(const struct vpu_ctx *c)
 
 static int s_jvpu(void)
 {
-    struct vpu_ctx c = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1 };
+    struct vpu_ctx c = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1 };
     uint32_t want;
     char line[120];
     int rc = vplayer_peek(vpu_pre, &c);
@@ -715,7 +736,35 @@ static int s_jvpu(void)
              !!(c.vpu & J_VPU_CHECKED), !!(c.vpu & J_VPU_SHIFT),
              !!(c.vpu & J_VPU_MAC), (unsigned long)c.block);
     say(line);
+    if (c.vpu & ~BENCH_VPU_IMAGE & 0xFF)
+    {
+        /* a loaded overlay's own checks (the visualiser's FFT, BARS,
+           FLIP): information, masked out of the verdict */
+        snprintf(line, sizeof(line), "jvpu: overlay bits %lx (FFT %d, BARS "
+                 "%d, FLIP %d): not the image's, not judged",
+                 (unsigned long)(c.vpu & ~BENCH_VPU_IMAGE & 0xFF),
+                 !!(c.vpu & J_VPU_FFT), !!(c.vpu & J_VPU_BARS),
+                 !!(c.vpu & J_VPU_FLIP));
+        say(line);
+    }
     jvpu_batch4(&c);            /* information: not in the verdict */
+    /* Bench row VFFT (batch 5; docs/design/viz-fft-vc.md section 10):
+       the overlay's FFT check per frame (square, noise, mix): the BCM's C
+       against the Mac's golden, the vector kernel against the C */
+    if (c.vfft & J_VFFT_RAN)
+        snprintf(line, sizeof(line), "jvpu: vfft %08lx: C = Mac %d%d%d, "
+                 "kernel = C %d%d%d (fft=%s)", (unsigned long)c.vfft,
+                 !!(c.vfft & J_VFFT_C_OK(0)), !!(c.vfft & J_VFFT_C_OK(1)),
+                 !!(c.vfft & J_VFFT_C_OK(2)), !!(c.vfft & J_VFFT_K_OK(0)),
+                 !!(c.vfft & J_VFFT_K_OK(1)), !!(c.vfft & J_VFFT_K_OK(2)),
+                 c.vfft == J_VFFT_ALL ? "vector" : "C");
+    else
+        snprintf(line, sizeof(line), "jvpu: vfft not run (no visualiser "
+                 "overlay loaded, or an image before batch 5)");
+    say(line);
+    /* sitting 4gh-b5 (20 ms): the count, so a fast pass reads as one */
+    say("jvpu: checked 12 words of the running image (the job block's "
+        "address, version, the vector word, ops, 7 batch 4 words, vfft)");
     return bench_vpu_verdict(c.vpu, c.ops);
 }
 
@@ -873,6 +922,7 @@ static int s_ucop2(void)
     ucop_under0 = ucop_underruns();
     ucop_t0 = current_tick;
     say("ucop2: the soak starts, the UI on the COP");
+    say("cl arm B start: the UI on the COP (ucop2's soak)");
     return BENCH_PASS;
 }
 
@@ -913,6 +963,9 @@ static int ucop2_end(void)
              (unsigned long)(st.stor_calls - ucop_base.stor_calls),
              (unsigned long)(st.offcore - ucop_base.offcore),
              (unsigned long)(st.post_drops - ucop_base.post_drops), under);
+    say(line);
+    snprintf(line, sizeof(line), "cl arm B end: s=%ld underruns=%lu", secs,
+             under);
     say(line);
     if (secs < UCOP_MIN_S)
     {
@@ -955,6 +1008,107 @@ static int ucop2_end(void)
    the play outside then runs the ~0.9 s first-use check for real, and
    its vck line (verdict and time) is in the log; finish() puts the
    verdict on the step's result line */
+/* Sitting 4g: the core-layout study's L-1 and R-1 arms
+   (docs/design/core-layout-decision.md section 5).  The arm sets the
+   decode's core with the existing switch (codec_cop_set_place: at the
+   next track, so the owner skips one), tags the log ("cl arm C start":
+   the uilat np and cpu lines, "pcm underrun" and "m0 slice max" lines
+   that follow are the arm's), and at its question tags the end with the
+   PCM's underruns over the arm and puts the core back. */
+static int cl_mode0 = -1;           /* the core before the arm */
+static unsigned long cl_under0;
+static long cl_t0;
+
+static unsigned long cl_underruns(void)
+{
+#ifdef HAVE_BCMFW_VIDEO
+    return pcmbuf_underruns();
+#else
+    return 0;
+#endif
+}
+
+static int cl_start(const char *arm, int mode)
+{
+    char line[80];
+
+#ifdef HAVE_COP_CODEC
+    cl_mode0 = codec_cop_place();
+    codec_cop_set_place(mode);
+#else
+    (void)mode;
+#endif
+    cl_under0 = cl_underruns();
+    cl_t0 = current_tick;
+    snprintf(line, sizeof(line), "cl arm %s start: L-1, R-1 short", arm);
+    say(line);
+    return BENCH_DONE;
+}
+
+static int cl_end(const char *arm)
+{
+    char line[96];
+
+    snprintf(line, sizeof(line), "cl arm %s end: s=%ld underruns=%lu",
+             arm, (long)((current_tick - cl_t0) / HZ),
+             cl_underruns() - cl_under0);
+    say(line);
+#ifdef HAVE_COP_CODEC
+    if (cl_mode0 >= 0)
+        codec_cop_set_place(cl_mode0);  /* the core as it was */
+#endif
+    cl_mode0 = -1;
+    return BENCH_DONE;
+}
+
+static int s_clc(void)
+{
+#ifdef HAVE_COP_CODEC
+    return cl_start("C", CPL_MODE_CPU);
+#else
+    return cl_start("C", 0);
+#endif
+}
+
+static int s_clf(void)
+{
+#ifdef HAVE_COP_CODEC
+    return cl_start("F", CPL_MODE_COP);
+#else
+    return cl_start("F", 0);
+#endif
+}
+
+/* Bench row sdc (batch 5): SDRAM idle at CLOSE on silicon.  The next
+   play's first-use check runs (its token dropped), and its passing
+   band's CLOSE carries HP_CLOSE_SDRAM_IDLE (Apple's idle in the image:
+   command 0, bit 15 polled); the play's OPEN then brings SDRAM up again
+   (the normal bring-up).  Pass: "sdc: idle code 0 polls P" (P at most
+   8,000) and the clip plays with pictures and no skips (the owner's
+   answer).  Code 1 (bit 15 stuck) or a frozen chip: the restore is the
+   cut (power the chip off and on), then the normal OPEN.  May freeze the
+   video chip (the controller idled with a read in flight) */
+static int s_sdc(void)
+{
+    int rc = vplayer_check_reset();
+
+    vplayer_sd_idle_arm();
+    say(rc < 0 ? "sdc: the check result could not be dropped: the play "
+        "may not check (then no idle)" : "sdc: armed: the next play's "
+        "check idles SDRAM at its CLOSE, then the play brings it up");
+    return rc < 0 ? BENCH_FAIL : BENCH_DONE;
+}
+
+/* Bench row alb (after sitting 4gh, #154): the playing rows after it
+   (awlg, duty) want an album's songs, and 4gh's played a film's sound.
+   The owner starts an album outside; the answer is the verdict, and
+   the rows that need it skip on a "No" */
+static int s_alb(void)
+{
+    say("alb: the owner plays an album outside the session");
+    return BENCH_DONE;
+}
+
 static int s_vplay(void)
 {
     int rc = vplayer_check_reset();
@@ -964,6 +1118,319 @@ static int s_vplay(void)
         "dropped: the play may not check" : "vplay: no check result "
         "stored: the next play checks first");
     return rc < 0 ? BENCH_FAIL : BENCH_DONE;
+}
+
+/* Sitting 4e's two soaks, done outside the session (devbench.h's
+   verdicts).  Each step's function clears its record before the owner
+   leaves; the question's press reads it back (finish()). */
+#ifndef VLONG_MIN_S             /* devbench_sim_calls.h: the sim's clip */
+#define VLONG_MIN_S     600         /* day 4c's stall: about 10 min in */
+#endif
+#ifndef VLONG_PACE_PCT
+#define VLONG_PACE_PCT  90          /* pictures against the audio's time */
+#endif
+#ifndef VIZSOAK_MIN_S
+#define VIZSOAK_MIN_S   150         /* the visualiser on screen */
+#endif
+
+#ifndef VLONG_CARRY_S           /* devbench_sim_calls.h: the sim's clip */
+#define VLONG_CARRY_S   BENCH_VLONG_CARRY_S
+#endif
+static bool vlong_carried;      /* the step kept the last play's record */
+
+static int s_vlong(void)
+{
+    struct vplayer_prog p;
+    struct bench_vlong v;
+
+    vplayer_prog_get(&p);
+    v.valid = p.valid;
+    v.played_ms = p.played_ms;
+    vlong_carried = bench_vlong_keeps(&v, VLONG_CARRY_S);
+    if (vlong_carried)
+    {
+        char line[BENCH_KEEP_LEN];
+
+        snprintf(line, sizeof(line), "vlong: the last play's record kept "
+                 "(%lu s%s): judged unless a new play replaces it",
+                 (unsigned long)p.played_ms / 1000,
+                 p.running ? ", playing" : "");
+        say(line);
+        return BENCH_DONE;
+    }
+    vplayer_prog_reset();
+    say("vlong: long-play record cleared: the next play from Videos counts");
+    return BENCH_DONE;
+}
+
+static int vlong_end(void)
+{
+    struct vplayer_prog p;
+    struct bench_vlong v;
+    const char *why;
+    enum bench_res r;
+    char line[BENCH_KEEP_LEN];
+
+    vplayer_prog_get(&p);
+    v.valid = p.valid;
+    v.pics = p.pics;
+    v.played_ms = p.played_ms;
+    v.fps_x100 = p.fps_x100;
+    v.tail_pics = p.tail_pics;
+    v.tail_ms = p.tail_ms;
+    r = bench_vlong_verdict(&v, vlong_carried ? VLONG_CARRY_S : VLONG_MIN_S,
+                            VLONG_PACE_PCT, &why);
+    /* the figures, as the "video prog" lines have them */
+    snprintf(line, sizeof(line), "vlong s=%lu pics=%lu fps=%lu.%02lu "
+             "pace=%lu%% tail=%lu/%lus%s",
+             (unsigned long)p.played_ms / 1000, (unsigned long)p.pics,
+             (unsigned long)p.fps_x100 / 100, (unsigned long)p.fps_x100 % 100,
+             (unsigned long)bench_pace_pct(p.pics, p.played_ms,
+                                           p.fps_x100 ? p.fps_x100 : 3000),
+             (unsigned long)p.tail_pics, (unsigned long)p.tail_ms / 1000,
+             p.running ? " playing" : "");
+    say(line);
+    snprintf(line, sizeof(line), "vlong still=%lu behind=%lu data=%lu "
+             "ref=%lu decode_err=%d", (unsigned long)p.stills,
+             (unsigned long)p.behind, (unsigned long)p.data,
+             (unsigned long)p.refused, (int)p.decode_err);
+    say(line);
+    snprintf(line, sizeof(line), "vlong: %s: %s%s", r == BENCH_PASS ? "PASS"
+             : "FAIL", why, r == BENCH_PASS && p.stills
+             ? " (its stills recovered by themselves)" : "");
+    say(line);
+    strlcpy(B.note, line, sizeof(B.note));
+    return r;
+}
+
+/* Sitting 4f: uviz measures its own views too (sitting 4e's three views
+   of 5-9 s fell in uviz's window, before vizsoak cleared the sums): the
+   sums cleared as the owner leaves, read back with the answer.  The
+   owner's answer stays the verdict; a view the dark closed, or a CPU
+   frame, fails it (the firmware's, not the owner's) */
+static int s_uviz(void)
+{
+    viz_soak_reset();
+    say("uviz: visualiser sums cleared: the next views count");
+    return BENCH_DONE;
+}
+
+static int uviz_end(void)
+{
+    struct viz_soak z;
+    char line[BENCH_KEEP_LEN];
+
+    viz_soak_get(&z);
+    snprintf(line, sizeof(line), "uviz views=%lu s=%lu bcm=%lu cpu=%lu "
+             "hold=%lu/%lums fb=%d dark=%lu last=%s", (unsigned long)z.views,
+             (unsigned long)z.secs, (unsigned long)z.bcm,
+             (unsigned long)z.cpu, (unsigned long)z.holds,
+             (unsigned long)z.hold_max_ms, (int)z.fb, (unsigned long)z.dark,
+             z.last_why ? z.last_why : "-");
+    say(line);
+    strlcpy(B.note, line, sizeof(B.note));
+    return z.dark || z.fb || z.cpu ? BENCH_FAIL : BENCH_NONE;
+}
+
+/* Sitting 4f: the soak drives itself (sitting 4e: the owner closed each
+   view after 5-9 s, not knowing to leave it, and the step, which cleared
+   its sums at the leave, saw none of uviz's views).  With music playing,
+   the step opens the visualiser full screen here, on the session's own
+   thread, for VIZSOAK_RUN_S, hands off; then closes it and reads the
+   view's sums from viz.c (viz_soak_get), not from the log.  A press ends
+   it early: recorded ("button"), and what ran is judged */
+#ifndef VIZSOAK_RUN_S
+#define VIZSOAK_RUN_S   180
+#endif
+#define VIZSOAK_EARLY_MIN_S 30      /* an early end shorter: not judged */
+
+static int vizsoak_end(unsigned min_s, bool early)
+{
+    struct viz_soak z;
+    struct bench_vizsoak s;
+    const char *why;
+    enum bench_res r;
+    char line[BENCH_KEEP_LEN];
+
+    viz_soak_get(&z);
+    s.views = z.views;
+    s.secs = z.secs;
+    s.bcm = z.bcm;
+    s.cpu = z.cpu;
+    s.fb = z.fb;
+    s.dark = z.dark;
+    r = bench_vizsoak_verdict(&s, min_s, &why);
+    snprintf(line, sizeof(line), "vizsoak views=%lu s=%lu bcm=%lu cpu=%lu "
+             "hold=%lu/%lums fb=%d", (unsigned long)z.views,
+             (unsigned long)z.secs, (unsigned long)z.bcm,
+             (unsigned long)z.cpu, (unsigned long)z.holds,
+             (unsigned long)z.hold_max_ms, (int)z.fb);
+    say(line);
+    /* the cadence (the stutter's measure, information) and the close */
+    snprintf(line, sizeof(line), "vizsoak fps=%lu.%lu of 30 late=%lu "
+             "gap=%lums dark=%lu end=%s",
+             z.secs ? (unsigned long)(z.bcm + z.cpu) / z.secs : 0,
+             z.secs ? (unsigned long)((z.bcm + z.cpu) * 10 / z.secs) % 10 : 0,
+             (unsigned long)z.late, (unsigned long)z.gap_max_ms,
+             (unsigned long)z.dark, early ? "early (a press)"
+             : z.last_why ? z.last_why : "-");
+    say(line);
+    snprintf(line, sizeof(line), "vizsoak: %s: %s%s",
+             r == BENCH_PASS ? "PASS" : "FAIL", why,
+             early && r == BENCH_PASS ? " (ended early by a press)" : "");
+    say(line);
+    strlcpy(B.note, line, sizeof(B.note));
+    return r;
+}
+
+/* Sitting 4g, bench row VF0 (docs/design/viz-fft-vc.md section 10): the
+   BCM's SPECTRUM, today the C path (the overlay's FFT start-up check
+   fails on silicon: J_VPU 0x53, FFT clear), on five fixed frames, each
+   reply compared word for word with the levels the same C gives on the
+   Mac (scripts/gen_vf0.py, devbench_vf0.h).  The visualiser's overlay
+   loads as the view loads it (the art thread's read, the job owner's
+   put: this loop runs the owner's pass).  Hands off, no question.  VF1
+   (today's vector kernel against its goldens) is left out: the
+   overlay's fft_on gates the kernel, so it needs an overlay change, and
+   the overlay (viz-ovl-m) is used unchanged. */
+#if defined(HAVE_ART_BCM)
+#include "bcmjob.h"               /* SPECTRUM, the slots (apps.make) */
+#include "devbench_vf0.h"
+#define VF0_LOAD_S      8           /* the overlay's load, at most */
+
+static int s_vf0(void)
+{
+    static struct bcmjob_slot slot;
+    uint16_t l2[VF0_NB];
+    char line[BENCH_KEEP_LEN];
+    long end = current_tick + VF0_LOAD_S * HZ;
+    int k, b, r, bad = 0;
+
+    art_bcm_viz_view(true);         /* the shared region is the view's */
+    while (!bcmjob_have(J_OP_SPECTRUM))
+    {
+        art_bcm_service(true);
+        r = art_bcm_viz_ask();
+        if (r == ART_VIZ_NONE || !TIME_BEFORE(current_tick, end))
+        {
+            art_bcm_viz_view(false);
+            say(r == ART_VIZ_NONE
+                ? "vf0: FAIL: no visualiser overlay for this image"
+                : "vf0: FAIL: the visualiser overlay never loaded");
+            return BENCH_FAIL;
+        }
+        if (r != ART_VIZ_LOADED)
+            sleep(HZ / 20);
+    }
+    r = bcmjob_slot(J_CLS_STRIP, VF0_N, 1, 0x56463030, 0, &slot);
+    for (k = 0; r == BCMJOB_OK && k < VF0_FRAMES; k++)
+    {
+        slot.hit = false;
+        r = bcmjob_upload(&slot, (const uint16_t *)vf0_pcm[k]);
+        if (r == BCMJOB_OK)
+            r = bcmjob_spectrum(slot.slot, VF0_N, vf0_edges, VF0_NB, l2);
+        if (r != BCMJOB_OK)
+            break;
+        for (b = 0; b < VF0_NB && l2[b] == vf0_l2[k][b]; b++)
+            ;
+        if (b == VF0_NB)
+            snprintf(line, sizeof(line), "vf0 %s: match (%d bands)",
+                     vf0_name[k], VF0_NB);
+        else
+        {
+            bad++;
+            snprintf(line, sizeof(line), "vf0 %s: band %d got %u want %u",
+                     vf0_name[k], b, l2[b], vf0_l2[k][b]);
+        }
+        say(line);
+    }
+    art_bcm_viz_view(false);
+    if (r != BCMJOB_OK)
+    {
+        snprintf(line, sizeof(line), "vf0: FAIL: the job failed (rc %d, "
+                 "frame %d)", r, k);
+        say(line);
+        return BENCH_FAIL;
+    }
+    snprintf(line, sizeof(line), "vf0: %s: %d of %d frames match the "
+             "Mac's C", bad ? "FAIL" : "PASS", VF0_FRAMES - bad, VF0_FRAMES);
+    say(line);
+    return bad ? BENCH_FAIL : BENCH_PASS;
+}
+#endif
+
+static int s_vizsoak(void)
+{
+    int st = audio_status();
+    long end, btn = BUTTON_NONE;
+    bool early = false;
+    unsigned ran;
+    char line[96];
+
+    if (!(st & AUDIO_STATUS_PLAY))
+    {
+        say("vizsoak: Not available: no music playing (the song from the "
+            "visualiser step stopped)");
+        return BENCH_SKIP;
+    }
+    if (st & AUDIO_STATUS_PAUSE)
+        audio_resume();
+    viz_soak_reset();
+    viz_paint_bg();
+    lcd_update();
+    viz_clip(VIZ_H);
+    if (!viz_start())
+    {
+        say("vizsoak: the visualiser would not start (an audiobook, or "
+            "no memory)");
+        return BENCH_FAIL;
+    }
+    snprintf(line, sizeof(line), "vizsoak: running %d s, hands off",
+             VIZSOAK_RUN_S);
+    devbcm_log(line);
+    end = current_tick + VIZSOAK_RUN_S * HZ;
+    while (TIME_BEFORE(current_tick, end))
+    {
+        bool lost = false;
+        int w;
+
+#ifdef HAVE_ART_BCM
+        /* the shell's main loop is not running: its per-pass job service
+           (the visualiser's overlay load, ui_main.c) runs here */
+        art_bcm_service(true);
+#endif
+        w = viz_frame(&lost);
+        if (w == TIMEOUT_BLOCK)
+            break;                  /* the view stopped itself */
+        btn = button_get_w_tmo(MAX(1, MIN(w, HZ)));
+        if (btn == BUTTON_NONE || bcmjob_owner_event(btn))
+            continue;               /* the job owner's pass (the overlay) */
+        if (btn & SYS_EVENT)
+        {
+            if (btn == SYS_USB_CONNECTED || btn == SYS_POWEROFF)
+            {
+                early = true;       /* handled after the view closes */
+                break;
+            }
+            continue;
+        }
+        if (!(btn & (BUTTON_REL | BUTTON_REPEAT))
+            && (btn & ~(BUTTON_SCROLL_BACK | BUTTON_SCROLL_FWD)))
+        {
+            early = true;           /* a press: the owner ended it */
+            btn = BUTTON_NONE;
+            break;
+        }
+    }
+    viz_stop_why(early ? "button" : "soak");
+    ran = early ? (unsigned)((current_tick - (end - VIZSOAK_RUN_S * HZ)) / HZ)
+                : VIZSOAK_RUN_S;
+    if (btn & SYS_EVENT)
+        button_queue_post(btn, 0);  /* USB or power-off: theirs again */
+    /* an early end judges what ran (at least VIZSOAK_EARLY_MIN_S) */
+    return vizsoak_end(early ? MIN((unsigned)VIZSOAK_MIN_S,
+                                   MAX(ran, (unsigned)VIZSOAK_EARLY_MIN_S))
+                             : VIZSOAK_MIN_S, early);
 }
 
 static const struct bench_step steps[] =
@@ -987,9 +1454,9 @@ static const struct bench_step steps[] =
       "Wrong colours: a colour is off.\n"
       "Garbled: torn, shifted or speckled.\n"
       "Blank: nothing showed.",
-      { "Yes", "Wrong colours", "Garbled", "Blank" }, 0, 0, 300 },
+      { "Yes", "Wrong colours", "Garbled", "Blank" }, 0, 0, 190 },
     { "s4b", "Fast clock check", NULL, NULL, s_stage4b, NULL, { NULL }, BA,
-      180, 0 },
+      180, 5 },
     /* the 150 MHz clock with the screen on: with 4b's, its flag lets the
        video player run the chip at 150 MHz (bcm_devtest_fast_clock_allowed) */
     { "s4c", "Fast clock pictures",
@@ -1009,7 +1476,7 @@ static const struct bench_step steps[] =
       "Garbled: speckles, streaks or shifted lines.\n"
       "Blank: nothing showed.\n"
       "Any answer but Yes keeps videos at the normal clock.",
-      { "Yes", "Wrong colours", "Garbled", "Blank" }, 0, 0, 60 },
+      { "Yes", "Wrong colours", "Garbled", "Blank" }, 0, 0, 32 },
     { "c1", "Second core check", NULL, NULL, r_c1, NULL, { NULL }, BA | BC,
       90, 0 },
     { "c2", "COP row C2", NULL, NULL, r_c2, NULL, { NULL }, BA | BC, 60, 0 },
@@ -1021,9 +1488,9 @@ static const struct bench_step steps[] =
     { "pw7", "Probe PW7", NULL, NULL, r_pw7, NULL, { NULL }, BA, 90, 0 },
     { "pw8", "Probe PW8", NULL, NULL, r_pw8, NULL, { NULL }, BA, 90, 0 },
     { "jobs", "Chip self-test", NULL, NULL, s_jobs, NULL, { NULL }, BA, 30,
-      0 },
+      1 },
     { "jvpu", "Chip maths check", NULL, NULL, s_jvpu, NULL, { NULL }, BA, 30,
-      0 },
+      1 },
     { "port", "Port speed", NULL, NULL, s_port, NULL, { NULL }, BA, 10, 0 },
     /* ---- part B ---- */
     { "pb2", "Probe PB-2",
@@ -1054,7 +1521,7 @@ static const struct bench_step steps[] =
       "Sound off picture: out of step.\n"
       "No picture: nothing showed.",
       { "Smooth, in sync", "Stutter", "Sound off picture", "No picture" },
-      0, 0, 60 },
+      0, 0, 43 },
     { "s7", "Video controls",
       "About 3 min, hands off. The iPod plays the test video and works "
       "its own controls: pause, jump ahead, back to the start, the screen "
@@ -1138,21 +1605,102 @@ static const struct bench_step steps[] =
       "Stuck: it stayed on that screen.\n"
       "No video: it didn't play.",
       { "Yes", "No message", "Stuck", "No video" },
+      BENCH_F_PICKED | BENCH_F_LEAVES, 0, 90 },     /* with the way back */
+    /* batch 5 (merged-image-batch.md 8): SDRAM idle at CLOSE.  s_sdc
+       arms it; the owner plays a video as in vplay; the log's "sdc:"
+       line has the idle's code and bit-15 polls */
+    { "alb", "Play an album",
+      "Done outside the session, under 1 min. The next steps need music "
+      "playing: an album of songs, not a video.",
+      "SELECT here leaves the session. Open Music, pick an album and play "
+      "it, then open Bench session again and pick Go on; the question "
+      "comes first.", s_alb,
+      "Is an album playing?\n"
+      "Yes: songs from an album play.\n"
+      "No: nothing plays, or a video's sound.",
+      { "Yes", "No", NULL, NULL },
       BENCH_F_PICKED | BENCH_F_LEAVES, 0, 60 },
+    { "sdc", "Video memory rest",
+      "Done outside the session, under 1 min. The video chip's memory "
+      "is put to rest after its quick check, then woken for the play. "
+      "Heads-up: this may freeze the video; if it does, hold MENU and "
+      "SELECT to restart.",
+      "SELECT here leaves the session. Play any video from Videos, then "
+      "open Bench session again and pick Go on; the question comes "
+      "first.", s_sdc,
+      "Did the video play normally, with no skips?\n"
+      "Yes: it played smoothly.\n"
+      "Skips: it jumped or stuttered.\n"
+      "Frozen: the screen or the video froze.\n"
+      "No video: it didn't play.",
+      { "Yes", "Skips", "Frozen", "No video" },
+      BENCH_F_PICKED | BENCH_F_LEAVES, 0, 90 },
+    /* sitting 4e: day 4c's stall (the pictures stood about 10 minutes
+       into an episode, the sound on) checked on the test episode: a
+       normal play from Videos, 10 minutes hands off; the player's
+       long-play record (the "video prog" figures) judges it at the
+       question (vlong_end).  Re-verify only, after vplay, needing s6 */
+    { "vlong", "Long video play",
+      "About 11 min, 10 of them hands off. From the main menu open "
+      "Videos > Movies and play Sintel from the start. If it isn't "
+      "listed, the library is still updating after the install: wait "
+      "until \"Updating Library...\" is gone, then look again. Put the iPod "
+      "down and leave it playing for at least 10 min (to the end is fine). The "
+      "screen stays on while it plays: that's normal.",
+      "SELECT here leaves the session. When you come back, press MENU to "
+      "leave the video, then open Bench session again and pick Go on: "
+      "Long video play; the question comes first.", s_vlong,
+      "When you came back, were the pictures still moving with the "
+      "sound?\n"
+      "Yes: moving, in step with the sound.\n"
+      "Still picture: it stood while the sound played on.\n"
+      "No video: it didn't play.",
+      { "Yes", "Still picture", "No video", NULL },
+      BENCH_F_PICKED | BENCH_F_LEAVES, 0, 660, 600 },
+    /* sitting 4g: the core-layout arms (devbench.h's picks) */
+    { "clc", "Music and screens, A",
+      "Done outside the session, under 3 min. Play an album of 320 kbps "
+      "MP3s and press Next once. Open Now Playing and turn the volume up "
+      "and down with the wheel for 1 min. Then scroll Music > Songs fast "
+      "for 30 s.",
+      "Then from the main menu: scroll fast 20 s; open the visualiser in "
+      "Now Playing and close it; plug the iPod into the Mac and unplug it "
+      "once. SELECT here leaves the session; then Bench session, Go on: "
+      "Music and screens, A.", s_clc,
+      "Did the music play without a break the whole time?\n"
+      "Yes: no break.\n"
+      "Once: one short break.\n"
+      "Often: breaks again and again.",
+      { "Yes", "Once", "Often", NULL }, BENCH_F_LEAVES, 0, 150 },
+    { "clf", "Music and screens, B",
+      "Done outside the session, under 3 min, the same as the last step. "
+      "Keep the album playing and press Next once. Open Now Playing and "
+      "turn the volume up and down with the wheel for 1 min. Then scroll "
+      "Music > Songs fast for 30 s.",
+      "Then from the main menu: scroll fast 20 s; open the visualiser in "
+      "Now Playing and close it; plug the iPod into the Mac and unplug it "
+      "once. SELECT here leaves the session; then Bench session, Go on: "
+      "Music and screens, B.", s_clf,
+      "Did the music play without a break the whole time?\n"
+      "Yes: no break.\n"
+      "Once: one short break.\n"
+      "Often: breaks again and again.",
+      { "Yes", "Once", "Often", NULL }, BENCH_F_LEAVES, 0, 150 },
     { "b13", "Program swap",
       "The screen will go dark once at the end, under 1 min from now: "
       "that's normal.\n\n"
-      "The video chip swaps between its video and display programs up to "
-      "20 times (10 each way) with the screen on, and stops at the first "
-      "swap that fails. Each swap back adds one small square, green then "
-      "red in turn, a step to the right near the bottom. No video plays.",
+      "The video chip swaps into its video program and back to its "
+      "display program with the screen on, each swap in a different way. "
+      "The swap back adds one small green square near the bottom. No "
+      "video plays. If a swap fails, the screen may go dark a moment "
+      "longer while it restarts.",
       "No buttons. Normal: no blink, blank or flicker before that last "
       "dark moment.", r_b13,
       "Did it blink, blank or flicker before the last dark moment?\n"
       "No: normal.\n"
       "Yes, briefly: once, short.\n"
       "Yes, badly: often or long.",
-      { "No", "Yes, briefly", "Yes, badly", NULL }, 0, 0, 60 },
+      { "No", "Yes, briefly", "Yes, badly", NULL }, 0, 0, 8 },
     { "b5", "Window test",
       "The screen will flash for under 1 min: that's normal.\n\n"
       "Windows flash by in the same spot (one picture sent 31 times from "
@@ -1164,7 +1712,7 @@ static const struct bench_step steps[] =
       "Yes: normal.\n"
       "Sheared: slanted or shifted rows.\n"
       "Broken: gaps or garbage.",
-      { "Yes", "Sheared", "Broken", NULL }, 0, 0, 45 },
+      { "Yes", "Sheared", "Broken", NULL }, 0, 0, 9 },
     /* open question #67: the port's writes read back, then COMMIT, on the
        display-only image (as b5 boots it); read-only, hands off */
     { "cr1", "COMMIT readback", NULL, NULL, r_cr1, NULL, { NULL }, BA, 120,
@@ -1245,6 +1793,75 @@ static const struct bench_step steps[] =
       BENCH_F_LEAVES, 0, 150 },
 #endif
 #endif
+#if defined(HAVE_BCMFW_RESIDENT) || defined(DEVBENCH_SIM)
+    /* p19-vcpwr (power-apple-vs-ours.md, bench-p19.md "The VC power
+       rows"): devbench_vcpwr.c; the sim never models a pass ("Not run
+       (sim)").  s1 and l5 set the daily build's switches on a pass.
+       hands_s (4gh): the phases are hands off (s1, l5: 80 s of A B A B;
+       ck: 130 s; sd: 50 s), the confirm screen's honest split; vs is
+       watched (the plays are judged by eye) */
+    { "s1", "Chip sleeps when idle",
+      "About 80 s, on battery. 4 phases of 20 s, A B A B. A: the video "
+      "chip polls (today). B: it sleeps when it has nothing to do. The "
+      "screen stays still. Leave it alone until the question appears.",
+      "It checks itself: in B the chip wakes on every tick, sleeps and "
+      "still answers. A pass turns this on from the next start.\n"
+      "MENU in a phase: ends the row early (skipped, no question).",
+      devbench_vcpwr_s1,
+      "Did the screen stay right?\n"
+      "Yes: still and clean.\n"
+      "Garbled: noise or wrong pixels.\n"
+      "Froze: stuck after the row.",
+      { "Yes", "Garbled", "Froze", NULL }, 0, 0, 95, 80 },
+    { "l5", "Chip low core level",
+      "About 80 s after a go question, on battery. 4 phases of 20 s, A B "
+      "A B. A: the video chip's core at level 11 (today). B: level 5. "
+      "The screen stays still. Leave it alone until the question "
+      "appears.",
+      "It checks itself: level 5 holds, the chip's self-test passes and "
+      "it keeps answering. A pass turns this on from the next start.\n"
+      "MENU in a phase: ends the row early (skipped, no question).",
+      devbench_vcpwr_l5,
+      "Did the screen stay right?\n"
+      "Yes: still and clean.\n"
+      "Garbled: noise or wrong pixels.\n"
+      "Froze: stuck after the row.",
+      { "Yes", "Garbled", "Froze", NULL }, 0, 0, 110, 80 },
+    { "ck", "Chip block clocks",
+      "About 3 min, hands off. The video chip's clock settings are read, "
+      "then two of its unused clocks are turned off for 40 s, then a "
+      "third. Each goes back as it was. The screen stays still.",
+      "It checks itself: the chip keeps answering as fast as before.\n"
+      "MENU in a phase: ends the row early (skipped, no question).",
+      devbench_vcpwr_ck,
+      "Did the screen stay right?\n"
+      "Yes: still and clean.\n"
+      "Garbled: noise or wrong pixels.\n"
+      "Froze: stuck after the row.",
+      { "Yes", "Garbled", "Froze", NULL }, 0, 0, 150, 130 },
+    { "vs", "Video with chip sleep",
+      "The screen will go dark, then clips play for about 4 min (about 6 "
+      "on a new video image: a clock check comes first): that's "
+      "normal. Music stops.\n\n"
+      "Each clip plays four times for 20 s, the video chip sleeping "
+      "between pictures in every second play. Every play jumps back once "
+      "at 5 s and pauses for 1 s at 10 s.",
+      "No buttons. Normal: all plays of a clip look and sound the same: "
+      "smooth, in step, a short jump and a short pause.",
+      devbench_vcpwr_vs,
+      "Did any play show a garbled picture?\n"
+      "No: normal.\n"
+      "Yes, garbled: broken or wrong picture.\n"
+      "No picture at all: a play stayed blank.",
+      { "No", "Yes, garbled", "No picture at all", NULL }, 0, 0, 350, 0 },
+    { "sd", "Chip memory idle",
+      "About 1 min, hands off. A clip plays for a few seconds, then the "
+      "video chip's memory is put to idle for 11 s. The screen goes dark "
+      "once while the chip restarts, then the clip plays again.\n\n"
+      "It may freeze: hold MENU and SELECT to restart the iPod.",
+      "No buttons. MENU while the memory is idle: ends the row early.",
+      devbench_vcpwr_sd, NULL, { NULL }, 0, 0, 60, 50 },
+#endif
 #ifdef HAVE_UI_THREAD_SPLIT
     /* P19 19-9 (bench-p19.md "The UI on the COP"): after c1 (engine 2
        started from the COP) passed; one restart, then a 2 min soak */
@@ -1255,7 +1872,8 @@ static const struct bench_step steps[] =
       "restart.",
       "After it: hold MENU and SELECT together 6 to 8 s. After the "
       "restart: Developer > Bench session, then pick Go on: Clicks, "
-      "music stopped.", s_ucop, NULL, { NULL }, BENCH_F_REBOOTS, 0, 30 },
+      "music stopped.", s_ucop, NULL, { NULL }, BENCH_F_REBOOTS, 0, 90 },
+                                    /* the restart and the way back */
     /* p19-ucop-fix's rows (docs/design/p19-ui-on-cop.md, "Bench rows for
        sitting 4"): the UI on the COP since ucop's restart, Clicker on */
     { "uck1", "Clicks, music stopped",
@@ -1305,6 +1923,30 @@ static const struct bench_step steps[] =
       "A little behind: caught up within a moment.\n"
       "Far behind: lagged well behind or stuck.",
       { "Kept up", "A little behind", "Far behind", NULL }, 0, 0, 45 },
+    /* sitting 4g: the cheap checks of p19-copfileio on the second core */
+    { "ucusb", "USB on second core",
+      "Done outside the session, about 1 min. Plug the iPod into the Mac "
+      "with the USB-C cable. Check the USB screen appears. Then eject it "
+      "on the Mac, unplug it and check you are back in the menus.",
+      "SELECT here leaves the session. Then open Bench session again and "
+      "pick Go on: USB on second core; the question comes first. Normal: "
+      "the USB screen, then the menus again within a few seconds.", NULL,
+      "How did USB go?\n"
+      "Fine: the USB screen, then back to the menus.\n"
+      "No USB screen: it never showed.\n"
+      "Stuck: it didn't come back from USB.",
+      { "Fine", "No USB screen", "Stuck", NULL }, 0, 0, 75 },
+    { "ucmod", "Notes on second core",
+      "Done outside the session, under 1 min. Open Extras > Notes (or "
+      "Alarms), look at it for a few seconds, then press MENU to go back.",
+      "SELECT here leaves the session. Then open Bench session again and "
+      "pick Go on: Notes on second core; the question comes first. "
+      "Normal: it opens quickly and closes cleanly.", NULL,
+      "Did Notes (or Alarms) open and close normally?\n"
+      "Yes: opened and closed.\n"
+      "Wrong: odd text or pictures.\n"
+      "Stuck: it froze; you restarted it.",
+      { "Yes", "Wrong", "Stuck", NULL }, 0, 0, 45 },
     { "ucop2", "Second core, everyday use",
       "About 3 min. SELECT leaves the session. For 2 min use the iPod: "
       "browse Music, play an MP3, open Now Playing, turn the wheel fast "
@@ -1320,14 +1962,29 @@ static const struct bench_step steps[] =
       "Glitches: wrong pixels or text.\n"
       "Hung: stuck; you restarted it.",
       { "Normal", "Slow", "Glitches", "Hung" }, BENCH_F_LEAVES, 0, 180 },
+    /* last: it turns the iPod off, so nothing comes after it but its
+       question, at the next start's Go on */
+    { "ucoff", "Power off on second core",
+      "Done outside the session, about 1 min. From the main menu, hold "
+      "Play/Pause until the screen goes dark: the iPod turns off. Wait "
+      "5 s, then press any button to turn it on again.",
+      "SELECT here leaves the session. After the start: Developer > "
+      "Bench session, then pick Go on: Power off on second core; the "
+      "question comes first. Normal: it turns off cleanly and starts "
+      "again as usual.", NULL,
+      "Did the iPod turn off and start again normally?\n"
+      "Yes: off, then a normal start.\n"
+      "Didn't turn off: the screen stayed on.\n"
+      "Hung: stuck; you reset it.",
+      { "Yes", "Didn't turn off", "Hung", NULL }, 0, 0, 60 },
 #endif
 #if defined(HAVE_BCM_JOBS) || defined(DEVBENCH_SIM)
     /* P19 19-2 (bench-p19.md "Session plan", part B): manual until 19-2
        wires its rows; drill 2 arms its failures, then leaves */
     { "b3", "Drift on the chip",
       "Done outside the session, about 3 min. In Developer > Advanced > "
-      "Video chip, press BCM jobs: drift on video chip until its screen "
-      "says on. Then go to "
+      "Video chip, press Drift on video chip until its row "
+      "says On. Then go to "
       "the main menu and watch the covers drift for 2 min.",
       "SELECT here leaves the session. Then open Bench session again and "
       "pick Go on: Drift on the chip; the question comes first. Normal: a "
@@ -1355,14 +2012,36 @@ static const struct bench_step steps[] =
       "SELECT here leaves the session. Then open Bench session again and "
       "pick Go on: Visualiser on the chip; the question comes first. "
       "Normal: smooth motion, a short pause at the new song, then moving "
-      "again.", NULL,
+      "again.", s_uviz,
       "How did the visualiser look?\n"
       "Smooth: moving all along, back after the new song.\n"
       "Stuttered: jerky or frozen at times.\n"
       "Stuck after Next: did not move again.\n"
       "Never showed: no visualiser.",
       { "Smooth", "Stuttered", "Stuck after Next", "Never showed" },
-      0, 0, 120 },
+      BENCH_F_LEAVES, 0, 150 },     /* 80 s watched, the way there and back */
+    /* sitting 4e: the visualiser's soak on the chip, a few minutes (day
+       4c's "viz soak" line, summed over the views by viz.c): every frame
+       on the BCM, no CPU fallback.  Sitting 4f: it drives itself, hands
+       off (s_vizsoak).  Re-verify only */
+#ifdef HAVE_ART_BCM
+    /* sitting 4g: the BCM's SPECTRUM (its C path) against the Mac's */
+    { "vf0", "Visualiser maths check", NULL, NULL, s_vf0, NULL, { NULL },
+      BA, 30, 1 },
+#endif
+    { "vizsoak", "Visualiser, a few minutes",
+      "Hands off, about 3 min. Keep the song from the last step playing. "
+      "The visualiser fills the screen by itself and runs for 3 min; you "
+      "can put the iPod down and just watch now and then. Any button "
+      "ends it early.",
+      "SELECT here starts it. When it ends, the question comes. Normal: "
+      "moving smoothly all the time.", s_vizsoak,
+      "Did the visualiser keep moving the whole time?\n"
+      "Yes: smooth all along.\n"
+      "Stuttered: jerky at times.\n"
+      "Froze: it stopped moving.",
+      { "Yes", "Stuttered", "Froze", NULL },
+      BENCH_F_PICKED, 0, 200, 180 },
     { "respanel", "Cover on the chip",
       "Done outside the session, about 2 min. Play an album you have not "
       "played on this build. Rest on the main menu's Now Playing row 20 s, "
@@ -1493,6 +2172,51 @@ static const struct bench_step steps[] =
       "off.",
       "Its own screens follow: MENU there cancels just this check.", r_pw6,
       NULL, { NULL }, OPT, 0, 60 },
+    /* ---- the row groups to come (devbench_pwr.c, devbench_core.c,
+       devbench_awake.c, devbench_vcpwr.c) add their rows here, each
+       BENCH_F_PICKED; their run order is devbench.h's
+       bench_reverify_picks slots (RO, AWAKE, VS, FREEZE, LONG) ---- */
+#define DEVBENCH_AWAKE_ROWS
+#include "devbench_awake.h"
+#define DEVBENCH_PWR_ROWS           /* the battery probes, picked runs only */
+#include "devbench_pwr.h"
+#define DEVBENCH_CORE_ROWS          /* core layout A: k1, pcop */
+#include "devbench_core.h"
+    /* ---- sitting 4h: the core layout probe (devbench_cop.h; the probe
+       run and, since 4gh, the re-verify run) ---- */
+    { "p2", "Second core timer",
+      "Hands off, about 15 s, silent. The second core counts its own "
+      "timer for 10 s.",
+      "Nothing to watch: the next step follows by itself.",
+      devbench_cop_t2, NULL, { NULL }, BA | BENCH_F_PICKED, 30, 15 },
+    { "p1", "Tone on the second core",
+      "Headphones on, volume low. A steady beep plays for 10 s, driven "
+      "by the second core. The music stops first and comes back after. "
+      "Normal: one clean, steady beep.",
+      "Leave the iPod alone while it plays; the question follows.",
+      devbench_cop_fiq,
+      "Did the tone sound clean?\n"
+      "Yes: one steady beep, no clicks.\n"
+      "Clicks or gaps: it crackled or broke up.\n"
+      "Silent: nothing played.\n"
+      "Wrong pitch: far higher or lower than a beep.",
+      { "Yes", "Clicks or gaps", "Silent", "Wrong pitch" },
+      BC | BENCH_F_PICKED, 0, 17 },
+    { "duty", "Dark play, both cores",
+      "Hands off, about 15 min, in the dark. It plays the album you "
+      "played last, from where it stopped. The screen "
+      "goes dark: switch Hold on and leave the iPod alone until the "
+      "screen lights again.",
+      "The music restarts three times on the way: a short gap each time "
+      "is normal. At the end, switch Hold off and press SELECT.",
+      devbench_cop_duty, NULL, { NULL }, BA | BENCH_F_PICKED, 960, 859 },
+    /* sitting 4gh-b5: sd's first allocation panicked in a compaction on a
+       header corrupted earlier (devbench_cop.c, heapchk.h) */
+    { "heap", "Memory check, both cores",
+      "Hands off, about 7 min. The album keeps playing; the music may "
+      "stop and start again every few seconds: that's normal.",
+      "Nothing to watch: the next step follows by itself.",
+      devbench_cop_heap, NULL, { NULL }, BA | BENCH_F_PICKED, 480, 390 },
 };
 #undef BA
 #undef BC
@@ -1549,8 +2273,12 @@ typedef char bench_table_fits[NSTEPS <= BENCH_MAX_STEPS ? 1 : -1];
 #define MODES_FMT   "Which session?\n\nFull session: every check, about " \
     "%u min. The first time on a build.\nRe-verify the video image: about " \
     "%u min, for a new video image after a full session.\nPort write " \
-    "check: about %u min.\n\nPick with SELECT. MENU: cancel."
-#define COUNT_FMT   "%d steps, about %u min."
+    "check: about %u min.\nCore layout probe: about %u min, mostly hands " \
+    "off.\nChip update checks: about %u min, before the re-verify on a " \
+    "new video image.\n\nPick with SELECT. MENU: cancel."
+#define COUNT_FMT   "%d steps: about %u min of your time."
+#define COUNT2_FMT  "%d steps: about %u min of your time, plus about %u " \
+    "min hands-off."
 #define WAVE2_FMT   "Wave 2 at the end only if you say yes there: about " \
     "%u min more."
 #define IFPRE_FMT   "Plus about %u min if this iPod needs its test " \
@@ -1562,14 +2290,24 @@ typedef char bench_table_fits[NSTEPS <= BENCH_MAX_STEPS ? 1 : -1];
     "two sets of test " \
     "pictures first; hands-off checks run between and after. All " \
     "read-only or put back, but the display program step."
-#define REVERIFY_TEXT "Re-verifies a new video image on this iPod (a full " \
-    "session ran before). Have ready: battery charged; nothing to plug " \
-    "in.\n\nAll read-only or put back. The session picks what to run by " \
-    "itself: if a step fails, the steps that need it are skipped, with " \
-    "one line saying why."
+#define REVERIFY_TEXT "Re-verifies a new video image (a full session ran " \
+    "before). Have ready: battery charged, headphones.\n\nAll " \
+    "read-only or put " \
+    "back. The session picks what to run: if a step fails, the steps " \
+    "that need it are skipped, with one line saying why."
 #define PORT_TEXT   "Checks the video chip's port writes: patterns " \
     "written, read back and checked. Hands off " \
     "after the start; nothing to plug in.\n\nRead-only for your music."
+#define BATCH_TEXT  "Checks a new video image (test pictures, the " \
+    "fast clock, the chip's power savings, the program swap, test " \
+    "clips, a video play), then the second core and the battery " \
+    "savings with an album playing. Have ready: battery charged, " \
+    "headphones.\n\nA few steps may freeze the iPod; each says so " \
+    "first: a restart puts it right."
+#define PROBE_TEXT  "Checks whether the second core can run the music " \
+    "on its own. Before you start: play an album for a few seconds, then " \
+    "come back here. Have ready: headphones.\n\nNothing is changed for " \
+    "good: every step puts things back."
 #define STEPS_TEXT  "Each step's first screen says what to do, how long " \
     "it takes and what is normal."
 #define SKIP_TITLE  "Skipping ahead"
@@ -1830,6 +2568,14 @@ static bool finish(int k, struct bench_state *st)
         if (strstr(vs, "FAIL"))
             autor = BENCH_FAIL;
     }
+    /* sitting 4e's soaks: their records, read after the answer (the
+       owner left the video or Now Playing on the way back) */
+    if (!strcmp(steps[k].id, "vlong"))
+        autor = vlong_end();
+    if (!strcmp(steps[k].id, "uviz"))
+        autor = uviz_end();
+    if (!strcmp(steps[k].id, "clc") || !strcmp(steps[k].id, "clf"))
+        cl_end(steps[k].id[2] == 'c' ? "C" : "F");
     if (!restart)
         after(&steps[k], a);
     else
@@ -1870,6 +2616,17 @@ static bool finish(int k, struct bench_state *st)
            a, 0, st);
     st->dangling = -1;
     return true;
+}
+
+/* Sitting 4gh-b5 (a compaction panicked on a header corrupted earlier):
+   the heap walk at each step's start ('<') and end ('>'), one "heap walk
+   at=<id n= u= us=" line each in ipodui.log (heapchk.h) */
+static void heap_at(char edge, const char *id)
+{
+    char where[12];
+
+    snprintf(where, sizeof(where), "%c%s", edge, id);
+    heapchk_at(where);
 }
 
 /* false: the owner stopped the session here (MENU), or left it to do a
@@ -1914,6 +2671,7 @@ static bool run(int k, struct bench_state *st)
            screen and this start line, in the file before the step runs;
            the disk spins for the results line above anyway, and the
            watchdog is not armed yet */
+        heap_at('<', s->id);        /* 4gh-b5: in the file before it runs */
         ui_log_flush();
         ui_log_hold(true);          /* the log stays in RAM mid-step */
         dog_set(s);
@@ -1923,6 +2681,10 @@ static bool run(int k, struct bench_state *st)
         r = s->fn();
         hang_pause(HANG_UI, false);
         dog_off();
+        /* a step's video plays end with it: the next step (or the
+           owner's Play) finds the audio queue, never the video (#154) */
+        playlist_end_video_ipodui();
+        heap_at('>', s->id);    /* 4gh-b5: after the step and its video end */
         ui_log_hold(false);
         devbcm_bench_mode(false, NULL);
         ui_log_flush();             /* between steps, the watchdog off */
@@ -1945,7 +2707,15 @@ static bool run(int k, struct bench_state *st)
     }
     if (s->flags & BENCH_F_LEAVES)
     {
-        /* the owner watches outside; the question at the next press */
+        /* the owner watches outside; the question at the next press.
+           The step's own lines go to the log now: the session leaves,
+           and the result (record()) comes after a Go on that starts with
+           them cleared, so "sdc: armed" or vplay's line would be lost */
+        int i;
+
+        for (i = 0; i < B.nsaid; i++)
+            devbcm_log(B.said[i]);
+        B.nsaid = 0;
         snprintf(line, sizeof(line), LEFT_FMT, s->title);
         screen(s->title, line, MENU_CLOSE, GO_CLOSE);
         return false;
@@ -1966,10 +2736,18 @@ static bool confirm(int mode, const struct bench_run *sel)
     char line[96];
     int n, opt;
     unsigned long secs = bench_run_sum(sel, steps, 0, BENCH_SUM_MAIN, &n);
-    unsigned long extra;
+    unsigned long extra, hands;
 
     scr_reset();
-    snprintf(line, sizeof(line), COUNT_FMT, n, bench_minutes(secs));
+    hands = bench_run_hands(sel, steps);
+    if (hands > secs)
+        hands = secs;
+    if (hands)
+        snprintf(line, sizeof(line), COUNT2_FMT, n,
+                 bench_minutes_near(secs - hands), bench_minutes_near(hands));
+    else
+        snprintf(line, sizeof(line), COUNT_FMT, n,
+                 bench_minutes_near(secs));
     scr_add(line);
     extra = bench_run_sum(sel, steps, 0, BENCH_SUM_OPTIONAL, &opt);
     if (opt)
@@ -1985,6 +2763,8 @@ static bool confirm(int mode, const struct bench_run *sel)
     }
     scr_blank();
     scr_add(mode == BENCH_MODE_PORTCHECK ? PORT_TEXT
+            : mode == BENCH_MODE_PROBE ? PROBE_TEXT
+            : mode == BENCH_MODE_BATCH ? BATCH_TEXT
             : mode == BENCH_MODE_REVERIFY ? REVERIFY_TEXT : FULL_TEXT);
     scr_blank();
     if (mode != BENCH_MODE_PORTCHECK)
@@ -2033,7 +2813,10 @@ static void sum_add(const char *text)
    driver).  ucop's switch ("cop", persistent) stays only when ucop2
    passed; a session that ran ucop but whose ucop2 failed, hung, skipped
    or never ran takes it away, so the next start runs the build's default.
-   A session that never ran ucop leaves the switch as the owner set it.
+   A session that never ran ucop leaves the switch as the owner set it,
+   but for a re-verify run that holds ucop (sitting 4g: the second-core
+   crash fix not landed): its end clears the switch, so no "cop" an
+   earlier session left can start the daily driver on the second core.
    The log line and the summary's sentence say where the next start puts
    the screens. */
 static const char *ucop_next_text;
@@ -2053,6 +2836,16 @@ static void ucop_settle(const struct bench_state *st)
     bool cop;
     char line[96];
 
+    if (st->mode == BENCH_MODE_REVERIFY && bench_pick_held("ucop"))
+    {
+        fe_be_mode_clear_next();
+        snprintf(line, sizeof(line), "next start: ui %s (ucop held)",
+                 fe_be_mode_name(fe_be_mode_next()));
+        devbcm_log(line);
+        ucop_next_text = "Next start: the screen runs on the main "
+                         "processor.";
+        return;
+    }
     if (k1 < 0 || k2 < 0 || st->res[k1] == BENCH_NONE)
         return;                     /* no switch of this session's */
     if (st->res[k2] != BENCH_PASS)
@@ -2084,7 +2877,7 @@ static inline void ucop_settle(const struct bench_state *st) { (void)st; }
 static bool summary(const struct bench_state *st, const struct bench_run *sel,
                     bool done, bool reverify, const char *verified)
 {
-    bool verifies = st->mode != BENCH_MODE_PORTCHECK;
+    bool verifies = bench_mode_verifies(st->mode);
     struct simplelist_info info;
     int p, nf = 0;
 
@@ -2187,7 +2980,7 @@ static int offer_retry(int k)
 /* The mode question, each mode's time with it */
 static int pick_mode(void)
 {
-    char text[400];
+    char text[520];
     unsigned m[BENCH_N_MODES];
     struct bench_run run;
     int k;
@@ -2199,7 +2992,8 @@ static int pick_mode(void)
                                            NULL));
     }
     snprintf(text, sizeof(text), MODES_FMT, m[BENCH_MODE_FULL],
-             m[BENCH_MODE_REVERIFY], m[BENCH_MODE_PORTCHECK]);
+             m[BENCH_MODE_REVERIFY], m[BENCH_MODE_PORTCHECK],
+             m[BENCH_MODE_PROBE], m[BENCH_MODE_BATCH]);
     return bench_mode_choice(devbench_ask("Bench session", text,
                                           bench_mode_answers,
                                           BENCH_N_MODES));
@@ -2308,6 +3102,12 @@ static bool new_file(int nsteps, int mode)
                       (unsigned long)BCMVIDEO_IMAGE_BYTES,
                       (uint32_t)BCMVIDEO_IMAGE_FNV, BCMVIDEO_IMAGE_KIND);
     put(line);
+#ifndef SIMULATOR
+    /* sitting 4g: the PP's id words (PP5021C or PP5022C; open question
+       22 in docs/pp5022-reference) */
+    bench_fmt_pp(line, sizeof(line), PP_VER1, PP_VER2);
+    put(line);
+#endif
     log_mark();
     return file_exists(B.path);
 }
@@ -2507,7 +3307,8 @@ static bool session(void)
         return summary(&st, &sel, false, reverify, NULL);
     /* the full session runs every check the re-verify run makes (and
        more): either earns the merged image's verified line */
-    if (st.mode == BENCH_MODE_PORTCHECK ? false
+    if (!bench_mode_verifies(st.mode) ? false
+        : st.mode == BENCH_MODE_BATCH ? bench_batch_ok(&sel, &st)
         : reverify ? bench_reverify_ok(&sel, &st)
                    : bench_full_ok(steps, NSTEPS, &st, &picks))
     {
@@ -2516,13 +3317,15 @@ static bool session(void)
         build_part(bp, sizeof(bp));
         bench_fmt_verified_in(vline, sizeof(vline), st.image_fnv,
                               st.image_bytes, bp, st.date,
-                              bench_opt_passed(reverify ? &sel : &picks,
-                                               &st), st.mode);
+                              bench_opt_passed(reverify ||
+                                               st.mode == BENCH_MODE_BATCH
+                                               ? &sel : &picks, &st),
+                              st.mode);
         snprintf(line, sizeof(line), "verified %s\n", vline);
         put(line);
         verified = vline;
     }
-    if (st.mode != BENCH_MODE_PORTCHECK && st.merged &&
+    if (bench_mode_tokens(st.mode) && st.merged &&
         bench_clock150_ok(steps, NSTEPS, &st))
     {
         char bp[40], cl[200];
@@ -2532,6 +3335,21 @@ static bool session(void)
                            st.date);
         snprintf(line, sizeof(line), "token %s\n", cl);
         put(line);
+    }
+    /* p19-pwr-awake: each awake row that passed earns its token line
+       (firmware/export/pwr_awake_tokens.h), in any mode that ran it */
+    {
+        char bp[40], tl[200];
+        int t;
+
+        build_part(bp, sizeof(bp));
+        for (t = 0; t < BENCH_AWAKE_NTOKENS; t++)
+            if (bench_awake_token_ok(steps, NSTEPS, &st, t))
+            {
+                bench_awake_fmt_token(tl, sizeof(tl), t, bp, st.date);
+                snprintf(line, sizeof(line), "token %s\n", tl);
+                put(line);
+            }
     }
     ucop_settle(&st);               /* before the end line: the next start */
     snprintf(line, sizeof(line), "end passed=%u failed=%u skipped=%u\n",

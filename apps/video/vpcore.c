@@ -180,12 +180,81 @@ static void vclk_frame(struct vpc *v, const uint32_t *r)
                                                     v->gov.mhz)));
 }
 
+/* the HP_OP_VCLK in flight answered: into the governor (BVP_AGAIN while
+   it hasn't come) */
+static int vclk_reply(struct vpc *v, uint32_t now)
+{
+    uint32_t r[BVP_REPLY_WORDS], n;
+    int rc = bvp_take(&v->bvp, v->vclk_tag, r, BVP_REPLY_WORDS, &n);
+
+    if (rc == BVP_AGAIN)
+        return rc;
+    v->vclk_tag = 0;
+    if (rc == HP_OK && n >= HP_VCLK_WORDS && r[HP_VCLK_R_BAND] < VCLK_BANDS)
+    {
+        uint32_t busy = r[HP_VCLK_R_BUSY] - v->vclk_busy;
+        uint32_t el = r[HP_VCLK_R_NOW] - v->vclk_now;
+        int asked = v->vclk_asked;
+
+        v->vclk_busy = r[HP_VCLK_R_BUSY];
+        v->vclk_now = r[HP_VCLK_R_NOW];
+        vclk_gov_ran(&v->gov, now, asked, (int)r[HP_VCLK_R_BAND],
+                     r[HP_VCLK_R_MHZ]);
+        if (asked >= 0 && asked != (int)r[HP_VCLK_R_BAND])
+        {
+            vclk_say(v, vclk_band_line);    /* why=fail */
+            if (!v->ub_why)
+            {
+                v->ub_why = VCHECK_BAD_CLOCK;
+                v->ub_a = (long)r[HP_VCLK_R_MHZ];
+            }
+        }
+        v->vclk_asked = -1;
+        if (asked < 0 && vclk_gov_meter(&v->gov, now, busy, el))
+            v->vclk_pending = 1;
+    }
+    return rc;
+}
+
+/* A restart's CLOSE put the chip on the crystal (video.c video_close;
+   sitting 4f [silicon]) and its OPEN raises it only with
+   HP_OPEN_FAST_CLOCK: the governor still believed its old band and asked
+   for nothing, so the play ran at 27 MHz (86 ms a packet against 41.7 ms
+   a frame) until a reload.  Now the governor reads the chip's clock
+   again, as vclk_start does after a wake, and races to the top.  The
+   command in flight was answered before the CLOSE (the ring is in order):
+   it is taken first, so no reply is left behind. */
+static void vclk_resync(struct vpc *v)
+{
+    uint32_t a[2] = { HP_VCLK_MAGIC, HP_VCLK_STAT };
+    uint32_t r[BVP_REPLY_WORDS], n = 0, now = v->be->port->now_us();
+
+    if (!v->vclk_on)
+        return;
+    if (v->vclk_tag && vclk_reply(v, now) == BVP_AGAIN)
+        v->vclk_tag = 0;        /* never: dropped, not mistaken */
+    if (bvp_call(&v->bvp, HP_OP_VCLK, a, 2, r, BVP_REPLY_WORDS, &n,
+                 200000) == HP_OK && n >= HP_VCLK_WORDS)
+    {
+        v->vclk_busy = r[HP_VCLK_R_BUSY];
+        v->vclk_now = r[HP_VCLK_R_NOW];
+        vclk_gov_ran(&v->gov, now, -1, (int)r[HP_VCLK_R_BAND],
+                     r[HP_VCLK_R_MHZ]);
+    }
+    else
+        vclk_gov_ran(&v->gov, now, -1, 0, 0);  /* the CLOSE's crystal */
+    v->vclk_asked = -1;
+    v->vclk_poll_at = now;
+    vclk_gov_floor(&v->gov, now, v->vclk_force ? (int)v->vclk_force - 1 :
+                                 vclk_video_race(&v->vfl, now));
+    vclk_want(v, 1);
+}
+
 /* every tick: misses into the floor; the command in flight answered; the
    next one; the meter read 10 times a second */
 static void vclk_poll(struct vpc *v)
 {
-    uint32_t r[BVP_REPLY_WORDS], n, now, m;
-    int rc;
+    uint32_t now, m;
 
     if (!v->vclk_on)
         return;
@@ -202,36 +271,8 @@ static void vclk_poll(struct vpc *v)
                                         vclk_video_miss(&v->vfl, now,
                                                         v->gov.band)));
     }
-    if (v->vclk_tag)
-    {
-        rc = bvp_take(&v->bvp, v->vclk_tag, r, BVP_REPLY_WORDS, &n);
-        if (rc == BVP_AGAIN)
-            return;
-        v->vclk_tag = 0;
-        if (rc == HP_OK && n >= HP_VCLK_WORDS && r[HP_VCLK_R_BAND] < VCLK_BANDS)
-        {
-            uint32_t busy = r[HP_VCLK_R_BUSY] - v->vclk_busy;
-            uint32_t el = r[HP_VCLK_R_NOW] - v->vclk_now;
-            int asked = v->vclk_asked;
-
-            v->vclk_busy = r[HP_VCLK_R_BUSY];
-            v->vclk_now = r[HP_VCLK_R_NOW];
-            vclk_gov_ran(&v->gov, now, asked, (int)r[HP_VCLK_R_BAND],
-                         r[HP_VCLK_R_MHZ]);
-            if (asked >= 0 && asked != (int)r[HP_VCLK_R_BAND])
-            {
-                vclk_say(v, vclk_band_line);    /* why=fail */
-                if (!v->ub_why)
-                {
-                    v->ub_why = VCHECK_BAD_CLOCK;
-                    v->ub_a = (long)r[HP_VCLK_R_MHZ];
-                }
-            }
-            v->vclk_asked = -1;
-            if (asked < 0 && vclk_gov_meter(&v->gov, now, busy, el))
-                v->vclk_pending = 1;
-        }
-    }
+    if (v->vclk_tag && vclk_reply(v, now) == BVP_AGAIN)
+        return;
     if (v->vclk_pending)
     {
         vclk_want(v, 1);
@@ -268,6 +309,10 @@ static void unit_bad_report(struct vpc *v)
         return;
     v->ub_said = true;
     say(v, "video: unit check invalidated (why, value)", v->ub_why, v->ub_a);
+    /* sitting 4f: decode-error (1), the end summary 0 (its counters are
+       the last session's): where in the play it came */
+    say(v, "video: unit check: at (pictures since a restart, restarts)",
+        (long)v->ub_pics, (long)v->stats.restarts);
     if (v->be->unit_bad)
         v->be->unit_bad(v->ub_why, v->ub_a);
 }
@@ -331,39 +376,206 @@ static int src_failed(struct vpc *v, uint32_t why, uint32_t i, uint32_t size,
     return -1;
 }
 
-static int window(struct vpc *v, uint32_t i)
+/* The index window is a ring of win_cap records: record i sits in slot
+   i % win_cap, and [win_first, win_first + win_n) are valid */
+static uint8_t *slot(const struct vpc *v, uint32_t i)
+{
+    return v->win + (i % v->win_cap) * VIX_RECORD_SIZE;
+}
+
+/* records from i to the ring's end, at most n */
+static uint32_t ring_run(const struct vpc *v, uint32_t i, uint32_t n)
+{
+    uint32_t r = v->win_cap - i % v->win_cap;
+
+    return n < r ? n : r;
+}
+
+static uint64_t rec_off(uint32_t i)
+{
+    return VIX_HEADER_SIZE + (uint64_t)i * VIX_RECORD_SIZE;
+}
+
+/* #175 (owner's log, build 4c241d1df3; sittings 4f/4g before it): the
+   window's next records were read in this thread when it ran low, and
+   met storage powered off: 600-700 ms of power-up here on flash (2-4 s
+   on a disk), a late thread and dropped GOPs.  Now the source's reader
+   (another thread, which wakes storage if it must) fills the ring ahead
+   of the pushes, and this thread never reads the index while it plays:
+     - as soon as half the ring is spent, if another thread's transfer
+       is under way (the read rides along: no power-up of its own);
+     - always once less than VPC_IDX_LEAD_US of pictures is left (a
+       disk's worst wake with room to spare; a short window, the
+       simulator's, a host test's: a quarter of it).
+   It reads all but an eighth of the free slots (records kept behind for
+   a seek back), up to the ring's end.  Without a reader, or after a failed read, the window's end is
+   read here (logged at the end: "index reads ahead, here"). */
+static void idx_land(struct vpc *v, long rc)
+{
+    uint32_t n = v->idx_req_n;
+
+    v->idx_req_n = 0;
+    if (rc == (long)n * VIX_RECORD_SIZE &&
+        v->idx_req_first == v->win_first + v->win_n)
+    {
+        v->win_n += n;
+        v->stats.idx_reads++;
+        return;
+    }
+    v->idx_off = true;          /* this window's end is read here */
+    say(v, "video: index read ahead failed (rc, at)", rc,
+        (long)v->idx_req_first);
+}
+
+/* #175: a read ahead under way on the source's reader (it owns its
+   slots until done): wait it out and keep what it read.  Before every
+   read here, and before the memory goes (vpc_stop) */
+static void idx_settle(struct vpc *v)
+{
+    long rc;
+
+    if (!v->idx_req_n)
+        return;
+    while ((rc = v->src->index_done(v->src->ctx)) == VPC_NOT_BUFFERED)
+        if (v->src->wait)
+            v->src->wait();
+    idx_land(v, rc);
+}
+
+/* [first, first + n) read in this thread into its slots */
+static long idx_sync(struct vpc *v, uint32_t first, uint32_t n)
+{
+    while (n)
+    {
+        uint32_t m = ring_run(v, first, n);
+        long want = (long)m * VIX_RECORD_SIZE;
+        long got = v->src->index_read(v->src->ctx, rec_off(first),
+                                      slot(v, first), (uint32_t)want);
+
+        if (got != want)
+            return got < 0 ? got : -1;
+        first += m;
+        n -= m;
+    }
+    return 0;
+}
+
+static int win_read(struct vpc *v, uint32_t i)
 {
     uint32_t first, n;
-    long want, got;
+    long got;
 
-    if (i >= v->hdr.count)
-        return -1;
-    if (i >= v->win_first && i < v->win_first + v->win_n)
-        return 0;
+    idx_settle(v);
     /* a little behind too: the engine reads the oldest unposted sample
        and pushes up to two seconds ahead of it */
     first = i > 64 ? i - 64 : 0;
     n = v->hdr.count - first;
-    if (n > VPC_WINDOW_RECORDS)
-        n = VPC_WINDOW_RECORDS;
-    want = (long)n * VIX_RECORD_SIZE;
+    if (n > v->win_cap)
+        n = v->win_cap;
     v->win_n = 0;
-    got = v->src->index_read(v->src->ctx,
-                             VIX_HEADER_SIZE + (uint64_t)first * VIX_RECORD_SIZE,
-                             v->win, (uint32_t)want);
-    if (got != want)
-        return src_failed(v, VPC_SRC_WINDOW, i, 0, got, (uint32_t)want,
-                          first);
+    if ((got = idx_sync(v, first, n)) < 0)
+        return src_failed(v, VPC_SRC_WINDOW, i, 0, got,
+                          n * VIX_RECORD_SIZE, first);
     v->win_first = first;
     v->win_n = n;
+    v->idx_off = false;         /* a fresh window: the reader again */
     return 0;
+}
+
+static int window(struct vpc *v, uint32_t i)
+{
+    if (i >= v->hdr.count)
+        return -1;
+    if (i >= v->win_first && i < v->win_first + v->win_n)
+        return 0;
+    if (v->state == VPC_PLAYING && i == v->win_first + v->win_n)
+        v->stats.idx_here++;    /* the window ran out while playing */
+    return win_read(v, i);
+}
+
+static int64_t rec_pts(struct vpc *v, uint32_t i)
+{
+    struct mp4_sample s;
+
+    vix_read_record(slot(v, i), &s);
+    return s.pts_us;
+}
+
+static void win_ahead(struct vpc *v)
+{
+    const struct vpc_source *src = v->src;
+    uint32_t end = v->win_first + v->win_n, low, free, n;
+    int64_t lead, left;
+
+    if (!src->index_post || v->idx_off)
+        return;
+    if (v->idx_req_n)
+    {
+        long rc = src->index_done(src->ctx);
+
+        if (rc == VPC_NOT_BUFFERED)
+            return;
+        idx_land(v, rc);
+        end = v->win_first + v->win_n;
+    }
+    if (end >= v->hdr.count || v->eng.pushed < v->win_first ||
+        v->eng.pushed >= end)
+        return;                 /* the end, a seek's, or ran out */
+    low = v->eng.posted > 64 ? v->eng.posted - 64 : 0;
+    if (low < v->win_first)
+        low = v->win_first;
+    if (low > v->eng.pushed)
+        low = v->eng.pushed;
+    free = v->win_cap - (end - low);
+    /* a window too short for the lead (the simulator's, a host test's):
+       a quarter of its span */
+    lead = VPC_IDX_LEAD_US;
+    if (end - low >= 64)
+    {
+        int64_t part = (rec_pts(v, end - 1) - rec_pts(v, low)) *
+                       v->win_cap / (4 * (end - low));
+
+        if (part < lead)
+            lead = part;
+    }
+    left = rec_pts(v, end - 1) - rec_pts(v, v->eng.pushed);
+    if (left >= lead &&
+        (2 * free < v->win_cap || !src->disk ||
+         !src->disk(src->ctx, VPC_DISK_BUSY)))
+        return;
+    if (!free)
+        return;
+    /* an eighth of the ring stays behind the oldest unposted sample's 64
+       (21 s at 24 fps): a seek back or a restart's key finds its records
+       here and never waits for this read; the rest is read, as few reads
+       (power-ups) as the ring allows */
+    n = v->hdr.count - end;
+    if (n > free)
+        n = free > v->win_cap / 4 ? free - v->win_cap / 8 : free;
+    n = ring_run(v, end, n);
+    /* only the oldest slots it needs go (none past the oldest unposted
+       sample's 64: n <= free) */
+    if (end + n - v->win_first > v->win_cap)
+    {
+        v->win_first = end + n - v->win_cap;
+        v->win_n = end - v->win_first;
+    }
+    if (src->index_post(src->ctx, rec_off(end), slot(v, end),
+                        n * VIX_RECORD_SIZE) < 0)
+    {
+        v->idx_off = true;
+        say(v, "video: index read ahead refused (at)", (long)end, 0);
+        return;
+    }
+    v->idx_req_first = end;
+    v->idx_req_n = n;
 }
 
 static int record(struct vpc *v, uint32_t i, struct mp4_sample *s)
 {
     if (window(v, i) < 0)
         return -1;
-    vix_read_record(v->win + (i - v->win_first) * VIX_RECORD_SIZE, s);
+    vix_read_record(slot(v, i), s);
     return 0;
 }
 
@@ -758,9 +970,12 @@ static int session_restart(struct vpc *v)
     bvp_close(&v->bvp, 0);
     rc = bvp_open(&v->bvp, v->hdr.width, v->hdr.height, open_mode(v));
     v->st.in_flight = 0;
-    if (rc == HP_OK && v->ovl_w)
+    if (rc != HP_OK)
+        return rc;
+    vclk_resync(v);
+    if (v->ovl_w)
         ovl_apply(v);           /* an OPEN clears the image's overlay */
-    return rc == HP_OK ? 0 : rc;
+    return 0;
 }
 
 static void op_restart(void *ctx)
@@ -902,7 +1117,7 @@ long vpc_init(struct vpc *v, const struct vpc_source *src,
               const struct vpc_backend *be, void *mem, size_t len)
 {
     uint8_t *p = ALIGN4(mem), hdr[VIX_HEADER_SIZE];
-    uint32_t first, nkeys = 0;
+    uint32_t first, n, nkeys = 0;
     int rc;
 
     memset(v, 0, sizeof(*v));
@@ -911,6 +1126,9 @@ long vpc_init(struct vpc *v, const struct vpc_source *src,
     if (len < VPC_MEM_SIZE)
         return MP4_E_SPACE;
     v->win = p;
+    v->win_cap = src->window_records &&
+                 src->window_records < VPC_WINDOW_RECORDS
+                 ? src->window_records : VPC_WINDOW_RECORDS;
     p += VPC_WINDOW_RECORDS * VIX_RECORD_SIZE;
     v->piece = p;
     p += VPC_PIECE;
@@ -928,31 +1146,23 @@ long vpc_init(struct vpc *v, const struct vpc_source *src,
         return MP4_E_FORMAT;
     if ((rc = load_params(v)) < 0)
         return rc;
-    for (first = 0; first < v->hdr.count; first += v->win_n)
+    for (first = 0; first < v->hdr.count; first += n)
     {
         uint32_t i;
 
-        if (window(v, first) < 0 || v->win_first != first)
-        {
-            /* window() starts a little behind: read this one exactly */
-            uint32_t n = v->hdr.count - first;
-            long want;
-
-            if (n > VPC_WINDOW_RECORDS)
-                n = VPC_WINDOW_RECORDS;
-            want = (long)n * VIX_RECORD_SIZE;
-            if (src->index_read(src->ctx, VIX_HEADER_SIZE +
-                                (uint64_t)first * VIX_RECORD_SIZE,
-                                v->win, (uint32_t)want) != want)
-                return MP4_E_IO;
-            v->win_first = first;
-            v->win_n = n;
-        }
-        for (i = 0; i < v->win_n; i++)
+        n = v->hdr.count - first;
+        if (n > v->win_cap)
+            n = v->win_cap;
+        v->win_n = 0;
+        if (idx_sync(v, first, n) < 0)
+            return MP4_E_IO;
+        v->win_first = first;
+        v->win_n = n;
+        for (i = first; i < first + n; i++)
         {
             struct mp4_sample s;
 
-            vix_read_record(v->win + i * VIX_RECORD_SIZE, &s);
+            vix_read_record(slot(v, i), &s);
             nkeys += s.key;
         }
     }
@@ -1209,6 +1419,7 @@ static void still_reset(struct vpc *v)
 {
     v->shown_wall_us = v->be->port->now_us();
     v->still_mark = v->eng.stats.posted;
+    v->still_data_mark = v->stats.data_waits;
 }
 
 /* How long the image takes from a seek's key to its target (decoded,
@@ -1239,6 +1450,18 @@ static int64_t catchup_us(struct vpc *v, int64_t target_us)
     if (v->eng.paused || record(v, k, &s) < 0)
         return 0;
     return catchup_from(v, s.pts_us, target_us);
+}
+
+/* No picture and nothing posted: is the next record to post more than
+   VPC_STILL_US behind the audio?  (Then no post is coming either: the
+   FIFO or the image's queue is stuck, or its data never came.) */
+static bool stream_behind(struct vpc *v, int64_t audio_us)
+{
+    struct mp4_sample s;
+
+    return v->eng.posted < v->hdr.count &&
+           record(v, v->eng.posted, &s) == 0 &&
+           s.pts_us + VPC_STILL_US < audio_us;
 }
 
 /* "sample source failed": what failed, then on from the key after it
@@ -1367,6 +1590,7 @@ static int status(struct vpc *v)
             {
                 v->ub_why = r[8] ? VCHECK_BAD_ERROR : VCHECK_BAD_CONCEAL;
                 v->ub_a = (long)(r[8] ? r[8] : r[9]);
+                v->ub_pics = r[7];
             }
             if (rc == HP_OK && n >= 16 && r[15] && v->sess_mhz &&
                 !v->vclk_on && r[15] < v->sess_mhz && !v->ub_why)
@@ -1402,7 +1626,7 @@ static int status(struct vpc *v)
                         (long)(v->boot_us / 1000));
                     v->start_us = 0;
                 }
-                if (v->read_direct && !v->shown_seen)
+                if (v->read_direct && !v->direct_left && !v->shown_seen)
                     say(v, "video: the refused stream plays from the file "
                         "(NAL type, check)", v->refused_nal, v->refused_at);
                 if (n >= 16 && r[15] != v->mhz_said)
@@ -1411,6 +1635,21 @@ static int status(struct vpc *v)
                     say(v, "video: chip MHz (now, was)", r[15], v->mhz_said);
                     v->mhz_said = r[15];
                 }
+                /* pictures since the last STATUS (a new session counts
+                   from 0) */
+                uint32_t moved = r[7] > v->shown_seen ? r[7] - v->shown_seen
+                                                      : r[7];
+
+                v->stats.pictures += moved;
+                if (v->direct_left && moved >= v->direct_left)
+                {
+                    v->direct_left = 0;
+                    v->read_direct = false;
+                    say(v, "video: data still over (n)",
+                        (long)v->stats.data_stills, 0);
+                }
+                else if (v->direct_left)
+                    v->direct_left -= moved;
                 v->shown_seen = r[7];
                 v->still_run = 0;
                 v->src_run = 0;
@@ -1577,8 +1816,31 @@ enum vpc_state vpc_tick(struct vpc *v, int64_t audio_us, bool playing,
                 recover(v, rc);
             return v->state;
         }
+        if (v->bvp.feed_refused)
+        {
+            /* day 4c: the image refused a FEED (out of place, or its
+               queue full): that packet is never consumed, so FIFO_RD
+               stops, every later FEED is out of place too, and the
+               pictures stop while the audio plays on, with no posts for
+               the still watchdog to count.  What a scrub did on the
+               device: a new session where the audio is */
+            v->stats.feed_refusals++;
+            say(v, "video: FEED refused (status, want)",
+                v->bvp.feed_err, (long)v->bvp.feed_want);
+            say(v, "video: FEED refused: n, in flight",
+                (long)v->bvp.feed_refused, (long)v->bvp.in_flight);
+            if (++v->still_run >= VPC_STILL_MAX)
+            {
+                give_up(v, BVP_E_PROTO);
+                return v->state;
+            }
+            vpc_seek(v, audio_us);
+            return v->state;
+        }
         vclk_poll(v);
         unit_bad_report(v);
+        if (playing)
+            win_ahead(v);
         if (v->eng.paused == playing)
         {
             vp_pause(&v->eng, !playing);
@@ -1664,20 +1926,51 @@ enum vpc_state vpc_tick(struct vpc *v, int64_t audio_us, bool playing,
             v->still_reload_at = 0;
         }
         else if (!v->resync &&
-                 v->eng.stats.posted >= v->still_mark + 3 &&
-                 v->be->port->now_us() - v->shown_wall_us > VPC_STILL_US)
+                 v->be->port->now_us() - v->shown_wall_us > VPC_STILL_US &&
+                 (v->eng.stats.posted >= v->still_mark + 3 ||
+                  stream_behind(v, audio_us)))
         {
-            /* records went out and the picture stood still: say where
-               the session is, then start again where the audio is */
+            /* records went out and the picture stood still, or none could
+               go out and the stream fell behind the audio (day 4c: the
+               old rule counted posts only, so a session whose posts had
+               stopped stood still for good): say where the session is,
+               then start again where the audio is */
             v->stats.stills++;
+            if (v->eng.stats.posted < v->still_mark + 3)
+                v->stats.stills_behind++;
             say(v, "video: still: posted, pushed", v->eng.posted,
                 v->eng.pushed);
             say(v, "video: still: in flight, statuses", v->bvp.in_flight,
                 v->stats.statuses);
+            say(v, "video: still: posts, data waits",
+                (long)(v->eng.stats.posted - v->still_mark),
+                (long)v->stats.data_waits);
             say(v, "video: still: audio ms, ms since it moved",
                 (long)(audio_us / 1000),
                 (long)((v->be->port->now_us() - v->audio_moved_us) / 1000));
             chip_report(v, false);
+            if (v->stats.data_waits != v->still_data_mark &&
+                !v->read_direct)
+            {
+                /* the pushes waited on the audio's buffer the whole time:
+                   its fill stopped short of the samples (day 4c: a scrub,
+                   which seeks the audio and refills it, cured the device).
+                   The samples come from the file for a while instead */
+                v->stats.data_stills++;
+                if (v->src->report && v->eng.pushed < v->hdr.count)
+                {
+                    struct mp4_sample ws;
+
+                    if (record(v, v->eng.pushed, &ws) == 0)
+                        v->src->report(v->src->ctx,
+                                       ws.offset + ws.size - 1);
+                }
+                v->read_direct = true;
+                v->direct_left = VPC_DATA_DIRECT_PICS;
+                say(v, "video: data still: file (waits, ms)", (long)(v->stats.data_waits -
+                                       v->still_data_mark),
+                    (long)(audio_us / 1000));
+            }
             if (++v->still_run >= VPC_STILL_MAX)
             {
                 /* restarts don't help: the stream can't be shown (too
@@ -1899,8 +2192,13 @@ int vpc_audio_block(struct vpc *v, uint32_t in, uint32_t out, uint32_t off,
 
 void vpc_stop(struct vpc *v)
 {
+    idx_settle(v);              /* the reader's slots are in this memory */
     if (v->state != VPC_IDLE)
     {
+        /* #175: the index's reads ahead on the reader, and the window's
+           ends read in this thread while playing (0 unless it failed) */
+        say(v, "video: end: index reads ahead, here", v->stats.idx_reads,
+            v->stats.idx_here);
         /* the session's errors, as the image and the port saw them */
         say(v, "video: end: decode errors, concealed blocks",
             v->st_words[8], v->st_words[9]);

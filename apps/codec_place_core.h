@@ -26,8 +26,9 @@
  * docs/design/p19-placement.md section 4). Pure logic, no Rockbox calls
  * (host test: tests/codecplace/). Times are in ticks.
  *
- * Placement (a developer A/B mode since the owner pinned decoding to the
- * CPU, 2026-10-24). Dark (the backlight off and the panel asleep)
+ * Placement by screen (a developer A/B arm: the owner pinned decoding to
+ * the CPU on 2026-10-24, then put it on the COP for every build on
+ * 2026-11-07, CPL_MODE_COP). Dark (the backlight off and the panel asleep)
  * decodes on the CPU with the COP idle; lit decodes on the COP. The
  * codec stays loaded across tracks of one type, so the choice is made at
  * three points: the first run after a load (playback start, a codec
@@ -58,13 +59,14 @@ enum cpl_screen {
 
 enum cpl_core { CPL_COP = 0, CPL_CPU };
 
-/* The developer switch (codec_cop.c; M-2's arms). The owner pinned
- * decoding to the CPU (2026-10-24): CPL_MODE_CPU is the default and the
- * plain path; the other two exist only for the A/B */
+/* The developer switch (codec_cop.c; M-2's arms). Owner, 2026-11-07
+ * (Apple's core layout, superseding 2026-10-24's pin to the CPU):
+ * CPL_MODE_COP is the default in every build; the other two exist only
+ * for the A/B (CPL_MODE_CPU is the plain path) */
 enum cpl_mode {
     CPL_MODE_SCREEN = 0,    /* A/B: by the screen state */
-    CPL_MODE_COP,           /* A/B: Fit-2, always on the COP */
-    CPL_MODE_CPU,           /* the default: always on the CPU */
+    CPL_MODE_COP,           /* the default: Fit-2, always on the COP */
+    CPL_MODE_CPU,           /* A/B: always on the CPU, the plain path */
 };
 
 #define CPL_HOLD_S      30  /* the screen state's hold for a boundary */

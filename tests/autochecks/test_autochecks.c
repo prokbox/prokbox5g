@@ -30,6 +30,7 @@ static int hold_later = 1;
 #include "devbench.h"
 #include "devbench_power.h"
 #include "devbench_vclk.h"
+#include "devbench_vcpwr.h"
 
 static int fails;
 
@@ -361,7 +362,12 @@ static void t_modes(void)
     CHECK(bench_mode_choice(1) == BENCH_MODE_REVERIFY);
     CHECK(bench_mode_choice(-1) == -1);         /* MENU */
     CHECK(bench_mode_choice(2) == BENCH_MODE_PORTCHECK);
-    CHECK(bench_mode_choice(3) == -1);
+    CHECK(bench_mode_choice(3) == BENCH_MODE_PROBE);
+    CHECK(bench_mode_choice(4) == BENCH_MODE_BATCH);
+    CHECK(bench_mode_choice(5) == -1);
+    CHECK(!strcmp(bench_mode_answers[4], "Chip update checks"));
+    CHECK(!strcmp(bench_mode_name[BENCH_MODE_BATCH], "batch"));
+    CHECK(!strcmp(bench_mode_answers[3], "Core layout probe"));
     CHECK(!strcmp(bench_mode_answers[0], "Full session"));
     CHECK(!strcmp(bench_mode_answers[1], "Re-verify the video image"));
     CHECK(!strcmp(bench_mode_answers[2], "Port write check"));
@@ -433,6 +439,78 @@ static const struct bench_step P[] =
       BENCH_F_REBOOTS, 0, 0 },
 };
 #define NP ((int)(sizeof(P) / sizeof(P[0])))
+
+/* Sitting 4h's core layout probe: p2, p1, duty, picked only (never in the
+ * full run), no need between them, no verified line; its session line
+ * says mode=probe and a resume reads it back */
+static const struct bench_step Q[] =
+{
+    { "s05", "Stages", "Watch", NULL, ran, "Did they look right?",
+      { "Yes", "Garbled", NULL }, 0, 0, 0 },
+    { "p2", "Second core timer", "Hands off", NULL, ran, NULL, { NULL },
+      BENCH_F_AUTO | BENCH_F_PICKED, 30, 15 },
+    { "p1", "Tone on the second core", "Headphones", NULL, ran,
+      "Did the tone sound clean?", { "Yes", "Clicks or gaps", "Silent",
+      "Wrong pitch" }, BENCH_F_COP | BENCH_F_PICKED, 0, 40 },
+    { "duty", "Dark play, both cores", "Hands off", NULL, ran, NULL,
+      { NULL }, BENCH_F_AUTO | BENCH_F_PICKED, 960, 870 },
+};
+#define NQ ((int)(sizeof(Q) / sizeof(Q[0])))
+
+static void t_probe(void)
+{
+    struct bench_run run;
+    struct bench_state st;
+    char ids[80], buf[300];
+    int n;
+    unsigned long secs;
+
+    /* the full run never takes them */
+    CHECK(bench_select(BENCH_MODE_FULL, Q, NQ, &run) == 1);
+    /* the probe run: basic to advanced, independent */
+    CHECK(bench_select(BENCH_MODE_PROBE, Q, NQ, &run) == 3);
+    run_ids(&run, Q, ids, sizeof(ids));
+    CHECK(!strcmp(ids, "p2,p1,duty"));
+    CHECK(run.role[0] == BENCH_R_NEED && run.role[1] == BENCH_R_NEED &&
+          run.role[2] == BENCH_R_ALSO);
+    CHECK(run.need[1][0] == -1 && run.need[2][0] == -1);
+    /* p2 failing skips nothing: p1 and duty still run */
+    bench_state_init(&st);
+    st.mode = BENCH_MODE_PROBE;
+    st.res[1] = BENCH_FAIL;
+    CHECK(bench_dep_skip(&run, Q, &st, 1) < 0);
+    CHECK(bench_dep_skip(&run, Q, &st, 2) < 0);
+    /* the times: p1's 40 s with the owner, p2 and duty hands off */
+    secs = bench_run_sum(&run, Q, 0, BENCH_SUM_MAIN, &n);
+    CHECK(n == 3 && secs == 15 + 40 + 870);
+    /* no verified line, either check */
+    CHECK(!bench_mode_verifies(BENCH_MODE_PROBE));
+    CHECK(!bench_mode_verifies(BENCH_MODE_PORTCHECK));
+    CHECK(bench_mode_verifies(BENCH_MODE_FULL) &&
+          bench_mode_verifies(BENCH_MODE_REVERIFY));
+    /* the session line, written and read back */
+    bench_fmt_session(buf, sizeof(buf), "b", "2026-11-05 18:00", 3,
+                      BENCH_MODE_PROBE, 218660, 0xcd8e5d96u, "merged");
+    CHECK(!strcmp(buf, "session build=b date=2026-11-05 18:00 steps=3 "
+                  "mode=probe image=218660 fnv=cd8e5d96 kind=merged\n"));
+    bench_state_init(&st);
+    bench_replay(&st, Q, NQ, buf);
+    CHECK(st.started && st.mode == BENCH_MODE_PROBE);
+    /* a resume after p2 carries on at p1 */
+    bench_replay(&st, Q, NQ, "step=p2 result=pass answer=- ms=1 note=");
+    bench_select(st.mode, Q, NQ, &run);
+    CHECK(bench_run_next(&run, &st) == 1);
+    /* the rows' verdict lines */
+    CHECK(bench_classify("p2: PASS: Timer 2 on the COP (pass 980..1020, 0 "
+                         "on the CPU)") == BENCH_PASS);
+    CHECK(bench_classify("p1: FAIL: the COP did not take the job") ==
+          BENCH_FAIL);
+    CHECK(bench_classify("duty: Not run: no music to play (play an album "
+                         "before the session)") == BENCH_SKIP);
+    CHECK(bench_classify("p1: Not run (sim): the PCM DMA's FIQ on the COP "
+                         "needs the second core; the route is [hypothesis] "
+                         "until the bench") == BENCH_SKIP);
+}
 
 static void t_portcheck(void)
 {
@@ -1051,6 +1129,11 @@ static void t_vpu(void)
     CHECK(bench_vpu_verdict(3, other | dec) == BENCH_FAIL);
     CHECK(bench_vpu_verdict(1, other) == BENCH_FAIL);   /* shift disagreed */
     CHECK(bench_vpu_verdict(0, other) == BENCH_FAIL);   /* never checked */
+    /* sitting 4e: the merged image with the visualiser overlay loaded
+       reads 0x53 (its BARS and FLIP beside the image's 3): a pass */
+    CHECK(bench_vpu_verdict(0x53, other) == BENCH_PASS);
+    CHECK(bench_vpu_verdict(0x5b, other) == BENCH_PASS);    /* + FFT */
+    CHECK(bench_vpu_verdict(0x51, other) == BENCH_FAIL);    /* shift off */
 }
 
 /* p19-battery: the battery rows' phase plan and verdicts */
@@ -1140,7 +1223,7 @@ static void t_script(void)
         { "jobs", "J", NULL, NULL, ran, NULL, { NULL }, BENCH_F_AUTO, 30, 0 },
         { "jvpu", "V", NULL, NULL, ran, NULL, { NULL }, BENCH_F_AUTO, 30, 0 },
         { "s4c", "C", "x", NULL, ran, "q", { "Yes", "Bad", NULL }, 0, 0, 60 },
-        { "s6", "6", "x", NULL, ran, "q", { "Yes", NULL }, 0, 0, 60 },
+        { "s6", "6", "x", NULL, ran, "q", { "Yes", NULL }, 0, 0, 60, 30 },
         { "b13", "13", "x", NULL, ran, "q", { "No", NULL }, 0, 0, 60 },
         { "b5", "5", "x", NULL, ran, "q", { "Yes", NULL }, 0, 0, 45 },
         { "drill2", "D", "x", NULL, ran, "q", { "Ok", "Bad", NULL },
@@ -1178,6 +1261,12 @@ static void t_script(void)
           300 + 90 + 30 + 30 + 30 + 60 + 60 + 60 + 45 + 120 + 10 && cnt == 11);
     CHECK(bench_run_sum(&run, S, 0, BENCH_SUM_OPTIONAL, &cnt) == 120 &&
           cnt == 1);
+    /* the confirm screen's split: AUTO steps (180 s) plus s6's hands_s
+       (30 s) are hands-off, the rest of the 745 s is the owner's */
+    CHECK(bench_run_hands(&run, S) == 210);
+    CHECK(bench_minutes_near(745 - 210) == 9 && bench_minutes_near(210) == 4);
+    CHECK(bench_minutes_near(0) == 0 && bench_minutes_near(10) == 1 &&
+          bench_minutes_near(29) == 1 && bench_minutes_near(90) == 2);
     CHECK(bench_run_sum(&run, S, 1, BENCH_SUM_BLOCK, &cnt) == 180 &&
           cnt == 4);
     CHECK(bench_run_sum(&run, S, 0, BENCH_SUM_BLOCK, &cnt) == 0 && cnt == 0);
@@ -1283,8 +1372,17 @@ static const struct bench_step SR[] =
     M("s7"), M("vfeed"), M("vbv"), M("vgov"),
     { "vplay", "Play a video", NULL, NULL, NULL, "q", { "Yes", "No", NULL },
       BENCH_F_PICKED, 0, 60 },
+    M("sdc"), M("alb"),
     M("b13"), M("b5"), M("boot"), M("ucop"), M("uck1"), M("uck2"),
-    M("ufeel"), M("upanel"), M("ucop2"), M("uviz"), M("respanel"), M("b3"),
+    M("ufeel"), M("upanel"), M("ucusb"), M("ucmod"), M("ucop2"),
+    M("ucoff"), M("clc"), M("clf"), M("vf0"), M("uviz"), M("respanel"), M("b3"),
+    M("vizsoak"), M("p2"), M("p1"), M("duty"), M("heap"), M("s1"), M("l5"), M("ck"),
+    M("vs"), M("sd"), M("awxm"), M("awd2"), M("awd2c"), M("awus"),
+    M("awld"), M("awi2"), M("awlg"), M("pgrd"), M("preg"), M("prtc"),
+    M("pstl"), M("pldo"), M("pden"), M("psrf"), M("pcop"), M("k1"),
+    { "vlong", "Long video play", NULL, NULL, ran, "q",
+      { "Yes", "Still picture", NULL }, BENCH_F_PICKED | BENCH_F_LEAVES, 0,
+      660 },
 };
 #undef M
 #define NSR ((int)(sizeof(SR) / sizeof(SR[0])))
@@ -1333,6 +1431,94 @@ static int steer_walk(const struct bench_run *run, struct bench_state *st,
     return c;
 }
 
+/* The chip batch's own checks (batch 5, devbench.h bench_batch_picks):
+ * s05 always (the stage 4 bench), the fast clock, the restart, the
+ * resident image's checks, s6, sdc last; the clock150 token line, never
+ * the verified line */
+static void t_batch(void)
+{
+    struct bench_run run;
+    struct bench_state st;
+    char ids[200], buf[300];
+    int p, d;
+
+    hold_later = 1;
+    /* owner, after 4gh: its passed rows that batch 5 can't change are
+       cut (l5, ck, vlong) */
+    /* then the PP reruns (docs/bench-reruns.md); k1 settled */
+    CHECK(bench_select(BENCH_MODE_BATCH, SR, NSR, &run) == 25);
+    run_ids(&run, SR, ids, sizeof(ids));
+    CHECK(!strcmp(ids, "pre,preg,s05,s4b,s4c,boot,jobs,b3,vf0,s1,pldo,"
+                  "jvpu,b13,b5,s6,vs,sdc,p1,pcop,psrf,alb,awlg,duty,heap,sd"));
+    /* alb's "No" skips the playing rows, nothing else */
+    bench_state_init(&st);
+    st.res[bench_find(SR, NSR, "alb")] = BENCH_FAIL;
+    CHECK(bench_dep_skip(&run, SR, &st, pos_of(&run, "awlg")) ==
+          bench_find(SR, NSR, "alb"));
+    CHECK(bench_dep_skip(&run, SR, &st, pos_of(&run, "duty")) ==
+          bench_find(SR, NSR, "alb"));
+    CHECK(bench_dep_skip(&run, SR, &st, pos_of(&run, "heap")) ==
+          bench_find(SR, NSR, "alb"));
+    CHECK(bench_dep_skip(&run, SR, &st, pos_of(&run, "sd")) < 0);
+    /* b13 and b5 hand the chip to Apple's program: every resident-image
+       step before them */
+    CHECK(pos_of(&run, "b13") == pos_of(&run, "jvpu") + 1 &&
+          pos_of(&run, "b5") == pos_of(&run, "b13") + 1);
+    CHECK(run.n <= BENCH_MAX_STEPS);
+    p = pos_of(&run, "s05");
+    CHECK(run.role[p] == BENCH_R_NEED);     /* always, not IFPRE */
+    p = pos_of(&run, "boot");
+    CHECK(run.role[p] == BENCH_R_ALSO);     /* always: s05 left Apple's */
+    p = pos_of(&run, "s4c");
+    CHECK(run.need[p][0] == bench_find(SR, NSR, "s4b"));
+    p = pos_of(&run, "sdc");
+    CHECK(p < pos_of(&run, "alb") &&
+          run.need[p][0] == bench_find(SR, NSR, "s6") &&
+          run.need[p][1] == -1);
+    /* s6 failing skips sdc alone */
+    bench_state_init(&st);
+    st.mode = BENCH_MODE_BATCH;
+    st.res[bench_find(SR, NSR, "s6")] = BENCH_FAIL;
+    d = bench_dep_skip(&run, SR, &st, pos_of(&run, "sdc"));
+    CHECK(d == bench_find(SR, NSR, "s6"));
+    /* s4b failing skips s4c, nothing else */
+    bench_state_init(&st);
+    st.res[bench_find(SR, NSR, "s4b")] = BENCH_FAIL;
+    CHECK(bench_dep_skip(&run, SR, &st, pos_of(&run, "s4c")) ==
+          bench_find(SR, NSR, "s4b"));
+    CHECK(bench_dep_skip(&run, SR, &st, pos_of(&run, "jobs")) < 0);
+    CHECK(bench_dep_skip(&run, SR, &st, pos_of(&run, "s6")) < 0);
+    /* the verified line: every must-pass step passed, b3 passed or
+       skipped; then a failed b5 (must pass) takes it away, a failed b13
+       (a reading) doesn't */
+    CHECK(bench_mode_verifies(BENCH_MODE_BATCH));
+    steer_all_pass(&run, &st);
+    st.mode = BENCH_MODE_BATCH;
+    st.merged = true;
+    CHECK(bench_batch_ok(&run, &st));
+    st.res[bench_find(SR, NSR, "b13")] = BENCH_FAIL;
+    st.res[bench_find(SR, NSR, "sd")] = BENCH_HANG;
+    CHECK(bench_batch_ok(&run, &st));
+    st.res[bench_find(SR, NSR, "b5")] = BENCH_FAIL;
+    CHECK(!bench_batch_ok(&run, &st));
+    CHECK(!bench_reverify_ok(&run, &st));
+    CHECK(bench_mode_tokens(BENCH_MODE_BATCH) &&
+          bench_mode_tokens(BENCH_MODE_REVERIFY) &&
+          !bench_mode_tokens(BENCH_MODE_PROBE));
+    /* the session line, written and read back */
+    CHECK(pos_of(&run, "sd") == run.n - 1);     /* its cut: last */
+    bench_fmt_session(buf, sizeof(buf), "b", "2026-11-06 18:00", 11,
+                      BENCH_MODE_BATCH, 215064, 0xb9bcbe57u, "merged");
+    CHECK(!strcmp(buf, "session build=b date=2026-11-06 18:00 steps=11 "
+                  "mode=batch image=215064 fnv=b9bcbe57 kind=merged\n"));
+    bench_state_init(&st);
+    bench_replay(&st, SR, NSR, buf);
+    CHECK(st.started && st.mode == BENCH_MODE_BATCH && st.merged);
+    /* the re-verify run keeps sdc out (it runs here) */
+    bench_select(BENCH_MODE_REVERIFY, SR, NSR, &run);
+    CHECK(pos_of(&run, "sdc") < 0);
+}
+
 static void t_steer(void)
 {
     struct bench_run run;
@@ -1344,14 +1530,31 @@ static void t_steer(void)
     /* the order: basic to advanced, independent groups first; sitting
        4d's held picks (BENCH_R_LATER: b3, s4b, s4c, vfeed, s7, vbv, vgov)
        stay in the table but are never selected */
-    CHECK(bench_select(BENCH_MODE_REVERIFY, SR, NSR, &run) == NSR - 7);
+    CHECK(bench_select(BENCH_MODE_REVERIFY, SR, NSR, &run) == NSR - 24);   /* and sdc, alb, heap: not re-verify picks */
     run_ids(&run, SR, ids, sizeof(ids));
-    CHECK(!strcmp(ids, "pre,s05,boot,jobs,respanel,uviz,jvpu,c1,"
-                  "b13,b5,s6,vplay,ucop,uck1,uck2,ufeel,"
-                  "upanel,ucop2"));
+    /* sitting 4f: respanel and c1 (passed in 4e) held too; sitting 4g:
+       vizsoak as well (b13 runs as the host flush's A/B; the second-core
+       group runs: 4g needs p19-copfileio merged) */
+    /* 19-9 retired (owner, 2026-11-05): the second-core group and the
+       core-layout arms held */
+    /* sitting 4gh: the may-freeze probe rows after s6, duty last */
+    CHECK(!strcmp(ids, "pre,pgrd,preg,awxm,prtc,s05,boot,jobs,uviz,vf0,s1,"
+                  "l5,ck,pldo,awld,jvpu,b13,b5,s6,awd2,awd2c,awus,vs,p2,"
+                  "p1,pcop,awi2,pstl,pden,psrf,vplay,vlong,awlg,k1,duty,"
+                  "sd"));
+    /* 4g: VF0 right after uviz, needing the jobs */
+    p = pos_of(&run, "vf0");
+    CHECK(p == pos_of(&run, "uviz") + 1 &&
+          run.need[p][0] == bench_find(SR, NSR, "jobs") &&
+          run.need[p][1] == -1);
     {
         static const char *const held[] = { "b3", "s4b", "s4c", "vfeed",
-                                            "s7", "vbv", "vgov" };
+                                            "s7", "vbv", "vgov",
+                                            "respanel", "c1",
+                                            "vizsoak", "clc", "clf", "ucop",
+                                            "uck1", "uck2", "ufeel",
+                                            "upanel", "ucusb", "ucmod",
+                                            "ucop2", "ucoff" };
         int h, q, np = (int)(sizeof(bench_reverify_picks) /
                              sizeof(bench_reverify_picks[0]));
 
@@ -1379,22 +1582,92 @@ static void t_steer(void)
        the job self-test, before anything that swaps the chip's program
        (jvpu's and c1's probe image, the 4b/4c stages, the labs, the stage
        plays: Apple's vmcs after each); the panel before the visualizer */
-    CHECK(pos_of(&run, "respanel") == pos_of(&run, "jobs") + 1);
+    CHECK(pos_of(&run, "uviz") == pos_of(&run, "jobs") + 1);
     CHECK(pos_of(&run, "uviz") < pos_of(&run, "jvpu"));
-    CHECK(pos_of(&run, "respanel") < pos_of(&run, "uviz"));
-    CHECK(pos_of(&run, "uviz") < pos_of(&run, "c1"));
+    CHECK(pos_of(&run, "respanel") < 0 && pos_of(&run, "c1") < 0);
     /* video before the second core; the Videos play after the bench's
        own plays, before ucop's restart */
     CHECK(pos_of(&run, "s6") < pos_of(&run, "vplay"));
-    CHECK(pos_of(&run, "vplay") < pos_of(&run, "ucop"));
-    CHECK(pos_of(&run, "ucop2") == run.n - 1);
+    CHECK(pos_of(&run, "ucop") < 0);      /* 19-9 retired */
+    /* p19-vcpwr: s1, l5, ck before jvpu (the resident image); vs after
+       s6; sd last of all (its cut) */
+    CHECK(pos_of(&run, "sd") == run.n - 1 &&
+          pos_of(&run, "duty") == run.n - 2);
+    CHECK(pos_of(&run, "ck") == pos_of(&run, "jvpu") - 3 &&
+          pos_of(&run, "s1") == pos_of(&run, "vf0") + 1);
+    /* p19-pwr-awake: awxm read-only first; the cable steps after s6,
+       awd2c after awd2; the may-freeze pair after p1; awlg's own soak
+       just before duty */
+    CHECK(pos_of(&run, "pgrd") == pos_of(&run, "pre") + 1 &&
+          pos_of(&run, "awxm") == pos_of(&run, "preg") + 1 &&
+          pos_of(&run, "prtc") == pos_of(&run, "awxm") + 1);
+    /* p19-pwr-probes: pldo then awld on the resident image; the writing
+       probes after awi2, least risky first, pden and psrf needing preg */
+    CHECK(pos_of(&run, "awld") == pos_of(&run, "pldo") + 1);
+    CHECK(pos_of(&run, "pstl") == pos_of(&run, "awi2") + 1 &&
+          pos_of(&run, "pden") == pos_of(&run, "pstl") + 1 &&
+          pos_of(&run, "psrf") == pos_of(&run, "pden") + 1 &&
+          pos_of(&run, "vplay") == pos_of(&run, "psrf") + 1);
+    p = pos_of(&run, "psrf");
+    CHECK(run.need[p][0] == bench_find(SR, NSR, "preg"));
+    p = pos_of(&run, "pden");
+    CHECK(run.need[p][0] == bench_find(SR, NSR, "preg"));
+    CHECK(pos_of(&run, "awd2") == pos_of(&run, "s6") + 1 &&
+          pos_of(&run, "awd2c") == pos_of(&run, "awd2") + 1 &&
+          pos_of(&run, "awus") == pos_of(&run, "awd2c") + 1);
+    p = pos_of(&run, "awd2c");
+    CHECK(run.need[p][0] == bench_find(SR, NSR, "awd2"));
+    /* awld on the resident image: after ck, before jvpu (4gh) */
+    CHECK(pos_of(&run, "pldo") == pos_of(&run, "ck") + 1 &&
+          pos_of(&run, "jvpu") == pos_of(&run, "awld") + 1);
+    /* core layout A: pcop after p1 (needs it), k1 between awlg and duty */
+    CHECK(pos_of(&run, "pcop") == pos_of(&run, "p1") + 1 &&
+          pos_of(&run, "awi2") == pos_of(&run, "pcop") + 1);
+    p = pos_of(&run, "pcop");
+    CHECK(run.need[p][0] == bench_find(SR, NSR, "p1"));
+    CHECK(pos_of(&run, "k1") == pos_of(&run, "awlg") + 1 &&
+          pos_of(&run, "duty") == pos_of(&run, "k1") + 1);
+    CHECK(pos_of(&run, "vs") == pos_of(&run, "awus") + 1);
+    CHECK(pos_of(&run, "p2") == pos_of(&run, "vs") + 1 &&
+          pos_of(&run, "p1") == pos_of(&run, "p2") + 1 &&
+          pos_of(&run, "awlg") == pos_of(&run, "vlong") + 1 &&
+          pos_of(&run, "k1") == pos_of(&run, "awlg") + 1);
+    {
+        static const char *const probe[] = { "p2", "p1", "duty" };
+
+        for (d = 0; d < 3; d++)
+        {
+            p = pos_of(&run, probe[d]);
+            CHECK(run.role[p] == BENCH_R_ALSO && run.need[p][0] == -1 &&
+                  run.need[p][1] == -1);
+        }
+    }
+    CHECK(bench_pick_held("ucop") && bench_pick_held("ucoff") &&
+          bench_pick_held("clc") && !bench_pick_held("vlong") &&
+          !bench_pick_held("b13") && bench_pick_held("vizsoak"));
+    /* sitting 4e: the long play after vplay (needs s6), before ucop's
+       restart */
+    CHECK(pos_of(&run, "vlong") == pos_of(&run, "vplay") + 1);
+    p = pos_of(&run, "vlong");
+    CHECK(run.need[p][0] == bench_find(SR, NSR, "s6") &&
+          run.need[p][1] == -1);
     /* the needs, as table indices: vplay needs s6 alone (the image's
        clock150 token opens the fast clock, not s4c's flag) */
     p = pos_of(&run, "vplay");
     CHECK(run.need[p][0] == bench_find(SR, NSR, "s6") &&
           run.need[p][1] == -1);
+    /* the picks 4g holds, in their places (hold off: the roles as in
+       4f): the soak next to uviz (needs jobs), jvpu after it, b13 free */
+    hold_later = 0;
+    bench_select(BENCH_MODE_REVERIFY, SR, NSR, &run);
+    CHECK(pos_of(&run, "vizsoak") == pos_of(&run, "uviz") + 2);  /* vf0 */
+    CHECK(pos_of(&run, "uviz") < pos_of(&run, "jvpu"));
+    p = pos_of(&run, "vizsoak");
+    CHECK(run.need[p][0] == bench_find(SR, NSR, "jobs") &&
+          run.need[p][1] == -1);
     p = pos_of(&run, "b13");
     CHECK(run.need[p][0] == -1 && run.need[p][1] == -1);
+    hold_later = 1;
     /* the full run has no needs */
     bench_state_init(&st);
     bench_select(BENCH_MODE_FULL, SR, NSR, &run);
@@ -1410,6 +1683,13 @@ static void t_steer(void)
        (sitting 4c's token is already in verified.txt) */
     CHECK(bench_reverify_ok(&run, &st) && !bench_clock150_ok(SR, NSR, &st));
     CHECK(!bench_opt_passed(&run, &st));    /* no drift step: none named */
+    /* the probe's readings never cost the line (sitting 4gh) */
+    st.res[bench_find(SR, NSR, "p1")] = BENCH_FAIL;
+    st.res[bench_find(SR, NSR, "p2")] = BENCH_HANG;
+    st.res[bench_find(SR, NSR, "duty")] = BENCH_SKIP;
+    st.res[bench_find(SR, NSR, "sd")] = BENCH_HANG;
+    st.res[bench_find(SR, NSR, "ck")] = BENCH_FAIL;
+    CHECK(bench_reverify_ok(&run, &st));
 
     /* s6 shows no picture: the rest of video and the Videos play skip,
        one sentence; the second-core group still runs */
@@ -1417,8 +1697,8 @@ static void t_steer(void)
     for (p = pos_of(&run, "s6"); p < run.n; p++)
         st.res[run.k[p]] = BENCH_NONE;
     st.res[bench_find(SR, NSR, "s6")] = BENCH_FAIL;
-    CHECK(steer_walk(&run, &st, pos_of(&run, "s6") + 1, ids, sizeof(ids)) == 1);
-    CHECK(!strcmp(ids, "vplay"));
+    CHECK(steer_walk(&run, &st, pos_of(&run, "s6") + 1, ids, sizeof(ids)) == 3);
+    CHECK(!strcmp(ids, "vs,vplay,vlong"));
     d = bench_dep_skip(&run, SR, &st, pos_of(&run, "vplay"));
     CHECK(d == bench_find(SR, NSR, "s6"));
     CHECK(strstr(bench_dep_why(SR, d), "Skipping the other video steps") ==
@@ -1438,25 +1718,30 @@ static void t_steer(void)
 
     /* the job self-test can't run (and the owner carried on): the jobs
        group skips; the clock flags, the labs, video and the second core
-       still run */
+       still run (hold off: the picks 4g holds are part of it) */
+    hold_later = 0;
+    bench_select(BENCH_MODE_REVERIFY, SR, NSR, &run);
     steer_all_pass(&run, &st);
     for (p = pos_of(&run, "jobs"); p < run.n; p++)
         st.res[run.k[p]] = BENCH_NONE;
     st.res[bench_find(SR, NSR, "jobs")] = BENCH_SKIP;
     st.res[bench_find(SR, NSR, "jvpu")] = BENCH_PASS;
-    for (p = pos_of(&run, "c1"); p < run.n; p++)
+    for (p = pos_of(&run, "jvpu") + 1; p < run.n; p++)
         st.res[run.k[p]] = BENCH_PASS;
-    CHECK(steer_walk(&run, &st, pos_of(&run, "respanel"), ids,
-                     sizeof(ids)) == 2);
-    CHECK(!strcmp(ids, "respanel,uviz"));
+    CHECK(steer_walk(&run, &st, pos_of(&run, "uviz"), ids,
+                     sizeof(ids)) == 7);
+    CHECK(!strcmp(ids, "uviz,vf0,vizsoak,s1,l5,ck,sd"));
     CHECK(strstr(bench_dep_why(SR, bench_find(SR, NSR, "jobs")), "jobs"));
     /* jvpu runs after group 2: its failure skips nothing (no line) */
     steer_all_pass(&run, &st);
     st.res[bench_find(SR, NSR, "jvpu")] = BENCH_FAIL;
-    for (p = pos_of(&run, "c1"); p < run.n; p++)
+    for (p = pos_of(&run, "jvpu") + 1; p < run.n; p++)
         st.res[run.k[p]] = BENCH_NONE;
-    CHECK(steer_walk(&run, &st, pos_of(&run, "c1"), ids, sizeof(ids)) == 0);
+    CHECK(steer_walk(&run, &st, pos_of(&run, "jvpu") + 1, ids,
+                     sizeof(ids)) == 0);
     CHECK(!bench_reverify_ok(&run, &st));
+    hold_later = 1;
+    bench_select(BENCH_MODE_REVERIFY, SR, NSR, &run);
 
     /* the pre-flight's own "not needed" skips block nothing; s05 failing
        ends the session: every later step skips, its sentence says so */
@@ -1469,19 +1754,22 @@ static void t_steer(void)
     st.res[bench_find(SR, NSR, "pre")] = BENCH_SKIP;
     st.res[bench_find(SR, NSR, "s05")] = BENCH_FAIL;
     CHECK(steer_walk(&run, &st, pos_of(&run, "s05") + 1, ids, sizeof(ids)) ==
-          run.n - 2);
-    d = bench_dep_skip(&run, SR, &st, pos_of(&run, "ucop2"));
+          run.n - 1 - pos_of(&run, "s05"));
+    d = bench_dep_skip(&run, SR, &st, pos_of(&run, "vlong"));
     CHECK(d == bench_find(SR, NSR, "s05"));
     CHECK(!strncmp(bench_dep_why(SR, d), "That's all for today", 20));
     CHECK(bench_run_next(&run, &st) == run.n);     /* the session is over */
 
     /* c1 failed: ucop skips; then the second-core rows skip after ucop,
-       whose root is c1 (one sentence, c1's) */
+       whose root is c1 (one sentence, c1's).  4f holds c1, so its gate
+       is checked on every pick */
+    hold_later = 0;
+    bench_select(BENCH_MODE_REVERIFY, SR, NSR, &run);
     steer_all_pass(&run, &st);
     for (p = pos_of(&run, "ucop"); p < run.n; p++)
         st.res[run.k[p]] = BENCH_NONE;
     st.res[bench_find(SR, NSR, "c1")] = BENCH_FAIL;
-    CHECK(steer_walk(&run, &st, pos_of(&run, "ucop"), ids, sizeof(ids)) == 6);
+    CHECK(steer_walk(&run, &st, pos_of(&run, "ucop"), ids, sizeof(ids)) == 9);
     d = bench_dep_skip(&run, SR, &st, pos_of(&run, "uck1"));
     CHECK(d == bench_find(SR, NSR, "ucop"));
     CHECK(bench_dep_root(&run, SR, &st, d) == bench_find(SR, NSR, "c1"));
@@ -1493,13 +1781,15 @@ static void t_steer(void)
     CHECK(bench_dep_why(SR, bench_find(SR, NSR, "b13")) ==
           bench_dep_why(SR, -1));
     /* ucop's restart left the UI on the CPU (recorded failed): the
-       second-core rows skip, the line still stands (all ALSO) */
+       second-core rows skip, the line still stands (all ALSO; hold off,
+       4g earns no line) */
     steer_all_pass(&run, &st);
     for (p = pos_of(&run, "uck1"); p < run.n; p++)
         st.res[run.k[p]] = BENCH_NONE;
     st.res[bench_find(SR, NSR, "ucop")] = BENCH_FAIL;
-    CHECK(steer_walk(&run, &st, pos_of(&run, "uck1"), ids, sizeof(ids)) == 5);
-    CHECK(!strcmp(ids, "uck1,uck2,ufeel,upanel,ucop2"));
+    CHECK(steer_walk(&run, &st, pos_of(&run, "uck1"), ids, sizeof(ids)) == 8);
+    /* 4g's cheap second-core checks auto-skip with the rest */
+    CHECK(!strcmp(ids, "uck1,uck2,ufeel,upanel,ucusb,ucmod,ucop2,ucoff"));
     CHECK(bench_reverify_ok(&run, &st));
 
     /* the clean finish: a must-pass failing never ends the session by
@@ -1514,6 +1804,7 @@ static void t_steer(void)
     steer_all_pass(&run, &st);
     st.res[bench_find(SR, NSR, "b3")] = BENCH_SKIP;
     CHECK(bench_reverify_ok(&run, &st) && !bench_opt_passed(&run, &st));
+    hold_later = 1;             /* back to sitting 4g's run */
 
     /* a resume carries the auto-skips: they are results like any other */
     bench_state_init(&st);
@@ -1524,6 +1815,117 @@ static void t_steer(void)
                  "note=auto-skip: needs s6 (fail)");
     CHECK(st.res[bench_find(SR, NSR, "vfeed")] == BENCH_SKIP &&
           st.skipped == 1 && st.failed == 1);
+}
+
+/* Sitting 4e's soaks (devbench.h): vlong's pace against the audio's
+ * time at the file's rate, its tail, the minimum play; vizsoak's chip
+ * frames and the CPU fallback */
+/* Sitting 4g: the PP's id line (bench_fmt_pp), in debug-pp.c's order:
+ * PP_VER2's bytes from the top, then PP_VER1's */
+static void t_pp_line(void)
+{
+    char buf[120];
+
+    bench_fmt_pp(buf, sizeof(buf), 0x32324300u, 0x50503530u);
+    CHECK(!strcmp(buf, "pp ver1=0x32324300 ver2=0x50503530 "
+                  "id=\"PP5022C.\"\n"));
+    bench_fmt_pp(buf, sizeof(buf), 0, 0xFFFFFFFFu);
+    CHECK(!strcmp(buf, "pp ver1=0x00000000 ver2=0xffffffff "
+                  "id=\"........\"\n"));
+}
+
+static void t_soaks(void)
+{
+    struct bench_vlong v;
+    struct bench_vizsoak z;
+    const char *why;
+
+    /* Sintel: 24 fps, 11 min played, every picture shown */
+    memset(&v, 0, sizeof(v));
+    v.valid = true;
+    v.fps_x100 = 2400;
+    v.played_ms = 660000;
+    v.pics = 15840;
+    v.tail_ms = 90000;
+    v.tail_pics = 2160;
+    CHECK(bench_vlong_verdict(&v, 600, 90, &why) == BENCH_PASS);
+    CHECK(bench_pace_pct(v.pics, v.played_ms, v.fps_x100) == 100);
+    /* a still of 5 s that recovered: still in step */
+    v.pics -= 120;
+    CHECK(bench_vlong_verdict(&v, 600, 90, &why) == BENCH_PASS);
+    /* day 4c: the pictures stood from 10 min on, the sound played on */
+    v.pics = 14400;
+    v.tail_pics = 0;
+    CHECK(bench_vlong_verdict(&v, 600, 90, &why) == BENCH_FAIL &&
+          strstr(why, "stopped near the end"));
+    /* the same stall from 2 min in: behind over the whole play */
+    v.pics = 2880;
+    CHECK(bench_vlong_verdict(&v, 600, 90, &why) == BENCH_FAIL &&
+          strstr(why, "behind"));
+    /* too short, none, too many */
+    v.pics = 15840;
+    v.tail_pics = 2160;
+    v.played_ms = 300000;
+    v.pics = 7200;
+    CHECK(bench_vlong_verdict(&v, 600, 90, &why) == BENCH_FAIL &&
+          strstr(why, "short"));
+    v.valid = false;
+    CHECK(bench_vlong_verdict(&v, 600, 90, &why) == BENCH_FAIL);
+    /* sitting 4f: about 5 min watched in vplay before vlong's step: kept
+       at the step (3 min or more) and judged at its own minimum */
+    v.valid = true;
+    v.played_ms = 300000;
+    v.pics = 7200;
+    v.tail_ms = 60000;
+    v.tail_pics = 1440;
+    CHECK(bench_vlong_keeps(&v, BENCH_VLONG_CARRY_S));
+    CHECK(bench_vlong_verdict(&v, BENCH_VLONG_CARRY_S, 90, &why) ==
+          BENCH_PASS);
+    v.played_ms = 120000;
+    CHECK(!bench_vlong_keeps(&v, BENCH_VLONG_CARRY_S));
+    v.played_ms = 300000;
+    v.valid = false;
+    CHECK(!bench_vlong_keeps(&v, BENCH_VLONG_CARRY_S));
+    v.valid = true;
+    v.played_ms = 660000;
+    v.pics = 15840 * 2;
+    CHECK(bench_vlong_verdict(&v, 600, 90, &why) == BENCH_FAIL);
+    /* a 30 fps file at 24 a second fails; unknown rate: 24 to 30 */
+    v.pics = 15840;
+    v.fps_x100 = 3000;
+    CHECK(bench_vlong_verdict(&v, 600, 90, &why) == BENCH_FAIL);
+    v.fps_x100 = 0;
+    v.tail_pics = 2160;
+    CHECK(bench_vlong_verdict(&v, 600, 90, &why) == BENCH_PASS);
+    v.pics = 19800;
+    v.tail_pics = 2700;
+    CHECK(bench_vlong_verdict(&v, 600, 90, &why) == BENCH_PASS);
+
+    memset(&z, 0, sizeof(z));
+    CHECK(bench_vizsoak_verdict(&z, 150, &why) == BENCH_FAIL);
+    z.views = 1;
+    z.secs = 180;
+    z.bcm = 180 * 30;
+    CHECK(bench_vizsoak_verdict(&z, 150, &why) == BENCH_PASS);
+    z.fb = true;
+    CHECK(bench_vizsoak_verdict(&z, 150, &why) == BENCH_FAIL &&
+          strstr(why, "CPU"));
+    z.fb = false;
+    z.cpu = 1;
+    CHECK(bench_vizsoak_verdict(&z, 150, &why) == BENCH_FAIL);
+    z.cpu = 0;
+    z.secs = 60;
+    CHECK(bench_vizsoak_verdict(&z, 150, &why) == BENCH_FAIL &&
+          strstr(why, "short"));
+    /* sitting 4f: a view the dark closed fails whatever its length */
+    z.secs = 180;
+    z.dark = 1;
+    CHECK(bench_vizsoak_verdict(&z, 150, &why) == BENCH_FAIL &&
+          strstr(why, "dark"));
+    z.dark = 0;
+    z.views = 0;
+    CHECK(bench_vizsoak_verdict(&z, 150, &why) == BENCH_FAIL &&
+          strstr(why, "since the step began"));
 }
 
 /* The resume's cross-check with bcmtest.log (bench_logscan): sitting
@@ -1592,10 +1994,153 @@ static void t_logscan(void)
     CHECK(ls.got[kb].res == BENCH_NONE);
 }
 
+/* p19-vcpwr: the VC power rows' rules (devbench_vcpwr.h) */
+static void t_vcpwr(void)
+{
+    struct vcp_vs_phase a, b;
+    int i, j;
+
+    /* S1: the watch's 1 s window and the row's 20 s one */
+    CHECK(vcp_s1_why(1000, 900, 0, 1000) == NULL);
+    CHECK(vcp_s1_why(900, 1, 0, 1000) == NULL);         /* 90 % */
+    CHECK(vcp_s1_why(1100, 1, 0, 1000) == NULL);        /* 110 % */
+    /* batch 5's adaptive tick: 10 ms when idle, so 90 % of ms / 10 up */
+    CHECK(vcp_s1_why(100, 90, 0, 1000) == NULL);
+    CHECK(vcp_s1_why(90, 90, 0, 1000) == NULL);
+    CHECK(vcp_s1_why(2000, 1900, 0, 20000) == NULL);    /* s1's 20 s */
+    CHECK(vcp_s1_why(500, 400, 0, 1000) == NULL);       /* mixed rates */
+    CHECK(!strcmp(vcp_s1_why(89, 1, 0, 1000), "ticks"));
+    /* inside a video session the tick stays 1 ms: 90 % of ms up */
+    CHECK(vcp_idle_why(900, 1, 0, 1000, true) == NULL);
+    CHECK(!strcmp(vcp_idle_why(899, 1, 0, 1000, true), "ticks"));
+    CHECK(!strcmp(vcp_idle_why(100, 90, 0, 1000, true), "ticks"));
+    CHECK(!strcmp(vcp_s1_why(1101, 1, 0, 1000), "ticks"));
+    CHECK(!strcmp(vcp_s1_why(1000, 0, 0, 1000), "nosleep"));
+    CHECK(!strcmp(vcp_s1_why(1000, 9, 1, 1000), "bad"));   /* bad first */
+    CHECK(!strcmp(vcp_s1_why(0, 0, 0, 0), "ticks"));      /* no window */
+    CHECK(vcp_s1_why(20000, 15000, 0, 20010) == NULL);
+    CHECK(VCP_S1_STRIKES == 3 && VCP_READ_FAILS == 2);
+
+    /* L5: read-back first, a self-test of 1 (jobs not up) is no fail */
+    CHECK(vcp_l5_why(5, 0, true) == NULL);
+    CHECK(vcp_l5_why(5, 1, true) == NULL);
+    CHECK(!strcmp(vcp_l5_why(11, 0, true), "readback"));
+    CHECK(!strcmp(vcp_l5_why(-1, 0, true), "readback"));
+    CHECK(!strcmp(vcp_l5_why(5, -3, true), "selftest"));
+    CHECK(!strcmp(vcp_l5_why(5, 0, false), "heartbeat"));
+    CHECK(VCP_HB_MS == 2000);
+
+    /* VS: a B phase against its A.  Ticks follow the chip's idle share
+       (quirk #57): 4gh's four B phases, all inside 10 %, pass "ticks" */
+    {
+        static const uint32_t g[4][3] = {     /* ticks, ms, idle_pm */
+            { 19473, 24330, 780 }, { 19077, 24270, 764 },
+            { 15859, 24260, 645 }, { 16327, 24170, 679 } };
+
+        memset(&a, 0, sizeof(a));
+        a.late = 2; a.av_us = 70000; a.moves = 26; a.gov_ms = 24000;
+        for (i = 0; i < 4; i++)
+        {
+            b = a;
+            b.ticks = g[i][0]; b.ms = g[i][1]; b.idle_pm = g[i][2];
+            b.sleeps = b.ticks; b.raced = true;
+            CHECK(vcp_vs_why(&b, &a) == NULL);
+            CHECK(vcp_vs_effect(&b, &a));
+        }
+        CHECK(!vcp_vs_effect(&a, &a));                  /* A never slept */
+    }
+    memset(&a, 0, sizeof(a));
+    a.late = 2;
+    b = a;
+    b.ticks = 9000; b.ms = 20000; b.sleeps = 9000; b.idle_pm = 450;
+    b.late = 3; b.av_us = 40000; b.moves = 6; b.gov_ms = 20000;
+    b.raced = true;
+    CHECK(vcp_vs_why(&b, &a) == NULL);
+    b.ticks = 8099;                                     /* < 90 % */
+    CHECK(!strcmp(vcp_vs_why(&b, &a), "ticks"));
+    b.ticks = 9901;                                     /* > 110 % */
+    CHECK(!strcmp(vcp_vs_why(&b, &a), "ticks"));
+    b.ticks = 20000;                    /* the old 1 ms rule: now wrong */
+    CHECK(!strcmp(vcp_vs_why(&b, &a), "ticks"));
+    b.ticks = 9000; b.idle_pm = 0;
+    CHECK(!strcmp(vcp_vs_why(&b, &a), "ticks"));
+    b.idle_pm = 450;
+    b.late = 4;
+    CHECK(!strcmp(vcp_vs_why(&b, &a), "late"));         /* A's + 1 */
+    b.late = 3; b.skipped = 1;
+    CHECK(!strcmp(vcp_vs_why(&b, &a), "skipped"));
+    b.skipped = 0; b.dropped = 1;
+    CHECK(!strcmp(vcp_vs_why(&b, &a), "skipped"));
+    b.dropped = 0; b.av_us = 50001;
+    CHECK(!strcmp(vcp_vs_why(&b, &a), "av"));
+    a.av_us = 30000;                    /* over 50 ms, within A's + 25 */
+    b.av_us = 55000;
+    CHECK(vcp_vs_why(&b, &a) == NULL);
+    b.av_us = 55001;
+    CHECK(!strcmp(vcp_vs_why(&b, &a), "av"));
+    a.av_us = 0;
+    b.av_us = 50000; b.moves = 7;           /* 7 in 20 s: 21 a minute */
+    CHECK(!strcmp(vcp_vs_why(&b, &a), "moves"));
+    a.moves = 6;                        /* A's own moves + a quarter */
+    CHECK(vcp_vs_why(&b, &a) == NULL);
+    a.moves = 0;
+    b.moves = 6; b.raced = false;
+    CHECK(!strcmp(vcp_vs_why(&b, &a), "top"));
+    b.raced = true; b.bad = 1;
+    CHECK(!strcmp(vcp_vs_why(&b, &a), "bad"));
+    b.bad = 0; b.sleeps = 0;
+    CHECK(!strcmp(vcp_vs_why(&b, &a), "nosleep"));
+    b.sleeps = 1; b.failed = true;
+    CHECK(!strcmp(vcp_vs_why(&b, &a), "play"));
+    b.failed = false; b.bells = 0;          /* bells are a reading */
+    CHECK(vcp_vs_why(&b, &a) == NULL);
+
+    /* CK: PW1 B's words decode; the counter is never in a step */
+    CHECK(vcp_clk_src(0x051B) == 5 && vcp_clk_div(0x051B) == 0x1B);
+    CHECK(vcp_clk_src(0x8001) == 0 && vcp_clk_div(0x8001) == 1);
+    CHECK(vcp_clk_off(0x2C, 0) && vcp_clk_off(0x34, 0x0001));
+    CHECK(!vcp_clk_off(0x28, 0) && !vcp_clk_off(0x58, 0));
+    CHECK(!vcp_clk_off(0x30, 0x0501));
+    CHECK(VCP_CLK_N == 13 && VCP_CLK_COUNTER == 0x4C);
+    CHECK(vcp_ck_step_ok(0, 0, 0, 380, 400, 0));        /* 95 % */
+    CHECK(!vcp_ck_step_ok(0, 0, 0, 379, 400, 0));
+    CHECK(!vcp_ck_step_ok(0, 1, 0, 400, 400, 0));       /* read-back */
+    CHECK(!vcp_ck_step_ok(0, 0, -1, 400, 400, 0));      /* self-test */
+    CHECK(!vcp_ck_step_ok(0, 0, 1, 400, 400, 1));       /* a FENCE lost */
+    CHECK(!vcp_ck_step_ok(0, 0, 0, 400, 0, 0));         /* no baseline */
+    CHECK(vcp_ck_step_ok(0, 0, 1, 400, 400, 0));        /* jobs not up */
+
+    /* SD: Apple's bound, the window, the order of the reasons */
+    CHECK(VCP_SD_CMD == 0x10003420u && VCP_SD_POLLS == 8000 &&
+          VCP_SD_BUSY == 0x8000u && VCP_SD_PATTERN == 0xFE3F6000u);
+    CHECK(vcp_sd_why(true, true, true, true, 0) == NULL);
+    CHECK(!strcmp(vcp_sd_why(false, true, true, true, 0), "stuck"));
+    CHECK(!strcmp(vcp_sd_why(true, false, true, true, 0), "heartbeat"));
+    CHECK(!strcmp(vcp_sd_why(true, true, false, true, 0), "heartbeat"));
+    CHECK(!strcmp(vcp_sd_why(true, true, true, false, 0), "bringup"));
+    CHECK(!strcmp(vcp_sd_why(true, true, true, true, 3), "pattern"));
+    for (i = 1; i < 64; i++)                /* the pattern's words differ */
+        CHECK(vcp_sd_word(7, i) != vcp_sd_word(7, i - 1) &&
+              vcp_sd_word(7, i) != vcp_sd_word(8, i));
+
+    /* the picks the integrator splices in: unique, each with a need */
+    for (i = 0; i < (int)(sizeof(bench_vcpwr_picks) / sizeof(bench_vcpwr_picks[0])); i++)
+    {
+        CHECK(bench_vcpwr_picks[i].role == BENCH_R_ALSO);
+        CHECK(bench_vcpwr_picks[i].need[0] != NULL);
+        for (j = 0; j < i; j++)
+            CHECK(strcmp(bench_vcpwr_picks[i].id, bench_vcpwr_picks[j].id));
+    }
+    CHECK(sizeof(bench_vcpwr_picks) / sizeof(bench_vcpwr_picks[0]) == 5);
+    CHECK(!strcmp(bench_vcpwr_picks[4].id, "sd"));      /* its cut: last */
+    CHECK(vcp_phase_b(1) && !vcp_phase_b(2) && VCP_PHASES == 4);
+}
+
 int main(void)
 {
     t_script();
     t_power();
+    t_vcpwr();
     t_vclk();
     t_classify();
     t_lines_verdict();
@@ -1609,8 +2154,12 @@ int main(void)
     t_reverify();
     t_restart();
     t_portcheck();
+    t_probe();
     t_full();
     t_steer();
+    t_batch();
+    t_soaks();
+    t_pp_line();
     if (fails)
         printf("%d failed\n", fails);
     return fails != 0;

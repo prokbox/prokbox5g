@@ -155,6 +155,17 @@
 #define J_LAT_SRAM           0x68
 #define J_LAT_MHZ            0x6C
 #define J_LAT_SINK           0x70   /* the loads' sum (keeps them) */
+/* The visualizer overlay's FFT start-up check (viz_vpu.c viz_vpu_check;
+ * docs/design/viz-fft-vc.md section 9; 0 before it runs or in images
+ * without it): J_VFFT_RAN, and per check frame s (jviz_check_frame: 0 a
+ * square, 1 noise, 2 a loud mix) J_VFFT_C_OK(s) when the BCM's C matches
+ * the Mac's golden and J_VFFT_K_OK(s) when the vector kernel matches the
+ * C.  J_VPU_FFT is set only for J_VFFT_ALL.  Bench row VFFT reads it */
+#define J_VFFT               0x74
+#define J_VFFT_RAN           0x80000000u
+#define J_VFFT_C_OK(s)       (1u << (s))
+#define J_VFFT_K_OK(s)       (1u << (8 + (s)))
+#define J_VFFT_ALL           (J_VFFT_RAN | 0x707u)
 #define J_VPU2_CHECKED       0x1
 #define J_VPU2_BIT(f)        (1u << (f))
 #define J_VPU2_FORMS         7

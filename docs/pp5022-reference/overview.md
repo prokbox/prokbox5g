@@ -15,11 +15,30 @@
 | Timers | 2 programmable µs timers, a free-running µs counter | [rockbox] |
 | DMA | 4-channel general engine (`0x6000_B000`), a second 2-channel engine (`0x6000_9000`), IDE and USB bus masters | [rockbox]; [external] |
 | Peripherals | IDE/ATA (UDMA), USB 2.0 HS OTG (ARC), I2S (in/out), I2C master, 2 UARTs, PWM, a wheel-controller serial port, 12 × 8 GPIO + 32 GPO, two LCD bridges (unused on the Video), FireWire link (unused) | [rockbox] `pp5020.h` |
-| Identity | `PP_VER2`/`PP_VER1` (`0x7000_0004`/`0x7000_0000`) read as ASCII; a retail 5.5G reads "PP5022C" | [external] siggi `16` (read on a real 5.5G under Rockbox) |
+| Identity | `PP_VER2`/`PP_VER1` (`0x7000_0004`/`0x7000_0000`) read as ASCII; a retail 5.5G reads "PP5022C" | [external] siggi `16` (read on a real 5.5G under Rockbox); **[silicon]** the owner's 5.5G: `PP_VER2` = `0x5050_3530`, `PP_VER1` = `0x3232_4320`, "PP5022C " (sitting 4gh, 2026-11-06) |
 
 ### PP5021 vs PP5022
 
-Teardowns and the community have long labelled the iPod Video's chip "PP5021C", and one 5G's own system information names "PP5021C-2" [external] siggi `05`, `16`. A System debug read on a retail 5.5G returns PP5022C [external]. Apple's boot ROM knows only PP5020, PP5022 and PP5026 by name and tests the chip-ID byte for '6' or '2' [external] siggi `16`. Rockbox builds one binary (`CONFIG_CPU PP5022`) for every iPod Video and no difference in behaviour between units has been reported [rockbox]. Treat "PP5021" as a package/marking variant of the same die until a 5G's chip ID is read ([hypothesis]; `open-questions.md`).
+Teardowns and the community have long labelled the iPod Video's chip "PP5021C", and one 5G's own system information names "PP5021C-2" [external] siggi `05`, `16`. A System debug read on a retail 5.5G returns PP5022C [external]. Apple's boot ROM knows only PP5020, PP5022 and PP5026 by name and tests the chip-ID byte for '6' or '2' [external] siggi `16`. Rockbox builds one binary (`CONFIG_CPU PP5022`) for every iPod Video and no difference in behaviour between units has been reported [rockbox]. The owner's 5.5G reads **"PP5022C "** [silicon] (sitting 4gh, 2026-11-06), so on this unit the die says PP5022 whatever the package or the Wiki says. "PP5021" as a marking variant of the same die stays [hypothesis] until a 5G (Initial or Rev A) is read; nothing in this firmware depends on it (the ID is only logged).
+
+The Apple Wiki's fifth-generation model page (copied by the owner, 2026-11-05) lists **"PortalPlayer PP5021C, 90 MHz" for all three revisions**, including the late-2006 5.5G [external]. That conflicts with the "PP5022C" chip-ID read above. Both may be true if the marking and the ID string differ, so the chip-ID read decides (open question 22). For the 5.5G it has: "PP5022C " [silicon] (sitting 4gh, 2026-11-06); the Wiki's "PP5021C" for the late-2006 model is a marking or an error, not the die's ID. Its **90 MHz** rating sits between our normal 80 MHz boost and the 100 MHz probe (`mac-and-dvs.md` §5) [external; unverified against Apple's clock tables].
+
+### Models and identifiers (Apple Wiki, fifth generation) [external]
+
+| | Initial (12 Oct 2005) | Rev A (6 Jun 2006) | Rev B, "Late 2006" / 5.5G (12 Sep 2006) |
+|---|---|---|---|
+| RAM | 32 MiB (30 GB) / 64 MiB (60 GB) | 32 MiB (30 GB) / 64 MiB (60 GB) | 32 MiB (30 GB) / 64 MiB (80 GB) |
+| Drive | Toshiba 1.8″, 4,200 rpm, ATA-66; single platter (30 GB), dual (60/80 GB) | same | same |
+| Battery | 650 mAh (30 GB) / 850 mAh (60 GB) | 650 mAh (30 GB) | not given |
+| Rated audio / video time | 14 h / 2 h (30 GB); 20 h / 3 h (60 GB) | 14 h / 2 h | 14 h / 3.5 h (30 GB); 20 h / 6.5 h (80 GB) |
+| Update family ID | 13 | 20 | 25 |
+| Initial firmware | 1.0 (6.0) | 1.1.2 (6.1.2) | 1.2.1 (6.2.1) |
+
+Common to all: codename **M25**; family ID **6**; gestalt IDs `0x000B0005` / `0x000B0010`; USB product ID **`0x1209`** (matches both Apple fw 1.3 and ProkBox, read on the owner's 5.5G 2026-11-05 [silicon]); last firmware 1.3 (6.3); WM8758 codec; 320×240 2.5″ panel; piezo clicker; composite video on the headphone jack.
+
+Notes:
+- The 5.5G's rated video time roughly doubled on similar cells (3 h → 6.5 h for the large model), which fits firmware 1.2's BCM2722 power management (`../bcm2722-reference/brief-map-power.md`) [hypothesis].
+- The family, update-family and gestalt IDs are what a populated `iPod_Control/Device/SysInfo` would carry. The owner's unit has an empty one, which may be why Finder's sync page never finishes loading (#137) [hypothesis].
 
 Differences from the PP5020 (iPod 4G/Color/nano-era parts) that matter [rockbox]: 128 KB vs 96 KB IRAM; a PLL with a post-divider that must run ≥ 96 MHz (the PP5020 has an unlock write instead); `PROC_CNT_SEC` exists only from the PP5022; a PHY sequence after the USB controller reset is needed only on the PP5022.
 

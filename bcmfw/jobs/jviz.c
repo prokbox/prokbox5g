@@ -108,6 +108,14 @@ static uint32_t mul(int32_t a, int32_t b)
     return (uint32_t)(a * b);
 }
 
+/* vmulhd: the high half of one 16 x 16 product, floored on its own (the
+ * 512-sample definition's step 2 and split; the product of two 16-bit
+ * values fits 32 bits) */
+static int32_t mulhd(int32_t a, int32_t b)
+{
+    return (a * b) >> 16;
+}
+
 /* bit reversal of i over bits bits */
 static uint32_t brev(uint32_t i, uint32_t bits)
 {
@@ -177,10 +185,15 @@ struct work
     struct blk z, y;
 };
 
-/* X[k] / m into the work's y (row k2, lane k1, k = k2 + rows k1), over
- * the tables t (the size's own, or any: the start-up check's) */
+/* X[k] / m into the work's z (row k2, lane k1, k = k2 + rows k1), over
+ * the tables t (the size's own, or any: the start-up check's).  sep: the
+ * 512-sample definition (#126, docs/design/viz-fft-vc.md section 5.3,
+ * tests/vizfft/vfft_ref.c VFFT_SEP): step 2's and the split's products
+ * each floored on its own and added in 16 bits, as the vector kernel
+ * jv_vfft512 computes them from silicon-proven forms; else every summed
+ * product summed exactly and floored once (the 256-sample definition) */
 static void fft(struct work *w, const int16_t *pcm, uint32_t n,
-                const struct jviz_tabs *t)
+                const struct jviz_tabs *t, int sep)
 {
     uint32_t rows = t->rows, m = n / 2, bits = rows == 16 ? 4 : 3, r, l, i, k2, k1, p;
     struct blk *z = &w->z, *y = &w->y;
@@ -215,6 +228,14 @@ static void fft(struct work *w, const int16_t *pcm, uint32_t n,
         {
             wr = t->tw[16 * r + l];
             wi = t->tw[16 * (rows + r) + l];
+            if (sep)
+            {
+                z->r[r][l] = w16((uint32_t)(mulhd(y->r[r][l], wr) -
+                                            mulhd(y->i[r][l], wi)));
+                z->i[r][l] = w16((uint32_t)(mulhd(y->r[r][l], wi) +
+                                            mulhd(y->i[r][l], wr)));
+                continue;
+            }
             z->r[r][l] = hi16(mul(y->r[r][l], wr) + mul(y->i[r][l], w16(0u - (uint32_t)wi)));
             z->i[r][l] = hi16(mul(y->r[r][l], wi) + mul(y->i[r][l], wr));
         }
@@ -249,6 +270,14 @@ static void fft(struct work *w, const int16_t *pcm, uint32_t n,
             u = w16((uint32_t)(y->i[k2][k1] - y->i[p][i]));
             wr = t->ws[16 * k2 + k1];
             wi = t->ws[16 * (rows + k2) + k1];
+            if (sep)
+            {
+                z->r[k2][k1] = w16((uint32_t)((s >> 1) + mulhd(tt, wr) +
+                                              mulhd(d, wi)));
+                z->i[k2][k1] = w16((uint32_t)((u >> 1) + mulhd(tt, wi) -
+                                              mulhd(d, wr)));
+                continue;
+            }
             z->r[k2][k1] = hi16(((uint32_t)s << 15) + mul(tt, wr) + mul(d, wi));
             z->i[k2][k1] = hi16(((uint32_t)u << 15) + mul(tt, wi) +
                                 mul(d, w16(0u - (uint32_t)wr)));
@@ -263,7 +292,7 @@ void jviz_fft_ref(int16_t *xr, int16_t *xi, const int16_t *pcm, uint32_t n)
     struct work w;
     uint32_t sh = n == 256 ? 3 : 4, k;
 
-    fft(&w, pcm, n, tabs(n));
+    fft(&w, pcm, n, tabs(n), 0);
     for (k = 0; k < n / 2; k++)
     {
         xr[k] = w.z.r[k & ((1u << sh) - 1)][k >> sh];
@@ -279,7 +308,7 @@ void jviz_raw_ref_t(uint16_t *raw, const int16_t *pcm, uint32_t n,
     uint32_t rows = t->rows, r, l, p;
     int32_t a, b;
 
-    fft(&w, pcm, n, t);
+    fft(&w, pcm, n, t, 0);
     for (r = 0; r < 16; r++)
         for (l = 0; l < 16; l++)
         {
@@ -316,7 +345,7 @@ void jviz_power_ref(uint32_t *p, const int16_t *pcm, uint32_t n)
         return;
     }
 #endif
-    fft(&w, pcm, n, tabs(n));
+    fft(&w, pcm, n, tabs(n), n == 512);
     for (k = 0; k < n / 2; k++)
     {
         a = w.z.r[k & ((1u << sh) - 1)][k >> sh];
@@ -324,6 +353,47 @@ void jviz_power_ref(uint32_t *p, const int16_t *pcm, uint32_t n)
         p[k] = mul(a, a) + mul(b, b);
     }
 }
+
+#ifndef JVIZ_N256_ONLY
+const struct jviz_vtabs jviz_vfft_tabs = { jviz_win512, jviz_tw512, jviz_wsn512, jviz_lane0 };
+
+void jviz_raw_sep512(uint16_t *raw, const int16_t *pcm)
+{
+    struct work w;
+    uint32_t k, p;
+    int32_t a, b;
+
+    fft(&w, pcm, 512, &tabs512, 1);
+    for (k = 0; k < 256; k++)
+    {
+        a = w.z.r[k & 15][k >> 4];
+        b = w.z.i[k & 15][k >> 4];
+        p = mul(a, a) + mul(b, b);
+        raw[k] = p & 0xFFFF;
+        raw[256 + k] = p >> 16;
+    }
+}
+
+void jviz_check_frame(int16_t *pcm, uint32_t s)
+{
+    uint32_t i, x = 0x12345678u + s;
+
+    for (i = 0; i < 512; i++)
+    {
+        x = x * 1103515245u + 12345;
+        if (s == 0)                     /* a full-scale square: clipping */
+            pcm[i] = (i / 8 + i) & 4 ? 32767 : -32768;
+        else if (s == 1)                /* noise, every bit */
+            pcm[i] = (int16_t)(x >> 16);
+        else                            /* a loud mix: two square tones, a
+                                           ramp and quiet noise */
+            pcm[i] = (int16_t)(((i % 37) < 18 ? 9000 : -9000) +
+                               ((i % 11) < 5 ? 7000 : -7000) +
+                               (int32_t)(i * 13 % 4096) - 2048 +
+                               (int32_t)(x >> 22) - 512);
+    }
+}
+#endif
 
 void jviz_raw_power(uint32_t *p, const uint16_t *raw, uint32_t n)
 {

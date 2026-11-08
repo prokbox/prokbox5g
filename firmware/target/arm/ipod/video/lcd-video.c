@@ -41,6 +41,12 @@
 #include "e2-port.h"
 #endif
 #ifdef HAVE_LCD_SLEEP
+#ifdef HAVE_PWR_AWAKE
+#include "pwr_awake.h"
+#endif
+#ifdef HAVE_USB_CHARGER_PARK
+#include "usb.h"
+#endif
 /* Included only for lcd_awake() prototype */
 #include "backlight-target.h"
 #ifdef HAVE_POWER_SLEEP
@@ -1426,6 +1432,16 @@ void lcd_awake(void)
         if (sleepwait > 0 && sleepwait < HZ/20)
             sleep(sleepwait);
 
+#ifdef HAVE_PWR_LCDLDO
+        /* AW-4: the LCD LDO back to its found value, settled, before the
+         * BCM powers up (a no-op unless lcd_sleep() lowered it) */
+        pwraw_lcd_ldo(false);
+#endif
+#ifdef HAVE_USB_CHARGER_PARK
+        /* AW-2: the screen wakes (the user): a parked controller on a
+         * charger gets a fresh host window (a post, a no-op otherwise) */
+        usb_charger_reprobe();
+#endif
         bcm_init();
 #ifdef HAVE_BCMFW_L1
         if (bcm_port_dead)
@@ -1551,6 +1567,11 @@ void lcd_sleep(void)
         bcm_powerdown();
 #ifdef HAVE_PP_GOV_DVS
         pgov_port_cap(false);   /* the port quiet: band 3 may run */
+#endif
+#ifdef HAVE_PWR_LCDLDO
+        /* AW-4: the LCD LDO to mode 010 with the BCM down; under the port
+         * lock, so a wake can't pass between (I2C only, no port use) */
+        pwraw_lcd_ldo(true);
 #endif
 
         /* Remember time to ensure BCM stays off for >= 50 ms */

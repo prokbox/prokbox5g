@@ -496,7 +496,13 @@ class Suite(JI.Suite):
             row.check(st == K['HP_OK'], 'OPEN %d' % st)
             op, st2, _ = self.park_req(vp)
             row.check(st2 == K['HP_E_BUSY'], 'in a session: %d' % st2)
-            vp.call(K['HP_OP_CLOSE'], [p[0] if p else 0, 0])
+            # CLOSE asking for the SDRAM idle with SDRAM never up: the
+            # extra word says so (2), nothing else changes
+            op, st4, p4 = vp.call(K['HP_OP_CLOSE'], [p[0] if p else 0,
+                                                     K['HP_CLOSE_SDRAM_IDLE']])
+            row.check(st4 == K['HP_OK'] and p4 is not None and len(p4) == 3 and
+                      p4[2] == K['HP_CLOSE_SD_NOTUP'],
+                      'CLOSE idle, SDRAM never up: %d %s' % (st4, p4))
             # SDRAM up (video_test's bench models it): an H.264 OPEN
             # brings it up and CLOSE leaves it so (the AAC tables live
             # there): the hook refuses, nothing written
@@ -523,8 +529,85 @@ class Suite(JI.Suite):
             row.check(st3 == K['HP_E_STATE'], 'SDRAM up after a video: %d' % st3)
             row.check(not [x for x in vb.bus.log[n0:] if x.rw == 'W' and x.addr in SAVED and
                            x.seq not in vb.host_seqs], 'SDRAM up: a register written')
+            self.close_idle(row, vb, pl, V)
         except (T.Fail, H.Timeout, B.C.Gap) as e:
             row.check(False, str(e))
+
+    def close_idle(self, row, vb, pl, V):
+        """P19 batch 5 (power-apple-vs-ours.md row 6): CLOSE with
+        HP_CLOSE_SDRAM_IDLE runs Apple's idle after the session (the
+        command register written 0, the last SDRAM-side write; bit 15 as
+        the bench models it, '0x10003420|=0x8000@1': clear at the first
+        read after a write, the same model PW5's hibernate idle runs on),
+        the reply's extra word is 0, the next OPEN runs the bring-up again
+        and decodes as before, and a hibernate PARK is then accepted."""
+        CMD = 0x10003420
+        data = open(os.path.join(V.CORPUS, 'd_ipod_768k.264'), 'rb').read()
+        aus = V.access_units(data)[:2]
+
+        def img_writes(n0, addr):
+            return [x.value for x in vb.bus.log[n0:] if x.rw == 'W' and x.addr == addr and
+                    x.seq not in vb.host_seqs]
+
+        def decode(what):
+            n0 = len(vb.bus.log)
+            st, _ = pl.open(320, 240)
+            row.check(st == K['HP_OK'], '%s: OPEN %d' % (what, st))
+            ups = img_writes(n0, CMD).count(7)
+            e0 = len(pl.events)
+            vb.captures.clear()
+            for k, au in enumerate(aus):
+                while not pl.feed(au, k * V.FRAME_US,
+                                  K['HP_FEED_EOS'] if k == len(aus) - 1 else 0):
+                    vb.run(20_000)
+                    pl.drain()
+            t0 = vb.sim.steps
+            while not any(e[0] == K['HP_EV_EOS'] for e in pl.events[e0:]):
+                vb.run(20_000)
+                pl.drain()
+                if vb.sim.steps - t0 > 60_000_000:
+                    raise H.Timeout('%s: no EV_EOS' % what)
+            return ups, [fb for _, fb in vb.captures]
+
+        def close(what, want_words):
+            n0 = len(vb.bus.log)
+            op, st, p = pl.call(K['HP_OP_CLOSE'], [pl.session, K['HP_CLOSE_SDRAM_IDLE']],
+                                timeout_us=200_000)
+            row.check(st == K['HP_OK'] and p is not None and len(p) == want_words,
+                      '%s: CLOSE %d, %s words (want %d)' % (what, st, p and len(p), want_words))
+            return (p[-1] if p else None), n0
+
+        ups0, ref = decode('SDRAM already up')
+        row.check(ups0 == 0, 'SDRAM up: OPEN skipped the bring-up (%d commands)' % ups0)
+        row.check(len(ref) > 0, 'SDRAM up: pictures shown (%d)' % len(ref))
+        word, n0 = close('idle', 6)
+        # the code in bits 7:0, bit 15's polls above (the model clears it at
+        # the first read after the write: 1 poll)
+        row.check(word == K['HP_CLOSE_SD_IDLED'] | 1 << 8,
+                  'idle: reply word %s, want 0x100 (idled, 1 poll)' % (word and hex(word)))
+        dev = [x for x in vb.bus.log[n0:] if x.seq not in vb.host_seqs and
+               (0x10003400 <= x.addr < 0x10003440 or x.addr >= 0xFE000000)]
+        wr = [x for x in dev if x.rw == 'W' and x.addr == CMD]
+        row.check(wr and wr[-1].value == 0, 'idle: command register written 0: %s' % (
+            ['%08x' % x.value for x in wr]))
+        after = [x for x in dev if wr and x.seq > wr[-1].seq and x.addr != CMD]
+        row.check(not after, 'idle: SDRAM or its controller touched after the idle: %s' % (
+            ['%08x' % x.addr for x in after[:4]]))
+        cache = [x.value for x in vb.bus.log[n0:] if x.rw == 'W' and x.addr == 0x10000C00 and
+                 x.seq not in vb.host_seqs]
+        row.check(cache and not cache[-1] & 0x40010000,
+                  'idle: cache-control bits 30 and 16 cleared: %s' % ['%08x' % v for v in cache])
+        ups1, frames = decode('after the idle')
+        row.check(ups1 >= 1, 'after the idle: OPEN ran the bring-up (%d commands)' % ups1)
+        row.check(frames == ref, 'after the idle: the same pictures (%d against %d)' % (
+            len(frames), len(ref)))
+        word, _ = close('again', 6)
+        row.check(word == K['HP_CLOSE_SD_IDLED'] | 1 << 8, 'again: reply word %s' % word)
+        # SDRAM down: a hibernate PARK is accepted now
+        op, st, _ = pl.call(K['HP_OP_PARK'], [K['HP_PARK_MAGIC'], W['HP_PARK_HIB']],
+                            timeout_us=200_000)
+        row.check(st == K['HP_OK'], 'SDRAM idled by CLOSE: hibernate PARK %d' % st)
+        self.metrics['close idle: bring-up commands at the next OPEN'] = ups1
 
     # ---- the PP header against the image -----------------------------------
 

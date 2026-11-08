@@ -65,6 +65,8 @@ MOD_xindex_SRC += ipodui/screens/xical_build.c ipodui/xical_core.c ipodui/xical_
 MOD_NAMES := settings clocks alarms stopwatch lockset notes contacts calendars xindex
 ifneq ($(findstring HAVE_IPOD_UI_DEVMODE,$(EXTRA_DEFINES) $(DEFINES)),)
 MOD_NAMES += devloader
+# #137: the Apple fallback's job rides the sync-time indexer (developer)
+MOD_xindex_SRC += ipodui/afb.c ipodui/afb_core.c ipodui/afb_fat.c
 endif
 
 # P12 W4-0 (docs/design/sdk.md): SDK modules, the games. Same compile;
@@ -102,9 +104,13 @@ MOD_COMMA := ,
 MOD_EMPTY :=
 MOD_SPACE := $(MOD_EMPTY) $(MOD_EMPTY)
 
+# p19-copfileio: a shell module's calls into the core cross the UI boundary
+# like the shell's own: the same --wrap options (FEBE_WRAP_OPTS, apps.make),
+# so a call the core's link sends to a remote-call stub goes to that stub
+# here too (it was the real function: from the COP, the file layer itself)
 mod_link = $(CC) $(GCCOPTS) -mthumb -nostdlib -Wl,--gc-sections \
 	-Wl,--no-warn-rwx-segments -Wl,--defsym=__mod_base=$(2) -Wl,--just-symbols=$(BUILDDIR)/rockbox.elf \
-	-T$(MOD_LDS) -Wl,-Map,$(basename $@).map -o $@ $(1)
+	$(FEBE_WRAP_OPTS) -T$(MOD_LDS) -Wl,-Map,$(basename $@).map -o $@ $(1)
 
 # an SDK module: no core symbols at all; the stubs and libgcc, statically
 mod_sdk_link = $(CC) $(GCCOPTS) -mthumb -nostdlib -Wl,--gc-sections \
@@ -159,9 +165,10 @@ $(MOD_DIR)/obj/%.o: $(APPSDIR)/%.c
 	$(SILENT)$(fix_dep_target)
 
 # every core symbol a module calls stays in the core's --gc-sections link
-$(MOD_DIR)/keep.txt: $(MOD_SHELL_OBJ) $(ROOTDIR)/tools/modpak.py
+$(MOD_DIR)/keep.txt: $(MOD_SHELL_OBJ) $(ROOTDIR)/tools/modpak.py $(FEBE_WRAP_FILE)
 	$(call PRINTS,MODKEEP $(@F))python3 $(ROOTDIR)/tools/modpak.py keep \
-		--nm $(subst objcopy,nm,$(OC)) -o $@ $(MOD_SHELL_OBJ)
+		--nm $(subst objcopy,nm,$(OC)) $(if $(FEBE_WRAP_FILE),--wraps $(FEBE_WRAP_FILE)) \
+		-o $@ $(MOD_SHELL_OBJ)
 
 $(BUILDDIR)/rockbox.elf: $(MOD_DIR)/keep.txt
 CORE_LDOPTS += -Wl,@$(MOD_DIR)/keep.txt

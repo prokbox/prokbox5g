@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2005 by Miika Pekkarinen
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -80,8 +81,15 @@ void pcmbuf_sync_position_update(void);
 bool pcmbuf_is_lowdata(void);
 void pcmbuf_set_low_latency(bool state);
 
-#ifdef HAVE_BCMFW_VIDEO
+#if defined(HAVE_BCMFW_VIDEO) || defined(HAVE_IPOD_UI)
+/* times the playing PCM ran dry: a real underrun */
 unsigned long pcmbuf_underruns(void);
+/* planned drains at a sample-rate switch between tracks (the full
+ * re-buffer HAVE_PLAY_FREQ "auto" does), not underruns */
+unsigned long pcmbuf_rate_gaps(void);
+/* playback.c: buffering stopped for a rate switch; the playing track's end
+ * is a rate gap */
+void pcmbuf_rate_gap_expected(bool on);
 #endif
 #ifdef HAVE_IPOD_UI
 /* times the playing PCM fell under the boost watermark (S36, C6) */

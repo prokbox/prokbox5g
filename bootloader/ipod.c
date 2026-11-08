@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2005 by Dave Chapman
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * Based on Rockbox iriver bootloader by Linus Nielsen Feltzing
  * and the ipodlinux bootloader by Daniel Palffy and Bernard Leach
@@ -349,7 +350,19 @@ void* main(void)
 
     lcd_setfont(FONT_SYSFIXED);
 
-    printf("Rockbox boot loader");
+#ifdef HAVE_IPOD_BOOTSCREEN
+    /* ProkBox: no upstream name on screen (native illusion, CLAUDE.md rule 1) */
+#define BL_TITLE     "Boot loader"
+#define BL_LOADING   "Loading firmware..."
+#define BL_LOADED    "Firmware loaded."
+#define BL_CANTLOAD  "Can't load the firmware:"
+#else
+#define BL_TITLE     "Rockbox boot loader"
+#define BL_LOADING   "Loading Rockbox..."
+#define BL_LOADED    "Rockbox loaded."
+#define BL_CANTLOAD  "Can't load " BOOTFILE ": "
+#endif
+    printf(BL_TITLE);
     printf("Version: %s", rbversion);
     printf("IPOD version: 0x%08x", IPOD_HW_REVISION);
 #ifdef HAVE_IPOD_BOOTSCREEN
@@ -440,10 +453,10 @@ void* main(void)
             return (void*)DRAM_START;
         }
     } else {
-        printf("Loading Rockbox...");
+        printf(BL_LOADING);
         rc=load_firmware(loadbuffer, BOOTFILE, MAX_LOADSIZE);
         if (rc > 0) {
-            printf("Rockbox loaded.");
+            printf(BL_LOADED);
             return (void*)DRAM_START;
         } else if (rc == EFILE_NOT_FOUND) {
             /* if rockbox.ipod doesn't exist, then check if there is a Rockbox
@@ -456,7 +469,7 @@ void* main(void)
         }
 
         printf("Error!");
-        printf("Can't load " BOOTFILE ": ");
+        printf(BL_CANTLOAD);
         printf(loader_strerror(rc));
     }
 

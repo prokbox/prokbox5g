@@ -114,18 +114,42 @@ static inline void xcore_acquire(void)
 #if NUM_CORES > 1 && defined(HAVE_COP_COHERENCE) && \
     (defined(DEBUG) || defined(HAVE_IPOD_UI_DEVMODE))
 #define XCORE_CHECKS
+/* The core index (CPU 0, COP 1) as current_core() reads it, bit 7 of
+ * PROCESSOR_ID's low byte, but in C: current_core()'s asm is ARM-only and
+ * these checks also sit in headers that Thumb shell modules include
+ * (file_internal.h's lock helpers, from afb_fat.c). */
+#define XCORE_CORE() \
+    ((unsigned)(*(volatile unsigned char *)&PROCESSOR_ID >> 7))
 /* calls of a CPU-only entry point from the COP (developer builds) */
 extern volatile unsigned xcore_offcore;
 #ifdef DEBUG
 #include "panic.h"
 #define XCORE_ASSERT_CPU(what) \
-    do { if (CURRENT_CORE != CPU) panicf("%s off the CPU", (what)); } while (0)
+    do { if (XCORE_CORE() != CPU) panicf("%s off the CPU", (what)); } while (0)
 #else
 #define XCORE_ASSERT_CPU(what) \
-    do { if (CURRENT_CORE != CPU) xcore_offcore++; } while (0)
+    do { if (XCORE_CORE() != CPU) xcore_offcore++; } while (0)
 #endif
 #else
 #define XCORE_ASSERT_CPU(what) do { } while (0)
+#endif
+
+/* The file layer from the COP (p19-copfileio, bench 4f): its tables and
+ * caches are cached memory the CPU writes, so the COP must cross by remote
+ * call (febe_rpc.list) and never enter it.  Developer builds: every entry
+ * (each takes the file system's lock, file_internal.h) and dc_get_buffer()
+ * panic off the CPU with the caller's return address in the message (the
+ * panic record; map it with rockbox.map), the first call being the last.
+ * Release: nothing; scripts/febe_reach_check.py fails the gate on any path
+ * from the ui thread into the file layer that does not cross. */
+#ifdef XCORE_CHECKS
+void xcore_fs_offcore(const char *what, void *lr) NORETURN_ATTR;
+#define XCORE_FS_ASSERT_CPU(what) \
+    do { if (XCORE_CORE() != CPU) \
+             xcore_fs_offcore((what), __builtin_return_address(0)); \
+    } while (0)
+#else
+#define XCORE_FS_ASSERT_CPU(what) do { } while (0)
 #endif
 
 /* ---- The pixel hand-off (BCM MF-4; design section 6.3) ------------------

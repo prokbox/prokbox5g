@@ -10,7 +10,7 @@
  * Not affiliated with or endorsed by Apple Inc.
  *
  * iPod UI shell: Extras > Stopwatch (P12, docs/phase12-brief.md 3.4, spec
- * extras.md, owner photo 1202). A cold Class A module: the split list
+ * extras.md, owner photo `extras-stopwatch`). A cold Class A module: the split list
  * (Resume, New Timer, Clear Logs, the logs), the dark timer screen (big
  * digits at 10 fps, the lap list) and a log's detail; owner W1-S
  *

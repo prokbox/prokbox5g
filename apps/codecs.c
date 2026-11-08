@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2002 Björn Stenberg
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -158,8 +159,8 @@ struct codec_api ci = {
        the API gets incompatible */
     panicf,
 #ifdef HAVE_IPOD_UI
-    false, /* cop_assist (P19 19-1c: the CPU-pinned default; codec_cop.c
-              sets it per run) */
+    false, /* cop_assist (P19 19-1c: false off the COP; codec_cop.c sets
+              it per run, true for a run on the COP, the default) */
 #endif
 
 };

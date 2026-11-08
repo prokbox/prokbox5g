@@ -30,6 +30,7 @@
 
 #ifdef HAVE_BCMFW_VIDEO
 #include <fcntl.h>
+#include "kernel.h"
 #include "audio.h"
 #include "thread.h"
 #include "core_alloc.h"
@@ -175,6 +176,116 @@ bool sim_cmd_video(const char *cmd, char *argv[], int argc, int lineno)
         if (!sim_sleep_touch())
             sim_wheel_touch();
         fprintf(stderr, "sim_script:%d: wheel_touch\n", lineno);
+        return true;
+    }
+    if (!strcmp(cmd, "video_fault") && argc >= 3 && !strcmp(argv[1], "feed"))
+    {
+        /* video_fault feed <n> [quiet]: the model refuses the FEED n
+           FEEDs from now, as a full queue (day 4c's stall); quiet: its
+           error reply is lost too */
+        uint32_t n = (uint32_t)strtoul(argv[2], NULL, 10);
+        bool quiet = argc >= 4 && !strcmp(argv[3], "quiet");
+
+        sim_video_feed_fault(n, quiet);
+        fprintf(stderr, "sim_script:%d: video_fault feed %lu%s\n", lineno,
+                (unsigned long)n, quiet ? " quiet" : "");
+        return true;
+    }
+    if (!strcmp(cmd, "video_fault") && argc >= 3 && !strcmp(argv[1], "hole"))
+    {
+        /* video_fault hole <KB>: the audio's buffer never holds the
+           video's bytes from this file offset on (day 4c); 0 clears */
+        uint64_t kb = strtoull(argv[2], NULL, 10);
+
+        sim_video_set_hole(kb * 1024);
+        fprintf(stderr, "sim_script:%d: video_fault hole %lluK\n", lineno,
+                (unsigned long long)kb);
+        return true;
+    }
+    if (!strcmp(cmd, "video_fault") && argc >= 3 &&
+        !strcmp(argv[1], "window"))
+    {
+        /* video_fault window <records>: the next play's index window
+           (#175: a clip slides it, against storage that powers off); 0
+           the build's VPC_WINDOW_RECORDS */
+        uint32_t n = (uint32_t)strtoul(argv[2], NULL, 10);
+
+        sim_video_set_window(n);
+        fprintf(stderr, "sim_script:%d: video_fault window %lu\n", lineno,
+                (unsigned long)n);
+        return true;
+    }
+    if (!strcmp(cmd, "video_wait_refusal"))
+    {
+        /* video_wait_refusal [ms]: block until the model has refused the
+           FEED video_fault armed AND the player has handled it (its
+           "FEED refused" lines logged, the session restarted), each
+           within ms (default 15000).  Waits on the events, not a window:
+           a fixed 600 ms after the model's refusal raced the player's
+           tick under gate load (the vstall flake, 2026-11-05).  A
+           refusal a restart overtook (its CLOSE read the reply and the
+           new session dropped it: a seek for the slow sim audio's 1.5 s
+           snap back, #192) never reaches the player's tick, so the
+           scenario didn't run: the fault is armed again, at most 3
+           times, and logged.  Logs "video_wait_refusal ok after N+M ms"
+           or "... timed out (what)" */
+        long lim = argc >= 2 ? strtol(argv[1], NULL, 10) : 15000;
+        long t = 0, u = 0;
+        struct vplayer_info info;
+        uint32_t seen;
+        int again = 0;
+
+        vplayer_info(&info);
+        seen = info.feed_refusals;
+        for (;;)
+        {
+            bool alive;
+
+            while (!sim_video_feed_refusals() && t < lim)
+            {
+                sleep(HZ / 50);   /* yields: the sim's threads share one host thread */
+                t += 20;
+            }
+            if (!sim_video_feed_refusals())
+            {
+                fprintf(stderr, "sim_script:%d: video_wait_refusal timed out "
+                        "(no refusal)\n", lineno);
+                return true;
+            }
+            while ((alive = vplayer_info(&info)) &&
+                   info.feed_refusals == seen &&
+                   !sim_video_feed_overtaken() && u < lim)
+            {
+                sleep(HZ / 50);
+                u += 20;
+            }
+            if (alive)
+                vplayer_info(&info);
+            if (info.feed_refusals != seen)
+                break;
+            if (alive && sim_video_feed_overtaken() && again < 3)
+            {
+                again++;
+                sim_video_feed_rearm();
+                fprintf(stderr, "sim_script:%d: video_wait_refusal: refusal "
+                        "overtaken by a restart, armed again (%d)\n",
+                        lineno, again);
+                continue;
+            }
+            fprintf(stderr, "sim_script:%d: video_wait_refusal timed out "
+                    "(player%s)\n", lineno,
+                    sim_video_feed_overtaken() ? ", overtaken" : "");
+            return true;
+        }
+        sleep(HZ / 5);    /* the restart's OPEN, logged after the lines */
+        fprintf(stderr, "sim_script:%d: video_wait_refusal ok after %ld+%ld "
+                "ms\n", lineno, t, u);
+        return true;
+    }
+    if (!strcmp(cmd, "video_feed_errors"))
+    {
+        fprintf(stderr, "sim_script:%d: video_feed_errors %lu\n", lineno,
+                (unsigned long)sim_video_feed_errors());
         return true;
     }
     if (!strcmp(cmd, "video_res"))

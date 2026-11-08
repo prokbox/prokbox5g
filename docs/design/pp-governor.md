@@ -2,7 +2,9 @@
 
 Design brief for the PP5022 battery package the owner agreed on 2026-10-25. **Status (2026-10-25, branch `ppgov-impl`):** G0 done (the core, host tests, the simulator; results in §5.4); G1 built behind a developer switch that defaults off (the marker `pgov_on` in the system folder), no voltage change, no 100 MHz. **Stage 2 (2026-10-26, branch `p19-pgov2`):** the voltage step, band 3 and their apply layer, behind two more markers (`pgov2_on` shadow, `pgov2_apply`), developer builds only; §16. Owner: firmware-platform (top model for the core and the voltage path, per `docs/process.md` model tiers). Branch `ppgov`, cut from `p19`.
 
-*Names: the technical names are used here: **PP5022**, its cores the **CPU** (playback back end) and the **COP** (UI front end once 19-9 lands), the **BCM2722**, the **WM8758**, the PMU (PCF50605 family). In chat: PP1, PP2, VC, DAC.*
+**Status refresh (2026-11-06, branch `p19-govplan`).** The 19-9 split (UI on the COP) is retired: the owner chose **layout A** on 2026-11-05 (`core-layout-decision.md`), Apple's layout, in which the **CPU runs the UI, the file system, storage, USB and the BCM2722 driver, and the COP runs the audio pipeline** (codec, `pcmbuf`, DSP, mixer). Where this brief says "after 19-9", read it as superseded; §8 is kept as history. pgov stays developer-only (`HAVE_PP_GOV` under `HAVE_IPOD_UI_DEVMODE`); the release build has none of it. The idle read's torn-read bug is fixed (§17.6). **§17 compares Apple 1.3's governor with ours and sets the plan for layout A**; for layout A it supersedes §8 and the B1 rule of §16.13.
+
+*Names: the technical names are used here: **PP5022**, its cores the **CPU** (UI, storage, BCM2722 driver) and the **COP** (the audio pipeline, layout A; this brief's older sections assumed the retired 19-9 split), the **BCM2722**, the **WM8758**, the PMU (PCF50605 family). In chat: PP1, PP2, VC, DAC.*
 
 **Evidence tags.** [silicon] measured on our unit (the log or session is named). [code] read from our source on `p19` (`7b720c68d0`). [rockbox-derived] from upstream's code or comments. [apple] read from Apple's firmware 1.3 (addresses and constants only, `mac-and-dvs.md` method). [estimate] computed from stated figures. [hypothesis] unproven. [literature] published work, cited from memory, not fetched. [ours] our design choice.
 
@@ -322,6 +324,8 @@ The logs record boosted milliseconds per call site class (anim, codec, maintenan
 
 ## 8. The 19-9 COP split
 
+*History: 19-9 is retired (layout A, 2026-11-05). The plan for the COP running audio is §17.*
+
 ### 8.1 Load per core
 
 - After 19-9 the CPU is the back end (decode, storage, the BCM2722 feed) and the COP the front end (the UI loop). Each has its own idle word (§4.1); the governor takes the larger need (D2). Before 19-9 the same code sees the COP's decode (Fit-2, a developer A/B row) or a parked COP (19-1c/d).
@@ -388,6 +392,7 @@ All of: `DCDC1` read `0xEC` at boot; the persistent record (§9.4) allows it; �
 - **Selector rows:** each band's entry and exit; the headroom edge (19.2 MHz in, 19.3 out); saturation up after 2 samples; the dwell per band (a gap of dwell − 1 ms never steps down); floors and caps combined; a boost → band 2's top at once; release → the dwell; band 3 only from saturation or a floor, never from a boost; a cap leaves band 3 at once.
 - **Voltage rows:** the 2 s low dwell; a boost while low gives band 1's top, then the raise, then band 2 (ordering checked on every step); invariants 1–4 after every single decision over 10⁶ random steps.
 - **Fallback rows:** every trigger → normal voltage and off-for-boot; the record's transitions (armed, strike, two strikes in five, off, ok, reset); "lower only after armed".
+- **The idle read** (`test_idle.c`, 2026-11-06): the seqlocked per-core idle snapshot against its writer, every interleaving (§17.6).
 - **Tables:** `DEV_TIMING1` by Apple's rule with Rockbox's floor; the PLL words for 30/48/60/80/100 against M/N/post and the VCO ≥ 96 MHz rule; the grade table.
 - **Per-core:** need = max of the two; a parked COP (frozen word) reads as idle.
 - **The A/B simulator** (`tests/ppgov/sim`) runs the synthetic traces at fixed parameters as a regression (its table is checked in; a policy change that moves it fails until the table is updated with a reason).
@@ -779,3 +784,75 @@ The review found stage 2 safe to merge as a shadow; apply mode was held until th
 Sizes after the fixes (`arm-none-eabi-size`, against `a25c29b79f`): developer `fw-ui` text +8,764 B, `_end` +8,288 B, `pgov.o` 7,691 B text and 239 B of statics (uncached); `set_cpu_frequency` +196 B and `system_reboot` +8 B of IRAM; release `fw-rel` +152 B text (G1's COP-safe boost), no stage-2 symbol; stock `fw` none. Builds: `fw-ui`, `fw-rel`, `fw-ui-mod`, `sim-ui`, `fw`; `scripts/xcore_map_check.py` passes on `fw-ui`, `fw-rel`, `fw-ui-mod`.
 
 **Re-review (on `509250ee8e`): safe for an apply-mode bench.** Follow-ups landed: **R1** `panic_shell_exit()` raises the rail first (raw, IRQs off), so a boot-guard halt on the charger no longer leaves `0xEB` for Apple's recovery; **R2** a failed `rolo_load()` (`rolo_error()`) calls `pgov2_shutdown_cancelled()`; **R3** at boot a sound `pgov.tmp` is preferred over `pgov.dat` (the write is temp, sync, remove, rename, and a broken write never checks), so a cut between remove and rename keeps the strike history (`pgov_rec_pick()`, `test_rec_pick`); **R4** an apply pass that ends inside a settle sleeps a tick instead of re-boosting in a spin (`pgov_hw_settle_left()`, `test_settle_left`); **nit** the raw write on a COP restart is skipped while the I2C mutex is held (`i2c_held()`).
+
+---
+
+## 17. Apple 1.3's governor against ours, and the layout A plan (2026-11-06)
+
+Owner-approved after an adversarial review (2026-11-06). Apple's side is from `../pp5022-reference/apple-power-catalog.md` §2.1 and `apple-dual-core.md` §5 [apple-RE]; ours is read from this tree [code]. The plan is [ours] unless tagged.
+
+### 17.1 Side by side
+
+| | Apple 1.3 [apple-RE] | pgov today [code] | Layout A plan [ours] |
+|---|---|---|---|
+| **Load input** | Both cores' 64-bit idle totals (`0x1498_3040`), read each 10 ms pass; a 99-point table turns them into a kHz need, low-pass filtered | Per-core idle µs from `core_sleep()` stamps, sampled by the CPU's tick (10 ms); EWMA and a band selector with dwell (§4) | Busy time from the same idle accounting (now a seqlocked snapshot, §17.6), but **only to step down and to confirm**; dark play takes a band chosen per track (§17.2) |
+| **Range** | 26–80 MHz on the PLL awake; 24 MHz crystal only in light sleep; a flag raises the floor to 58 MHz | Band 0 24 MHz PLL off, 30, 80; 100 MHz and `DCDC1 0xEB` under stage 2 markers (§16) | 24 MHz floor stays (the I2S is clocked by the WM8758, so audio does not care [silicon], `clocks-power.md` §8); 30 and 80; stage 2 unchanged and developer-only |
+| **Boosts** | A decaying event boost (step 500 kHz, raised to 1,700 or 3,500 by three modules, most likely codec engines: a per-codec gain [hypothesis]); timed requests that hold 80 MHz for 1–30 s | `cpu_boost()` wrapped: "at least band 2 now", 341 call sites; `clockpol`'s holds are 30 MHz floors | A **deadline boost** wrapper (Apple's timed bursts) for track start, seek, slides; `cpu_boost()` sites unchanged; a per-codec boost gain from `clockpol`'s per-format table |
+| **Disk, USB, video** | Disk mode pins 80 MHz and suspends the governor; the policy floor forces 80 MHz on some states (external power or the dock [hypothesis]) | ATA DMA and USB are 30 MHz holders (floors); band 3 capped during storage, the BCM2722 port and USB; video runs through the feedback loop | **Pins, not feedback:** disk mode and video each pin a level and suspend the loop, as Apple does |
+| **COP wakes** | Each pass wakes the COP after reading the totals, only while the audio engine runs (the hold byte `0x1493_7139` clear), so its idle window closes | Rockbox's tick pulses the COP every 10 ms (`kernel-pp.c:36`); K-1 has not landed | K-1 parks the COP; no pulse is needed for accounting (a sleep in progress is read from its stamp); the codec wakes on the PCM FIQ's watermark (§17.3) |
+| **Voltage** | Never changes the core voltage (`mac-and-dvs.md`) | Stage 2: one step (`0xEB`) in bands 0/1, with a watchdog and a record (developer) | Unchanged from stage 2 |
+| **Arbitration** | One governor task on the CPU; timed requests and the event boost combine as a max; the driver is called only on a change | Decisions on the CPU only; a COP boost is booked (`cop_boost`) and applied at the CPU's next tick (review B1, §16.13); one global boost counter | **One request word per core**, uncached, combined with the holds; the result is the max. A raise applies at once on the requesting core; a lower is applied lazily by the CPU. B1 is removed in layout A |
+
+### 17.2 The revised design
+
+- **Dark play: a band per track, not a loop.** The band is chosen at track start and at every DSP change (a new codec, a speed change, EQ, crossfade) from the format's known cost and `clockpol`'s per-format strike history. In between, nothing is re-decided unless one of the two rules below fires.
+- **Step down only on measured busy time.** Lower when busy time × f_now / f_lower < 0.7 over the window, with a dwell of at least 5 s at the current level. **Never step down because the buffer is full**: a decoder that keeps up always leaves it full, so a "full means too fast" rule makes a limit cycle (down, fall behind, up, fill, down...).
+- **Buffer level drives only a fast step up.** `pcmbuf`'s boost watermark and `clockpol`'s per-format strike already exist; they raise at once and never lower.
+- **Busy time comes from idle accounting** (the per-core totals, §17.6), not from per-frame wall time, which counts preemption and the other core's clock changes as work.
+- **Arbitration** as in the table: each core writes its own request word in uncached memory; the combined level is the max of both words and the holds. The requesting core raises at once (it is the one that needs it); lowering waits for the CPU's next pass. B1's deferral (`pgov.c` `cop_boost`, `pgov_boost_hz()`'s COP branch) goes in layout A, because a decode that waits up to 10 ms for its clock is a miss risk.
+- **Clock changes must be rare.** A change made from the COP runs `scale_suspend_core()`, whose resume writes 0 to the CPU's control register: that wakes a sleeping CPU (`system-pp502x.c` `scale_suspend_core()`), and the PLL relock waits with no bound (`pll_wait_lock()`). So every change costs a CPU wake and an unbounded spin; the per-track band keeps them to a few per track.
+- **Bursts with deadlines.** A wrapper `cpu_boost_for(ms)` (name provisional) holds the request word up to a deadline, as Apple's 1–30 s timed requests do, so new callers need no balanced release. The 341 existing `cpu_boost()` sites are not migrated.
+- **Video and disk mode get a pin** that suspends the loop, not feedback.
+- **The 24 MHz floor stays** [silicon]: dark FLAC has run there for hours (`p19-placement.md` §4.1) and the WM8758 clocks the I2S.
+- **No 32-bit µs window may exceed 71.6 minutes** (2³² µs). Totals may wrap; differences over one window may not.
+
+### 17.3 What was dropped, and why
+
+- **Timer 2 as a COP tick (dropped for now).** Timer 2 has one owner at a time: the backlight fade registers it on every screen-off (`backlight.c` ~407), the profiler and plugins use it, and soft sleep refuses while `TIMER2_CFG` is enabled (`power_sleep-pp502x.c` ~196). `timer_stop()` writes `COP_INT_DIS` for it (`timer-pp.c`), so a CPU-side owner would silently cut a COP tick. Its one-shot mode is a [hypothesis]. Revisit only if T-1 shows a coarse CPU tick is worth having and the COP then needs deadlines of its own.
+- **`PROC_WAIT_CNT` timed sleeps are unsafe.** `core_wake()` looks only at bit 31 (`PROC_SLEEP`) of the other core's control register, so a core in a counted wait reads as awake and a post to it is lost until the count runs out.
+- **The codec's poll on a full buffer** (`pcmbuf_full_wait_ticks()`, `pcmbuf.c` ~910) becomes event-driven: the PCM FIQ, on the COP in layout A, wakes the codec when the level reaches the watermark. In layout A the FIQ and the codec share a core, so the wake is a local post.
+
+### 17.4 Order
+
+1. The torn-read fix and the Apple doc corrections (this change, §17.6).
+2. K-1 (the COP parks with no runnable thread and no pending timeout), then P-1 (the I2S FIQ on the COP, on silicon).
+3. Core-agnostic `pcm-pp.c`, then the layout A engine (`core-layout-decision.md` §7 steps 2–3).
+4. Per-core request words with immediate raises; B1 removed.
+5. The per-track band, the busy-time step-down, the watermark rescue and deadline bursts.
+6. The PCM watermark wake.
+7. T-1 (a coarse CPU tick in dark play: is it worth it?).
+8. A COP timer source, only if T-1 justifies it.
+
+### 17.5 Tests
+
+| Test | What | Pass |
+|---|---|---|
+| **The torn read** (done) | `tests/ppgov/test_idle.c`: the writer's stores one at a time against every reader interleaving | Totals monotonic; every delta within [0, the time between reads]; every read equal to the writer's own account |
+| **The governor simulator** | Extend `tests/ppgov/sim.c` with COP traces: APE, Vorbis at 1.5×, EQ, crossfade, a dark seek | 0 misses; at most 1 clock change per 10 s dark; no A→B→A within 30 s |
+| **The bench** (A-1's dark arms) | `clk` stats: changes per hour, the lock's max, CPU wakes per change | pcm underruns = 0; mV/h no worse than layout C |
+| **The watermark wake** | A P-1 extension: the codec woken only by the FIQ's watermark for 10 minutes dark | 0 underruns; 0 COP timeouts armed |
+
+**Apple choices to keep:** read the totals, then wake; call the driver only on a change; timed bursts; a per-codec boost gain; pin, don't feed back, for disk mode and video.
+
+### 17.6 The idle read (fixed 2026-11-06)
+
+**The bug** [code]. `idle_now()` in `pgov.c` read a core's sleep stamp and its idle total, then re-checked the stamp. `core_sleep()` ends a sleep with two stores: add the slept time to the total, then clear the stamp. A read between them saw the new total with the old stamp and added the same sleep again. The inflated reading became `last_idle`; the next windows' deltas went negative, were clamped to 0 (`pgov_tick()`) and read as 100 % busy, so the governor stepped up for nothing. The reader also took its time sample before the snapshot, so a sleep that started just after it gave a negative in-progress term.
+
+**The fix** [ours]: `firmware/export/pgov_idle.h`, one `struct pgov_idle { seq, idle_us, t0 }` per core in uncached memory.
+- The writer (`core_sleep()`, IRQs off) makes the sequence odd, updates, and makes it even again, at the sleep's start and at the wake. The wake's time stamp is taken after the sequence goes odd.
+- The reader retries while the sequence is odd or has changed, and samples the time inside the snapshot.
+- Uncached stores leave through the write buffer in program order, as corelock already assumes, and `volatile` keeps the compiler's order, so no barrier is needed.
+- The software flag stays. The `COP_CTL` sleep bit is no substitute: `scale_suspend_core()` writes the other core's control register on every clock change, and an aborted `core_sleep()` (a message already pending) never sets it.
+- The reader spins only while the other core is inside an update: a few instructions with IRQs off, longer only if an FIQ lands there.
+
+**The test** (`tests/ppgov/test_idle.c`, run by `tests/ppgov/run.sh`, so by `scripts/test.sh`). The real inline writer is recorded store by store and replayed into every position among the real reader's loads and time samples (positions 0–16, 2,042,975 schedules per case), from a sleeping and a waking start, with the clock wrapping and not. Result: **0 bad, 0 inexact** in all four cases. The old pair through the same harness: 14,639 and 16,338 bad schedules of 20,349, so the test catches the bug. A deliberately broken seqlock (no re-check, stores swapped) is caught too.

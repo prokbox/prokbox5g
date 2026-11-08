@@ -268,8 +268,33 @@ static void test_acc(void)
     CHECK(pl_acc_pct(1, 20) == 5);
 }
 
+/* A11: the usage totals */
+static void test_totals(void)
+{
+    struct pl_totals t;
+    char b[160];
+    int i;
+
+    memset(&t, 0, sizeof(t));
+    for (i = 0; i < 40; i++)        /* 10 s lit, drive on half of it */
+        pl_totals_add(&t, i < 20, true, true);
+    for (i = 0; i < 400; i++)       /* 100 s dark play, drive on 4 s */
+        pl_totals_add(&t, i < 16, false, true);
+    for (i = 0; i < 8; i++)         /* 2 s dark, paused */
+        pl_totals_add(&t, false, false, false);
+    CHECK(t.subs == 448 && t.bl == 40 && t.dark_play == 400);
+    CHECK(t.disk_on == 36);
+    CHECK(pl_totals_format(b, sizeof(b), &t, 4, 95500, UINT32_MAX) > 0);
+    CHECK(!strcmp(b, "up_s=112 disk_on_s=9 bl_s=10 darkplay_s=100 "
+                     "idle_cpu_s=95 idle_cop_s=-"));
+    CHECK(sizeof(struct pl_totals) == 16);
+    /* a short buffer truncates, never overruns */
+    CHECK(pl_totals_format(b, 12, &t, 4, 0, 0) >= 12 && strlen(b) == 11);
+}
+
 int main(void)
 {
+    test_totals();
     test_layout();
     test_format();
     test_ring();

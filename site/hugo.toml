@@ -10,7 +10,7 @@ enableRobotsTXT = false
 [params]
   description = "Free, open-source firmware for the iPod Video (5th generation and 5.5)."
   # the latest published release (the PDF cover and the home page badge)
-  version = "0.7.0-alpha"
+  version = "0.8.0"
   repo = "https://github.com/prokbox/prokbox5g"
   releases = "https://github.com/prokbox/prokbox5g/releases"
   contact = "prokbox.project@gmail.com"
@@ -21,6 +21,10 @@ enableRobotsTXT = false
     source = "../docs/user"
     target = "content"
     files = ["! images/**", "! README.md"]
+  # the developer reference (docs/manual/), as the Developers section
+  [[module.mounts]]
+    source = "../docs/manual"
+    target = "content/developers"
   [[module.mounts]]
     source = "../docs/user/images"
     target = "static/images"

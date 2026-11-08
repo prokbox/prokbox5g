@@ -1,6 +1,6 @@
 # Now Playing art reflection: geometry and fade (exact spec)
 
-Owner direction (2026-10-08): the reflection should be bigger, fade out further down and more gradually, and obey real floor-mirror optics. Reference: owner photo `np-normal-b.jpg` (photo 1203). There the reflection fills the whole gap between the art's bottom edge and the progress bar, and is still faintly visible just above the bar.
+Owner direction (2026-10-08): the reflection should be bigger, fade out further down and more gradually, and obey real floor-mirror optics. Reference: owner photo `np-normal-b.jpg` (photo `np-normal-b`). There the reflection fills the whole gap between the art's bottom edge and the progress bar, and is still faintly visible just above the bar.
 
 This file replaces the fixed `NP_REFL_LEN 25` / `NP_REFL_A0 90` / `NP_REFL_LIMIT 196` rule in `apps/ipodui/np_draw.{c,h}`.
 
@@ -9,7 +9,7 @@ The art is a flat card standing on a glossy floor, turned toward the text. Scree
 
 Measured on the owner references rectified to 320×240 (lit-area edges fitted, homography; 50 % edge crossings on the 4× warp, ±0.5 px relative, ±1 px absolute):
 
-| Edge | np-clean-ufo | np-clean-battlecry | photo 1203 (3rd check) | Used |
+| Edge | np-clean-ufo | np-clean-battlecry | photo `np-normal-b` (3rd check) | Used |
 |---|---|---|---|---|
 | left x (first column) | 8.96 | 9.05 | 8.97 | **9** |
 | right x (exclusive edge) | 145.65 | 144.78 | 145.97 | **146** (last column 145) |

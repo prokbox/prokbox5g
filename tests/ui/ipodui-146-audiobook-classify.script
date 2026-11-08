@@ -1,0 +1,95 @@
+# #146: audiobooks by type, genre and folder (docs/design/audiobook-classify-brief.md).
+# Three books, each found by one rule only, and a decoy music album
+# (tests/ui/fixtures/p146/make.sh):
+#   /Library/Classify/type.m4b      "Classify Type Book", genre Fiction (m4b)
+#   /Library/Classify/genre.mp3     "Classify Genre Book", genre "spoken word"
+#   /Audiobooks/ClassifyFolder/CD1/01.mp3, CD2/01.mp3
+#                                   "Classify Folder Book", genre Fiction, two
+#                                   discs (the folder rule only)
+#   /Library/Classify/decoy.mp3     "Classify Decoy Album", genre Rock (music)
+# Music > Audiobooks must list the three and not the decoy; the folder-only
+# book keeps its own resume spot across a reboot (books.dat), like any book.
+# Without #146 the genre and folder books are music: expect_drawn fails.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-146-audiobook-classify.script
+# needs: library
+# timeout: 200
+# fresh-db
+# log: ab store w=now
+# log: ab resume book=
+# golden: skip books books_end page_resume
+# DB state: fresh. Rows (sorted): 0 A Field Guide to Tones, 1 Classify
+# Folder Book, 2 Classify Genre Book, 3 Classify Type Book, 4 The Lighthouse
+# Keeper, 5 Mini Audiobook, 6 Winter Stories.
+
+wait 4000
+wait_db 45000
+mkdir /Library/Classify
+mkdir /Audiobooks/ClassifyFolder
+mkdir /Audiobooks/ClassifyFolder/CD1
+mkdir /Audiobooks/ClassifyFolder/CD2
+copy fixtures/p146/type.m4b /Library/Classify/type.m4b
+copy fixtures/p146/genre.mp3 /Library/Classify/genre.mp3
+copy fixtures/p146/decoy.mp3 /Library/Classify/decoy.mp3
+copy fixtures/p146/folder_cd1.mp3 /Audiobooks/ClassifyFolder/CD1/01.mp3
+copy fixtures/p146/folder_cd2.mp3 /Audiobooks/ClassifyFolder/CD2/01.mp3
+update_db_wait_change 60000
+art_wait 60000
+
+key SELECT          # Music
+wait 800
+wheel +6 300        # Audiobooks (Compilations off: P11)
+wait 400
+text_mark
+key SELECT
+wait 900
+shot books          # Field Guide, then the three Classify books
+wheel +6 300
+wait 700
+shot books_end      # every row drawn
+expect_drawn Classify Type Book
+expect_drawn Classify Genre Book
+expect_drawn Classify Folder Book
+expect_not_drawn Classify Decoy
+expect_not_drawn Decoy Song
+
+# The folder-only book: play 5 s, pause (the spot is saved)
+wheel -6 300
+wait 500
+wheel +1 300        # Classify Folder Book
+wait 400
+key SELECT          # its page
+wait 1000
+key SELECT          # the first entry
+wait_pos 5000 60000 01.mp3
+key PLAY            # pause: record written
+wait 800
+expect_ab_store ge1 -1 3000
+audio_stop
+wait 500
+reboot
+
+wait 4000
+wait_db 45000
+key SELECT          # Music
+wait 800
+wheel +6 300        # Audiobooks
+wait 400
+key SELECT
+wait 900            # Classify Folder Book: the last played, on top (#67)
+text_mark
+key SELECT
+wait 1000
+shot page_resume    # Resume first
+expect_drawn Classify Folder Book
+expect_drawn Resume
+key SELECT          # Resume
+wait 3000
+expect_pos 4500 12000   # its own spot (~5 s), not the start
+audio_stop
+wait 500
+remove /Library/Classify/type.m4b
+remove /Library/Classify/genre.mp3
+remove /Library/Classify/decoy.mp3
+remove /Audiobooks/ClassifyFolder/CD1/01.mp3
+remove /Audiobooks/ClassifyFolder/CD2/01.mp3
+quit

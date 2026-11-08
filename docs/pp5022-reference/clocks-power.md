@@ -261,4 +261,92 @@ Gathered for `docs/fit1-brief.md` section C; the policy that uses it is [ours] (
 | SDRAM keeps its contents with both cores asleep and Timer 1 stopped | [hypothesis] (the controller's auto-refresh is independent of core activity) | D1 (18-0), and every wake that returns to a working UI |
 | The deep tier (`sys_poweroff()` → `pcf50605_standby_mode()`) adds `RTCWAK` when an alarm is set | [rockbox-derived]: `rtc_enable_alarm(true)` sets `pcf50605_wakeup_flags \|= 0x10` | the deep test with an alarm (P12) |
 
+How Apple's own light sleep differs (SDRAM self-refresh, clock gating, regulator sleep modes, no timer wakes): §10 and `apple-power.md` §2.
+
 The COP park has no COP-side code: the COP's scheduler calls `core_sleep()` only with an empty run queue and its lock released (`thread.c`), so `COP_CTL` reading `PROC_SLEEP` (twice, 50 µs apart, within 100 ms) is the acknowledgement; its own interrupt enables are masked for the sleep and restored, and the CPU wakes it with `core_wake(COP)` after its own restore [ours].
+
+## 10. What Apple's sleep code adds (2026-11-05 desk study)
+
+From `apple-power.md` (static reading of `osos` 1.3, cross-checked against 1.2.1 and 1.2.3). Each item is [apple-RE] for what Apple writes; meanings are tagged separately.
+
+- **SDRAM self-refresh:** Apple's light sleep sets `XMB_RAM_CFG` (`0x7000_003C`) bit 22 and waits for bit 30 to set before it gates clocks. At wake it clears bit 22 and, after the PLL relocks, waits for bit 30 to clear. That this is a self-refresh request and acknowledge is [hypothesis] (open question #39).
+- **Self-timed core stalls:** Apple writes count-mode words to the running core's own `CPU_CTL`: `0x4800_00nn` (n clock cycles), `0x4200_00nn` (n µs; `0x4200_00FA` = 250 µs for a PLL relock) and `0x4100_00nn` (n ms; `0x4100_000A` = 10 ms around the self-refresh). The unit bits match Rockbox's `PROC_CNT_CLKS`, `PROC_CNT_USEC` and `PROC_CNT_MSEC`, which Rockbox never uses (#46).
+- **Sleep clock state:** `DEV_EN` = `0xC001_0108` (the clickwheel, USB0 and three unnamed bits kept), `DEV_EN2` = 0, `0x6000_6044` = `0x3F`, `DEV_INIT2` bit 6 set, `CLOCK_SOURCE` with no active selector, `PLL_CONTROL` = `0x0200_0000`, then `PROC_SLEEP`. With a USB cable in, Apple spins on `0x7000_0028` bit 2 and `CPU_INT_STAT` instead of sleeping.
+- **Regulator modes:** the codec (`0x24`) and LCD (`0x26`) LDOs go to mode `010` in light sleep and `000` when off, with the voltage code unchanged, and back to `111` at wake. What `010` does is [hypothesis: on in the PMU's active state only, or a low-power mode] (#42).
+- **Pad parking:** on a PP5022, before either sleep, `0x7000_0010` = `0x0004_0000`, `0x7000_0014` = `0x0A00`, `0x7000_0018` = `0x5_0200`, `0x7000_001C` = 0 and `DEV_INIT2 &= 0xE000_0000` (#43).
+- **Timers stop:** `TIMER1_CFG` and `TIMER2_CFG` are saved and zeroed for the sleep, so no timer wakes it.
+- **A seconds counter in the timer page:** `0x6000_5014` holds days, hours, minutes and seconds in four 6-bit fields (`[29:24]`, `[21:16]`, `[13:8]`, `[5:0]`), which Apple converts to seconds. Whether it runs during sleep is open (#44). **Awake it does not** [silicon, sitting 4gh]: it read 0 at both ends of 11 s.
+- **Power-off:** Apple sets only `OOCC1` bit 0 (standby) or bit 1 (reset), from a shadow read at boot, and never writes the wake-enable bits. Its alarm "disabled" year is `0xAA` (Rockbox uses `0x99`).
+- **The long sleep is suspend-to-disk:** an image written to the firmware partition's `hibe` slot, then standby. The resume marker is `0x4001_FF10` = 8 (`apple-power.md` §3).
+
+## 11. The battery probes: which bench row answers what (2026-11-05; results of sitting 4gh, 2026-11-06, at the end)
+
+`apps/ipodui/devbench_pwr.{c,h}` [ours], a picked-only row group ("Battery probes", `bench_pwr_picks`) in developer bench builds. Each row saves what it changes, puts it back, reads it back and logs `restored` or the word that did not come back; the simulator answers every row "Not run (sim)". Run order, basic to advanced:
+
+| Row | Question | What it does | Pass |
+|---|---|---|---|
+| `pgrd` | #35 speed grade | reads `STRAP_OPT_A` (and `_B`); logs `[6:5]` and Apple's 133/100/80/66 MHz meaning | done (a reading) |
+| `preg` | Apple's register values | reads `PP_VER1/2`, `DEV_EN`, `DEV_EN2`, `0x6000_6044`, `DEV_RS`/`RS2`, `0x7000_0010`–`0x7000_0020`, `DEV_TIMING1`, `XMB_RAM_CFG`, `CLOCK_SOURCE`, `PLL_CONTROL`/`STATUS`, `0x6000_6048`, `CPU_CTL`, `COP_CTL`, both timer configs, `0x7000_0028`, and the power catalogue's read-only checks (`apple-power-catalog.md` §3: `MLCD_SCLK_DIV` `0x6000_602C` for T-MLCD, `0x7000_0030`, `GPIOA_INPUT_VAL` for T-LOWBATT-PIN's bit 3, `XMB_RAM_CFG` for T-XMBCFG's "before"); the PMU's `0x24`, `0x25`, `0x26`, `0x1B`, `0x1C`, `0x1E`, `0x21` | done |
+| `prtc` | #44 (awake half) | `0x6000_5014`'s change edges ~10 s apart against `USEC_TIMER` and the PMU's RTC | counts, 1 Hz within 2 %, the PMU within 1 s |
+| `pstl` | #46 | `CPU_CTL` = Apple's count words, IRQ/FIQ off, music paused, 3 reps each: `0x4800_000F`, `0x4200_000A`, `0x4200_0064`, `0x4200_00FA`, `0x4100_0001`, `0x4100_000A`, each only after the ones before held; `CPU_CTL` then cleared as `core_sleep()` does | 90–110 % of the stated time (+8 µs); the clock-cycle form under 8 µs |
+| `pldo` | #42 | screen dark (backlight off, `lcd_sleep()`), `0x26` to mode `010` at the same voltage code for 5 s, restored, lit: "Does the screen look normal?"; only then, music paused and the DAC in standby (headphones noted), `0x24` the same: "Do you hear the music normally after resume?" | both Yes (the screen part alone: done) |
+| `pden` | #41 (awake half) | each **named-unused** `DEV_EN` bit that is on (below) cleared alone, ≥ 2 s, a SELECT press asked for, then set again (that bit only) | the tick within 10 % of `USEC_TIMER`, SELECT seen, the music played on |
+| `psrf` | #39 | USB out, music paused, disk idle, the screen engine claimed and idle, the COP parked (its enables masked, `PROC_SLEEP` seen twice); from IRAM with IRQ/FIQ off: `XMB_RAM_CFG` bit 22 set, bit 30 polled (100 ms bound), 1 s `USEC_TIMER` hold, bit 22 cleared, bit 30 polled clear (100 ms); CRC-32 of the first 1 MB of the firmware's code through the uncached alias before and after | acknowledged and cleared within the bounds, the word back as found, the CRC equal |
+
+`pden` and `psrf` need `preg` (the starting words are in the log before any write). `pldo` gates its codec part on its screen part.
+
+**`DEV_EN` users on the iPod Video** (grep of `firmware/`, `apps/`, `bootloader/`, 2026-11-05) [rockbox-derived]: start-up sets `0xC200_0124` (bits 31, 30, 25 `IDE0`, 8, 5, 2 `SYSTEM`); `EXTCLOCKS` (1) and `I2S` (11) by the codec driver; `I2C` (12) by `i2c-pp.c`; `OPTO` (16) by the clickwheel driver (off with Hold); `PWM` (17) by the piezo (the clicker); `IDE0` (25) by `ide_power_enable()`; `USB0` (3) and `USB1` (22) together by the USB driver; `SER0`/`SER1` (6, 7) by `uart-pp.c` when the dock's serial port is set up. **No code on the Video sets** `FIREWIRE` (23), `LCD` (26) or `ATA` (14, the Sansas' SD controller). So `pden`'s candidates are those three, `USB1` with the USB controller off, and the UARTs with no accessory; with Rockbox's start-up word none is on, and the row then only logs that awake gating has nothing to cut.
+
+**Sitting 4gh results** (2026-11-06, build `56cd4e2096`, the owner's 5.5G) [silicon]:
+
+| Row | Reading | Answer |
+|---|---|---|
+| `pgrd` | `STRAP_OPT_A` = `0x003F_008C`, `[6:5]` = 0; `STRAP_OPT_B` = `0x0000_EAFF` | grade 0: 133 MHz in Apple's table (the meaning [hypothesis]); #35 read |
+| `preg` | at 80 MHz, music stopped, USB out: `PP_VER2`/`PP_VER1` "PP5022C "; `DEV_EN` `0xC203_1926`, `DEV_EN2` 0, `0x6000_6044` `0x3F`, `DEV_RS`/`RS2` 0, `DEV_INIT1` `0x0004_0000`, `0x7000_0014` `0x0A00`, `0x7000_0018` `0x5_0200`, `0x7000_001C` 0, `DEV_INIT2` `0x4000_0000`, `DEV_TIMING1` `0x0808`, `XMB_RAM_CFG` `0xA006_16FA`, `CLOCK_SOURCE` `0x2000_7777`, `PLL_CONTROL` `0x8A12_1403`, `PLL_STATUS` `0x8000_0034`, `CPU_CTL` 0, `COP_CTL` `0x8000_0000` (asleep), `TIMER1_CFG` `0xC000_270F` (100 Hz), `TIMER2_CFG` 0, `0x7000_0028` `0x0200_408A`, `MLCD_SCLK_DIV` 0, `0x7000_0030` `0x9801_6460` (bits 15:12 = 6), `GPIOA_INPUT_VAL` `0xA8` (bit 3 high, battery healthy); PMU `0x24` `0xF0`, `0x25` `0xF8`, `0x26` `0xF1`, `0x1B` `0xEC`, `0x1C` `0x0C`, `0x1E` `0x30`, `0x21` `0xE3` | Against Apple: the pad words and `DEV_INIT2` already equal Apple's sleep values, and `0x6000_6044` equals Apple's sleep `0x3F` (Rockbox's `CACHE_PRIORITY`), so none of those writes would change anything here (#43). `DEV_EN` differs from Apple's sleep set `0xC001_0108` only by blocks in use awake (on here: `EXTCLOCKS`, `SYSTEM`, bit 5, `I2S`, `I2C`, `PWM`, `IDE0`; `USB0` is in Apple's set and off here with no cable): no unused block on. The three LDO bytes are mode `111` with their codes, as Apple runs them awake |
+| `prtc` | `0x6000_5014` `0` → `0` over 11 s, 0 edges, the PMU 11 s | **does not count** awake (S-6: no) |
+| `pstl` | `0x4800_000F` 0/0/1 µs; `0x4200_000A` 12/0/0 µs, `CPU_CTL` read back `0x4200_0000`, no interrupt pending | **the count forms don't hold** (S-8: no): the µs form stalled once in three |
+| `pldo` | `0x26` `0xF1` → `0x51` read `0x51`, 5 s, restored | the screen came back normal (the "Blank" answer was the owner's slip, per their note); the codec part did not run: **rerun** |
+| `pden` | `DEV_EN` `0xC203_1926`, 0 of 6 candidates on | **nothing to cut** awake (quirk 71 confirmed) |
+| `psrf` | not run: the disk or the music started again (the row needs music stopped) | **rerun** with music stopped |
+
+**Not built, and why:** S-3's sleep half (`PROC_SLEEP` with Apple's `DEV_EN` = `0xC001_0108`) is left out: that set drops `SYSTEM` (2) and `I2C` (12), and whether the timer block and the wheel's interrupt path still run without them is unknown, so no wake path (Timer 2 or a timer-interrupt watchdog) is provably safe; sleep labs also wait for the locked awake topology (owner). S-7 (USB PHY suspend) needs a host that has suspended the bus. S-2, S-5 and S-9 need a soft sleep, a meter-free A/B over hours, or a stock unit's backup.
+
+## 12. The awake battery rows from Apple 1.3 (P19 `p19-pwr-awake`, 2026-11-05; results of sitting 4gh, 2026-11-06, at the end)
+
+What the firmware now does while awake, row by row (`apple-power-catalog.md` §3; the gate in `firmware/export/pwr_awake.h`). Each switch row is on by its bench token (`pwr_awake_tokens.h`) or, in developer builds, by the developer mask; any failure signal turns it off for the session, and every act is counted for `ipodui.log` (`pwraw <row> acts= undos= fails= a= b=`).
+
+| Row | Registers and sequence | Default now | Failure signal |
+|---|---|---|---|
+| AW-1 drive release linger | none of its own: the drive's existing cut (`ide_power_enable(false)`, Apple's order, §"Drive power"), 250 ms after a fill that reached its target instead of 3 s after the last access; flash, dark | developer: on; release: compiled out until `pwraw-linger` | two power-ons in a row within 5 s of a linger's cut |
+| AW-2 USB parked on a charger | `usb_enable(false)` (USB core exit, `DEV_USB0/1` off, `DEV_INIT2 &= ~INIT_USB`, the PLL hold released) 12 s after VBUS with no bus reset, `SET_ADDRESS` or transfer; the charge current (LTC4066 `HPWR`/`SUSP`, `power-ipod.c`) written back to what the stack chose; `usb_enable(true)` on a re-probe | developer: on; release: compiled out until `pwraw-usboff` | a host first heard in a re-probe's window (VBUS never dropped): the window doubles, two in a row give it up |
+| AW-3 accessory supply | `D2REGC1` (0x25) `0xF8` on / `0x18` off, unchanged code; only the setting's default moves (`ACCESSORY_SUPPLY_DEFAULT`) | on (this unit: the USB-C board may draw from it) | — (bench `awd2`/`awd2c`) |
+| AW-4 LCD LDO | `D3REGC1` (0x26): mode bits 7:5 `111` → `010`, voltage code kept, written after `bcm_powerdown()` in `lcd_sleep()`; the found value written back and ≥ 10 ms (`sleep(2)`) before `bcm_init()` in `lcd_awake()`, both under the port lock; applied only when found in mode `111` | off until `pwraw-lcdldo` (or the probes' `pldo`) | a read-back that doesn't match, either way (the found value written back) |
+| AW-5 codec clock and I2S | in DAC standby, after the PLL-off write: `DEV_EN &= ~(DEV_EXTCLOCKS \| DEV_I2S)` (variant b; a: `DEV_EXTCLOCKS` only), IRQs masked for the read-modify-write; before the standby wake's first write: the bits set again, 10 µs, then `IISCONFIG` and `IISFIFO_CFG` compared with the values saved at the gate | off until `pwraw-i2sgate` | either I2S register changed (both written back) |
+| AW-8 `XMB_RAM_CFG` | read before and after `usb_reset_controller()`'s `\|= 0x47A`; nothing else changes | developer builds log it | — |
+| AW-9 PMU ADC | after the ADCC1 start (0x2F), read ADCS1/ADCS2 (0x30/0x31) until ADCS2 bit 7 is set, at most 4 reads, the last kept as before | every build | the bit never seen (counted, developer builds) |
+
+[hypothesis] for every effect: the bench rows `awxm`, `awd2`, `awd2c`, `awlg`, `awus`, `awld`, `awi2` (`apps/ipodui/devbench_awake.h`) are the silicon tests. Open risk recorded for AW-4: the BCM job driver may drive the BCM while dark without `lcd_awake()` (`pgov.c`'s note); if `D3REGC1` feeds anything the BCM needs, a dark job would run on the lowered rail. `awld` checks the panel; a dark-job check belongs with the BCM session's bench.
+
+**Sitting 4gh results** (2026-11-06, build `56cd4e2096`) [silicon]:
+
+- **AW-2 (`awus`): PASS**, token `pwraw-usboff` earned and set: parked on the charger after the host window (`acts=1`, the charge current kept at 500 mA), the owner's "Yes" to the host question. An `artcache` hang record (10 s with no progress, recovered after 27 s) fell inside this row's wait; it is logged, not the row's verdict, and belongs to the art cache's owner.
+- **AW-3 (`awd2`, `awd2c`): PASS**, both: `D2REGC1` `0xF8` → `0x18` (read back `0x18`) for 5 s with audio playing through the USB-C board (headphones in, no USB, no charger), the owner heard it continue, and `0xF8` restored. **So the USB-C board's audio multiplexer is not fed from this rail on this unit.** Enumeration and charging with the rail off were not part of the row. The default stays **on** until the owner decides (`HAVE_ACCESSORY_RAIL_LOAD`, `docs/hardware.md`); the finding makes "off for the USB-C profile" a candidate.
+- **AW-4 (`awld`): PASS**, token `pwraw-lcdldo` earned and set: 5 cycles, lowered 5, restored 5, lit 5 of 5, worst wake 447,625 µs (cycles 2–5: 420–448 ms), `D3REGC1` back at `0xF1` each time.
+- **AW-5 (`awi2`): FAIL**: 6 pauses gated, 4 resumes running, **2 late**; variant b cycles 2 and 3 found `pcm=0` with `DEV_EN` `0xC203_1124` (`EXTCLOCKS` and `I2S` still off when checked). The I2S words came back intact (`IISCONFIG` `0x2000_0070`). Token stays off.
+- **AW-1 (`awlg`)**: did not really run: nothing was playing (`playing=0`, `acts=0`, no fill in 893 s). Token stays off; rerun with music.
+- **AW-8 (`awxm`)**: `XMB_RAM_CFG` `0xA006_16FA` before and after the last USB reset's OR (unchanged). **AW-9**: 0 done-bit misses.
+
+## 13. Clock policy today (2026-11-06)
+
+What each build does with the clock; the mechanism is §4 and §8, the history and plans are linked.
+
+**Release build** (`--ipodui-release`) [code]:
+- **24 MHz, PLL off** whenever nothing holds the PLL (`firmware/system.c` `unboosted_freq()`); this is where dark playback of the light formats runs [silicon] (`../design/p19-placement.md` §4.1).
+- **30 MHz on the PLL** while any holder is set (`CPU_PLL_HOLD_*`, `firmware/export/system.h`): the lit screen, a format that does not fit at 24 MHz or one struck this session (`clockpol`), each ATA DMA transfer, USB enabled (`../design/lit-24mhz.md` §1.3).
+- **80 MHz** while anything holds `cpu_boost()`.
+- **The input boost:** a lit wheel step or press boosts for about a second after the last input, only while the codec shares the UI's core and something plays (`apps/ipodui/clockpol_core.h` `cp_input_boost()`).
+- The core voltage never moves (`DCDC1 = 0xEC`).
+
+**Developer builds add** [code]: the band governor `pgov` (`HAVE_PP_GOV`, off until its marker is set): bands from measured per-core idle time, holders as floors, `cpu_boost()` wrapped; and its stage 2 (`HAVE_PP_GOV_DVS`): 100 MHz and one core-voltage step down behind two more markers, with a watchdog (`../design/pp-governor.md` §4, §16).
+
+**Next** [ours]: the layout A plan (a band per track, a busy-time step-down, per-core request words, deadline bursts, pins for disk mode and video) is `../design/pp-governor.md` §17. Apple 1.3's governor, for comparison, is `apple-power-catalog.md` §2.1.

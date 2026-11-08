@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2002 by Linus Nielsen Feltzing
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -39,6 +40,16 @@ struct adc_struct {
 
 static struct adc_struct adcdata[NUM_ADC_CHANNELS] IDATA_ATTR;
 
+#ifdef HAVE_PWR_AWAKE
+#include "pcf_adc_core.h"
+#include "pwr_awake.h"
+static int adc_read2(void *ctx, unsigned char *d)
+{
+    (void)ctx;
+    return pcf50605_read_multiple(0x30, d, 2);  /* ADCS1, ADCS2 */
+}
+#endif
+
 static unsigned short _adc_read(struct adc_struct *adc)
 {
     if (TIME_AFTER(current_tick, adc->timeout)) {
@@ -52,10 +63,27 @@ static unsigned short _adc_read(struct adc_struct *adc)
 
         /* ADCC1, 10 bit, start */
         pcf50605_write(0x2f, (adc->channelnum << 1) | 0x1);
+#ifdef HAVE_PWR_AWAKE
+        /* ProkBox AW-9: the done bit first, as Apple does (bounded) */
+        {
+            int k = pcf_adc_wait(adc_read2, NULL, data, PCF_ADC_POLLS);
+#ifdef HAVE_IPOD_UI_DEVMODE
+            /* the developer log's count: acts = the bit never seen,
+             * undos = it took more than one read */
+            if (k != 1)
+                pwraw_note(PWRAW_ADC, k < 0, adc->channelnum,
+                           (uint32_t)(k < 0 ? 0 : k));
+#else
+            (void)k;
+#endif
+        }
+        value = pcf_adc_value(data);
+#else
         pcf50605_read_multiple(0x30, data, 2); /* ADCS1, ADCS2 */
         value   = data[0];
         value <<= 2;
         value  |= data[1] & 0x3;
+#endif
 
         if (adc->conversion) {
             adc->conversion(&value);

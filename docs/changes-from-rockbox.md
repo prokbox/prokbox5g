@@ -11,7 +11,7 @@ Counts below are from `scripts/upstream_changes.sh` (399 files on `p16` at its c
 
 ## 1. Shell-only additions (no upstream file touched)
 
-`apps/ipodui/` is the whole new UI shell: screen stack, header, smooth list, panels and drift art, Now Playing, audiobook pages, library and precompute, art cache, Settings tree, Search, hold-SELECT menu, On-The-Go store, About/Legal/Reset, system screens (boot, USB, charging, unlit clock face), developer mode, and the shell's fonts (`apps/ipodui/fonts/`, TeX Gyre Heros via `convttf-shell.c`). It compiles only when `HAVE_IPOD_UI` is set (listed in `apps/SOURCES`), so upstream never sees it and it can never conflict in a rebase. Also ours alone, outside the firmware tree: `docs/`, `tests/` (host tests, UI scripts, goldens), `scripts/` (gate, simulator capture, forgejo client), `art/` (artwork generators) and `.claude/` (agents and skills).
+`apps/ipodui/` is the whole new UI shell: screen stack, header, smooth list, panels and drift art, Now Playing, audiobook pages, library and precompute, art cache, Settings tree, Search, hold-SELECT menu, On-The-Go store, About/Legal/Reset, system screens (boot, USB, charging, unlit clock face), developer mode, and the shell's fonts (`apps/ipodui/fonts/`, TeX Gyre Heros via `convttf-shell.c`). It compiles only when `HAVE_IPOD_UI` is set (listed in `apps/SOURCES`), so upstream never sees it and it can never conflict in a rebase. Also ours alone, outside the firmware tree: `docs/`, `tests/` (host tests, UI scripts, goldens), `scripts/` (gate, simulator capture, tracker client), `art/` (artwork generators) and `.claude/` (agents and skills).
 
 New files we added **outside** `apps/ipodui/` (so they are not conflict-prone, but they are ours, not upstream's):
 
@@ -61,6 +61,7 @@ Generated list: `scripts/upstream_changes.sh`. Line counts are insertions/deleti
 | `apps/tagtree.c` (+5) **(P16-1)** | `stats finish idx= elapsed=` DEBUGF on every statistics event (the scripts check the window sends none) | #88 | `HAVE_IPOD_UI` | Yes |
 | `apps/tagnavi.config` (+37/-) | Audiobooks sub-menu; `.m4b` excluded from the music views | Phase 0 | none | No (by design); the shell does not use tagtree (compiled out under `IPODUI_TRIM_TAGTREE` since P9) |
 | `lib/rbcodec/metadata/mp4.c` (+1130) | m4b chapters: Nero `chpl` and the Apple `chap` text track, large contiguous reads through a caller buffer | Phase 0, P6 | `HAVE_METADATA_EXTRAS` (20 sites; stock branch kept) | Yes |
+| `lib/rbcodec/metadata/mp4.c` (+5) **(p19-robust)** | `read_mp4_container()` `chpl` case (the lead-trim read): an atom under 9 bytes is skipped by the final seek, and the first timestamp is read only when 8 bytes remain; upstream's `size -= 9` on a `uint32_t` wrapped and the next seek jumped ~4 GB, losing every atom after it (`trak`: no codec, the file unplayable). Golden `tests/audiobook/golden/short_chpl.txt` on `tests/fixtures/short_chpl.m4b` (`make_short_chpl_fixture.py`) | Robustness: a truncated or corrupt m4b | none (all builds) | No (bug fix). **Upstreamable** |
 | `lib/rbcodec/metadata/id3tags.c` (+24) | ID3 chapter frames, the #50 probe (skipped in unsynchronised tags) | P6, #50 | `HAVE_METADATA_EXTRAS` | Yes |
 | `lib/rbcodec/metadata/metadata.c` (+6), `metadata.h` (+33) | `.m4b`/audiobook extension detection; `chapters.h` include; extras types | Phase 0 | `.c`: none; `.h`: `HAVE_METADATA_EXTRAS` | Partly |
 | `lib/rbcodec/dsp/tdspeed.c` (+5/-1) | Do not write `global_status.resume_speed` (the shell sets speed per track from its own setting) | P6 D14 | `!HAVE_IPOD_UI` on the stock lines | Yes |
@@ -76,13 +77,15 @@ Generated list: `scripts/upstream_changes.sh`. Line counts are insertions/deleti
 | `apps/tagcache.c`, `apps/tagcache.h` (2026-10-17 maintenance follow-up) | Expose directory scan/commit activity independently of RAM-library readiness; artwork yields at work/I/O boundaries until the scan finishes, avoiding concurrent source decoding and the metadata walk | Music maintenance and background cache scheduling | `HAVE_IPOD_UI` | Yes |
 | `apps/tagcache.h` (+6), `apps/tagcache.c` (+12) **(p14a contracts)** | Class bits `TAGCACHE_UI_VIDEO` 0x0100 and `TAGCACHE_UI_TV` 0x0200 in the index flag word (low 16 bits, kept from disk); `ipodui/vclass.h` included; the no-overlap check extended (FLAG_*, the other class bits, the high half, and `VCLASS_*` == `TAGCACHE_UI_*`). Piece V2 (+49): `ui_classify()` calls `vclass_classify()` (`apps/ipodui/vclass_core.c`) and stores show/season/episode/title in album/discnumber/tracknumber/title through the existing `ui_title[MAX_PATH]` (no new static); `tagcache_ui_resumes()` tests `id3->is_video` first | Phase 14a (`docs/phase14a-brief.md` 3.2, 4.2) | `HAVE_BCMFW_VIDEO` (inside `HAVE_IPOD_UI`) | Yes |
 | `apps/tagcache.c` bug fix (inside the above) | Never pin RAM-cache handle 0 after a failed cache load | #40, see section 4 | `UI_COMMIT` (patch is upstreamable unguarded) | Fix only under the guard |
+| `apps/tagcache.c` (+~55) **(p19-robust)** | `check_dir()`: at most 24 folder levels (`TC_SCAN_MAX_DEPTH`, under `MAX_OPEN_DIRS` since each level holds a `DIR`), an entry whose path would be cut at `curpath`'s end is neither followed nor added, and in the shell build on native FAT a folder whose first cluster is already an ancestor (a corrupt chain looping back) is skipped; logged once per walk (`db walk skip deep|loop|long`), and under `UI_COMMIT` the walk sets `ui_walk_broken` (no boot stamp). Checked in the sim with a 30-level tree. Audited `build_lookup_list()`: its master-index loop takes only whole `struct index_entry` reads (a short read or a failed open ends it), no change | Unbounded recursion on a corrupt or very deep tree (stack, dir handles, endless walk) | none (all builds); the log line and `ui_walk_broken` under `UI_COMMIT` | No (bug fix). **Upstreamable** |
+| `apps/tagcache.c` (+16) **(#172)** | `do_timed_yield()` (a yield at most every HZ/25) once per entry in four loops that had none: `check_dir()` (the walk), `tempbuf_sort()`'s write of the sorted tags, `build_numeric_indices()`'s read of the temp file, and `load_tagcache()`'s read of the master index. The scheduler is cooperative and the shell's thread shares the CPU with the tagcache thread, so these runs held the shell for as long as they took wherever storage did not block: in the simulator (host files never yield) a first build of 50k tracks froze the boot screen 7-11 s past its 3 s hold (`maint_boot_window()`'s `sleep(HZ/20)` returned after the whole walk; a `ui` hang record); the other three were 0.3-0.5 s each. After: the hold hands over at 1 s, no run over 0.25 s at 32 or 64 MB (`tests/perf/lib-50k.script`, `resort-pause-50k.script` lose their KNOWN `# expect: hang ui`). Total build time unchanged within noise | #172: the UI stays responsive through a large-library scan and commit | `HAVE_IPOD_UI` | Yes |
 
 ### 2.3 Shell hand-off, boot, input, splash
 
 | File | What changed | Why | Guard | Stock-identical |
 |---|---|---|---|---|
 | `apps/main.c` (+55) | Call `ipodui_main()` instead of `root_menu()`; shared boot screen `show_logo_boot()`; no "Scanning disk" splash; boot escape (RIGHT held) into developer mode | P2, 8a | `HAVE_IPOD_UI`, `HAVE_IPOD_BOOTSCREEN`, `HAVE_IPOD_UI_DEVMODE` | Yes |
-| `bootloader/ipod.c` (+13) | Draw the shared boot screen before the backlight; no version text | 8a | `HAVE_IPOD_BOOTSCREEN` | Yes (stock bootloader byte-identical) |
+| `bootloader/ipod.c` (+13, +16 in 0.8.0) | Draw the shared boot screen before the backlight; no version text. 0.8.0 release audit: the title, "Loading…" and "loaded" lines (shown with RIGHT held or on a fatal error) say "Boot loader" / "Loading firmware..." / "Firmware loaded." instead of naming Rockbox | 8a, 0.8.0 | `HAVE_IPOD_BOOTSCREEN` | Yes (stock bootloader byte-identical) |
 | `firmware/SOURCES` (+4) | Adds `bootscreen.c`, `bootscreen_data.c` | 8a | `HAVE_IPOD_BOOTSCREEN` | Yes |
 | `apps/SOURCES` (+55; **+74 on p11**) | Lists every `apps/ipodui/*.c` and the audiobook files | P2 on | `HAVE_IPOD_UI`, `HAVE_IPOD_UI_DEVMODE`, `SIMULATOR` | Yes |
 | `apps/features.txt` (+8) | Feature flags for the shell and developer mode | 8a contracts, #38 | `HAVE_IPOD_UI`, `_DEVMODE` | Yes |
@@ -96,7 +99,8 @@ Generated list: `scripts/upstream_changes.sh`. Line counts are insertions/deleti
 | `firmware/usbstack/usb_storage.c` (+14), `.h` (+3) **(P11, merging)** | `usb_storage_all_ejected()`, read-only, for the "OK to Disconnect" screen | P11 U2b | `HAVE_IPOD_UI` | Yes |
 | `firmware/kernel/include/queue.h` (+8) | Shell event IDs | 8a contracts | `HAVE_IPOD_UI && !BOOTLOADER` | Yes |
 | `firmware/core_alloc.c` (+25), `firmware/include/core_alloc.h` (+7) | Panel-draw allocation trace (simulator) | #38 end review | `HAVE_IPOD_UI && SIMULATOR` | Yes |
-| `firmware/font.c` (+27) | Curly quotes, en/em dash and ellipsis in the shell fonts | P3 fonts | `HAVE_IPOD_UI && !BOOTLOADER` | Yes |
+| `firmware/font.c` (+70), `firmware/export/font.h` (+4), new `firmware/include/font_shell_map.h` | The shell fonts' 32 C1 slots (quotes, dashes, music notes, euro, ...), aliases and the Windows-1252 reading of raw C1 code points, in one table shared with the converter; `font_remap()` only touches fonts that end by U+024F; `font_has_glyph()` for the Notes and Contacts readers. Was +27 (seven slots) | P3 fonts; font coverage 2026-11-06 | `HAVE_IPOD_UI` (`&& !BOOTLOADER` for the remap) | Yes |
+| `tools/buildzip.pl` (+3) | Ship `DEJAVU-FONT-LICENSE.txt` with the shell fonts (ten DejaVu Sans glyphs) | font coverage 2026-11-06 | `-DHAVE_IPOD_UI` | n/a |
 | `firmware/rolo.c` (+37), `firmware/export/rolo.h` (+4) | The firmware reload (Restart after new software is copied over) shows no "ROLO" text: the shell prompt stays while the image loads, then black until the new image draws the boot screen; a refused image returns with no text or key wait, and keeps the loader's reason (`loader_strerror()`) for `rolo_error_text()`, which the shell logs to ipodui.log | owner, 2026-10-13 | `HAVE_IPOD_UI && !BOOTLOADER` | Yes |
 | `apps/recorder/resize.c` (+41), `resize.h` (+8) | `resize_on_load()` no-boost option for one thread | P4b art builder | `HAVE_IPOD_UI && !PLUGIN` | Yes |
 | `firmware/drivers/lcd-16bit-common.c` (+23/-) | **#55:** `blend_two_colors()` returns exactly c1 or c2 at the alpha endpoints; the maths moved unchanged to `blend_two_colors_mix()`. Skips the blend for ~82% of text pixels, pixel-identical | #55, quick wins 1 | none (upstream-ready) | **No (by design)**: stock `.text` +176 B, IRAM +184 B |
@@ -173,6 +177,7 @@ Generated list: `scripts/upstream_changes.sh`. Line counts are insertions/deleti
 | same, `firmware/export/config/ipodvideo.h` (+4) **(usb-resets)** | A URI that finds the port out of reset (PORTSC.PR clear) with our address still in DEVICEADDR is acknowledged without `bus_reset()`/`usb_core_bus_reset()`; every other URI takes the full path as before. A wrong guess costs one host retry (the host's next request goes to address 0, unanswered, and it resets again) | same: a reset that did not reset the controller must not tear storage down | `HAVE_USB_RESET_GATE` (under `HAVE_IPOD_UI`) | Yes. **Upstreamable** once the device log shows the case happens |
 | same **(usb-resets)**, **withdrawn in `2905708714`** | ~~`usb_drv_set_stream_disable()`~~: USBMODE.SDIS for an A/B test, set at every `usb_drv_init()` and live; the shell turns it on when the developer marker file `usb_sdis` is in the system folder | to test whether TX FIFO underruns (bus contention with ATA DMA during the prefetch) make the host reset the device | `HAVE_USB_STATS` | Yes (off unless the marker exists) |
 | `firmware/usbstack/usb_storage.c` (+~330), `usb_storage_bot.h` (+~120) **(usb-msc-fix)** | SCSI/BOT conformance: a command that fails before its data phase (READ/WRITE out of range, no disk, read-only, refused fields, unsupported MODE SENSE page, INQUIRY VPD) halts the data pipe the CBW names and then sends the failed CSW (`csw_no_data()`/`fail_cmd()`, BOT 6.7.2 cases 4 and 10); READ/WRITE of 0 blocks: GOOD CSW at once; SYNCHRONIZE CACHE(10) (`storage_flush()`, ring dropped) and VERIFY(10) BYTCHK=0 are answered; MODE SENSE pages 0x08 (WCE=0) and 0x1C; INQUIRY EVPD page 0 and 16-bit allocation length; replies clamped to `MIN(dCBWDataTransferLength, allocation)`; a reply with dCBWDataTransferLength 0 no longer sends a stray zero-length packet; READ CAPACITY(16) zeroes its 32 bytes (bytes 0-1 were stale, a stray write past it removed), reports the 0-based logical-per-physical exponent only for the 512-byte view of the 2048-byte layout, lowest aligned LBA 0; TEST UNIT READY and REQUEST SENSE are answered (NOT READY, becoming ready) while the storage handover is pending instead of holding the CBW | macOS resets and drops the device; audit of the host-visible protocol | `HAVE_USB_STATS` for the marker reads; the rest unconditional in the USB mass-storage driver | **No (by design). Upstreamable.** Corrected 2026-10-18: a stock build compiles all of it (`csw_no_data`, `fail_cmd`, `fill_sense`, a larger `handle_scsi`); stock `usb_storage.o` .text is 6,991 B against `main`'s 5,134 B, with the #81 rows below |
+| `firmware/usbstack/usb_storage.c` (+9), `usb_storage_bot.h` (+9) **(p19-robust)** | `handle_scsi_ready()`: a CBW whose `bCBWLUN` is not below `storage_num_drives()` is not meaningful (BOT 6.2.2) and is refused like an invalid CBW (both bulk pipes halted, Reset Recovery, BOT 6.6.1) before `ejected[]`, `xlate[]` or the storage calls see the LUN; `ubot_lun_ok()`, checked in `tests/usb/bot_test.c` | The host's LUN indexed `NUM_DRIVES`-sized arrays, writes included | none (all builds) | No (bug fix). **Upstreamable** |
 | `firmware/usbstack/usb_storage_pf.h` (+~40), `usb_storage.c` **(usb-msc-fix)** | Prefetch random mode: after `UPF_RANDOM_N` (3) READs in a row that do not continue the previous one the stream plans no read-ahead and no READ waits (PENDING counts as MISS, also for a single non-continuing READ) until a READ continues the previous one. Marker files (read at the USB screen's entry, A/B only): `usb_pfoff` (read-ahead only), `usb_pf64` (64 KB worker reads), `usb_boost` (`cpu_boost` held for the session, released in `usb_storage_reap()`); `usb_storage_switches()` for the log. `usb_storage_cmdstat()`: per opcode FAIL CSWs, stalls and resets after it (12 rows, 96 B) for the exit log | scattered fsck reads cost 256 KB read-aheads and up to 200 ms waits on the only thread answering the host; device A/B; which command precedes an idle reset | `HAVE_USB_PREFETCH`, `HAVE_USB_STATS`; the cmdstat table **unguarded** | Prefetch modes and markers yes. **No** for `usb_storage_cmdstat()` (corrected 2026-10-18): `cs_tab`, `cs_count`, `cs_last_op` and the function (about 500 B) are in the stock build too; to be guarded |
 | `firmware/target/arm/pp/ata-pp5020.c` (+~35) **(usb-msc-fix)** | While `usb_exclusive_storage()`, the thread that answers the host spins on INTRQ in `ata_wait_intrq()` (no semaphore sleep, no yield) so the main thread's ~110 ms LCD push cannot delay a DMA completion (upstream e13befb925, reverted upstream only for UI sluggishness outside USB). The prefetch worker (`ata_usb_bg_thread`) keeps the IRQ-driven wait, so the USB thread can run beside its reads. Outside USB mode unchanged | macOS bus resets during mount on iFlash units | `HAVE_USB_PREFETCH`, not the bootloader | Yes |
 | `apps/ipodui/usbscreen.c` (+~50) **(usb-msc-fix)** | Device build: the Connected screen is static (no arrows animation; backlight and screen stay on). The header (battery, clock) redraws only when the disk has been idle for 2 s. The log gets `usb sw ...` at entry and `usb cmdstat ...` after the exit stats. The simulator keeps the animation | LCD pushes on the main thread starve the USB/ATA completions | `HAVE_USB_PREFETCH`, not `SIMULATOR` | n/a (shell) |
@@ -390,6 +395,7 @@ Review fixes (H1, H2, L2, L3; 2026-10-20): the ordered directory entries in `fat
 | `tools/modpak.py` (new, +266) **(#106)** | Packs the shell modules into `modules.pak` and refuses a set larger than `MOD_ARENA_SIZE` | Build step of the loader | none (build tool, only run with modules) | n/a |
 | `tools/buildzip.pl` (+2), `tools/root.make` (+1), `tools/thumb-cold.txt` (+3), `apps/apps.make` (+2) | Ship `modules.pak`; module objects; cold-Thumb entries | #106 | `-f modules/modules.pak` / modules build | n/a |
 | `tools/root.make` (+4) | `ram.link` depends on every linker script under `firmware/target/$(CPU)/` (`ipod/app.lds` #includes `pp/app-pp.lds`, which make never tracked), so an edit there regenerates it instead of linking with a stale copy; found when the panic record's `_text_end` failed to link in existing build dirs | 2026-10-23 crash fix | always | Yes (only rebuilds `ram.link` more often) |
+| `tools/root.make` (+11) **(2026-10-27 chess kill, `p19-chess`)** | In simulator builds only (`APP_TYPE` sdl-sim), the SDK games' sources (`apps/ipodui/games/`) compile with `-fsanitize-coverage=trace-pc` (`sim_gameflags`), and their objects depend on `root.make` so a build dir made before picks the flag up: the device clock model in `apps/ipodui/sdk/sdk.c` (a script's `sdk_devclock on`) counts their basic blocks as device time (`docs/design/games.md` §5.6) | The host is several hundred times faster than the PP5022: a game's slice overrun on the device never showed in the simulator | sdl-sim builds, games only | Yes (target builds unchanged) |
 | `uisimulator/common/sim_cmd_floor.{c,h}`, `sim_cmd_maint.{c,h}`, `sim_cmd_mod.{c,h}`, `sim_cmd_scan.c`, `sim_cmd_shadow.{c,h}` (new); `sim_cmd_p9a` (+26), `sim_db.c` (+31), `sim_script.c` (+16), `SOURCES` (+5) | Floor-gate trace and hooks (#105), maintenance window hooks (#88), module loader (#106), scan counters, split-shadow probe | Verification | simulator only (the maint hooks link in the stock simulator, no weak refs) | n/a |
 | `apps/tagcache.c` (+246/-22) **(P16 gate fix, `p16-gatefix`)** | A candidate library that holds RAM while audio plays gives it back (`ui_candidate_ram_yield()`: its RAM cache, 6.9 MB at 50k, and the prepared statistics lookup, ~600 KB): when its statistics prepare, its publication or its precompute is refused while audio is on, except for an event or a reader of the active library (`ui_publish_busy`). It loads again at the stop or in a paused window (`ui_yield_reload_due()`): the size is taken at the yield from the header in RAM (`ui_reload_need()`, `ui_yield_bytes`), the fit decided with `maint_take_fits()` over the job's peak (`ui_peak_estimate()`) with no disk access, one refused take a pause; a doubling backoff (`UI_RETRY_YIELD`) and a give-up after 4 yields (owed until a request, USB or the next boot). The window's commit tenancy: `maint_holds(MAINT_COMMIT)`, `maint_take_fits()` (freed memory counted once) in `ui_maint_due()` and the "commit unfit" end; the precompute ends `MAINT_LISTS`. Sim only: the commit counter for `wait_commit`, `commit_hold 100` in the publication, the master-open count | First boot after install: the #47 re-sort commits, PLAY at once, and the finished candidate kept ~6.9 MB through playback, under the 32 MB floor at 50k; the review's partial-fix findings 1-6 | `UI_COMMIT` (shell); sim hooks `SIMULATOR` | Yes |
 | `uisimulator/common/sim_script.c` (+36), `sim_db.c` (+18), `sim_db.h` (+3), `sim_cmd_dbrec.c` (+23), `sim_cmd_maint.c` (+60) **(P16 gate fix)** | `wait_commit [ms]` latched on the commit counter (`sim_db_commits()`); `db_opens_mark`/`expect_db_opens`; `maint_hold`/`maint_drop`/`audio_mark`/`expect_audio_back` | Verification (`tests/perf/resort_play_check.sh`, `ipodui-p16-tenant-ends`) | simulator only; the shell hooks are null in the stock sim | n/a |
@@ -537,13 +543,15 @@ Shell files (not upstream, listed for the producer review): `apps/ipodui/maint.c
 
 #### 2.29.2 19-1c: codec placement, decoding pinned to the CPU (branch `p19-1c`, 2026-10-24)
 
+> **Default superseded 2026-11-07 (owner): decoding is on the COP by default** (2.67). The CPU pin below is now a developer A/B arm; the rest of 19-1c (D's full-buffer sleep, `cop_assist`, the per-run core) stands.
+
 **Owner decision (2026-10-24): decoding is pinned to the CPU (PP1) permanently, with no CPU↔COP migration; the UI moves to the COP in a later package.** The default is therefore the plain path: no load is bound to the COP's view (`&ci` as upstream, no `ci_cop` shims, no field copy-back, no worker, nothing reserved at the top of the codec slot: the codec gets those 12,288 B back), and MP3's synthesis runs inline (`cop_assist` false). Option B + D of `docs/design/p19-placement.md` section 4 survives as **developer A/B modes only** (M-2): "2nd core" (Fit-2, the old default) and "by screen". The default never binds a load, never observes the screen, never logs a placement.
 
 **(i) The A/B modes.** A load taken by an A/B mode is bound to `ci_cop` with the worker stack reserved, and `codec_cop_run()` picks the core per run. In "by screen", dark (the backlight off and the panel asleep after `lcd_sleep()`) runs on the CPU and lit runs on the COP. The rule re-selects at the first run after a load (playback start, a codec change; no hold) and at each track boundary (a new `Q_CODEC_RUN`), which moves the decode only when the screen state has held 30 s. It never re-selects at a seek's re-run, never by a reload, and the dim window moves nothing. The pure rule is `apps/codec_place_core.c` (host test `tests/codecplace/`, which also runs `codec_cop.c` itself on stub headers). The CPU branches of `codec_cop.c`'s callbacks copy the playback fields back into `ci_cop` (a run on the CPU through `ci_cop` left `curpos` stale after `advance_buffer`/`seek_buffer`, a latent bug of the old fallback path too), and the id3 alias follows the run, not the worker. A mode change takes effect at the next codec load.
 
 **(ii) D, the main win, in every mode:** on a full PCM buffer the codec sleeps until the level drains to a low watermark (half the band above the boost watermark, never under 0.25 s of it) instead of polling at HZ/20; a message still ends the wait at once. The playback FIQ cannot post to the codec's queue, so the wake is a deadline computed from the drain rate (`pcmbuf_full_wait_ticks()`); an early wake only recomputes it.
 
-**(iii)** `struct codec_api` gains `cop_assist`: false by default; true only for a run an A/B mode puts on the COP. `mpa.c` reads it at the run's start: inline synthesis, or the COP thread as before. Host test `tests/mpainline/` (review M1) builds `mpa.c` and libmad for the host twice, once with the second-core path compiled in (the thread on a pthread) and once without (upstream's single-core path). Inline equals the single-core path bit for bit: one run, a seek, and gapless pairs with the switch flipped either way around the thread. Upstream's thread loses one 1,152-sample frame at each run start and seek (it reads `synth.pcm.length` before the thread writes it); the pinned default no longer takes that path.
+**(iii)** `struct codec_api` gains `cop_assist`: false by default; true only for a run an A/B mode puts on the COP. `mpa.c` reads it at the run's start: inline synthesis, or the COP thread as before. Host test `tests/mpainline/` (review M1) builds `mpa.c` and libmad for the host twice, once with the second-core path compiled in (the thread on a pthread) and once without (upstream's single-core path). Inline equals the single-core path bit for bit: one run, a seek, and gapless pairs with the switch flipped either way around the thread. Upstream's thread lost one 1,152-sample frame at each run start and seek *by timing* (the decode loop read `synth.pcm.length` while the thread could still be writing it: under load the frame was sometimes kept, and this test, which expected the loss, failed on the Linux laptop). Since 2026-11-06 the loop takes each frame's PCM length from its header (`32 * MAD_NSBSAMPLES`, as libmad's `mad_synth_frame()` sets it), so the threaded path is bit-exact with the single-core one too, at start and after a seek (+32 B text). The pinned default takes the inline path either way.
 
 **Switches.** `codec_cop_set_place()` (CPU default | screen | COP): sim `codecplace`. `cpl_full_legacy`: sim `fullwait legacy|on`. The developer rows "Codec core" and "Codec full wait" and their marker files (`codec_place_screen`, `codec_place_cop`, `codec_fullpoll`, read by `powerlog_boot()`) were removed 2026-10-26: decode is pinned to the main core (owner, 2026-10-24).
 
@@ -554,7 +562,7 @@ Shell files (not upstream, listed for the producer review): `apps/ipodui/maint.c
 | `apps/codec_thread.c` (+19 -2) | The full-buffer wait is `pcmbuf_full_wait_ticks()` (was HZ/20) and observes the screen state (`codec_cop_observe()`); `CODEC_RUN()` passes "track start", false for `seek_codec()`'s re-run (`codec_seek_run`) | 19-1c (ii) D: 20 wakes/s on a full buffer; (i) the re-selection points | `HAVE_IPOD_UI` (the wait), `HAVE_COP_CODEC` (the rest) | Yes |
 | `apps/pcmbuf.c` (+15), `apps/pcmbuf.h` (+3) | `pcmbuf_full_wait_ticks()`: `cpl_full_wait(unplayed, watermark, BYTERATE, HZ)`; HZ/20 in low-latency mode | 19-1c (ii): the wake level sits above the boost watermark, so a refill burst is not counted as a rescue by `clockpol` and starts no boost; crossfade's watermark (1 s under full) gets the same half-band rule | `HAVE_IPOD_UI` | Yes |
 | `lib/rbcodec/codecs/codecs.h` (+12), `apps/codecs.c` (+4) | `bool cop_assist` at the end of `struct codec_api` (initialised false: the CPU-pinned default), `CODEC_API_VERSION` 50 -> 51 | 19-1c (iii): the codec reads a field of its own API, nothing from `apps/` | `HAVE_IPOD_UI` | Yes (stock stays 50, no field) |
-| `lib/rbcodec/codecs/mpa.c` (+22 -3) | `synth_inline = !ci->cop_assist` at each `codec_run()`; when set, `init_mad()` takes the single-buffer layout, synthesis runs inline, and the semaphore handshake is skipped (the COP thread stays, idle, for a later run) | 19-1c (iii): MP3's synthesis filter on the COP whatever the decode's core kept the COP busy; with decoding pinned to the CPU it now runs inline by default (bit-exact with the single-core path, `tests/mpainline/`) | `MPA_SYNTH_ON_COP && HAVE_IPOD_UI` (`SYNTH_INLINE()` is constant false otherwise) | Yes |
+| `lib/rbcodec/codecs/mpa.c` (+37 -3) | `synth_inline = !ci->cop_assist` at each `codec_run()`; when set, `init_mad()` takes the single-buffer layout, synthesis runs inline, and the semaphore handshake is skipped (the COP thread stays, idle, for a later run). The decode loop's frame length comes from the frame header, not from `synth.pcm.length` while the COP thread may be writing it (upstream's race: the first frame of a run or seek kept or dropped by timing) | 19-1c (iii): MP3's synthesis filter on the COP whatever the decode's core kept the COP busy; with decoding pinned to the CPU it now runs inline by default (bit-exact with the single-core path, `tests/mpainline/`) | `MPA_SYNTH_ON_COP && HAVE_IPOD_UI` (`SYNTH_INLINE()` is constant false otherwise) | Yes |
 | `apps/SOURCES` (+3) | `codec_place_core.c` | | `HAVE_IPOD_UI` | Yes |
 | `uisimulator/common/sim_cmd_sys.c` (+37) | `fullwait legacy|on`, `codecplace screen|cop|cpu`, `crossfade off|always` | A/B and the `ipodui-p19c-*` scripts | `HAVE_IPOD_UI` (simulator) | n/a |
 | `apps/plugins/test_codec.c` (+5) | `ci.cop_assist = false` | review L4: the benchmark decodes as the firmware's default does (MP3's synthesis inline) | `HAVE_IPOD_UI` | Yes |
@@ -729,7 +737,7 @@ A divergence in structure, not in an upstream file's code: under `HAVE_UI_THREAD
 |---|---|---|---|---|
 | `apps/SOURCES` (+2) | `ipodui/fe_be_core.c`, `ipodui/fe_be.c` | the boundary | `HAVE_IPOD_UI` | Yes |
 | `apps/SOURCES` (+3) | `ipodui/febe_rpc_stubs.S` (generated) | S3: the remote-call stubs | `HAVE_UI_THREAD_SPLIT && !SIMULATOR` | Yes |
-| `apps/apps.make` (+11) | `CORE_LDOPTS += @apps/ipodui/febe_rpc.opts` (the `--wrap` options) | S3: the shell's back-end calls cross from the COP | `MODELNAME=ipodvideo`, no `APP_TYPE`, `-DHAVE_IPOD_UI_DEVMODE` | Yes |
+| `apps/apps.make` (+12) | `CORE_LDOPTS += @apps/ipodui/febe_rpc.opts` (the `--wrap` options); #148: only with `-DHAVE_IPOD_UI_DEVMODE`, so the release links no stubs | S3: the shell's back-end calls cross from the COP | `MODELNAME=ipodvideo`, no `APP_TYPE`, `-DHAVE_IPOD_UI_DEVMODE` | Yes |
 | `apps/settings.c` (+10 −0) | `global_settings` and `global_status` in `XCORE_BSS` | S3: both cores read and write them | `HAVE_UI_THREAD_SPLIT` | Yes |
 | `firmware/target/arm/pp/app-pp.lds` (+33 −4) | the shell's `.data`/`.bss`, with `font.o`'s and `lcd-16bit.o`'s, grouped on whole cache lines; four shell objects (`FEBE_ASYNC_OBJS`) into `.ncdata`/`.ncbss` | S3: no cache line shared across the cores | `HAVE_UI_THREAD_SPLIT` | Yes |
 
@@ -874,6 +882,8 @@ All selected by macro in `apps/settings_list.c`; `#else` keeps the upstream valu
 
 | Setting | Upstream | Shell | Why | Phase |
 |---|---|---|---|---|
+| `backlight_timeout` (+ plugged, button light) | 15 s (sim 0) | **10 s** (sim 0 kept) | Stock 7G default; 15 s is not in the shell's list (#142) | #142 |
+| `keyclick`, `keyclick_hardware` | off, off | **2, on** (Clicker On: audio click and piezo/haptic) | Stock 7G clicks out of the box; owner-delegated, reversible (#142) | #142 |
 | `lcd_sleep_after_backlight_off` | 5 s | **90 s** | Unlit clock face, then the LCD powers down about 90 s later (#51, owner) | 8a |
 | `usb_hid` | on | **off** | Dead on this hardware; stock 7G has no HID. Could return as an opt-in Extras item (ROADMAP "Later") | 8a |
 | `warnon_erase_dynplaylist` | on | **off** | The shell answers every prompt No; no stock prompt reaches the screen | 8a |
@@ -1046,3 +1056,335 @@ All seven upstream files carry the "Modified for ProkBox5g" line. ProkBox files:
 | `apps/iap/iap-core.c` (+2 -1) | `iap_reset_state()` posts `IAP_EV_END` only once `iap_started` (the queue was initialised by bringup) | a post to a never-initialised queue | `IAP_LAZY_THREAD` | Yes |
 | `tools/configure` (+7 −2) **(fw-ship)** | `--ipodui-release` on iPod Video firmware adds `-DIPODUI_WITH_MODULES` (prints "release build: module loader"), so a plain release configure builds `modules.pak` and `make zip` packs it; the `--bcmfw-video`/`--bcmfw`/`--bcmfw-merged` help names the 0.8.0 release shape. (`--battery`, `--dock30`, `--[no-]haptics` are in the rows above) | the release ships the Extras and games as modules under the 1.5 MB cap | `--ipodui-release`, iPod Video firmware only | n/a (options default off) |
 | `apps/lang/english.lang` (3 strings) | UK spelling: the `ipodui:` text of `LANG_IPODUI_VISUALIZER` reads "Visualiser" | UK spelling on screen | `ipodui:` only | Yes |
+
+### 2.43 USB digital audio, P0 and the P1 bench probe (#144, branch `p19-usbaudio`, 2026-11-05)
+
+Every firmware line below is inside `HAVE_USB_ISOPROBE` (set only by `tools/configure --usb-isoprobe`, a developer bench build; configure refuses it with `--ipodui-release`, the simulator or a bootloader) or `USB_ENABLE_ISOPROBE` (derived from it). Measured: the release shape (`scripts/release_flags.sh`, modded) has `_end` 0x1651a0 (1,462,688) and `.text`/`.data`/`.bss` 1,164,780 / 9,768 / 351,232 before and after; `usb-drv-arc.o`, `usb.o` and `usb_core.o` disassemble identically; no probe symbol is linked. New files (ours): `firmware/usbstack/uac1_source.h` and `firmware/target/arm/usb-arc-iso.h` (pure, host-tested in `tests/usbaudio`), `firmware/usbstack/usb_isoprobe.c`, `firmware/export/usb_isoprobe.h`, `apps/ipodui/dev_isoprobe.{c,h}`.
+
+| File | What changed | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `firmware/target/arm/usb-drv-arc.c` (+~200) | Step-0 identity (ID, DCIVERSION, DCCPARAMS) at init; the isochronous endpoint's ENDPTCTRL and PORTSC at its init; per-session iso counters (dTDs retired, TR_ERR/buffer/halt bits, flushes); the longest interrupt (`usb_drv_int()` timed around the body); variant A (iso TR_ERR is a missed packet, no flush), B (two-dTD ping-pong appended with the ATDTW tripwire, its own retire path), C (deinit and the iso endpoint's unused direction left bulk, never control) | Research §7 step 4: which driver path causes podbox's hang | `HAVE_USB_ISOPROBE` | Yes |
+| `firmware/export/usb_drv.h` (+25) | The probe hooks' declarations (`usb_drv_iso_*`, `USB_ISO_VAR_*`, `struct usb_drv_iso_stats`) | as above | `HAVE_USB_ISOPROBE` | Yes |
+| `firmware/export/config.h` (+6) | `USB_ENABLE_ISOPROBE` from `HAVE_USB_ISOPROBE` and `USB_HAS_ISOCHRONOUS` | as above | `HAVE_USB_ISOPROBE` | Yes |
+| `firmware/export/usb.h` (+3) | `USB_DRIVER_ISOPROBE` in the class-driver enum | as above | `USB_ENABLE_ISOPROBE` | Yes |
+| `firmware/usbstack/usb_core.c` (+6) | The probe's header and its `drivers[]` slot | as above | `USB_ENABLE_ISOPROBE` | Yes |
+| `firmware/usb.c` (+9) | In the charge-only configuration the probe is enabled while armed (so no mass storage beside it); off in the mass-storage one | No disk access during the test | `USB_ENABLE_ISOPROBE` | Yes |
+| `firmware/SOURCES` (+3), `apps/SOURCES` (+3) | `usbstack/usb_isoprobe.c`, `ipodui/dev_isoprobe.c` | as above | `USB_ENABLE_ISOPROBE` / `HAVE_USB_ISOPROBE` | Yes |
+| `tools/configure` (+15) | `--usb-isoprobe` (needs `--ipodui`; iPod Video developer firmware only) defines `HAVE_USB_ISOPROBE` | A bench build that never reaches a release | the option | Yes |
+
+### 2.44 The COP never enters the file layer (branch `p19-copfileio`, 2026-11-05)
+
+Bench 4f, the first boot with the UI on the COP, panicked 11 s in: "file_cache_alloc - OOM" in the tagcache thread. Cause: false sharing. `disk_cache.c`'s `cache_lru` (4 B, the LRU list head) and `bidi.c`'s `bidi_buf` (the text drawing's scratch, written on the COP) were linked on one 16-byte cache line; the COP's write-back of that line at every remote call put its stale copy of the head over the CPU's (`docs/pp5022-reference/quirks.md` 88). The walk that found it (`scripts/febe_reach_check.py`) also found file-layer entries the boundary did not cross: `default_event_handler` (the USB screen, the power-off's spin-down, the battery latch's record writes, the codepage and language loads), `settings_apply`, `status_save`, `volume_size`, Developer's free-space fix, `core_alloc_ex` from font loads, and every shell module's core calls (modules linked without the `--wrap`s, so their `open`/`read` ran on the COP).
+
+| File | What changed | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `firmware/target/arm/pp/app-pp.lds` (+37) | `bidi.o`, `diacritic.o` join the front end's region; the file layer and storage driver (`file`, `dir`, `file_internal`, `disk_cache`, `fat`, `fileobj_mgr`, `disk`, `rb_namespace`, `ata`, `ata-pp5020`, `storage`) get a region of their own, both on whole cache lines | no foreign static shares a line with the open-file table, the FAT/disk caches or the ATA state | `HAVE_UI_THREAD_SPLIT` | yes |
+| `firmware/include/file_internal.h` (+3), `firmware/common/file_internal.c` (+9), `firmware/common/disk_cache.c` (+2) | `XCORE_FS_ASSERT_CPU()` in the file system's lock helpers (every entry takes one) and `dc_get_buffer()`: off the CPU, panic "fs <what> off the CPU lr=<caller>" | a COP entry is caught where it happens, with its caller | `XCORE_CHECKS` (developer builds); release: nothing | yes |
+| `apps/apps.make` (+6 −3) | `FEBE_WRAP_FILE`/`FEBE_WRAP_OPTS` for the module link; the modules include moved below it | shell modules cross the boundary like the shell | the existing shell-firmware condition | yes |
+
+ProkBox files: `firmware/export/xcore.h` (`XCORE_FS_ASSERT_CPU`), `apps/ipodui/febe_rpc.list` (+7 remote calls: `default_event_handler`, `settings_apply`, `status_save`, `volume_size`, `volume_recalc_free_commit`, `core_alloc_ex`; 238 stubs), `apps/ipodui/modules/modules.make` and `tools/modpak.py` (`mod_link` with the `--wrap`s; `keep --wraps` keeps each `__wrap_X` a module calls), `scripts/febe_reach_check.py` (new: the transitive walk; run by `febe_link_check.py`, `--strict` fails on a file-layer entry), `scripts/febe_link_check.py` (families `system events`, `status_save`, `volume_*`), `scripts/xcore_line_check.py` (the file layer's lines checked too), `tests/febe/cachemodel.c` (protocol D, false sharing), `tests/febe/test_reach.py`.
+
+Measured (`nm _end`, `arm-none-eabi-size -A`): `fw-ui` against `190c533450`: `_end` 1,445,280 → 1,444,944 (−336 B; `.text` +384, `.rodata` +36, `.data` +4, `.bss` −768: the regrouping removed alignment holes). Release shape (`fw-ship`, `scripts/release_flags.sh`, stock, HDD, 64 MB): `_end` 1,499,232 (the hand-off's base: 1,499,568; −336 B), cap 1,500,000. Still open (warn only): `febe_reach_check.py` lists ~110–180 cached statics outside the front end's region that the ui thread's code may write (most reached through settings and DSP callback tables); each needs routing, a move into the region or a reviewed `WRITE_OK` entry before `--strict-lines` joins the gate.
+
+### 2.45 More cold code as Thumb (#147, #45, branch `p19-budget`, 2026-11-05)
+
+No upstream source line changes: `tools/thumb-cold.txt` (ours) names more objects, and `tools/root.make` compiles them `-mthumb` as since 8b-T. The upstream files that now build as Thumb in shell firmware (stock builds have an empty list, so they are unchanged):
+
+| File | What changed | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `apps/settings.c`, `apps/settings_list.c`, `apps/language.c` | Compiled Thumb (settings load, save and apply; the table's callbacks; the language loader) | Resident RAM for the 0.8.0 work under the 1.5 MB cap (#147): cold code, run once per boot, save or change | `--thumb-cold` (on for `--ipodui`) | Yes (empty list) |
+| `apps/gui/line.c` | Compiled Thumb (`put_line()`: the stock list and the diagnostics screen only) | as above | as above | Yes |
+| `apps/iap/iap-lingo0.c`, `iap-lingo2.c`, `iap-lingo3.c`, `iap-lingo4.c` | Compiled Thumb (one handler call per dock packet); `iap-core.c` stays ARM (`disable_irq_save()`) | as above | as above, `--dock30` builds | Yes |
+
+Measured (`arm-none-eabi-size`, `_end`; release shape `scripts/release_flags.sh`, `--storage=hdd`): stock 64 MB `_end` 1,499,568 → **1,466,800 B** (−32,768; `.text` 1,187,460 → 1,158,368), modded 1,462,704 → **1,438,128 B** (−24,576), stock 32 MB 1,495,472 → **1,466,800 B** (−28,672); developer `fw-ui` 1,445,280 → **1,424,800 B** (−20,480). Details and the classification: `docs/hardware.md`, "Budget plan (#147)".
+
+### 2.46 Apple fallback links (#137, branch `p19-applefallback`, 2026-11-05)
+
+New files (ours): `apps/ipodui/afb.{c,h}`, `afb_core.{c,h}`, `afb_fat.{c,h}`, `afb_hook.c`, `tests/applefb/`, `tools/itunesdb/mkitdb.py`. Release shape (`fw-ship`): `_end` 1,499,568 B before and after.
+
+| File | What changed | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `firmware/common/file_internal.c` (+45) | `remove_stream_internal()`: a file entry with read-only + hidden (`FAT_ATTR_LINK`) whose path starts `FAT_LINK_DIR "/"` (`/iPod_Control/Music/PKB/`, case-insensitive; the prefix compare runs first, so other removes pay no probe) has its entry removed and its chain left alone (the close frees nothing). `rmdir_shallow()`: a folder dropped with its entries, only its own chain freed | A link shares an original's chain: a normal delete would free the original's clusters | `HAVE_IPOD_UI` (the guard); `HAVE_IPOD_UI_DEVMODE` (`rmdir_shallow`) | Yes |
+| `firmware/common/fat.c` (+143) | `fat_link_chain()` (chain health and runs, raw FAT32 entries), `fat_link_runs_free()`, `fat_link_rechain()` (only onto free clusters), `fat_link_set()` (an entry's first cluster and size, no FAT change) | The link steps the file layer has no word for | `HAVE_IPOD_UI_DEVMODE && !BOOTLOADER` | Yes |
+| `firmware/export/fat.h` (+13), `firmware/include/file_internal.h` (+4) | Their declarations, `FAT_ATTR_LINK`, `FAT_LINK_DIR` | as above | as above | Yes |
+| `apps/gui/usb_screen.c` (+4) | `afb_usb_park()` before `usb_acknowledge()` | The host must never see a link | inline no-op without `HAVE_IPOD_UI_DEVMODE` | Yes |
+| `apps/SOURCES` (+7) | The new files | as above | `HAVE_IPOD_UI_DEVMODE` | Yes |
+| `tools/modpak.py` (ours) | A `context = sync` module may call `tagcache_search`/`_finish` | The job reads the library once per sync | — | n/a |
+
+### 2.47 Sitting 4g: bench row VF0 (2026-11-05)
+
+| File | Change | Why | Guard | Upstream-safe |
+|---|---|---|---|---|
+| `apps/apps.make` (+3 −2) | `devbench.o` joins the `-idirafter bcmfw/jobs bcmfw` rule (`BCMJOB_SHELL_OBJ`) | VF0 runs SPECTRUM through `bcmjob.h` | build rule; `devbench.c` builds only in developer bench builds | Yes |
+
+### 2.48 The core layout probe's counters (branch `p19-4h-coplayout`, 2026-11-05)
+
+Sitting 4h's dark duty row (`docs/design/core-layout-decision.md` §5.1) needs the CPU's wakes by source. Developer builds only: `HAVE_PP_IRQ_TALLY` is defined in the target header under `HAVE_IPOD_UI_DEVMODE`, so a release (`--ipodui-release`) compiles none of it; fw-ship's `_end` is unchanged by it (1,499,232 on its own branch; 1,455,904 once merged with p19's 2.45 Thumb work, branch `p19-4gh`). Sitting 4gh runs these rows in the re-verify session (p2, p1 after s6; duty last) (`bench_reverify_picks`), and `scripts/bench_ingest.py` reads the step bound from `BENCH_MAX_STEPS` (a fixed 64 had dropped the rows past index 63).
+
+| File | What changed | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `firmware/target/arm/pp/system-target.h` (+22) | `HAVE_PP_IRQ_TALLY`, the `PP_IRQ_*` source buckets, `pp_irq_n[]`, `pp_idle_exits[2]` | the duty row's per-source wake counts | `IPOD_VIDEO && !BOOTLOADER && HAVE_IPOD_UI_DEVMODE` | Yes |
+| `firmware/target/arm/pp/system-pp502x.c` (+23) | `irq_handler`'s CPU branch counts each entry by the source it serves, in its own order | same | `HAVE_PP_IRQ_TALLY` | Yes |
+| `firmware/target/arm/pp/thread-pp.c` (+3) | `core_sleep()` counts each core's returns (its wakes) | same | `HAVE_PP_IRQ_TALLY` | Yes |
+
+ProkBox files: `apps/ipodui/devbench_cop.{c,h}` (P-1, P-2, the duty row; developer builds with the device test only), the probe run in `apps/ipodui/devbench.{c,h}`, the simulator's refusal in `devbench_sim.c`. No playback code changed: the P-1 lab drives DMA0 and the FIQ vector's target itself while playback is stopped, and puts both back.
+
+### 2.49 The VC's awake-time power: settle, watch hooks, session gate (p19-vcpwr, 2026-11-05)
+
+| File | Change | Why | Guard | Upstream-safe |
+|---|---|---|---|---|
+| `firmware/target/arm/ipod/video/bcmfw-boot.c` | the resident image's regulator write waits 10 ms (`BCMFW_LEVEL_SETTLE_US`) before its read-back | Apple's order after every regulator write ([apple-RE] @5134, @141ba, @141f0); the daily path writes level 5 when `bcmres.cfg` says so | every build with `HAVE_BCMFW_RESIDENT` (+32 B text in the shipping shape, `_end` unchanged at 1,455,904 on this base) | Yes (ProkBox file) |
+| same | a generation counter at the swap and each wake; `bcm_boot_res_state`, `bcm_boot_res_latch`, `bcm_boot_res_cut`, `bcm_boot_res_rw` | the developer watch over S1 and L5 and the `ck`/`sd` rows' port access, under the LCD driver's lock | `HAVE_BCMFW_DEVTEST` | Yes |
+| `firmware/target/arm/ipod/video/bcm-devtest-hal.c`, `bcm-devtest.h` | `bcm_video_idle_gate()`: the idle gate and counters inside a session on the resident image | row `vs` | `HAVE_BCMFW_DEVTEST && HAVE_BCMFW_RESIDENT` | Yes |
+
+### 2.50 The VC power rows and the watch (p19-vcpwr, 2026-11-05)
+
+| File | Change | Why | Guard | Upstream-safe |
+|---|---|---|---|---|
+| `apps/ipodui/devbench_vcpwr.c`, `.h` (new) | rows `s1`, `l5`, `ck`, `vs`, `sd`, the watch `vcpwr_service()`, the simulator's stubs ("Not run (sim)", fault switches) and `bench_vcpwr_picks[]` for the re-verify run | `power-apple-vs-ours.md` "The top five" | the rows: `HAVE_BCMFW_RESIDENT && HAVE_BCMFW_DEVTEST && HAVE_BCMFW_VIDEO` (device), `DEVBENCH_SIM`; the watch: `HAVE_BCMFW_RESIDENT && HAVE_BCMFW_DEVTEST` | Yes |
+| `apps/ipodui/devbench.c` (+66) | the include and five table entries, one block after `lit24ui` | the rows in the full session | `HAVE_BCMFW_RESIDENT \|\| DEVBENCH_SIM` | Yes |
+| `apps/ipodui/ui_main.c` (+12) | `vcpwr_service()` after the back end's pass | the watch on the job owner's thread | `HAVE_BCMFW_RESIDENT && HAVE_BCMFW_DEVTEST && !SIMULATOR` | Yes |
+| `apps/SOURCES` (+2), `apps/apps.make` (+3 −2) | `devbench_vcpwr.c` in the developer bench and the bench simulator; its object joins `BCMJOB_SHELL_OBJ` | it uses FENCE and the self-test through `bcmjob.h` | build rules; developer builds only | Yes |
+| `tests/autochecks/test_autochecks.c` | `t_vcpwr`: the rows' rules, decodes and picks | host tests | — | Yes |
+
+### 2.51 Awake battery rows from Apple 1.3: the gate, AW-1 drive release linger (branch `p19-pwr-awake`, 2026-11-05)
+
+New files (ours): `firmware/export/pwr_awake.h`, `pwr_awake_tokens.h`, `firmware/common/pwr_awake.c` (the per-row gate: bench token, developer mask, session failure; 130 B shared records), `tests/pwrawake/`. Ours, edited: `firmware/common/stor_pwr_core.c`, `firmware/export/stor_pwr{,_core}.h` (the linger, its fallback, event reason `linger`), `tests/storpwr/`. Catalogue rows: `docs/pp5022-reference/apple-power-catalog.md` AW-1..AW-9.
+
+| File | What changed | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `firmware/drivers/ata.c` (+39 −5) | `Q_STORAGE_SLEEP` (a fill that reached its target) arms a 250 ms release linger on flash, dark, with the row on; the idle cut names `reason=linger` when the linger decided it; the deadline and the quiet wait use `stor_pwr_off_deadline()`; the last read/write tick is kept apart from the standby's own commands (`spw_last_xfer`) | Apple 1.3 releases the drive 250 ms after a song-buffer read; our dark hold was 3 s | `HAVE_STORAGE_POWEROFF && HAVE_PWR_AWAKE`; flash only at run time (`spw_solid`) | Yes |
+| `firmware/export/config/ipodvideo.h` (+28) | `HAVE_PWR_AWAKE`, `HAVE_USB_CHARGER_PARK`, `HAVE_ACCESSORY_RAIL_LOAD`, `ACCESSORY_SUPPLY_DEFAULT` | the rows and the AW-3 per-unit flag | `HAVE_IPOD_UI && !BOOTLOADER` | Yes |
+| `firmware/SOURCES` (+6) | the new files | | `HAVE_PWR_AWAKE`, `HAVE_USB_CHARGER_PARK` | Yes |
+
+### 2.52 AW-2 USB parked on a charger, AW-8 the `XMB_RAM_CFG` log (branch `p19-pwr-awake`, 2026-11-05)
+
+New files (ours): `firmware/export/usbpark_core.h`, `firmware/common/usbpark_core.c` (the window state machine, host-tested).
+
+| File | What changed | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `firmware/usb.c` (+102) | On a VBUS edge a 12 s host window; no bus reset, `SET_ADDRESS` or transfer by then (and no storage handed over) parks the controller: `usb_enable(false)` with `usb_state` kept and the charge current the stack chose put back; `USB_EXTRACTED` skips the second disable; `usb_charger_reprobe()` re-enables (screen wake); a host first seen in a re-probe's window doubles the window, two in a row give the park up | Apple powers USB off again on a charger; ours clocked USB and held the PLL for hours | `HAVE_USB_CHARGER_PARK` | Yes |
+| `firmware/export/usb.h` (+10) | `USB_PARK_CHECK`, `USB_PARK_REPROBE`, `usb_charger_reprobe()` | as above | as above | Yes |
+| `firmware/target/arm/ipod/video/lcd-video.c` (+21) | `lcd_awake()` calls `usb_charger_reprobe()`; and the AW-4 hooks (2.53) | the user's wake is the re-probe | `HAVE_USB_CHARGER_PARK`, `HAVE_PWR_AWAKE` | Yes |
+| `firmware/target/arm/pp/usb-fw-pp502x.c` (+15) | `XMB_RAM_CFG` before and after the `0x47A` OR into the AW-8 record; the write itself unchanged | Apple never writes it awake: find out what the OR moves | `HAVE_PWR_AWAKE` (not the bootloader) | Yes |
+
+### 2.53 AW-3 accessory supply default, AW-4 LCD LDO, AW-5 codec clock gate, AW-9 ADC done bit (branch `p19-pwr-awake`, 2026-11-05)
+
+| File | What changed | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `apps/settings_list.c` (+8) | `accessory_supply`'s default is `ACCESSORY_SUPPLY_DEFAULT` (on for the USB-C mod and for 30-pin units, off for a unit with neither) | AW-3: a per-unit fact; the USB-C board may draw from it | `ACCESSORY_SUPPLY_DEFAULT` | Yes |
+| `firmware/target/arm/ipod/powermgmt-ipod-pcf.c` (+54) | `pwraw_lcd_ldo()`: `D3REGC1` mode 111 → 010 at the same voltage code while the LCD sleeps, the found value back and ≥ 10 ms settled before the BCM wakes; read-back checked both ways | AW-4 (Apple does it in sleep only) | `HAVE_PWR_AWAKE`; the row off until its token | Yes |
+| `firmware/target/arm/ipod/video/lcd-video.c` | the two calls, under the port lock (`lcd_sleep()` after `bcm_powerdown()`, `lcd_awake()` before `bcm_init()`) | as above | as above | Yes |
+| `firmware/target/arm/pp/wmcodec-pp.c` (+58), `firmware/drivers/audio/wm8758.c` (+11) | `wmcodec_clocks_gate()`: in DAC standby clear `DEV_EXTCLOCKS` (and `DEV_I2S`, variant b), set them before the wake; `IISCONFIG`/`IISFIFO_CFG` compared and restored on a change (the failure signal) | AW-5 (Apple gates the codec clock with its power) | `HAVE_PWR_AWAKE && HAVE_DAC_STANDBY`; the row off until its token | Yes |
+| `firmware/target/arm/ipod/adc-ipod-pcf.c` (+22) | the PMU ADC result taken after `ADCS2` bit 7 (≤ 4 reads, the last kept as before); misses counted | AW-9, Apple's order; a stale sample otherwise possible | `HAVE_PWR_AWAKE` | Yes |
+
+Also ours: `apps/ipodui/powerlog.c` (the rows' records into `ipodui.log`, the developer mask file `pwraw.cfg`, A11's usage totals line), `powerlog_core.{c,h}` (`pl_totals`), `apps/ipodui/devbench_awake.{c,h}` (the "Battery savings" bench rows), `apps/SOURCES` (+1).
+
+### 2.54 The battery probes, a bench row group (branch `p19-pwr-probes`, 2026-11-05)
+
+| File | Change | Why | Guard | Upstream-safe |
+|---|---|---|---|---|
+| `apps/SOURCES` (+2) | `ipodui/devbench_pwr.c` in the device bench build (`HAVE_BCMFW_DEVTEST`) and in the simulator's bench (`DEVBENCH_SIM`) | The PP5022 battery probes (`apps/ipodui/devbench_pwr.{c,h}`: S-1, S-3, S-4, S-6, S-8 of `docs/pp5022-reference/apple-power.md` §8, the speed grade and a register snapshot); 248 B of IRAM in developer bench builds (`docs/hardware.md`, "IRAM") | `HAVE_IPOD_UI_DEVMODE` inside the file; release builds compile nothing (no `devbench.c` there) | Yes |
+
+### 2.55 Core layout (A), steps 0b, 1 and 2 (branch `p19-corelayout-k1`, 2026-11-05)
+
+Apple's core layout, the first steps (`docs/design/core-layout-decision.md` §7). All behind `HAVE_CORE_LAYOUT_A` (`ipodvideo-variant.h`: developer builds on the device only), each with a run-time switch that defaults to upstream's behaviour (`firmware/export/corelayout.h`). The release shape (`fw-ship`) is byte-for-byte unchanged: `_end` 1,455,904 B before and after [build]. The branch also carries `3a050e9f1c` (`HAVE_PP_IRQ_TALLY`, cherry-picked from `p19-4h-coplayout`; its ledger row lives there).
+
+| File | Change | Why | Guard | Upstream-safe |
+|---|---|---|---|---|
+| `firmware/target/arm/pp/crt0-pp.S` (+13 −2) | the COP's own 1 KB FIQ stack (upstream's `#if 0` space); a `.ltorg` before the stacks, which put the handlers' literals out of reach | step 0b: until now `cop_fiq_stack` was the top of the CPU's `fiq_stack`, so a FIQ on each core at once would share it | `HAVE_CORE_LAYOUT_A` | Yes |
+| `firmware/target/arm/pp/pcm-pp.c` (+207 −2) | the shared FIQ target points at `fiq_by_core` (reads `PROCESSOR_ID` in banked r10/r12, jumps through that core's own target, Apple's form); an unset target masks the core's source 26; `pcm_pp_set_core()` moves source 26's priority and target while stopped; the lock masks `pcm_core`'s source through the set/clear registers, keeps the depth counter under a corelock, and waits out a FIQ in flight when the locker is the other core; the FIQ skips `devstats` off the CPU | steps 0b and 2: either core may take the PCM's FIQ; the CPU stays the default | `HAVE_CORE_LAYOUT_A`; release keeps upstream's single `fiq_function` and FIQ-only lock | Yes |
+| `firmware/target/arm/pp/kernel-pp.c` (+39) | K-1: with `corelayout_set_park(true)` the tick pulses the COP only when its `next_tmo_check` is due (`cop_park.h`) | step 1: the COP's 100 wakes a second go; every other reason to run there already wakes it (`core_schedule_wakeup()`) | `HAVE_CORE_LAYOUT_A`, switch off by default | Yes |
+| `firmware/target/arm/pp/thread-pp.c` (+12) | `cop_next_tmo_check()`: the COP's next due check for the CPU's tick | the core entries are kernel-private | `HAVE_CORE_LAYOUT_A` | Yes |
+| `firmware/export/config/ipodvideo-variant.h` (+11) | `HAVE_CORE_LAYOUT_A` | the guard | developer builds, not the bootloader or simulator | Yes |
+| `apps/SOURCES` (+1) | `ipodui/devbench_core.c` | bench rows k1, pcop | `HAVE_BCMFW_DEVTEST` | Yes |
+
+New files (ProkBox): `firmware/export/corelayout.h`, `firmware/export/cop_park.h`, `apps/ipodui/devbench_core.{c,h}`, `tests/copk1/`.
+
+### 2.56 The IDENTIFY string buffers by halfword (branch `fix-4gh-boot`, 2026-11-06)
+
+The sitting 4gh boot loop. `ata_get_info()` copied the IDENTIFY vendor, product and revision words through an `(unsigned short *)` cast into `static char` arrays (alignment 1). The day's merges shifted `.bss` by an odd number of bytes, the three arrays linked at odd addresses (`vendor.1` 0x1e3a25 in b0ece13127), and the first `disk_mount()` took a data abort at the `strh` (owner's DIAG photo, 2026-11-06: kind 2, thread main, 0.37 s after start, trace `disk_init` > `disk_mount` > `storage_thread`); the developer build's silent panic restart looped. A misaligned halfword store to SDRAM aborts on the PP5022 [silicon] (`docs/pp5022-reference/quirks.md` 51, 79). `scripts/misaligned_access_check.py` (validate.sh, every ARM build) now fails a linked image with such an access; it flags exactly these two stores in b0ece13127 and nothing in the fixed build.
+
+| File | Change | Why | Guard | Upstream-safe |
+|---|---|---|---|---|
+| `firmware/drivers/ata-common.c` (+17 −3) | `vendor`, `product`, `revision` are `uint16_t` arrays, handed out as `char *` | the buffer's type now gives it the alignment its halfword stores need; the bytes are unchanged | `!BOOTLOADER || HAVE_IPOD_BOOTSCREEN`: every firmware and the shell bootloader; the stock bootloader stays byte-identical (Phase 8a) and keeps upstream's arrays (they link even today; the gate checks it) | Yes (upstream bug: `docs/upstream-backports.md`) |
+| `apps/debug_menu.c` (+7 −4) | `disk_callback()`'s `char buf[128]`, written by halfword through an `(unsigned short *)` cast, is a `uint16_t` array seen as `char *` | the same pattern on the stack (aligned today only because of where the frame puts it); found by the `-Wcast-align=strict` audit of this fix | none | Yes (with the row above) |
+
+The audit (`-Wcast-align=strict` on the 4gh developer build: 238 distinct casts in `firmware/`, `apps/`, `lib/rbcodec`): every other cast's base is an allocator block (`core_alloc`/buflib, word aligned) at a constant multiple-of-size offset, a pointer parameter whose callers pass such blocks, a codec buffer from the codec API, or one already marked `align-ok`. None other is a static or stack `char` array. The ELF check covers the static case for every future link; stack arrays are not in its reach.
+
+### 2.57 The COP unmasks its own FIQ in layout (A) (branch `p19-4gh-results`, 2026-11-06)
+
+Sitting 4gh's P-1 read 0 FIQs with the COP's CPSR at `0x5f` (F set): upstream never clears the COP's FIQ mask (quirk 74, `docs/pp5022-reference/interrupts-timers.md` §6.3). The CPSR is per core, so the COP must do it itself.
+
+| File | Change | Why | Guard | Upstream-safe |
+|---|---|---|---|---|
+| `firmware/target/arm/pp/system-pp502x.c` (+17) | `system_init()`'s COP branch zeroes `COP_INT_PRIORITY` and `COP_HI_INT_PRIORITY`, then `enable_fiq()` | layout (A) step 2: the COP must be able to take source 26 as a FIQ once `pcm_pp_set_core()` routes it; with its priority words zero no COP source arrives as a FIQ before that | `HAVE_CORE_LAYOUT_A` (developer builds, not the bootloader or simulator) | Yes |
+
+ProkBox files: `apps/ipodui/devbench_cop.c` (P-1 rebuilt as logged steps: start-up F bit, route, one piece with F masked, the COP's own unmask, 10 s idle), `apps/ipodui/devbench_core.c` (k1's verdict is A/B on rescues and names its failing criterion), `firmware/export/pwr_awake_tokens.h` (`PWRAW_TOKEN_USBOFF` and `PWRAW_TOKEN_LCDLDO` set from 4gh).
+
+### 2.58 A video is never the audio queue (#154, branch `p19-audio-resume`, 2026-11-06)
+
+| File | Change | Why | Guard | Upstream-safe |
+|---|---|---|---|---|
+| `apps/playlist.c` (+115 −3) | A video session (`playlist_play_video_ipodui()` / `playlist_end_video_ipodui()`): the current playlist plays the one video with its control lines in `PLAYLIST_CONTROL_FILE "_video"`; `create_control_unlocked()` skips the `.old` rename of the real control file while the session is open; `playlist_update_resume_info()` returns at once in a session; `playlist_create()`, `playlist_resume()` and `playlist_set_current()` close an open session first. The end stops the audio (before the lock) and leaves the playlist empty, no control file made. The #109 slot table is not dropped (a database commit during the video still rebases the music's block). Header marker line | Owner rules 2026-11-06: Play, the resume point and Now Playing are only ever audio; a video's sound never plays on behind the menus (bench 4gh: a dark-play row resumed a video's audio). The audio queue's control file and `global_status.resume_*` stay the music's, so Play after the video and a boot after a cut resume the music | `HAVE_IPOD_UI` (`pl_video_session()` is `false` without it) | Yes (stock builds unchanged) |
+| `apps/playlist.h` (+6) | The two declarations; header marker line | as above | `HAVE_IPOD_UI` | Yes |
+
+Shell side (not upstream): `screens/video.c` plays through the session and ends it on every way off the screen (`video_end()`; new `covered` screen op in `screen_stack.[ch]`); the bench's stage plays (`devbcm.c`, `devbench_vclk.c`) use the session and `devbench.c` ends any at each step's end; `febe_rpc.list` (+2, stubs regenerated) and `modules/class_a.deny` (+2). Cost: one byte of RAM (a static bool), about 0.5 KB of code (fw-ui-video: playlist.o +0.4 KB, video.o +40 B); one small control file written per video start (as before), none at its end.
+
+### 2.59 A paused video keeps its place through any power-off (#154 follow-up, branch `p19-audio-resume-pause`, 2026-11-06)
+
+| File | Change | Why | Guard | Upstream-safe |
+|---|---|---|---|---|
+| `apps/tagcache.c` (+~35 −14) | `tagcache_ui_save_spot()`: the playing file's `lastelapsed`/`lastoffset` queued as the track-finish event writes them (its 3 s floor, no play counted) and drained at once (`ui_drain_force`): one journal append per call. Never under the USB handover or a shutdown in progress. The queueing is shared with `tagcache_ui_sleep_prepare()` (`ui_spot_enqueue()`, same behaviour) | Owner, 2026-11-06: a paused video must never lose its spot, the battery dying included. Before, the spot was written only by a stop (the track-finish event): a clean shutdown kept it, a cut or a critical-battery power-off (no `audio_stop()` below `battery_level_safe()`) lost it | `UI_COMMIT` (`HAVE_IPOD_UI` with the RAM cache); returns false otherwise | Yes (stock builds unchanged) |
+| `apps/tagcache.h` (+2) | The declaration | as above | `HAVE_IPOD_UI && HAVE_TC_RAMCACHE` | Yes |
+
+Shell side: `screens/video.c` `spot_tick()` calls it once, half a second into a pause (any pause source: the tick polls the status), and again after a seek while paused; `febe_rpc.list` (+1, stubs regenerated). Every exit and shutdown path still writes the spot through the stop as before; the USB plug's stop is queued in RAM and drained after the unplug (no write at the USB screen's entry). Cost: no RAM beyond 8 bytes in the screen's state; one journal append (two frames, a few sectors) per pause, none while playing; no periodic checkpoint.
+
+Also on this branch (shell only): the main menu's Now Playing row ignores a video session's audio (`ui_now_playing_visible()` and `ui_video_session()`). Before, starting a video from the menu showed the row for a moment between the video's audio start and its screen's push. That caused a spurious full menu redraw per video start (12 fulls in an unloaded run, 11 after the fix), the likely source of the timing-dependent 13th full update the loaded gate saw in `ipodui-p19-audio-resume`. `video_end()` now clears the session flag only after the audio stops. The three `update full` traces now name their cause (`why=body|slide-strip-lost|reveal-strip-lost`).
+
+### 2.60 The governor's idle read: a seqlock (branch `p19-govplan`, 2026-11-06)
+
+New files (ours): `firmware/export/pgov_idle.h` (the per-core `struct pgov_idle`, its writer and reader, inline) and `tests/ppgov/test_idle.c` (every writer/reader interleaving; run by `tests/ppgov/run.sh`). `firmware/pgov.c` and `firmware/export/pgov.h` (ours) use it. Release shape unaffected: everything is under `HAVE_PP_GOV`, which only developer builds define.
+
+| File | Change | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `firmware/target/arm/pp/thread-pp.c` (+2 −4, on the 2.33 row's lines) | `core_sleep()` (PP502x) calls `pgov_idle_enter()` before the sleep and `pgov_idle_leave()` after it, IRQs still off, in place of the bare stamp and add | The old two-store update could be read half-done and count one sleep twice (`docs/design/pp-governor.md` §17.6) | `HAVE_PP_GOV` | Yes |
+
+### 2.61 Device defaults: backlight 10 s, Clicker On (#142, branch `p19-defaults`, 2026-11-06)
+
+| File | Change | Why | Guard | Upstream-safe |
+|---|---|---|---|---|
+| `apps/settings_list.c` (+2 −8) | `DEFAULT_BACKLIGHT_TIMEOUT` moves to the new `apps/settings_defaults.h`; the `keyclick` and `keyclick_hardware` defaults use `DEFAULT_KEYCLICK` and `DEFAULT_KEYCLICK_HARDWARE`. Modified line added (§2(a)) | The device default was 15 s, a value the shell's list lacks (caption said 10 s); the 7G ships 10 s and an audible click. `tests/defaults` reads the header as the device build sees it | `HAVE_IPOD_UI` (stock keeps 15 s, click off; the simulator keeps 0, Always On) | Yes |
+
+### 2.62 Audiobooks by type, genre and folder (#146, branch `p19-146`, 2026-11-06)
+
+| File | Change | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `apps/tagcache.c` (+16 −7, Modified line added) | `ui_classify()` takes its podcast/book decision from `bookclass_of()` (`apps/ipodui/bookclass.h`, new, header only, pure): video first (unchanged), podcast by genre or `/Podcasts/` (unchanged), then a book if the m4b/MP4 flag, a book genre (English plus nl/de table, trimmed, case-insensitive, exact) or an `Audiobooks`/`Audio Books` folder component. `tagcache_ui_resumes()` follows automatically (no I/O, no buffers, audio-thread safe) | #146: drag-and-drop books have no media kind | `HAVE_IPOD_UI` | Yes |
+| `apps/tagcache.h` (comment) | `TAGCACHE_UI_AUDIOBOOK` comment names the new rules | as above | n/a | Yes |
+
+ProkBox files: `apps/ipodui/bookclass.h` (new), `apps/ipodui/sortkey.h` (`SORTKEY_VERSION` 1 → 2: the stored class flags change meaning, so every unit rebuilds its database once on first boot; statistics come back through the changelog, `books.dat` is untouched), `tests/classify/` (rules table, a per-genre check against a missing comma, and a rules hash tied to `SORTKEY_VERSION`), `tests/ipodui/test_sortkey_version.c` (version 2, same key hash), `tests/ui/ipodui-146-audiobook-classify.script` with `tests/ui/fixtures/p146/`. Cost (fw-ui): `tagcache.o` .text +539 B, no data, bss or IRAM change.
+
+### 2.63 A stop near a track's end keeps its resume point (#165, branch `p19-video-bugs`, 2026-11-06)
+
+| File | Change | Why | Guard | Upstream-safe |
+|---|---|---|---|---|
+| `apps/playback.c` (+8) | `audio_stop_playback()` clears `TEF_AUTO_SKIP` from the finish event unless `filling == STATE_ENDED` (the end of the playlist, the only stop that is a natural end) | `audio_on_codec_complete()` sets `TEF_AUTO_SKIP` as soon as the codec has decoded the file, while the PCM buffer still holds its last ~2 s. A stop in that window (USB, MENU, a new queue) was announced as the natural end, so tagtree's finish handler wrote resume 0 (and counted a play); a video paused at 11.3 s of 13 s resumed at 0 after USB or MENU, the pause's own write overwritten. Also no longer marks a book finished for a stop in its last file's last seconds (`np_playback.c`; the 30 s pause rule, D17, still does) | `HAVE_IPOD_UI` | Yes (an upstream bug too: backport candidate) |
+
+Test: `tests/ui/ipodui-p19-video-usb-spot.script` (USB and MENU stops at ~11.3 s; red before: 417 and 371 ms instead of ~11.9 s); `ipodui-p19-video-pause-keep` part 6 now checks the spot after its USB session.
+
+### 2.64 A video's index is read ahead on the buffering thread (#175, branch `p19-video-prefetch`, 2026-11-06)
+
+| File | Change | Why | Guard | Upstream-safe |
+|---|---|---|---|---|
+| `apps/buffering.c` (+14), `apps/buffering.h` (+5) | `buffering_post_job()` and its `Q_JOB` message: a caller's function runs on the buffering thread between a fill's chunks (a fill under way goes on after it) | The video player's index window was read in its own thread and met storage powered off (the owner's log, build 4c241d1df3: 622 and 713 ms late, GOPs dropped). Its read ahead now runs where the audio's refills already wait for power-ups (`docs/data-paths.md` R16, D18) | `HAVE_IPOD_UI` | Yes |
+
+Video side (not upstream): `apps/video/vpcore.c` keeps the index window as a ring and hands its free slots to the reader (`vpc_source` `index_post`/`index_done`) once less than `VPC_IDX_LEAD_US` (8 s) of play is left; `vplayer.c` `idx_job()`. Simulator: `video_fault window <records>` (`sim_cmd_video.c`, `sim_video.c`); script `tests/ui/ipodui-p19-video-wake.script`.
+### 2.65 The heap walk, developer builds (branch `p19-next-bench`, 2026-11-06)
+
+Sitting 4gh-b5 (build 4c241d1df3): `sd`'s first allocation set off a compaction that panicked in `check_block_handle()` on a header whose handle word read `0x023e6613` ("handle unaligned"). The corruption came earlier, most likely during `duty`'s arm F (the decode on the COP); suspects, all [hypothesis]: COP writes or dirty lines landing after buflib moved a block, a stray FIQ write on the COP, an overrun from the block before. Upstream's checks fire only when the damaged block is next touched, and its panic names nothing around it.
+
+| File | Change | Why | Guard | Upstream-safe |
+|---|---|---|---|---|
+| `firmware/include/buflib_mempool.h` (+~50) | `BUFLIB_IDX_CRC`, a fifth header word (a CRC of the length, the handle's distance from the table's end, and ops); `enum buflib_walk_bad`, `struct buflib_walk`, `buflib_walk()`, `buflib_walk_why()` | evidence before the panic: a header damaged anywhere is caught at the next walk, with the block before it | `HAVE_BUFLIB_HEAPCHECK` (`HAVE_IPOD_UI_DEVMODE` in `ipodvideo.h`); a release build keeps upstream's 16-byte header | Yes (all inside the flag) |
+| `firmware/buflib_mempool.c` (+~200) | `buflib_alloc_ex()` and `buflib_shrink()` seal the CRC (a move copies it unchanged; a whole-buffer shift doesn't change it); `buflib_walk()`: bounded, read-only, never panics: every block's length bounds, the handle's alignment, range and back-pointer into the block, the CRC, then the live handle count (an allocation in progress holds one handle at -1, not counted); `check_block_length()`/`check_block_handle()` panic through `buflib_panic_block()`, whose message names the block before (address, bytes, handle, ops) on a shorter prefix that fits the panic record's 120 bytes | sitting 4gh-b5's panic said only "handle unaligned [0x4a943c]=0x23e6613" | as above | Yes |
+| `firmware/core_alloc.c` (+8), `firmware/include/core_alloc.h` (+7) | `core_heap_walk()`: the walk over the core context, CPU only | the shell's hook (`apps/ipodui/heapchk.c`) | as above | Yes |
+| `apps/playback.c` (+10) | the heap walked at `shrink_callback()`'s entry and after its `core_shrink`, and before and after `audio_on_give()`'s shrink or regrow | every audio-buffer shrink is a compaction's neighbour | `HAVE_IPOD_UI` (a no-op without the flag) | Yes |
+
+ProkBox files: `apps/ipodui/heapchk.{c,h}` (the walk timed and counted, a "heap walk at=<where> n= u= us=" line, the first failure's "BAD ..." lines once a boot), `apps/codec_cop.c` (the walk at each codec place or move between cores, after each COP run and at unload), `apps/ipodui/devbench.c` (the walk at every bench step's start and end; the `heap` row in the table), `apps/ipodui/devbench_cop.c` (bench row `heap`: an album decoding on the COP then the CPU, 180 s each, every 2 s an allocation of a varied size with three live, the walk and every live block's fill byte checked; the verdict names the first bad block and its arm). Host test: `tests/heapwalk/` (buflib_mempool.c as built with the flag: good heaps pass through allocations, frees, compactions, shrinks and a whole-buffer shift; each corruption fails with its reason and the block before; buflib's own panic in a compaction names the block before in under 120 bytes).
+
+### 2.66 PCM DMA chunks in whole words (#191, branch `p19-pcm-dma-align`, 2026-11-07)
+
+Found by the emulator: the playback DMA was programmed with 689- then 335-byte transfers at 44.1 kHz. `sink_set_freq()` set `max_dma_chunk_size = rate >> 6`, which is not a multiple of 4 at 48, 44.1, 24, 16, 12 and 8 kHz (750, 689, 375, 250, 187, 125 bytes). `DMA0_INCR` is 32 bits wide, so every transfer after the first in a buffer started off a word boundary and the last one was a part word too. What the PP5022 does with such a length is unknown ([hypothesis] in `docs/pp5022-reference/quirks.md` #89 until the bench row `dmaodd` answers). Every buffer the PCM layer hands over is already whole words at a word address (`ALIGN_AUDIOBUF` in `pcm_play_data()` and `pcm_get_more_int()`; the only buffer the DMA reads is the mixer's `downmix_buf`, `uint32_t` and `MEM_ALIGN_ATTR`), so the chunk size was the only source.
+
+| File | Change | Why | Guard | Upstream-safe |
+|---|---|---|---|---|
+| `firmware/target/arm/pp/pcm-pp.c` (+4 −1) | `max_dma_chunk_size = (hw_freq_sampr[freq] >> 6) & ~3`: 748, 688, 500, 372, 344, 248, 184, 172, 124 bytes | every transfer whole words at a word address; the same FIQ count to within one per buffer | none (a correctness fix; the stock build gets it too) | Yes (upstream/master has the same line; `docs/upstream-backports.md` §1) |
+
+ProkBox files: `tests/pcmdma/` (runs the real `dma_tx_start()`, PP502x `fiq_playback()`, `sink_set_freq()` and `sink_dma_start()`, extracted from `pcm-pp.c`, at every `hw_freq_sampr` rate, buffer sizes 4..8192 from start offsets 0..3 through the real `ALIGN_AUDIOBUF`: every programmed length and `DMA0_RAM_ADDR` a multiple of 4, the transfers tiling each buffer exactly; red on the upstream line, 4,566,312 of 6,873,072 transfers bad).
+
+### 2.67 0.8.0 decodes on the COP by default (branch `p19-cop-default`, 2026-11-07)
+
+**Owner decision (2026-11-07):** 0.8.0 takes Apple's core layout for the audio computation: the codec's runs go to the COP, and the CPU keeps the UI, the file system, the disk, USB and the BCM driver. This supersedes the 2026-10-24 pin to the CPU (2.29.2), which stays as a developer A/B arm with the screen rule. No upstream file changes in code: the default lives in the shell's `apps/codec_cop.c`.
+
+| File | Change | Why | Guard | Upstream-safe |
+|---|---|---|---|---|
+| `apps/codecs.c`, `lib/rbcodec/codecs/codecs.h`, `lib/rbcodec/codecs/mpa.c` | comments only: `cop_assist` is true for a run on the COP, the default | the old text said "pinned to the CPU" | `HAVE_IPOD_UI` | Yes (no code; every codec byte-identical on fw-ship) |
+
+ProkBox files: `apps/codec_cop.c`:
+- `place_mode = CPL_MODE_COP`;
+- `cop_refused()`: a run the COP will not take (worker start, job post) runs on the CPU with `cop_assist` cleared and a `codec` line "COP FAILED (start|post): decoding on the CPU";
+- `cop_down`: a worker that never started latches the CPU path for the boot. Later loads are unbound, nothing is kept back and each load logs "COP FAILED (down)". Before this, every track start retried: a 1 s stall, and one more thread queued on the dead core with its stack in the codec slot.
+
+Also `apps/codec_place_core.h` (the enum's comments) and `firmware/export/config/ipodvideo-variant.h` (the `HAVE_COP_CODEC` comment). `HAVE_COP_CODEC` was already defined for every shell build, the release included, so no variant changes.
+
+Host test `tests/codecplace/` (red on the old default: 13 failed checks; green after). The new checks are the default's COP runs, lit and dark, a seek's re-run, the post refusal, the start refusal and its latch. Each refusal check was shown red with its line removed.
+
+Measured [build] on `fw-ship` (`RELEASE_SHAPE` + `RELEASE_STOCK`, HDD, 64 MB) against `ae3dc57624` (0.8.0-rc.4):
+- `_end` 1,460,128 → 1,460,128 (cap 1,500,000);
+- `.text` +232, `.rodata` +92, `.data` ±0 (`place_mode`'s initial word 2 → 1), `.ncdata` −8 (alignment), IRAM sections unchanged;
+- the disassembly differs in `codec_cop_select` and `codec_cop_run` only, and `codec_cop_available` is now out of line;
+- all 39 `.codec` files are byte-identical.
+
+The simulator has one core (`cop_jobs_cross_core()` false), so it never binds a load and its scripts cannot see the change.
+
+### 2.68 The codec's id3 coherent for both cores (#196, branch `p19-cop-default`, 2026-11-07)
+
+With the decode on the COP (2.67), the codec's id3 (`CODEC_ID3`, in the audio scratch area at the audio buffer's start) is written by both cores:
+- **The codecs on the COP** write it through the uncached alias: `shorten.c` frequency, length and bitrate; `vgm.c` length and tail_trim; `asap.c` length; `mpa.c` elapsed (an ASF stream); `atrac3_rm.c` `id3v2buf`. That is every write found by grepping `id3->` in `lib/rbcodec/codecs`, including the helpers given `ci->id3`. `atrac3_decode_init()` and `codec_set_replaygain()` only read it.
+- **The CPU** writes the whole entry at each track start (`id3_write(CODEC_ID3, ...)`) and elapsed and offset mid-run (`audio_codec_update_elapsed()`/`_offset()` behind `set_elapsed`/`set_offset`, and a seek). It reads them for each PCM insert (`codec_thread.c`, `audio_pcmbuf_sync_position()`), all through its cache.
+
+The caches do not snoop and write back whole lines (quirks.md 88, 90). So the CPU's line holding elapsed (next to length) put stale copies over the COP's writes, and the CPU read stale lines of them. Effects: a wrong length or tail trim for the formats whose codec sets them (VGM, SAP, Shorten), and a lost elapsed for an ASF-wrapped MP3. It is not heap metadata.
+
+**The fix: the entry is shared memory proper.** It sits on 16-byte lines of its own, and both cores reach it only through the uncached alias, so every store goes to memory a field at a time, whichever core makes it. A seek's elapsed and the codec's length can no longer clobber each other. At `scratch_mem_init()` the CPU's cache is written back and dropped once, so no dirty line from the memory's earlier use (the ring, the old scratch area) lands on the entry later.
+
+Two alternatives were rejected:
+- **Flushing lines around each hand-off** fails mid-run: the CPU writes elapsed while the COP runs, and a whole-line write-back on either side can still clobber the other's field.
+- **Routing the codecs' writes through callbacks** would change five upstream codecs, and would still leave the CPU's own cached reads.
+
+Cost: the CPU's ~3 KB entry copy at a track start and two word stores per PCM insert go uncached; 16 B more scratch; one whole-cache write-back at a buffer (re)initialisation.
+
+| File | Change | Why | Guard | Upstream-safe |
+|---|---|---|---|---|
+| `apps/playback.c` (+22) | `audio_scratch_memory.codec_id3` becomes a padded slot (`CODEC_ID3_SLOT_SIZE`); `id3_get(CODEC_ID3)` returns `codec_id3`, the uncached view `codec_id3_place()` gives at `scratch_mem_init()` | #196 | `HAVE_COP_CODEC` | Yes (stock: the plain member as before) |
+| `apps/SOURCES` (+1) | `codec_id3.c` | | `HAVE_COP_CODEC` | Yes |
+
+ProkBox files: `apps/codec_id3.{c,h}` (new), `apps/codec_cop.c` (a comment: the id3 is uncached for both cores now). Host test `tests/codecid3/`: a line-granular model of the CPU's cache with random eviction, covering:
+- a track start, and the job post's write-back;
+- the COP's field writes;
+- the CPU's elapsed and offset writes and reads mid-run, including a seek;
+- cached neighbours (buflib's header, `unbuffered_id3`);
+- the slot's memory dirtied by an earlier use.
+
+It runs 500 seeds × 4 misalignments. With the fix: 0 losses. The same checks on 0.8.0-rc.4's placement (`-DCODEC_ID3_OLD`, run every time as a check of the model) fail: COP write lost 1,870 of 2,000, CPU write lost 1,926, stale reads 17 and 1,926. Each part of the fix (the drop, the line alignment, the uncached view, the slot's padding) was removed in turn and turned the test red.
+
+Measured [build] on `fw-ship` against `a0ece5a839`:
+- `_end` 1,460,128 → 1,460,128;
+- `.text` +64, `.bss` −64 (alignment);
+- `codec_id3_place` is new, and `id3_get` and the nine playback functions that address the scratch area's later members (their offsets moved by the slot's padding) changed;
+- every `.codec` byte-identical.
+
+### 2.70 Audio output on the COP: layout A in every shell build (0.8.0-rc.6, branch `p19-audio-cop`, 2026-11-07)
+
+**Owner decision (2026-11-07):** 0.8.0 puts the PCM DMA's FIQ, pcm-pp's refill, the mixer and pcmbuf's consumer on the COP (Apple's layout for the audio pipeline's end), as bench rows p1 and pcop proved on silicon (sitting 4gh-b8). `HAVE_CORE_LAYOUT_A` now covers every shell build, not just developer ones. K-1's park stays a developer switch, off by default. Every object the FIQ shares with the CPU is now uncached or handed over with a write-back (`docs/design/cop-shared-state.md`, layout A, H1–H8).
+
+| File | Change | Why | Guard | Upstream-safe |
+|---|---|---|---|---|
+| `firmware/target/arm/pp/pcm-pp.c` | `max_dma_chunk_size` in IRAM | The FIQ on the COP read it stale: H1 | `HAVE_CORE_LAYOUT_A` | Yes |
+| `firmware/pcm_mixer.c` | Control words `XCORE_BSS`/`XCORE_DATA`. Channel sources through `pcm_mix_src()`. `commit_dcache()` at a channel's start. `mix_idle_max` for the idle tail | H8, H3, H6, H2 | `HAVE_CORE_LAYOUT_A` / `HAVE_COP_COHERENCE` | Yes |
+| `apps/pcmbuf.c` | Ring state `XCORE_BSS`. Descriptors uncached on whole lines after a commit-and-discard. `commit_dcache()` before publishing and after crossfade writes. Position through the `pcm_xcore.h` mailbox, applied by a CPU tick task. Track change through `audio_pcmbuf_track_change_fiq()` | H3, H4, H5, H7 | `HAVE_CORE_LAYOUT_A` | Yes |
+| `apps/playback.c` | `PLAY_STATUS_XCORE` also under layout A. `pause_on_track_change`, `track_change` and `position_key` uncached. `audio_pcmbuf_track_change_fiq()` | H5, H7 | layout A / UI split | Yes |
+| `apps/pcmbuf.c`, `apps/pcmbuf.h`, `apps/playback.c`, `uisimulator/common/sim_cmd_np.c` **(rc.6 rate gap)** | A drain the play frequency "auto" plans at a sample-rate switch between tracks (buffering stopped for the full re-buffer) counts as a rate gap, not an underrun: `pcmbuf_rate_gap_expected()` arms it from `audio_finish_load_track()`, the PCM callback counts the track end that finds no next chunk as one while armed, `pcmbuf_play_stop()` disarms; `pcmbuf_rate_gaps()`; "pcm rate gap" in ipodui.log. Sim: `expect_underruns`, `expect_rate_gaps`, `pcm_starve` | the 3 h soak's two "underruns" were these planned drains (upstream behaviour, rc.5 too); a real underrun still counts | `HAVE_BCMFW_VIDEO \|\| HAVE_IPOD_UI` (sim commands: `HAVE_IPOD_UI`) | Yes (stock: unchanged) |
+| `apps/beep.c` | The generator's state and callback table `XCORE_BSS` | H6 | `HAVE_COP_COHERENCE` | Yes |
+| `apps/main.c`, `apps/SOURCES` | `audio_cop_init()` after `audio_init()` | The boot proof and fallback | layout A (an empty inline otherwise) | Yes |
+| `firmware/export/config/ipodvideo-variant.h` | `HAVE_CORE_LAYOUT_A` for every shell build | The owner's decision | `HAVE_IPOD_UI`, not the bootloader or simulator | Yes |
+
+ProkBox files:
+- `apps/audio_cop.{c,h}`: the boot move and proof, and the loud CPU fallback;
+- `firmware/export/pcm_xcore.h`: `pcm_mix_src()` and the position mailbox;
+- `tests/audiocop/`;
+- `scripts/cop_shared_check.py --fiq`, run in the gate.
+
+Measured [build] on `fw-ship` (`RELEASE_SHAPE` + `RELEASE_STOCK`, HDD, 64 MB):
+- `_end` 1,460,128 (rc.5) → 1,464,640 (cap 1,500,000);
+- `misaligned_access_check`: clean on `fw-ship` and `fw-ui`.

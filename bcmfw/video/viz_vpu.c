@@ -21,106 +21,96 @@
  *
  ****************************************************************************/
 
-/* The visualizer's FFT and bars on the vector unit (proposed, sim only;
- * #126, docs/research/bcm2722/visualizer.md): jref's spectrum hook
- * (jref.h, JREF_VIZ) over viz_kernels.S's jv_fft256 and jv_fft512
- * (gen_viz.py), bit for bit jviz.c's reference; jref's bars hook over
+/* The visualizer's FFT and bars on the vector unit (#126,
+ * docs/design/viz-fft-vc.md, docs/research/bcm2722/visualizer.md): jref's
+ * spectrum hook over viz_kernels.S's jv_vfft512 (gen_viz.py), bit for bit
+ * jviz.c's 512-sample definition (jviz_raw_sep512); jref's bars hook over
  * jv_bars16, pixel for pixel jviz_bars_draw.  The image installs each
- * only if its start-up check agrees with the C (jobs.h J_VPU_FFT,
- * J_VPU_BARS): the kernels' forms are unproven on silicon, and the C
- * gives the same levels and pixels, only slower. */
+ * only if its start-up check passes (jobs.h J_VPU_FFT, J_VPU_BARS); the C
+ * gives the same levels and pixels, only slower.  jv_vfft512 uses only
+ * vector forms silicon (or Apple's own code) has run
+ * (tools/bcmre/proven_forms.txt; viz_test.py checks it). */
 #include <stdint.h>
 #include "config.h"
+#include "jobs.h"
 #include "jviz.h"
+#include "jviz_gold.h"
 #include "viz_vpu.h"
 
-void jv_fft256(uint16_t *raw, const int16_t *pcm, const struct jviz_tabs *t);
-void jv_fft512(uint16_t *raw, const int16_t *pcm, const struct jviz_tabs *t);
+void jv_vfft512(uint16_t *raw, const int16_t *pcm, const struct jviz_vtabs *t);
 
 /* The kernel's raw output and the start-up check's samples live on the
- * stack (16 KB; the deepest path, the FFT's check, takes about 6 KB), not
+ * stack (16 KB; the deepest path, the FFT's check, takes about 4 KB), not
  * in .bss: the overlay's region keeps the 2 KB for the line ops
  * (visualizer.md section 13).  A 32-byte aligned buffer of n halfwords
  * inside one of n + 16 */
 #define ALIGN32(b)  ((void *)(((uint32_t)(b) + 31) & ~31u))
 
+#ifdef JVIZ_NO_VFFT
+/* no room for the kernel (the display-only image's overlay): the C */
+#define jv_vfft512(raw, pcm, t)     ((void)(raw), (void)(pcm), (void)(t))
+#endif
+
 int viz_spectrum(uint32_t *p, const int16_t *pcm, uint32_t n)
 {
     uint16_t buf[JVIZ_RAW_HW + 16], *raw = ALIGN32(buf);
-
-    if ((uint32_t)pcm & 31)
-        return 0;                   /* a slot always is; else the C */
-    if (n == 256)
-        jv_fft256(raw, pcm, jviz_tabs(256));
-    else
-        jv_fft512(raw, pcm, jviz_tabs(512));
-    jviz_raw_power(p, raw, n);
-    return 1;
-}
-
-/* the kernel's raw powers for pcm over the tables t against the C's, every
- * bin (the rows past n / 32 are the kernel's scratch) */
-static int agrees(const int16_t *pcm, uint32_t n, const struct jviz_tabs *t, int fail)
-{
-    uint16_t ref[JVIZ_RAW_HW], buf[JVIZ_RAW_HW + 16], *raw = ALIGN32(buf);
     uint32_t k;
 
-    if (n == 256)
-        jv_fft256(raw, pcm, t);
-    else
-        jv_fft512(raw, pcm, t);
-    jviz_raw_ref_t(ref, pcm, n, t);
-    for (k = 0; k < n / 2; k++)         /* the low rows, the high */
-        if (raw[k] != (uint16_t)(ref[k] + fail) || raw[256 + k] != ref[256 + k])
-            return 0;
+#ifdef JVIZ_NO_VFFT
+    return 0;
+#endif
+    if (n != 512 || ((uint32_t)pcm & 31))
+        return 0;                   /* 256 samples, or unaligned: the C */
+    jv_vfft512(raw, pcm, &jviz_vfft_tabs);
+    for (k = 0; k < 256; k++)
+        p[k] = raw[k] | (uint32_t)raw[256 + k] << 16;
     return 1;
 }
 
-/* The start-up check, at each size:
- *  - a full-scale square wave (clipping) and pseudo-random noise, the
- *    size's own tables;
- *  - the worst case for the accumulator: every sample 32767 and every
- *    table word -32768 (a window and twiddles past |W| <= 1).  Each sample
- *    windows to -16,384, step 1 sums row 0 to (-32768, -32768), and step
- *    2's two products there are 2^30 each: their sum, 2^31, is where C
- *    wraps and silicon's accumulator saturates (quirks #31, #32), so a
- *    kernel that sums them in one chain fails here under every rule that
- *    fits silicon (gen_viz.py chain(); viz_test.py runs each) */
-int viz_vpu_init(int fail)
+/* FNV-1a over n halfwords, low byte first (scripts/gen_vf0.py's) */
+static uint32_t fnv16(const uint16_t *h, uint32_t n)
 {
-    int16_t pbuf[JVIZ_N_MAX + 16], *pcm = ALIGN32(pbuf);
-    /* the worst case's table; in the overlay, first 256's derived tables
-       (jviz.h jviz_derive256) */
-#ifdef JVIZ_OVL
-    int16_t tab[JVIZ_TAB256_HW + 16], *t = ALIGN32(tab);
-#else
-    int16_t tab[JVIZ_N_MAX + 16], *t = ALIGN32(tab);
-#endif
-    struct jviz_tabs worst;
-    uint32_t n, s, i, x = 0x12345678;
+    uint32_t f = 0x811C9DC5u, k;
 
-    worst.win = worst.tw = worst.ws = t;
-    for (n = JVIZ_N_MIN; n <= JVIZ_N_MAX; n *= 2)
-        for (s = 0; s < 3; s++)
-        {
-            for (i = 0; i < n; i++)
-            {
-                x = x * 1103515245u + 12345;
-                pcm[i] = s == 1 ? (int16_t)(x >> 16) :
-                         s == 2 || (i / 8 + i) & 4 ? 32767 : -32768;
-            }
-#ifdef JVIZ_OVL
-            if (n == 256 && s == 0)
-                jviz_derive256(t);
+    for (k = 0; k < n; k++)
+    {
+        f = (f ^ (h[k] & 0xFF)) * 0x01000193u;
+        f = (f ^ (h[k] >> 8)) * 0x01000193u;
+    }
+    return f;
+}
+
+/* The start-up check (docs/design/viz-fft-vc.md section 9): on each of
+ * jviz_check_frame's frames (a full-scale square, noise, a loud mix), the
+ * C's raw powers against the Mac's FNV-1a golden (jviz_gold.h), and the
+ * kernel's against the C's, every halfword.  The result's bits
+ * (JVIZ_CHK_*, jobs.h J_VFFT): the C right per frame, the kernel equal
+ * per frame; 1 << 31 once run.  The kernel is used only if every frame's
+ * C and kernel agree with the golden.  fail: tests only (the kernel's
+ * first halfword taken as off by fail) */
+uint32_t viz_vpu_check(int fail)
+{
+    int16_t pbuf[512 + 16], *pcm = ALIGN32(pbuf);
+    uint16_t rbuf[JVIZ_RAW_HW + 16], *raw = ALIGN32(rbuf), ref[JVIZ_RAW_HW];
+    uint32_t s, k, r = J_VFFT_RAN;
+
+    for (s = 0; s < JVIZ_CHECK_FRAMES; s++)
+    {
+        jviz_check_frame(pcm, s);
+        jviz_raw_sep512(ref, pcm);
+        if (fnv16(ref, JVIZ_RAW_HW) == jviz_check_gold[s])
+            r |= J_VFFT_C_OK(s);
+#ifdef JVIZ_NO_VFFT
+        continue;                   /* the C alone: no kernel bits */
 #endif
-            if (s == 2)
-                for (i = 0; i < JVIZ_N_MAX; i++)
-                    t[i] = -32768;
-            worst.rows = n / 32;
-            if (!agrees(pcm, n, s == 2 ? &worst : jviz_tabs(n), fail))
-                return 0;
-        }
-    return 1;
+        jv_vfft512(raw, pcm, &jviz_vfft_tabs);
+        raw[0] += fail;
+        for (k = 0; k < JVIZ_RAW_HW && raw[k] == ref[k]; k++)
+            ;
+        if (k == JVIZ_RAW_HW)
+            r |= J_VFFT_K_OK(s);
+    }
+    return r;
 }
 
 /* ---- BARS on the vector unit (jv_bars16, gen_viz.py) ------------------ *

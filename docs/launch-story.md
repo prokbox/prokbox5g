@@ -19,7 +19,7 @@
 | **0.9** *(proposed; owner to confirm)* | The finish-line features arrive for testing: Album Flow, sleep and hibernation, the games SDK (class B and C) | User guide v0.9; SDK guide draft |
 | **1.0** | Every finish-line item below done and verified on hardware, after the pre-release feedback | Full user and technical docs, public hardware references |
 
-Every release ships release builds only (developer mode compiled out). Developer builds are not published; anyone can build one from the source (owner, 2026-10-26). The UI moving to the second core (19-9) lands **before 0.8.0** (owner, 2026-10-26).
+Every release ships release builds only (developer mode compiled out). Developer builds are not published; anyone can build one from the source (owner, 2026-10-26). The UI moving to the second core (19-9) lands **before 0.8.0** (owner, 2026-10-26). **Superseded (owner, 2026-11-05/06):** 19-9 is retired and its split is compiled out of the release; the target is Apple's core layout as a hybrid (the COP computes; the CPU keeps I2S, DMA and the FIQ), built in developer builds only, so 0.8.0 keeps the codec on the CPU (`docs/design/core-layout-decision.md`).
 
 ## 3. The finish line (what qualifies 1.0)
 

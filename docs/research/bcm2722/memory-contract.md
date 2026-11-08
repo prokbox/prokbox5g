@@ -168,6 +168,13 @@ All of these are reserved from the audio buffer today (`memory-audit-2026-10-20.
 
 **The catch:** any change to the image changes its FNV, so the default path refuses it until it's listed again. An image that never ran on a device can't become the default.
 
+**The clock150 token rule, and the one exception (owner, 2026-11-08).** A `clock150` line in `verified.txt` (compiled into `apps/video/bcmvideo_clock.h` by `mkvideo.py`) is what lets a release play video with the VC at 150 MHz (`vplayer.c` `gate_now()`, `vclock_gate.h`). Without it every video plays at 27 MHz. The rule is that a token names an image that passed stage 4c and stage 6 at 150 MHz on a real unit.
+- **0.8.0-rc.4 to rc.6 shipped the merged image `b9bcbe57` with no token**: every video played at 27 MHz, choppy and out of sync, with restarts. In the owner's log: "video clock: no clock150 token for this image", "play top 27 MHz".
+- **The exception:** for 0.8.0-rc.7 the owner decided to **trust** `b9bcbe57` at 150 MHz without its own run, on the evidence of `80bc8611`, `2c6dc03a` and `23693ff4`, which each passed 4c and 6 at 150 MHz. `b9bcbe57` carries image changes made since `23693ff4` that have not run at 150 MHz on silicon. Its `verified.txt` line says it's a trust decision, not a run.
+- **What still guards each unit:** the release's first-use check (`check_fast_clock()` → `vcheck_run()` over `vclock_ladder`, a per-unit token for the highest band that passes, and `be_unit_bad()`'s live step-down during play) is in every release build, not behind `HAVE_BCMFW_DEVTEST`.
+- **What closes it:** b10's first rows run stage 4c and stage 6 on `b9bcbe57` (`out/briefs/b10-sitting-plan.md`). A pass replaces the line with a silicon one; a fail removes the token, and video goes back to 27 MHz until fixed.
+- **The gate (from rc.7):** `validate.sh`'s fw-ship step fails a release whose merged image has no clock150 token (`tests/video/test_vclock.c release`).
+
 ### Release and developer BCM builds (branch `p19-bcm-release`, 2026-10-25) [ours]
 
 **Two shapes of the same boot path.** `--bcmfw` no longer needs `--bcmfw-devtest`:

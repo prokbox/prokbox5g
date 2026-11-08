@@ -656,6 +656,25 @@ def gen(out):
             boot_ok % 10, '323706 auto: respanel pass answer=Sharp, steady ms=0 ']) + '\n')
         write(d, 'ipodui.log', ui_log(ul))
 
+    # 18. sitting 4e's soaks: the long play's minutes, the fourth standing
+    # still (day 4c's stall) until the watchdog's restart; the
+    # visualiser's views, the second with a CPU fallback
+    d = os.path.join(out, 'soaks_4e')
+    write(d, 'bcmtest.log', '\n'.join([
+        boot_ok % 10, '400001 auto: vlong fail answer=Still picture ms=0 ',
+        '400002 vlong: FAIL: pictures fell behind the audio']) + '\n')
+    prog = []
+    pics = [1440, 2880, 4320, 4380, 5820]
+    for k, n in enumerate(pics):
+        prog.append(('video', 'prog minute pics=%d audio_ms=%d' % (n, 60000 * (k + 2))))
+    prog += [('be', 'video: still: posts, data waits (0, 3)'),
+             ('video', 'prog end pics=7260 audio_ms=420000'),
+             ('video', 'prog end still=1 behind=1 data=1 ref=0'),
+             ('viz', 'soak s=120 bcm=3600 cpu=0 hold=1/400ms fb=0'),
+             ('viz', 'CPU FALLBACK why=wait n=256 fps=20'),
+             ('viz', 'soak s=60 bcm=900 cpu=600 hold=2/2100ms fb=1')]
+    write(d, 'ipodui.log', ui_log(prog))
+
 
 if __name__ == '__main__':
     if len(sys.argv) != 2:

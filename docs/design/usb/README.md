@@ -17,12 +17,12 @@ The PNGs show the screen **without its text, header title and battery**. The fir
 |---|---|---|
 | Header | 22 px, #33373A → #191D20 (y 15), #101519 (y 20), #071017 (y 21) | MEASUREMENTS.md "USB/charge header" |
 | Body | #5C6670 shadow row (y 22), #7A8893 (y 23), #889AA5 (y 24) → #464F56 (y 239) through 5 stops, 2 × 2 ordered dither | MEASUREMENTS.md "USB/charge background" |
-| Disc | 92 px, centred at (160, 99) (box x 114–205, y 53–144); cream top → #EE622F → bounce light at the bottom; left side one shade lighter (`y + (x − 46) >> 3`) | owner photos 1226 / photo 1165 (≈92 px) and `usb.png` (94 px at (160, 100)); colours from the photos (cast-corrected) |
-| Arrows | ring radius 24.2, stroke 10.4; tail at 215°, head base at 357° (clockwise from 12 o'clock), head ±11.5 px, tip 12.6 px ahead; arrow 2 is turned 180° | owner photo 1165 |
+| Disc | 92 px, centred at (160, 99) (box x 114–205, y 53–144); cream top → #EE622F → bounce light at the bottom; left side one shade lighter (`y + (x − 46) >> 3`) | owner photos `usb-connected-b` / photo `usb-connected` (≈92 px) and `usb.png` (94 px at (160, 100)); colours from the photos (cast-corrected) |
+| Arrows | ring radius 24.2, stroke 10.4; tail at 215°, head base at 357° (clockwise from 12 o'clock), head ±11.5 px, tip 12.6 px ahead; arrow 2 is turned 180° | owner photo `usb-connected` |
 | Glyphs | 30-pin 50 × 41, USB-C 36 × 43, 4-bit alpha, run-length coded (183 B, 203 B) | original drawings |
-| Text (firmware) | "Connected" Bold 15 at baseline 187, "Eject before disconnecting." Regular 12 at baseline 205, white | owner photo 1226 (186.5 / 205) |
+| Text (firmware) | "Connected" Bold 15 at baseline 187, "Eject it from your computer before you unplug it." (our words; the 7G says "Eject before disconnecting.") Regular 12 at baseline 205, white | owner photo `usb-connected-b` (186.5 / 205) |
 | Header (firmware) | clock (Time in Title) or "iPod" centred, Bold 12, baseline 15; battery 22 × 11 at x 290, y 5, nub to x 313, bolt while charging, plug when full on power | usb.png, owner photos |
 
-**Disc size (Phase 8a, coordinator 2026-10-09).** The frozen default U1 (80 px at (160, 108)) was overturned: both the owner photos (photo 1226: 289 photo px at 3.16 px per screen px; photo 1165: 385 px at 4.17) and `usb.png` give about 92–94 px near (160, 99–100). The frame band is y 53–144 (92 rows), and the strip holds 8 × 16,928 + 3 × 8,464 = 160,816 B of its 180,000 B. `art/usb/usbscreen.py --review D CY --png DIR` still renders mock-ups at other sizes.
+**Disc size (Phase 8a, coordinator 2026-10-09).** The frozen default U1 (80 px at (160, 108)) was overturned: both the owner photos (photo `usb-connected-b`: 289 photo px at 3.16 px per screen px; photo `usb-connected`: 385 px at 4.17) and `usb.png` give about 92–94 px near (160, 99–100). The frame band is y 53–144 (92 rows), and the strip holds 8 × 16,928 + 3 × 8,464 = 160,816 B of its 180,000 B. `art/usb/usbscreen.py --review D CY --png DIR` still renders mock-ups at other sizes.
 
 Parked for polish #52: the photo's 30-pin glyph is wider and thinner, its arrows are thinner with larger gaps, and its text is about 1 px taller.

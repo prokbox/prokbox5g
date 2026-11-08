@@ -291,13 +291,21 @@ void ce_start(struct ce *e, const struct cs_pos *p, int max_depth,
     iteration(e);
 }
 
-int ce_run(struct ce *e, uint32_t nodes)
+int ce_run(struct ce *e, uint32_t steps)
 {
-    while (e->state == CE_RUN && nodes)
+    while (e->state == CE_RUN && steps)
     {
         struct ce_frame *f;
         uint16_t m;
         int v, k, bi;
+
+        /* every pass is a step, whatever it does: a move tried (legal
+         * or not), a frame finished, an iteration begun. Counting only
+         * the legal moves let one call run through a whole frame of
+         * illegal tries and a cascade of finishes: 99 k ARM instructions
+         * for one "node", 300 k for 16 (qemu count, docs/design/
+         * games.md 5.6), past the SDK's slice on the device */
+        steps--;
 
         if (e->ply < 0)
         {
@@ -382,7 +390,6 @@ int ce_run(struct ce *e, uint32_t nodes)
             continue;
         f->legal++;
         e->nodes++;
-        nodes--;
         if (enter(e, e->ply + 1, -f->beta, -f->alpha, f->depth - 1, &v))
         {
             e->ret = (int16_t)v;

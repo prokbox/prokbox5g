@@ -28,8 +28,8 @@
 
 Original drawings, rasterised from simple geometry (polygons, circles,
 stroked paths) with 8x8 supersampling. No reference pixels are used; the
-shapes follow the owner's photos only in kind and size (photo 1203-1210,
-1221, 1222): a diamond scrubber marker, five-point rating stars (large
+shapes follow the owner's photos only in kind and size (the `np-*-b` photos,
+`np-audiobook-noart-chapterticks-b`, `np-audiobook-volume-b`): a diamond scrubber marker, five-point rating stars (large
 glossy for the rating row, small dark for the info block), rating dots,
 two speakers (with and without waves) for the volume bar, the repeat and
 shuffle state glyphs under the header, a larger shuffle glyph for the
@@ -165,9 +165,9 @@ def diamond():
 
 
 def star_big():
-    """the rating row's star (owner, 2026-10-08, photo 1206): a classic fat
+    """the rating row's star (owner, 2026-10-08, photo `np-rating-4stars-b`): a classic fat
     pentagram star (inner radius 0.382 of the outer), 19 px wide, 18 tall
-    (photo 1206: ~19 px, pitch ~21.5), soft antialiased edges,
+    (photo `np-rating-4stars-b`: ~19 px, pitch ~21.5), soft antialiased edges,
     no outline, no facets (the gloss is a per-row colour at run time)"""
     return shape_poly(star_pts(10.0, 10.3, 10.0, 0.382 * 10.0)), 20, 19
 
@@ -236,7 +236,7 @@ def shuffle(scale=1.0, bold=1.0):
 
 def speaker(waves=False):
     """spec now-playing.md "Speaker glyphs: exact direction" (orchestrator,
-    16x comparison of the rectified photo 1222, 2026-10-08), at 1x device
+    16x comparison of the rectified photo `np-audiobook-volume-b`, 2026-10-08), at 1x device
     pixels, built from a 4x supersampled vector (SS_SPEAKER): a 3 w x 5 h
     magnet body, vertically centred; a cone flaring with straight edges
     from the body's 5 px to an 11 px mouth over 4 px; the mouth's top and

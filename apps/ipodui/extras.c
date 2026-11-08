@@ -40,7 +40,7 @@
 #include "ipodui/stopwatch.h"       /* the Stopwatch row's panel (extras_roots.h) */
 #include "ipodui/sdk/sdk_int.h"     /* W4-0: the Games list, the games' tables */
 
-/* Stock order (spec extras.md; photos 1191/1197). Split per the
+/* Stock order (spec extras.md; photos `extras-1`/`extras-menu-b`). Split per the
  * brief: Calendars, Alarms, Stopwatch; the rest full width. */
 const struct extra_ent extras_table[XT__N] = {
     [XT_CLOCKS]     = { LANG_IPODUI_X_CLOCKS, MOD_CLOCKS, MOD_SLOT_FIRST,
@@ -135,6 +135,11 @@ bool extras_available(enum extra_id x)
          * so the row comes back in a build that runs games. */
         int id;
 
+        /* day 4c: the pack's index not read yet this boot (no module
+         * loaded since boot): the row stays, as an Extra not in the
+         * pack yet does; entering Extras reads it, the list waits on it */
+        if (mod_index_state() == 0)
+            return true;
         for (id = 0; id < MOD__N; id++)
         {
             r = mod_rt_get((enum mod_id)id);

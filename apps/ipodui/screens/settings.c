@@ -298,11 +298,22 @@ static const signed char bl_values[] = { -1, 2, 5, 10, 20, 30, 0 };
 
 static int bl_index(void)
 {
-    int i;
+    int i, best = 3;                            /* 10 Seconds, the default */
+    int v = global_settings.backlight_timeout;
+
     for (i = 0; i < BL_COUNT; i++)
-        if (bl_values[i] == global_settings.backlight_timeout)
+        if (bl_values[i] == v)
             return i;
-    return 3;                                   /* 10 Seconds, the default */
+    /* A stored value outside the list (an old 15 s): the nearest timed
+     * entry, so the caption names what the screen really does. */
+    if (v > 0) {
+        int d, bd = 1000;
+        for (i = 1; i < BL_COUNT - 1; i++) {
+            d = bl_values[i] > v ? bl_values[i] - v : v - bl_values[i];
+            if (d < bd) { bd = d; best = i; }
+        }
+    }
+    return best;
 }
 
 static const char *bl_label(int i, char *buf, size_t len)

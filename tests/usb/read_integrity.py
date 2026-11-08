@@ -28,7 +28,7 @@ Use only after a volume is mounted.  Each pass opens the file again, asks
 Darwin not to retain its file-cache pages, then hashes it at a chosen read
 size.  It never writes, mounts, unmounts, or ejects anything.
 
-    tests/usb/read_integrity.py /private/tmp/ipod_mount/path/to/file \
+    tests/usb/read_integrity.py <mount-point>/path/to/file \
         --sha256 <known-source-sha256>
 
 The different read sizes distinguish a media/layout problem from a USB

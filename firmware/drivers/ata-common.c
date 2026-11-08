@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2024 Solomon Peachy
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -43,9 +44,22 @@ int ata_spinup_time(void)
 void ata_get_info(IF_MD(int drive,)struct storage_info *info)
 {
     unsigned short *src,*dest;
+#if !defined(BOOTLOADER) || defined(HAVE_IPOD_BOOTSCREEN)
+    /* ProkBox: the IDENTIFY strings are copied a halfword at a time, so
+     * the buffers are halfword arrays (handed out as char *).  As char
+     * arrays their alignment was 1: when a link put them on an odd
+     * address the strh took a data abort on the PP5022 (sitting 4gh boot
+     * loop, docs/pp5022-reference/quirks.md 79).  Every firmware; the
+     * stock bootloader keeps upstream's (its byte-identity check,
+     * validate.sh; the upstream fix is in docs/upstream-backports.md) */
+    static uint16_t vendor[8 / 2];
+    static uint16_t product[16 / 2];
+    static uint16_t revision[4 / 2];
+#else
     static char vendor[8];
     static char product[16];
     static char revision[4];
+#endif
 #ifdef HAVE_MULTIDRIVE
     (void)drive; /* unused for now */
 #endif
@@ -61,19 +75,19 @@ void ata_get_info(IF_MD(int drive,)struct storage_info *info)
     dest = (unsigned short*)vendor;
     for (i=0;i<4;i++)
         dest[i] = htobe16(src[i]);
-    info->vendor=vendor;
+    info->vendor=(char *)vendor;
 
     src = (unsigned short*)&identify_info[31];
     dest = (unsigned short*)product;
     for (i=0;i<8;i++)
         dest[i] = htobe16(src[i]);
-    info->product=product;
+    info->product=(char *)product;
 
     src = (unsigned short*)&identify_info[23];
     dest = (unsigned short*)revision;
     for (i=0;i<2;i++)
         dest[i] = htobe16(src[i]);
-    info->revision=revision;
+    info->revision=(char *)revision;
 }
 #endif
 

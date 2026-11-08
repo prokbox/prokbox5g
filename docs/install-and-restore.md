@@ -1,6 +1,6 @@
 # Install and restore routes
 
-*Owner direction, 2026-10-09; reviewed for 0.8.0 on 2026-10-26. These notes feed the installer (#43, public release), the user guide (`docs/user/guide/getting-started.md`, `going-back.md`) and the docs site. Nothing here applies to the owner's own unit, which keeps Apple's firmware as its recovery path (CLAUDE.md rule 5). Never test any of this on the owner's unit: use a spare 5G or 5.5G.*
+*Owner direction, 2026-10-09; reviewed for 0.8.0 on 2026-10-26. These notes feed the installer (#43, public release), the user guide (`docs/user/guide/getting-started.md`, `going-back.md`) and the docs site. Nothing here applies to the owner's own unit, which keeps Apple's firmware as its recovery path (CLAUDE.md rule 5). Per the release gate (release.yml), the draft zip is installed on the owner's unit only with the owner's go and a fresh backup; anything else is tried on a spare 5G or 5.5G.*
 
 Every install route must come with a documented, tested way back to stock. The user-facing wording lives in the guide; this file is the engineering record of what each route does and what is still unproven.
 
@@ -9,19 +9,20 @@ Every install route must come with a documented, tested way back to stock. The u
 - **One install type only: side-by-side (Method A).** The release-plan (section 4.1) ships only the Apple-firmware-compatible type for 1.0 and the 0.8.x pre-releases. Method B (ProkBox only) below is planned and **not in 0.8.0**; the guide must not offer it.
 - **Release builds only.** Published zips are release builds with no developer menu (release-plan 1.3a). Nothing in the install or restore text may refer to a developer escape or to a button combination that reaches one.
 - **Eight zips.** The 0.8.0 downloads are the 2 x 2 x 2 matrix of battery (stock or modded), storage (hard drive or flash) and memory (32 MB or 64 MB). The user picks one (guide: getting-started; release notes). The dock connector and haptics are not separate downloads in 0.8.0; see "Build variants" below.
-- **No installer app in 0.8.0 (owner, 2026-10-26).** The user installs by hand: `ipodpatcher -r ProkBox-backup.bin` (save the firmware partition), `ipodpatcher -ab bootloader-ipodvideo.ipod` (add the bootloader), then copy the zip's files to the top level of the drive with hidden files shown. Uninstall is `ipodpatcher -w ProkBox-backup.bin`. The guide (getting-started, going-back) carries these steps. The installer in release-plan section 4.2 is for a later release. ⚠️ The exact `ipodpatcher` options and the zip contents must be confirmed on the spare unit before release.
+- **No installer app in 0.8.0 (owner, 2026-10-26): a zip plus written steps.** The user: saves the firmware partition once (`ipodpatcher -r ProkBox-backup-<date>.bin`, never re-run on an installed unit); copies the zip's files to the top level of the drive with hidden files shown and checks them; then adds the bootloader last with `ipodpatcher -a bootloader-ipodvideo.ipod` (`-a` is for `.ipod`; `-ab` takes a `.bin`). Copying first means an interrupted copy cannot leave a bootloader that cannot find `.rockbox/rockbox.ipod`. ipodpatcher needs root (`sudo` on macOS and Linux) or an Administrator Command Prompt (Windows), and on macOS the disk must be unmounted (`diskutil unmountDisk`) with Music/iTunes closed. It is not in the zips; each release attaches prebuilt copies (`ProkBox5g-<ver>-ipodpatcher-{macos-universal,linux-x86_64,windows-x86_64.exe}`, built by the release workflow from the unmodified `utils/ipodpatcher`, listed in `SHA256SUMS`; #127). They are built without `BOOTOBJS`, so there are no embedded Rockbox bootloaders and `-a` takes our `bootloader-ipodvideo.ipod` as a file argument; building from the source tarball stays as the guide's advanced note. Unsigned and unnotarised on macOS (user clears the quarantine mark); the Windows build is cross-compiled with mingw-w64 and statically linked, and needs a check on a real Windows machine. Uninstall is `ipodpatcher -w <backup>`, or `-d` without a backup. The guide (getting-started, going-back) carries these steps; the installer in release-plan section 4.2 is for a later release. Everything marked [check on device] in the guide is unproven until the spare-unit run.
+- **Mac-format (HFS+) players are not supported.** Autoscan returns `IPOD_WRONG_TYPE` for a macpod before any action runs (`utils/ipodpatcher/main.c`), so `-r`/`-a`/`-d` never run; `-c` is experimental and reachable only with an explicit device argument. The guide says to restore such a player to FAT32 with Apple's tools first (this erases it).
 
 ## Background: what boots what
 - **Flash ROM (never touched by us):** Apple's boot code is in the player's flash ROM. It loads the `osos` image from the disk's firmware partition. **Disk Mode** (reset, then hold SELECT+PLAY) and the hardware diagnostics (reset, then hold SELECT+PREV) are also believed to live in the ROM, so they work whatever is on the disk. ⚠️ **To verify on a spare 5G/5.5G** before any route below depends on it (release-plan E9).
 - **Firmware partition:** a small partition at the start of the disk holding the firmware images (`osos` and friends).
 - **Data partition:** FAT32 for ProkBox, which holds the music and ProkBox's own files. Apple's firmware also runs on FAT32 (the "Windows format"). HFS+ (the "Mac format", APM partition map) works only with Apple's firmware.
 
-## Method A: side-by-side (the 0.8.0 route)
+## Method A: side-by-side (the 0.8.0 route; the numbered flow below is the later installer's, the by-hand steps are above)
 
 **Install**
 1. Back up anything on the player that exists nowhere else (the guide says this first and in a warning box).
-2. The player must be FAT32 / Windows format. A Mac-format player must be erased and reformatted first; say so before starting, and require a typed confirmation.
-3. The installer saves a copy of the firmware partition to the computer (`ProkBox-backup-<serial>-<date>.img`) before it changes anything, then adds the ProkBox bootloader to `osos`, keeping Apple's firmware alongside, and reads it back to check.
+2. The player must be FAT32 / Windows format. A Mac-format player must be erased and reformatted first (in 0.8.0, by the user with Apple's tools; say so before starting).
+3. The installer saves a copy of the firmware partition to the computer (the dated backup file) before it changes anything, then adds the ProkBox bootloader to `osos`, keeping Apple's firmware alongside, and reads it back to check.
 4. Copy the ProkBox files from the zip to the data partition. By hand, the ProkBox folder starts with a dot and is hidden in Finder and Explorer, so the by-hand route must say how to show hidden files; the installer avoids the problem.
 5. Eject and restart. The player boots into ProkBox.
 
@@ -51,7 +52,7 @@ Mac-only at first, for less technical users.
 2. **Switch to side-by-side:** the installer's "Add Apple firmware" adds Apple's firmware to the firmware partition, taken from the user's own copy or from Apple's download. The installer never redistributes Apple's firmware.
 
 ## Platforms
-Installers for **macOS, Windows and Linux** go on the GitHub release (release-plan 4.2). macOS is required for 0.8.0; Windows and Linux before 1.0.
+The by-hand steps cover macOS, Windows and Linux in 0.8.0 (Linux untested). Installers for all three go on the GitHub release later (release-plan 4.2).
 - One shared core does the work: partition, firmware-partition writer, state detection, backup check, with a thin native front end per OS.
 - Raw disk access needs the platform's admin step: an admin password on macOS, UAC on Windows, `pkexec`/sudo or udev rules on Linux. Each is explained before it is asked for.
 - Each platform's restore guide covers that platform's own tools. On a Mac that's Finder. On Windows it's iTunes or Apple Devices. **Linux has no Apple restore tool**, so a Linux user needs the installer's Uninstall (route 2), or a Mac or Windows computer for the full restore (route 3). The guide says so plainly.
@@ -62,11 +63,11 @@ Installers for **macOS, Windows and Linux** go on the GitHub release (release-pl
 - storage: hard drive or flash (buffering, read strategy, spin-up);
 - RAM: 32 or 64 MB (buffer and refill sizes).
 
-Each is a separate release build (`--ipodui-release`) with its own code paths, run through the same gate. Dock connector and haptics are not part of the 0.8.0 matrix: the dock stays in the code, and the installer's questions (or the unit's config file) pick the USB glyph and the haptic tick.
+Each is a separate release build (`--ipodui-release`) with its own code paths, run through the same gate. Dock connector and haptics are not separate downloads in 0.8.0: `modded` means USB-C with no dock plus haptics (and the 3000 mAh battery); `stock` means the dock and no haptics.
 
-*Contradiction to resolve:* release-plan Q9 and section 1.4 still say "one zip, unit facts in an installer-written config; two zips only if #79 misses Nov 2". If the eight-zip matrix is the decision, update those lines. The runtime detection (#79) can still be used to double-check a user's choice and warn on a mismatch.
+The eight-zip matrix is the decision (release-plan 1.4). "Modded" bundles three mods (3000 mAh battery, haptics, USB-C with no dock); mixed units have no exact download, and the guide says so. The runtime detection (#79) can double-check a user's choice.
 
-The installer records the chosen variant on the player, so updates keep the same one. A user who picked wrong re-installs the right zip; the guide says so.
+A later installer would record the chosen variant on the player. In 0.8.0 a user who picked wrong copies the right zip's files over the old ones; the guide says so.
 
 ## Requirements for the installer and docs
 - Every install path shows its restore path **before** it starts, in plain language, and the guide repeats it.
@@ -77,9 +78,9 @@ The installer records the chosen variant on the player, so updates keep the same
 
 ## Open points (found in the 0.8.0 review)
 - [x] 0.8.0 has no installer app: the guide gives the by-hand steps (see above). Confirm them on the spare unit.
-- [ ] Update release-plan Q9 and 1.4 to the eight-zip matrix (see above) and note that the zips are `ProkBox5g-<ver>-{stock,modded}-{flash,hdd}-{32,64}MB.zip`.
-- [ ] Add "what to do if an install fails halfway" to the guide: re-run the installer (it is safe to repeat), then Uninstall using the saved backup. Unproven; test on the spare unit.
-- [ ] Add "I lost the backup file" to the guide: the Uninstall fallback (route 2) and the full restore (route 3).
+- [x] Release-plan 1.4 states the eight-zip matrix `ProkBox5g-<ver>-{stock,modded}-{flash,hdd}-{32,64}MB.zip`.
+- [x] Guide covers a failed install (re-run once; copy-first order; Hold or Menu reaches Apple's firmware). Unproven; test on the spare unit.
+- [x] Guide covers a lost backup: `ipodpatcher -d`, then full restore. Verify `-d` on the spare unit.
 - [ ] Say what happens on a hard-drive unit: Disk Mode and restore behave the same, but the first boot after a long copy may take longer to build the library. Needs the HDD run (later 0.8.x).
 
 ## To verify (spike on a spare 5G/5.5G, before any public release)

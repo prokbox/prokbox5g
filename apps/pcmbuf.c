@@ -8,6 +8,7 @@
  *
  * Copyright (C) 2005 by Miika Pekkarinen
  * Copyright (C) 2011 by Michael Sevakis
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -44,6 +45,7 @@
 #include "ipodui/uilog.h"   /* pcm start/underrun lines (Fit-1 B) */
 #include "codec_place_core.h"   /* P19 19-1c (D) */
 #endif
+#include "xcore.h"              /* rc.6: XCORE_BSS, the state the COP's FIQ shares (empty without HAVE_COP_COHERENCE) */
 
 /* 2 channels * 2 bytes/sample, interleaved */
 #define PCMBUF_SAMPLE_SIZE   (2 * 2)
@@ -116,19 +118,26 @@ struct chunkdesc
 /* General PCM buffer data */
 #define INVALID_BUF_INDEX   ((size_t)0 - (size_t)1)
 
-static void *pcmbuf_buffer;
-static void *pcmbuf_guardbuf;
-static size_t pcmbuf_size;
-static struct chunkdesc *pcmbuf_descriptors;
-static unsigned int pcmbuf_desc_count;
+/* ProkBox rc.6 (layout A): pcmbuf_pcm_callback() runs in the PCM's FIQ on
+   the COP while the CPU writes the buffer.  Every variable the callback
+   reaches is uncached (XCORE_BSS), the chunk descriptors are reached
+   through the uncached alias, and the CPU writes the audio back before a
+   chunk is published (commit_chunks(), pcmbuf_write_complete()); the
+   mixer reads the audio uncached (pcm_mixer.c mix_src()).
+   docs/design/cop-shared-state.md, layout A */
+static void *pcmbuf_buffer XCORE_BSS;
+static void *pcmbuf_guardbuf XCORE_BSS;
+static size_t pcmbuf_size XCORE_BSS;
+static struct chunkdesc *pcmbuf_descriptors XCORE_BSS;
+static unsigned int pcmbuf_desc_count XCORE_BSS;
 static unsigned int position_key = 1;
 
-static size_t chunk_ridx;
-static size_t chunk_widx;
+static size_t chunk_ridx XCORE_BSS;
+static size_t chunk_widx XCORE_BSS;
 
 static size_t pcmbuf_bytes_waiting;
-static struct chunkdesc *current_desc;
-static size_t chunk_transidx;
+static struct chunkdesc *current_desc XCORE_BSS;
+static size_t chunk_transidx XCORE_BSS;
 
 static size_t pcmbuf_watermark = 0;
 
@@ -144,7 +153,7 @@ static enum
     PCM_FADING_IN,
     PCM_FADING_OUT,
 } fade_state = PCM_NOT_FADING;
-static bool fade_out_complete = false;
+static bool fade_out_complete XCORE_BSS;
 #ifdef HAVE_IPOD_UI
 /* P15: equal-dB fade; the state is the index into fade_amp[] */
 #include "ipodui/fadecurve.h"
@@ -221,7 +230,17 @@ static int codec_thread_priority = PRIORITY_PLAYBACK;
 #if defined(HAVE_BCMFW_VIDEO) || defined(HAVE_IPOD_UI)
 /* The PCM ran dry while playing (the video's stage 7 counts them; the
    shell logs them, Fit-1 B) */
-static unsigned long pcm_underruns;
+static unsigned long pcm_underruns XCORE_BSS;
+/* A planned drain is no underrun: when playback stops buffering because
+   the next track needs another output rate (HAVE_PLAY_FREQ "auto",
+   playback.c audio_finish_load_track()), the playing track runs out to an
+   empty buffer by design, then the rate switches and the buffer refills.
+   pcmbuf_rate_gap_expected() arms it on the CPU; the callback (the FIQ,
+   on the COP in layout A) counts that end of track as a rate gap and
+   disarms it; a stop or a flush disarms it (the soak, 2026-11-08: its
+   two "underruns" were these) */
+static volatile bool rate_gap_armed XCORE_BSS;
+static unsigned long pcm_rate_gaps XCORE_BSS;
 #endif
 
 #ifdef HAVE_IPOD_UI
@@ -229,6 +248,7 @@ static unsigned long pcm_underruns;
    underrun while playing, in ipodui.log ("pcm start", "pcm underrun") */
 static unsigned long prefill_us;        /* a prefill began; 0: none */
 static unsigned long underruns_seen;    /* pcm_underruns already logged */
+static unsigned long rate_gaps_seen;    /* pcm_rate_gaps already logged */
 static long underrun_log_tick;          /* next tick a line may go out */
 
 static unsigned long pcm_log_now_us(void)
@@ -245,8 +265,30 @@ static unsigned long pcm_log_now_us(void)
 extern void audio_pcmbuf_position_callback(unsigned long elapsed,
                                            off_t offset, unsigned int key);
 extern void audio_pcmbuf_track_change(bool pcmbuf);
+#ifdef HAVE_CORE_LAYOUT_A
+extern void audio_pcmbuf_track_change_fiq(void);
+#endif
 extern bool audio_pcmbuf_may_play(void);
 extern void audio_pcmbuf_sync_position(void);
+
+#ifdef HAVE_CORE_LAYOUT_A
+/* rc.6: the FIQ (on the COP) no longer writes the playing id3 or calls
+   the dock code: it posts the position to an uncached mailbox and the
+   CPU's tick applies it (pcm_xcore.h) */
+#include "pcm_xcore.h"
+static struct pcm_pos_mbox pos_mbox XCORE_BSS;
+static unsigned int pos_seen;           /* the CPU's tick only */
+
+static void pos_mbox_tick(void)
+{
+    unsigned long elapsed;
+    off_t offset;
+    unsigned int key;
+
+    if (pcm_pos_take(&pos_mbox, &pos_seen, &elapsed, &offset, &key))
+        audio_pcmbuf_position_callback(elapsed, offset, key);
+}
+#endif
 
 
 /**************************************/
@@ -384,6 +426,13 @@ static void commit_chunks(size_t threshold)
     if (end_index > pcmbuf_size)
         memcpy(pcmbuf_buffer, pcmbuf_guardbuf, end_index - pcmbuf_size);
 
+#ifdef HAVE_CORE_LAYOUT_A
+    /* rc.6: the COP's mix reads the audio from SDRAM: the CPU's writes
+       (the codec's PCM, the wrap copy, any crossfade mix) go back before
+       chunk_widx publishes them */
+    commit_dcache();
+#endif
+
     struct chunkdesc *desc = index_chunkdesc(index);
 
     do
@@ -494,9 +543,25 @@ static void commit_write_buffer(size_t size)
 }
 
 /* Request space in the buffer for writing output samples */
+#if defined(SIMULATOR) && defined(HAVE_IPOD_UI)
+/* sim command pcm_starve <ms> (sim_cmd_np.c): the decoder gets no buffer
+   until this tick, so the playing PCM runs dry mid-track: a real
+   underrun, to prove one still counts as one */
+long sim_pcmbuf_starve_until;
+#endif
+
 void * pcmbuf_request_buffer(int *count)
 {
     size_t size = *count * PCMBUF_SAMPLE_SIZE;
+
+#if defined(SIMULATOR) && defined(HAVE_IPOD_UI)
+    if (sim_pcmbuf_starve_until)
+    {
+        if (TIME_BEFORE(current_tick, sim_pcmbuf_starve_until))
+            return NULL;
+        sim_pcmbuf_starve_until = 0;
+    }
+#endif
 
 #ifdef HAVE_CROSSFADE
     /* We're going to crossfade to a new track, which is now on its way */
@@ -596,6 +661,13 @@ void * pcmbuf_request_buffer(int *count)
                        (unsigned long)(pcmbuf_unplayed_bytes() * 1000
                                        / BYTERATE));
                 prefill_us = 0;
+                if (pcm_rate_gaps != rate_gaps_seen)
+                {
+                    /* the planned drain before this start: a rate switch */
+                    rate_gaps_seen = pcm_rate_gaps;
+                    ui_log("pcm", "rate gap n=%lu sampr=%lu", rate_gaps_seen,
+                           (unsigned long)mixer_get_frequency());
+                }
             }
 #endif
         }
@@ -632,6 +704,11 @@ void pcmbuf_write_complete(int count, unsigned long elapsed, off_t offset)
     if (crossfade_status != CROSSFADE_INACTIVE)
     {
         write_to_crossfade(size, elapsed, offset);
+#ifdef HAVE_CORE_LAYOUT_A
+        /* rc.6: a crossfade mixes into chunks already published to the
+           COP's mix: back to SDRAM now */
+        commit_dcache();
+#endif
     }
     else
 #endif
@@ -689,14 +766,32 @@ size_t pcmbuf_size_reqd(void)
 size_t pcmbuf_init(void *bufend)
 {
     void *bufstart;
+    void *const bufend_in = bufend;     /* the caller counts from here */
 
     /* Set up the buffers */
     pcmbuf_desc_count = get_next_required_pcmbuf_chunks();
     pcmbuf_size = pcmbuf_desc_count * PCMBUF_CHUNK_SIZE;
+#ifdef HAVE_CORE_LAYOUT_A
+    /* rc.6: the descriptors are shared with the COP's FIQ, uncached on both
+       cores, on whole cache lines of their own, so no cached neighbour's
+       line can carry a stale copy of one back over it (quirk 90); the
+       CPU's cache is written back and dropped once first */
+    bufend = ALIGN_DOWN(bufend, (uintptr_t)CACHEALIGN_SIZE);
+    pcmbuf_descriptors = ALIGN_DOWN((struct chunkdesc *)bufend -
+                                    pcmbuf_desc_count,
+                                    (uintptr_t)CACHEALIGN_SIZE);
+    commit_discard_dcache();
+    pcmbuf_descriptors = UNCACHED_ADDR(pcmbuf_descriptors);
+#else
     pcmbuf_descriptors = (struct chunkdesc *)bufend - pcmbuf_desc_count;
+#endif
 
     pcmbuf_buffer = (void *)pcmbuf_descriptors -
                     pcmbuf_size - PCMBUF_GUARD_SIZE;
+#ifdef HAVE_CORE_LAYOUT_A
+    /* the audio itself stays the CPU's cached memory: back to that alias */
+    pcmbuf_buffer = (void *)((uintptr_t)pcmbuf_buffer & ~(uintptr_t)UNCACHED_BASE_ADDR);
+#endif
 
     /* Mem-align buffer chunks for more efficient handling in lower layers */
     pcmbuf_buffer = ALIGN_DOWN(pcmbuf_buffer, (uintptr_t)MEM_ALIGN_SIZE);
@@ -714,7 +809,21 @@ size_t pcmbuf_init(void *bufend)
 
     pcmbuf_soft_mode(false);
 
-    return bufend - bufstart;
+#ifdef HAVE_CORE_LAYOUT_A
+    {
+        static bool pos_tick_on;
+
+        if (!pos_tick_on)
+        {
+            pos_tick_on = true;
+            tick_add_task(pos_mbox_tick);
+        }
+    }
+#endif
+
+    /* rc.6: measured from the caller's end, not the line-aligned one, so
+       the buffer below never reaches into ours */
+    return bufend_in - bufstart;
 }
 
 
@@ -889,10 +998,20 @@ void pcmbuf_start_track_change(enum pcm_track_change_type type)
 /** Playback */
 
 /* PCM driver callback */
-#ifdef HAVE_BCMFW_VIDEO
+#if defined(HAVE_BCMFW_VIDEO) || defined(HAVE_IPOD_UI)
 unsigned long pcmbuf_underruns(void)
 {
     return pcm_underruns;
+}
+
+unsigned long pcmbuf_rate_gaps(void)
+{
+    return pcm_rate_gaps;
+}
+
+void pcmbuf_rate_gap_expected(bool on)
+{
+    rate_gap_armed = on;
 }
 #endif
 #ifdef HAVE_IPOD_UI
@@ -921,16 +1040,23 @@ static void pcmbuf_pcm_callback(const void **start, size_t *size)
     /*- Process the chunk that just finished -*/
     size_t index = chunk_ridx;
     struct chunkdesc *desc = current_desc;
+    bool ended_track = false;   /* the chunk just played ended a track */
 
     if (desc)
     {
         bool track_change = index == chunk_transidx;
 
+        ended_track = track_change;
+
         /* If last chunk in the track, notify of track change */
         if (track_change)
         {
             chunk_transidx = INVALID_BUF_INDEX;
+#ifdef HAVE_CORE_LAYOUT_A
+            audio_pcmbuf_track_change_fiq();
+#else
             audio_pcmbuf_track_change(true);
+#endif
         }
 
         /* Free it for reuse */
@@ -955,13 +1081,28 @@ static void pcmbuf_pcm_callback(const void **start, size_t *size)
         if (desc->pos_key != 0)
         {
             /* Positioning chunk - notify playback */
+#ifdef HAVE_CORE_LAYOUT_A
+            pcm_pos_post(&pos_mbox, desc->elapsed, desc->offset,
+                         desc->pos_key);
+#else
             audio_pcmbuf_position_callback(desc->elapsed, desc->offset,
                                            desc->pos_key);
+#endif
         }
     }
 #if defined(HAVE_BCMFW_VIDEO) || defined(HAVE_IPOD_UI)
     else if (desc && !fade_out_complete)
-        pcm_underruns++;
+    {
+        if (ended_track && rate_gap_armed)
+        {
+            rate_gap_armed = false;     /* the planned drain, once */
+            pcm_rate_gaps++;
+        }
+        else
+            pcm_underruns++;
+    }
+#else
+    (void)ended_track;
 #endif
 }
 
@@ -995,6 +1136,9 @@ void pcmbuf_play_stop(void)
 
     /* Reset channel */
     mixer_channel_stop(PCM_MIXER_CHAN_PLAYBACK);
+#if defined(HAVE_BCMFW_VIDEO) || defined(HAVE_IPOD_UI)
+    rate_gap_armed = false;     /* a flush is no planned drain */
+#endif
 
     /* Reset buffer */
     init_buffer_state();
@@ -1351,6 +1495,9 @@ static void crossfade_start(void)
         /* Zero-out the rest of the buffer */
         crossfade_mix_fade(&outfader, pcmbuf_size, NULL, &index, 0,
                            MIXFADE_NULLIFY_POS);
+#ifdef HAVE_CORE_LAYOUT_A
+        commit_dcache();    /* rc.6: the fade-out rewrote queued chunks */
+#endif
 
         pcm_play_lock();
     }

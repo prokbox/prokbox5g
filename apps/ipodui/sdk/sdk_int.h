@@ -71,6 +71,10 @@ uint16_t sdk_game_plays(int mod);
 void sdk_sim_badmode(int mode);
 /* `sdk_clear`: every game's .state and the games file go */
 void sdk_sim_clear(void);
+/* `sdk_devclock on|off`: the device clock model (sdk.c): games' code
+ * timed by its basic blocks, as on the 30 MHz device */
+void sdk_sim_devclock(bool on);
+bool sdk_sim_devclock_on(void);
 #endif
 
 #endif /* IPODUI_SDK_INT_H */

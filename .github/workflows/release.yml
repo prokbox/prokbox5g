@@ -6,6 +6,8 @@
 #   ProkBox5g-<ver>-{stock,modded}-{flash,hdd}-{64,32}MB.zip   firmware (8 zips)
 #   ProkBox5g-<ver>-source.tar.gz                        corresponding source
 #   ProkBox5g-<ver>-User-Guide.pdf                       the user guide
+#   ProkBox5g-<ver>-ipodpatcher-{macos-universal,linux-x86_64,windows-x86_64.exe}
+#                                                        the install tool (utils/ipodpatcher, GPL)
 #   SHA256SUMS
 # The draft is NOT published by CI. Owner's release gate (2026-10-26): the
 # draft's zip is checksum-compared with a local build of the same commit,
@@ -52,17 +54,21 @@ jobs:
     outputs:
       tag: ${{ steps.v.outputs.tag }}
       ver: ${{ steps.v.outputs.ver }}
+      base: ${{ steps.v.outputs.base }}
       prerelease: ${{ steps.v.outputs.prerelease }}
     steps:
       - id: v
         run: |
           tag="${{ github.event.inputs.tag || github.ref_name }}"
-          echo "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta)(\.[0-9]+)?)?$' \
-            || { echo "::error::tag $tag is not vX.Y.Z, vX.Y.Z-alpha[.N] or vX.Y.Z-beta.N"; exit 1; }
+          echo "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)(\.[0-9]+)?)?$' \
+            || { echo "::error::tag $tag is not vX.Y.Z, vX.Y.Z-alpha[.N], vX.Y.Z-beta.N or vX.Y.Z-rc.N"; exit 1; }
           ver="${tag#v}"
+          # release notes come from the base version's page: an RC (vX.Y.Z-rc.N,
+          # staged and smoke-tested before the cut) uses docs/user/releases/X.Y.Z.md
+          base="${ver%%-rc*}"
           pre=false
-          case "$ver" in 0.*|*-alpha*|*-beta*) pre=true ;; esac
-          { echo "tag=$tag"; echo "ver=$ver"; echo "prerelease=$pre"; } >> "$GITHUB_OUTPUT"
+          case "$ver" in 0.*|*-alpha*|*-beta*|*-rc*) pre=true ;; esac
+          { echo "tag=$tag"; echo "ver=$ver"; echo "base=$base"; echo "prerelease=$pre"; } >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
         with:
           ref: ${{ steps.v.outputs.tag }}
@@ -126,8 +132,53 @@ jobs:
           path: out/*.pdf
           if-no-files-found: error
 
+  ipodpatcher:
+    # The install tool (utils/ipodpatcher, Rockbox's GPL code, unmodified) as
+    # prebuilt assets, so users need not compile it. Small C tool, no toolchain
+    # build. Built WITHOUT embedded bootloaders (no BOOTOBJS): it patches in
+    # whatever file is given to -a, so it pairs with the zip's
+    # bootloader-ipodvideo.ipod. Runner images are pinned by version; the
+    # mingw package comes from the pinned runner's apt index.
+    needs: check
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          # ARCHFLAGS reaches make through the step's environment, never through
+          # eval: eval strips the quotes and re-splits the words, so "-arch arm64
+          # -arch x86_64" became separate words (make's "invalid option -- a" on
+          # the rc.7 staging run, "arm64: command not found" on the first 0.8.0 run)
+          - { os: macos-15,     name: macos-universal,   bin: ipodpatcher,     archflags: "-arch arm64 -arch x86_64", make: "" }
+          - { os: ubuntu-24.04, name: linux-x86_64,      bin: ipodpatcher,     make: "LDFLAGS=-static" }
+          - { os: ubuntu-24.04, name: windows-x86_64.exe, bin: ipodpatcher.exe, make: "CROSS=x86_64-w64-mingw32- WINDRES=windres LDFLAGS=-static ipodpatcher.exe" }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check.outputs.tag }}
+      - name: mingw-w64 (Windows build only)
+        if: ${{ endsWith(matrix.name, '.exe') }}
+        run: sudo apt-get update -q && sudo apt-get install -y -q gcc-mingw-w64-x86-64
+      - name: build
+        env:
+          ARCHFLAGS: ${{ matrix.archflags }}
+        run: |
+          make -C utils/ipodpatcher ${{ matrix.make }}
+          mkdir -p out
+          cp "utils/ipodpatcher/${{ matrix.bin }}" "out/ProkBox5g-${{ needs.check.outputs.ver }}-ipodpatcher-${{ matrix.name }}"
+          file "out/ProkBox5g-${{ needs.check.outputs.ver }}-ipodpatcher-${{ matrix.name }}"
+      - name: smoke (host-runnable builds; no device access)
+        if: ${{ !endsWith(matrix.name, '.exe') }}
+        run: |
+          "out/ProkBox5g-${{ needs.check.outputs.ver }}-ipodpatcher-${{ matrix.name }}" --help 2>&1 | grep -q -- '--add-bootloader '
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ipodpatcher-${{ matrix.name }}
+          path: out/*
+          if-no-files-found: error
+
   publish:
-    needs: [check, firmware, guide]
+    needs: [check, firmware, guide, ipodpatcher]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -143,7 +194,8 @@ jobs:
           ver="${{ needs.check.outputs.ver }}"
           git archive --format=tar.gz --prefix="ProkBox5g-$ver/" \
             -o "out/ProkBox5g-$ver-source.tar.gz" "${{ needs.check.outputs.tag }}"
-          cd out && sha256sum *.zip *.pdf *.tar.gz > SHA256SUMS && cat SHA256SUMS
+          chmod +x out/ProkBox5g-*-ipodpatcher-* # artifact transfer drops the mode
+          cd out && sha256sum *.zip *.pdf *.tar.gz ProkBox5g-*-ipodpatcher-* > SHA256SUMS && cat SHA256SUMS
       - name: draft release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -152,7 +204,7 @@ jobs:
           ver="${{ needs.check.outputs.ver }}"
           pre=""; [ "${{ needs.check.outputs.prerelease }}" = true ] && pre="--prerelease"
           notes=release-notes.md
-          src="docs/user/releases/$ver.md"
+          src="docs/user/releases/${{ needs.check.outputs.base }}.md"
           if [ -f "$src" ]; then
             # the release notes page of the site, without its front matter
             awk 'NR==1 && /^---$/ {fm=1; next} fm && /^---$/ {fm=0; next} !fm' "$src" \

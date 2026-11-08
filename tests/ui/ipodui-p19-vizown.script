@@ -26,7 +26,7 @@
 # needs: video
 # golden: skip
 # np: viz-full
-# logbetween: start v0 bcmjob overlay load k=0 bytes=19380
+# logbetween: start v0 bcmjob overlay load k=0 bytes={BCMVIDEO_VIZOVL_BYTES}
 # logbetween: start v0 art bcm viz view open=1
 # logbetween: v0 v1 art build wait viz
 # logbetween: v0 v1 art bcm viz defer what=
@@ -38,7 +38,7 @@
 # logbetween: v0 v1 no art build album key=
 # logbetween: v1 v2 art bcm viz view open=0
 # logbetween: v1 v2 art chip work paused: visualizer open \(\d+ deferred\)
-# logbetween: v1 v2 bcmjob overlay load k=1 bytes=23884
+# logbetween: v1 v2 bcmjob overlay load k=1 bytes={BCMVIDEO_DECOVL_BYTES}
 # logbetween: v1 v2 art bcm box key=[0-9a-f]+ w=\d+ h=\d+ reads=1
 # logbetween: v1 v2 art build album key=
 # logrange: 0 20000 art bcm overlay pass k=\d off=\d+ us=(\d+)

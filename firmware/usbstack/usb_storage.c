@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2007 by Björn Stenberg
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -2018,6 +2019,16 @@ static void handle_scsi_ready(struct command_block_wrapper* cbw)
 #if defined(HAVE_MULTIDRIVE)
     if(skip_first) lun++;
 #endif
+
+    /* bCBWLUN comes from the host and indexes ejected[] and xlate[]: a
+     * LUN we don't have is a CBW that isn't meaningful (BOT 6.2.2), so
+     * halt both pipes like an invalid one and let Reset Recovery follow */
+    if(!ubot_lun_ok(lun, storage_num_drives())) {
+        logf("ums: bad cbw lun (%d)", lun);
+        usb_drv_stall(EP_IN, true,true);
+        usb_drv_stall(EP_OUT, true,false);
+        return;
+    }
 
     storage_get_info(lun,&info);
 #ifdef USB_USE_RAMDISK

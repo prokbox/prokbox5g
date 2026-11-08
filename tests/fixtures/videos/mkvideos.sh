@@ -83,7 +83,13 @@ case "$OUT/" in
 esac
 
 hash_tool() { command -v sha256sum >/dev/null 2>&1 && sha256sum || shasum -a 256; }
-KEY=$( { echo "v$VERSION"; cat "$0" "$SRC"; } | hash_tool | awk '{print $1}')
+# The posters are committed (tests/fixtures/sim-art, exported once by its
+# export.sh): an mjpeg encode differs between ffmpeg builds, and the main
+# menu's poster panel showed it in 4 goldens on Linux. Their SHA256SUMS is
+# in the key, so new art rebuilds the tree.
+ARTDIR=$ROOT/tests/fixtures/sim-art
+[ -f "$ARTDIR/SHA256SUMS" ] || { echo "mkvideos: $ARTDIR/SHA256SUMS missing; regenerate with tests/fixtures/sim-art/export.sh and commit it" >&2; exit 1; }
+KEY=$( { echo "v$VERSION"; cat "$0" "$SRC" "$ARTDIR/SHA256SUMS"; } | hash_tool | awk '{print $1}')
 TREE=$OUT/tree
 STAMP=$OUT/.stamp
 
@@ -112,16 +118,15 @@ FF="ffmpeg -nostdin -v error -y"
 EXACT="-fflags +bitexact -flags:v +bitexact -flags:a +bitexact -map_metadata -1"
 IMG_EXACT="-fflags +bitexact -flags:v +bitexact -sws_flags bicubic+bitexact+accurate_rnd+full_chroma_int"
 
-# Posters: 200x300 baseline JFIF JPEGs (<= 480x720), gradients with rings,
-# a different pair of colours each; all drawn with lavfi.
-poster() { # <out.jpg> <c0> <c1> <seed>
-    $FF -f lavfi -i "gradients=s=200x300:c0=$2:c1=$3:x0=0:y0=0:x1=200:y1=300:d=1:seed=$4" \
-        -vf "geq=r='r(X,Y)*(1-0.35*lt(mod(hypot(X-100,Y-150),40),12))':g='g(X,Y)*(1-0.35*lt(mod(hypot(X-100,Y-150),40),12))':b='b(X,Y)*(1-0.35*lt(mod(hypot(X-100,Y-150),40),12))',format=yuvj420p" \
-        -frames:v 1 -q:v 3 $IMG_EXACT -c:v mjpeg -f image2 "$1"
-}
-poster "$WORK/p_film.jpg"  0x264653 0xe9c46a 11
-poster "$WORK/p_late.jpg"  0x6a040f 0xffba08 12
-poster "$WORK/p_showa.jpg" 0x03045e 0x90e0ef 13
+# Posters: the committed ones (200x300 baseline JFIF, drawn by export.sh),
+# each checked against SHA256SUMS and copied byte for byte.
+for p in p_film.jpg p_late.jpg p_showa.jpg; do
+    want=$(awk -v n="$p" '$2 == n || $2 == "*" n {print $1}' "$ARTDIR/SHA256SUMS")
+    have=$(hash_tool <"$ARTDIR/$p" 2>/dev/null | awk '{print $1}')
+    [ -n "$want" ] && [ "$want" = "$have" ] \
+        || { echo "mkvideos: poster $p missing or not as in SHA256SUMS; regenerate with tests/fixtures/sim-art/export.sh" >&2; exit 1; }
+    cp "$ARTDIR/$p" "$WORK/$p"
+done
 
 # Chapters, ffmetadata (ms timebase): chapfile <out> <start:end:title>...
 chapfile() {
@@ -153,7 +158,11 @@ mk "$TREE/Movies/Late Chapter.m4v" -i "$SRC" -i "$WORK/ch_late.txt" \
     -map 0:v -map 0:a -map_chapters 1 -c copy \
     -metadata title="Late Chapter" -metadata media_type=9
 cp "$WORK/p_late.jpg" "$TREE/Movies/Late Chapter.jpg"
-# High profile with B-frames (the device cannot decode it: audio fallback)
+# High profile with B-frames (the device cannot decode it: audio fallback).
+# The one real encode here, so its bytes follow the host's libx264; no golden
+# or check depends on them, only on "High profile, B-frames" (p14a-fallback's
+# probe answer). Checked 2026-11-06: the p14a goldens match on the Mac and on
+# Linux (x264 from RPM Fusion) once the posters are committed.
 mk "$TREE/Movies/High Profile.m4v" -i "$SRC" -t 5 \
     -c:v libx264 -profile:v high -preset medium -threads 1 \
     -x264-params ref=3:bframes=2:threads=1:sliced-threads=0 -pix_fmt yuv420p -b:v 600k -g 48 \

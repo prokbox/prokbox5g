@@ -35,6 +35,16 @@
 #define HELLO_US        20000           /* HELLO's reply (a round trip is µs) */
 #define BEAT_US         3000            /* the heartbeat moves every 1.024 ms */
 #define OPLOG           64              /* ops by job number, for a timeout */
+/* Sitting 4e (session log ipodui.log.1, lines 122-167): after a USB
+ * session the heartbeat and the LCD contract ran on, but J_DONE stopped
+ * with jobs queued, and every wait timed out until the drift left the
+ * chip.  A J_DONE that has not moved for STALL_MS with jobs queued and no
+ * DECODE holding the loop (a DECODE may hold it 2 x J_DEC_STALL_MS) is a
+ * wedged executor: our image is started again (a new power-up; discovery
+ * and on_epoch re-make every resource), not counted as a failure, at most
+ * STALL_RESTARTS a boot (then a counted failure, loud) */
+#define STALL_MS        4000u
+#define STALL_RESTARTS  3
 #define HOUR_MS         3600000u
 #define BOXES           3               /* replies awaited at once: the
                                            owner's call, a decode's and an
@@ -182,6 +192,11 @@ static struct
     uint32_t fpend[2 * J_DEC_MAX], nfpend, fpend_epoch;
     bool (*frame_due)(void);    /* the owner's budget (bjc_frame_due) */
     bool in_pass;               /* own_pass() is running (no re-entry) */
+    /* the wedged executor (STALL_MS): J_DONE as first seen frozen, when
+       (ms; 0: not watching), the restarts it caused this boot */
+    uint32_t stall_done, stall_t0, stall_restarts;
+    uint32_t stall_slow, stall_slow_once;   /* the slow marks then: the
+                                   stall's own timeouts are not slow ops */
 } BJC_OWN_LINES b;
 
 /* The decode caller's own state (the art thread's, on its own lines;
@@ -458,6 +473,10 @@ static bool alive(void)
 
     if (rd1(LCD_CMD_WORD, &c) < 0 || c == LCD_FAULT || rd1(HP_STATE, &a) < 0)
         return false;
+    /* an image idling on the adaptive tick (bcmfw config.h
+     * BCMFW_IDLE_ADAPT) steps the heartbeat only every 10 ms: the doorbell
+     * wakes it, so the beat moves within BEAT_US as before */
+    b.p->doorbell();
     while (b.p->now_us() - t0 < BEAT_US)
     {
         b.p->yield();
@@ -482,6 +501,58 @@ static void chip_failed(const char *why)
     if (b.failures >= 2)
         trace("bcmjob off why=second failure");
     b.p->restart();             /* the panel comes back either way */
+}
+
+/* A wait ran out with the heartbeat moving: is the executor wedged
+ * (STALL_MS)?  done: J_DONE as just read.  true: our image was started
+ * again (the caller's wait is over; the next call finds the new
+ * power-up) */
+static bool stall_check(uint32_t done)
+{
+    uint32_t now = b.p->now_ms(), ms, rd = 0, wr = 0, cur = 0;
+
+    if (done - b.done_base >= b.sent ||
+        (b.dec_live && (int32_t)(b.dec_live_until - now) > 0))
+    {
+        b.stall_t0 = 0;         /* nothing queued, or a DECODE's time */
+        return false;
+    }
+    if (!b.stall_t0 || done != b.stall_done)
+    {
+        b.stall_done = done;    /* moving, or the first look: watch */
+        b.stall_t0 = now ? now : 1;
+        b.stall_slow = b.slow;
+        b.stall_slow_once = b.slow_once;
+        return false;
+    }
+    ms = now - b.stall_t0;
+    if (ms < STALL_MS)
+        return false;
+    /* what the BCM says it runs: the record for the next sitting */
+    (void)rd1(HP_CMD_RD, &rd);
+    (void)rd1(HP_CMD_WR, &wr);
+    (void)rd1(b.block + J_CUR_OP, &cur);
+    trace("bcmjob stall ms=%lu done=%lu sent=%lu cur=%08lx cmd rd=%08lx "
+          "wr=%08lx", (unsigned long)ms, (unsigned long)(done - b.done_base),
+          (unsigned long)b.sent, (unsigned long)cur, (unsigned long)rd,
+          (unsigned long)wr);
+    b.stall_t0 = 0;
+    /* the ops the wedge made "slow" were never run: forgiven */
+    b.slow = b.stall_slow;
+    b.slow_once = b.stall_slow_once;
+    if (b.stall_restarts >= STALL_RESTARTS)
+    {
+        chip_failed("stall");   /* a counted failure: loud */
+        return true;
+    }
+    b.stall_restarts++;
+    trace("bcmjob restart why=stall n=%lu", (unsigned long)b.stall_restarts);
+    trace("bcm power state=C0 why=stall");
+    epoch_lost();
+    b.gen = 0;
+    b.st = ST_NONE;
+    b.p->restart();             /* our image again, the PP frame first */
+    return true;
 }
 
 uint32_t bjc_vpu_expected(uint32_t ops)
@@ -596,6 +667,7 @@ static uint8_t discover(void)
     if ((b.ops & 1u << (J_OP_OVERLAY - 0x20)) && rd1(b.block + J_OVL, &k) == 0)
         b.region = k & ~0xFFFu;
     b.sent = 0;
+    b.stall_t0 = 0;             /* a new ring: nothing frozen yet */
 #ifdef HAVE_BCMFW_DEVTEST
     memset(b.inj_due, 0, sizeof(b.inj_due));    /* a new ring: gone */
 #endif
@@ -968,9 +1040,12 @@ static int timed_out(void)
         chip_failed("dead");
         return BCMJOB_TIMEOUT;
     }
-    if (rd1(b.block + J_DONE, &done) == 0 && done - b.done_base < b.sent &&
-        b.sent - (done - b.done_base) <= OPLOG)
+    if (rd1(b.block + J_DONE, &done) < 0)
+        return fault(op, BCMJOB_TIMEOUT);
+    if (done - b.done_base < b.sent && b.sent - (done - b.done_base) <= OPLOG)
         op = b.oplog[(done - b.done_base) % OPLOG];
+    if (stall_check(done))
+        return fault(op, BCMJOB_TIMEOUT);
     /* a DECODE ahead of this wait is not this wait's culprit: only its
        own deadline (dec_timed_out) marks it */
     if (op >= 0x20 && op < 0x40 && op != J_OP_DECODE)
@@ -1293,8 +1368,9 @@ static void resync_drain(void)
             return;
         if (b.p->now_us() - t0 > RESYNC_US)
         {
-            why = "timeout";
-            break;
+            trace("bcmjob resync forced why=timeout");
+            (void)stall_check(done);    /* alive: the LCD contract runs */
+            return;
         }
         b.p->yield();
     }
@@ -1658,12 +1734,19 @@ static int ovl_answer(int k, struct ovl *o)
               vpu & J_VPU_MAC ? "vector" : "c", vpu & J_VPU_YUV ? "vector" : "c",
               (b.caps & J_CAP_DEC_LENT) != 0);
     else
-        trace("bcmjob overlay ok ops=%08lx vpu=0x%lx fft=%s bars=%s%s lines=%s%s%s",
+    {
+        uint32_t vfft = 0;      /* the FFT check's word (batch 5; bench row
+                                   VFFT: 0 in older overlays) */
+
+        rd1(b.block + J_VFFT, &vfft);
+        trace("bcmjob overlay ok ops=%08lx vpu=0x%lx fft=%s bars=%s%s lines=%s%s%s "
+              "vfft=%08lx",
               (unsigned long)ops, (unsigned long)vpu, vpu & J_VPU_FFT ? "vector" : "c",
               vpu & J_VPU_BARS ? "vector" : "c", vpu & J_VPU_FLIP ? " flip" : "",
               ops & 1u << (J_OP_POLYLINE - 0x20) ? "P" : "-",
               ops & 1u << (J_OP_SEGMENTS - 0x20) ? "S" : "-",
-              ops & 1u << (J_OP_PALROW - 0x20) ? "R" : "-");
+              ops & 1u << (J_OP_PALROW - 0x20) ? "R" : "-", (unsigned long)vfft);
+    }
     return (b.ops & o->want) == o->want ? BCMJOB_OK : BCMJOB_NOJOB;
 }
 

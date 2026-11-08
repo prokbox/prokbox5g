@@ -175,11 +175,14 @@ febe_invoke:
     FEBE_STUB clockpol_note_input
     FEBE_STUB clockpol_set_enabled
     FEBE_STUB core_alloc
+    FEBE_STUB core_alloc_ex
     FEBE_STUB core_allocatable
     FEBE_STUB core_available
     FEBE_STUB core_free
+    FEBE_STUB core_heap_walk
     FEBE_STUB core_pin
     FEBE_STUB core_unpin
+    FEBE_STUB default_event_handler
     FEBE_STUB devbench_vclk_gov
     FEBE_STUB devbench_vclk_verify
     FEBE_STUB dsp_eq_enable
@@ -219,6 +222,7 @@ febe_invoke:
     FEBE_STUB pcmbuf_underruns
     FEBE_STUB playlist_amount
     FEBE_STUB playlist_create
+    FEBE_STUB playlist_end_video_ipodui
     FEBE_STUB playlist_get_current
     FEBE_STUB playlist_get_display_index
     FEBE_STUB playlist_insert_context_add
@@ -226,6 +230,7 @@ febe_invoke:
     FEBE_STUB playlist_insert_context_release
     FEBE_STUB playlist_insert_dbq_ipodui
     FEBE_STUB playlist_insert_track
+    FEBE_STUB playlist_play_video_ipodui
     FEBE_STUB playlist_randomise
     FEBE_STUB playlist_reserve_ipodui
     FEBE_STUB playlist_resume
@@ -265,8 +270,10 @@ febe_invoke:
     FEBE_STUB rbfs_write
     FEBE_STUB read_line
     FEBE_STUB rolo_load
+    FEBE_STUB settings_apply
     FEBE_STUB sound_set_pitch
     FEBE_STUB sound_set_volume
+    FEBE_STUB status_save
     FEBE_STUB storage_post_job
     FEBE_STUB sys_poweroff
     FEBE_STUB sys_reboot
@@ -302,6 +309,7 @@ febe_invoke:
     FEBE_STUB tagcache_ui_generation_ctx
     FEBE_STUB tagcache_ui_numeric
     FEBE_STUB tagcache_ui_precompute_request
+    FEBE_STUB tagcache_ui_save_spot
     FEBE_STUB tagcache_ui_scan_owed
     FEBE_STUB tagcache_ui_seeks
     FEBE_STUB tagcache_ui_seeks_ctx
@@ -329,3 +337,5 @@ febe_invoke:
     FEBE_STUB ui_sc_refresh
     FEBE_STUB viz_tap_close
     FEBE_STUB viz_tap_open
+    FEBE_STUB volume_recalc_free_commit
+    FEBE_STUB volume_size

@@ -46,9 +46,8 @@ RAM=${1:?usage: VERSION=x.y.z $0 RAM [OUTDIR]}
 OUT=${2:-out}
 : "${VERSION:?set VERSION (the tag without its v)}"
 export VERSION
-case "$RAM" in 64|32) ;; *) echo "RAM must be 64 or 32" >&2; exit 2 ;; esac
-
 . "$(dirname "$0")/release_flags.sh"
+case " $RELEASE_RAMS " in *" $RAM "*) ;; *) echo "RAM must be one of: $RELEASE_RAMS" >&2; exit 2 ;; esac
 COMMON="$RELEASE_SHAPE --compiler-prefix=arm-none-eabi-"
 STOCK=$RELEASE_STOCK
 MODDED=$RELEASE_MODDED
@@ -65,9 +64,9 @@ rm -rf "$boot" && mkdir -p "$boot"
     </dev/null >configure.log)
 make -C "$boot" -j"$JOBS" >"$boot/make.log" 2>&1 || { tail -30 "$boot/make.log"; exit 1; }
 [ -f "$boot/bootloader-ipodvideo.ipod" ] || { echo "no bootloader-ipodvideo.ipod" >&2; exit 1; }
-for variant in stock modded; do
+for variant in $RELEASE_VARIANTS; do
     if [ $variant = stock ]; then vargs=$STOCK; else vargs=$MODDED; fi
-    for storage in flash hdd; do
+    for storage in $RELEASE_STORAGES; do
         dir="build/rel-$variant-$storage-$RAM"
         rm -rf "$dir" && mkdir -p "$dir"
         (cd "$dir" && ../../tools/configure $COMMON $vargs \

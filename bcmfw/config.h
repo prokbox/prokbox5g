@@ -195,6 +195,9 @@
 #define BCMFW_INFO_SPIN      0x2000      /* delays are spin loops (no counter) */
 #define BCMFW_INFO_CLK       0x4000      /* the image wrote the timer clock */
 #define BCMFW_INFO_WARM      0x0800      /* started by a warm swap */
+#define BCMFW_INFO_TICK_SLOW 0x0008      /* the idle tick is BCMFW_IDLE_TICK_SLOW_US
+                                            now (BCMFW_IDLE_ADAPT; bits 3:2 were
+                                            free: the panel ID is 1:0) */
 
 /* Step word values (BCMFW_MB_STEP), 'PS' = 0x5053 */
 #define BCMFW_STEP_START     0x50530001  /* bcmfw_main entered */
@@ -602,6 +605,24 @@
 #endif
 #if BCMFW_IDLE_SLEEP && BCMFW_PROBE && BCMFW_MB_IDLE_TICKS == 0x1D4
 #error "the idle counters would share 0x1D4-0x1DC with the probe's words"
+#endif
+/* The adaptive idle tick (power-apple-vs-ours.md row 10): 1 (the video
+ * and jobs images with the doorbell): crt0.S's tick handler re-arms with
+ * the word bcmfw_idle_tick_us, which idle_wait (main.c) sets before each
+ * sleep: BCMFW_IDLE_TICK_SLOW_US (10 ms, [apple-RE] Apple's RTOS tick)
+ * when nothing BCM-timed is pending and the doorbell handler has run at
+ * least once since start (BCMFW_MB_IDLE_BELLS != 0: the PP rings after
+ * every command and job, so a live doorbell wakes the core at once and
+ * the tick is only a backstop), else BCMFW_IDLE_TICK_US (1 ms, exactly
+ * as before).  Pending: a jobs animation, the overlay's slide, an open
+ * session.  BCMFW_INFO_TICK_SLOW in BCMFW_MB_INFO says which runs now.
+ * The device-test images keep 1 ms (stage 5i counts ticks against time). */
+#ifndef BCMFW_IDLE_ADAPT
+#define BCMFW_IDLE_ADAPT     (BCMFW_IDLE_SLEEP && BCMFW_IDLE_DOORBELL && \
+                              (BCMFW_VIDEO || BCMFW_JOBS))
+#endif
+#ifndef BCMFW_IDLE_TICK_SLOW_US
+#define BCMFW_IDLE_TICK_SLOW_US 10000
 #endif
 /* Mailbox, every BCMFW_CLOCK build: what the last switch did */
 #define BCMFW_MB_CLOCK_STATE 0x140  /* BCMFW_CLOCK_MAGIC | BCMFW_CLOCK_* */

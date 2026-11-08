@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2007 Jonathan Gordon
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -452,13 +453,7 @@ static const char graphic_numeric[] = "graphic,numeric";
 #define DEFAULT_TAGCACHE_SCAN_PATHS "/"
 #endif
 
-#ifdef HAVE_BACKLIGHT
-#ifdef SIMULATOR
-#define DEFAULT_BACKLIGHT_TIMEOUT 0
-#else
-#define DEFAULT_BACKLIGHT_TIMEOUT 15
-#endif
-#endif /* HAVE_BACKLIGHT */
+#include "settings_defaults.h" /* DEFAULT_BACKLIGHT_TIMEOUT, DEFAULT_KEYCLICK* */
 
 #if defined(HAVE_USB_CHARGING_ENABLE)
 # if !defined(TARGET_USB_CHARGING_DEFAULT)
@@ -1560,8 +1555,15 @@ const struct settings_list settings[] = {
            ID2P(LANG_SERIAL_BITRATE_38400),ID2P(LANG_SERIAL_BITRATE_57600)),
 #endif
 #ifdef HAVE_ACCESSORY_SUPPLY
+#ifdef ACCESSORY_SUPPLY_DEFAULT
+    /* ProkBox AW-3: the unit's flag (config/ipodvideo.h) */
+    OFFON_SETTING(0, accessory_supply, LANG_ACCESSORY_SUPPLY,
+                  ACCESSORY_SUPPLY_DEFAULT, "accessory power supply",
+                  accessory_supply_set),
+#else
     OFFON_SETTING(0, accessory_supply, LANG_ACCESSORY_SUPPLY,
                   true, "accessory power supply", accessory_supply_set),
+#endif
 #endif
 #ifdef HAVE_LINEOUT_POWEROFF
     OFFON_SETTING(0, lineout_active, LANG_LINEOUT,
@@ -2518,16 +2520,17 @@ const struct settings_list settings[] = {
 #endif /* HAVE_WHEEL_ACCELERATION */
     /* keyclick */
 #ifdef HAVE_HARDWARE_CLICK
-    CHOICE_SETTING(0, keyclick, LANG_KEYCLICK_SOFTWARE, 0,
+    CHOICE_SETTING(0, keyclick, LANG_KEYCLICK_SOFTWARE, DEFAULT_KEYCLICK,
                    "keyclick", "off,weak,moderate,strong", NULL, 4,
                    ID2P(LANG_OFF), ID2P(LANG_WEAK), ID2P(LANG_MODERATE),
                    ID2P(LANG_STRONG)),
     OFFON_SETTING(0, keyclick_repeats, LANG_KEYCLICK_REPEATS, false,
                   "keyclick repeats", NULL),
-    OFFON_SETTING(0, keyclick_hardware, LANG_KEYCLICK_HARDWARE, false,
+    OFFON_SETTING(0, keyclick_hardware, LANG_KEYCLICK_HARDWARE,
+                  DEFAULT_KEYCLICK_HARDWARE,
         "hardware keyclick", NULL),
 #else
-    CHOICE_SETTING(0, keyclick, LANG_KEYCLICK, 0,
+    CHOICE_SETTING(0, keyclick, LANG_KEYCLICK, DEFAULT_KEYCLICK,
                    "keyclick", "off,weak,moderate,strong", NULL, 4,
                    ID2P(LANG_OFF), ID2P(LANG_WEAK), ID2P(LANG_MODERATE),
                    ID2P(LANG_STRONG)),

@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2002 by Linus Nielsen Feltzing
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -234,6 +235,21 @@ unsigned long fat_slot_fault_get(struct fat_slot_fault *out);
 
 /** Misc. **/
 void fat_empty_fat_direntry(struct fat_direntry *entry);
+
+#if defined(HAVE_IPOD_UI_DEVMODE) && !defined(BOOTLOADER)
+/* ProkBox (#137): Apple-fallback links (fat.c; never frees a cluster) */
+int fat_link_chain(IF_MV(int volume,) long fst, uint32_t size,
+                   uint32_t *runs, int maxruns, int *nruns);
+int fat_link_runs_free(IF_MV(int volume,) const uint32_t *runs, int nruns);
+int fat_link_rechain(IF_MV(int volume,) const uint32_t *runs, int nruns);
+int fat_link_set(struct fat_file *file, long fst, uint32_t size);
+#endif
+/* ProkBox (#137): a link is a read-only + hidden file entry inside the
+ * link folder; removing one through the file layer drops its entry and
+ * never frees its chain (the original's). Outside the folder, or without
+ * both attributes, remove() is upstream's (the chain is freed). */
+#define FAT_ATTR_LINK (0x01 | 0x02)     /* ATTR_READ_ONLY | ATTR_HIDDEN */
+#define FAT_LINK_DIR  "/iPod_Control/Music/PKB"  /* = AFB_LINK_DIR */
 void fat_init(void);
 
 #endif /* FAT_H */

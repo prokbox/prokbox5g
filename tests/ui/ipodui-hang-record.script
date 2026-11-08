@@ -11,6 +11,7 @@
 # log: ipodui: hang recovered ui after
 # log: ipodui: panic hang record thread=
 # log: ipodui: panic msg hang: ui no progress 6 s (
+# expect: hang ui    (deliberate: hang_ui holds the shell's thread 8 s)
 # golden: skip
 
 wait 4000           # boot (logs a record a previous run left, if any)

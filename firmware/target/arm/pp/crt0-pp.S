@@ -440,6 +440,12 @@ reset_reentry_handler:
 put_boot_data_here
 #endif
 
+#if defined(HAVE_CORE_LAYOUT_A)
+/* ProkBox: the handlers' literals before the stacks, which the COP's FIQ
+ * stack (below) puts out of an ldr's 4 KB reach */
+    .ltorg
+#endif
+
 /* Align stacks to cache line boundary */
     .balign 32
 
@@ -458,7 +464,14 @@ cop_irq_stack:
 fiq_stack:
 
 /* We'll need this soon - just reserve the symbol */
-#if 0
+#if defined(HAVE_CORE_LAYOUT_A)
+/* ProkBox core layout (A) step 0b: the COP takes the PCM DMA's FIQ, so it
+ * gets a FIQ stack of its own.  Without this space cop_fiq_stack is the
+ * top of the CPU's fiq_stack, and a FIQ on each core at once would share
+ * it (docs/pp5022-reference/interrupts-timers.md).  Apple's COP takes its
+ * FIQ straight into IRAM code and sets no FIQ stack at start-up
+ * (osos 1.3 0x1008_4734); ours runs C (fiq_playback and the callback
+ * chain), so it needs one.  Developer builds only, for now. */
 /* 256 words of COP FIQ stack */
     .space 256*4
 #endif

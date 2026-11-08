@@ -89,23 +89,30 @@ void video_overlay(uint32_t xy, uint32_t wh, uint32_t slide);
 /* the overlay's slide (HP_OVL_SLIDE_*): one step by the clock; the main
  * loop calls it every pass, and it returns at once when none runs */
 void video_anim(void);
+/* 1 while the overlay's slide runs (main.c idle_wait: the 1 ms tick) */
+int video_anim_live(void);
 /* Decode the oldest queued packet and show its pictures; returns the
  * 64-byte FIFO units it occupied (the host may reuse them), 0 if none */
 uint32_t video_work(void);
 const struct video_stats *video_get_stats(void);
-/* 1 once an OPEN has brought SDRAM up (this boot) */
+/* 1 once an OPEN has brought SDRAM up (and no CLOSE has idled it since) */
 int video_sdram_ready(void);
+/* CLOSE with HP_CLOSE_SDRAM_IDLE, SDRAM up and no session: Apple's idle,
+ * then SDRAM marked down (the next OPEN or staged ALLOC brings it up).
+ * HP_CLOSE_SD_IDLED, or HP_CLOSE_SD_STUCK if bit 15 never cleared */
+uint32_t video_sdram_down(void);
 #if BCMFW_JOBS_STAGED
 /* The staged upload's window (jobs.h J_ALLOC_STAGED; candidate images
  * only): SDRAM brought up in UI mode at the first staged ALLOC.  1 when
  * up (a later OPEN skips its own bring-up), 0 when the bring-up failed */
 int video_sdram_up(void);
 #endif
-#if !BCMFW_JOBS
-/* PW5 (hostproto.c cmd_hib): Apple's SDRAM idle before the hibernate
- * park (0, or 1 if bit 15 never cleared) and its bring-up after the wake
- * (0, or the VIDEO_SD_* step; SDRAM is then marked down) */
+/* PW5 (hostproto.c cmd_hib) and CLOSE's idle: Apple's SDRAM idle (0, or
+ * 1 if bit 15 never cleared).  The plain image only: its bring-up after
+ * the hibernate wake (0, or the VIDEO_SD_* step; SDRAM is then marked
+ * down) */
 uint32_t video_sdram_idle(void);
+#if !BCMFW_JOBS
 uint32_t video_sdram_rewake(void);
 #endif
 

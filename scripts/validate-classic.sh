@@ -155,7 +155,7 @@ clone_disk() {
     if [ "$(uname)" = Darwin ] && /bin/cp -c -R "$1" "$2" 2>/dev/null; then  # /bin/cp: a GNU cp earlier in PATH has no -c
         return 0
     fi
-    cp -R "$1" "$2"
+    cp -pR "$1" "$2"   # -p: the pinned mtimes (tag_mtime orders "newest" lists) must survive
 }
 
 # Shared simdisk cache (process audit 2 #8): the generated library/music
@@ -237,7 +237,7 @@ copy_tree() { # <src> <dst>: cp -c clone on APFS, else a plain copy
     if [ "$(uname)" = Darwin ] && /bin/cp -c -R "$1" "$2" 2>/dev/null; then  # /bin/cp: a GNU cp earlier in PATH has no -c
         return 0
     fi
-    cp -R "$1" "$2"
+    cp -pR "$1" "$2"   # -p: the pinned mtimes (tag_mtime orders "newest" lists) must survive
 }
 simdisk_cache_restore() { # <simdisk> <cachedir> -- 0 on a usable hit
     local disk=$1 cache=$2 p got=0

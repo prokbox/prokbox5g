@@ -98,7 +98,7 @@ struct artcache_dim { uint16_t w, h; };
  * the size) and rebuild every thumbnail. */
 extern const struct artcache_dim artcache_sizes[ARTCACHE_NUM_SIZES];
 
-/* Fit sizes (Phase 5, Revision 1 item 3; owner photo 1222): for
+/* Fit sizes (Phase 5, Revision 1 item 3; owner photo `np-audiobook-volume-b`): for
  * these the table gives a BOX, not the image size. The bundle's image is
  * the source scaled so its longer side fills the box with the aspect
  * kept (never cropped, never stretched, upscaled if smaller): a

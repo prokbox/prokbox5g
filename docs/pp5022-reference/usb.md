@@ -18,7 +18,7 @@ The PP5022 contains a USB 2.0 high-speed OTG controller of the ARC/ChipIdea fami
 
 Interrupt: source 20 (`USB_IRQ`).
 
-Endpoints: Rockbox uses 3 (EP0 plus two), both directions (`USB_NUM_ENDPOINTS 3`); whether the silicon has more is in DCCPARAMS, not recorded here.
+Endpoints: Rockbox uses 3 (EP0 plus two), both directions (`USB_NUM_ENDPOINTS 3`); whether the silicon has more is in DCCPARAMS, not recorded here. Isochronous IN was used by Apple's firmware on this chip (a UAC1 source for digital-out docks), and the core also runs as a host (the camera connector) [apple-RE]; see `../research/usb-digital-audio.md` and quirks 58-59.
 
 ## 2. Bring-up on the PP5022 [rockbox] `usb_reset_controller()`, `usb_drv_reset()`
 
@@ -99,3 +99,29 @@ Device logs 2026-10-16/17 on the USB-C-modded 5.5G; sessions and commits in [`..
 | **TXFILLTUNING (offset `0x164`) reads back 0.** | Writing `0x10` (TXFIFOTHRES) read back as 0. On this older core the offset may not be TXFILLTUNING; it is a host-mode register on other ChipIdea parts. Writing it correlated with dead enumeration. It is left untouched by default. | `f4db3af867`, `ea36e78e09` sessions |
 | **CPU boost for the USB session breaks enumeration.** | With the CPU boost held, the unit enumerated at high speed but repeatedly failed to expose storage (68 resets in one session). Do not hold a boost. | `session 38o` |
 | **ATA DMA overlapping Bulk-IN DMA shortens long reads.** | Serialising them (prefetch worker off; then every next ATA read after the IN completes) lifted reads past the old 166 MiB failure point. See [`../data-paths.md`](../data-paths.md) D12. | `fa571b6895`, `41103a9158` |
+
+## 7. USB identity and isochronous transfers (#144)
+
+### 7.1 The IDs we present
+
+| Build | Vendor:Product | Why | Evidence |
+|---|---|---|---|
+| Every build today (mass storage; the bench probe too) | `05AC:1209` | Rockbox's default for the iPod Video, and the ID the 5G's own firmware used. Computers bind mass storage by class, not by ID | [rockbox] `firmware/export/config/ipodvideo.h` |
+| Accessory digital audio (#144 P3+, not built) | `05AC:1209`, or the classic's `05AC:1261` if a head unit or dock only streams digital audio to IDs it knows | Interoperability. Owner decision 2026-11-05: present whatever ID the feature needs (`../legal.md` §7). No Apple key or code is involved: in iAP the accessory proves itself to the iPod, not the other way round | [external] RockPod presents `1261`; which head units need it is [hypothesis] |
+
+The string descriptors say "ProkBox" for manufacturer and product in the `--ipodui` builds; no Apple mark is ever sent as a name.
+
+### 7.2 Isochronous transfers: what is known
+
+| Item | State | Evidence |
+|---|---|---|
+| Isochronous IN works on this silicon | Apple's 5G firmware streams a UAC1 source on EP1 IN (192 bytes, bInterval 1, sync none) | [apple-RE] (quirk 58) |
+| Isochronous IN under our driver | Not yet run. The bench probe (`usb_isoprobe`, `--usb-isoprobe` builds only) is built and waiting for a sitting | bench sheet `../research/usb-isoprobe-bench.md` |
+| Real endpoint count (`DCCPARAMS` bits 4:0) | Unknown; Rockbox assumes 3. The probe logs it at step 0 | [hypothesis] |
+| `FRINDEX` steps per millisecond | 8 microframes at high speed; at full speed the low 3 bits are expected to stay 0, so 8 as well | [datasheet] for high speed; [hypothesis] for full speed (the probe logs both) |
+| Isochronous TR_ERR | A missed (micro)frame, not a failure; our driver flushes for it (variant A of the probe stops that) | [external] Linux chipidea; host-tested rule `usb-arc-iso.h` |
+| Queue head `Mult` for isochronous IN | 3, with each dTD's `MultO` set to its real packet count (Linux). Our driver sets `Mult` 1 and `MultO` 0 | [external]; host-tested rule |
+| Max packet, full speed | 1023 for isochronous; our driver's default is 1024 at both speeds (the probe passes 192, so it is not affected) | [datasheet: USB 2.0 §5.6.3] |
+| The unused direction of an endpoint | Must not be left as control (manual 32.9.5.18); `usb_drv_ep_deinit()` writes type 0. Variant C writes bulk | [rockbox] driver comment; host-tested rule |
+| Appending to a running dTD chain (ATDTW, `USBCMD` bit 14) | Present on ChipIdea cores; never exercised on the PP5022. Variant B relies on it and counts tripwire timeouts | [hypothesis] |
+| Isochronous OUT | No evidence either way; Apple never used the 5G as a sink | [hypothesis] |

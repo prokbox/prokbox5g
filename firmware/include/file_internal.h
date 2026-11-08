@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2014 by Michael Sevakis
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -28,6 +29,7 @@
 #include "mrsw_lock.h"
 #include "fs_attr.h"
 #include "fs_defines.h"
+#include "xcore.h"        /* ProkBox p19-copfileio: the CPU-only check */
 #include "fat.h"
 #include "dir.h"
 #ifdef HAVE_DIRCACHE
@@ -235,6 +237,10 @@ int rbfs_intent_alias_drop(const char *path, unsigned int callflags);
 int remove_stream_internal(const char *path, struct filestr_base *stream,
                            unsigned int callflags);
 int test_stream_exists_internal(const char *path, unsigned int callflags);
+#if defined(HAVE_IPOD_UI_DEVMODE) && !defined(BOOTLOADER)
+/* ProkBox (#137): the park's directory drop (file_internal.c) */
+int rmdir_shallow(const char *path);
+#endif
 
 int open_noiso_internal(const char *path, int oflag); /* file.c */
 void force_close_writer_internal(struct filestr_base *stream); /* file.c */
@@ -266,6 +272,7 @@ struct dirinfo_internal
 static inline void file_internal_lock_READER(void)
 {
     extern struct mrsw_lock file_internal_mrsw;
+    XCORE_FS_ASSERT_CPU("lock");    /* ProkBox: CPU only (xcore.h) */
     mrsw_read_acquire(&file_internal_mrsw);
 }
 
@@ -280,6 +287,7 @@ static inline void file_internal_unlock_READER(void)
 static inline void file_internal_lock_WRITER(void)
 {
     extern struct mrsw_lock file_internal_mrsw;
+    XCORE_FS_ASSERT_CPU("lock");    /* ProkBox: CPU only (xcore.h) */
     mrsw_write_acquire(&file_internal_mrsw);
 }
 

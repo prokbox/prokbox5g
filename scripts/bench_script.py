@@ -125,6 +125,7 @@ def wrap(text, width):
 def parse_table(c_src, h_src):
     """devbench.c's steps[] with every field (bench_ingest's parser for
     the shape, the rest here)"""
+    c_src = bi.expand_rows(c_src)
     base = bi.parse_steps(c_src, h_src)
     m = re.search(r'static const struct bench_step steps\[\]\s*=\s*\{', c_src)
     body = c_src[m.end():]
@@ -157,6 +158,7 @@ def parse_table(c_src, h_src):
         s['fn_name'] = f[4].strip()
         s['limit'] = int(f[8], 0)
         s['budget'] = int(f[9], 0) if len(f) > 9 else 0
+        s['hands'] = int(f[10], 0) if len(f) > 10 else 0
         s['secs'] = s['budget'] or s['limit']
     return base
 
@@ -172,7 +174,9 @@ class Bench:
         self.ph = macros(self.pwh)
         self.t = parse_table(self.c, self.h)
         self.picks = {bi.MODE_REVERIFY: bi.parse_pick_table(self.h, 'bench_reverify_picks'),
-                      bi.MODE_PORTCHECK: bi.parse_pick_table(self.h, 'bench_portcheck_picks')}
+                      bi.MODE_PORTCHECK: bi.parse_pick_table(self.h, 'bench_portcheck_picks'),
+                      bi.MODE_PROBE: bi.parse_pick_table(self.h, 'bench_probe_picks'),
+                      bi.MODE_BATCH: bi.parse_pick_table(self.h, 'bench_batch_picks')}
         self.needs = bi.parse_pick_needs(self.h, 'bench_reverify_picks')
         self.gates = bi.parse_gates(self.h)
         self.gate_why = c_unescape(macros(self.h)['BENCH_GATE_WHY'])
@@ -205,6 +209,30 @@ class Bench:
                 secs += s['secs']
                 n += 1
         return secs, n
+
+    def run_hands(self, run):
+        """bench_run_hands: AUTO steps whole, others their hands_s, over
+        the main steps"""
+        h = 0
+        for k, role in run:
+            s = self.t[k]
+            if (s['flags'] & bi.F['BENCH_F_OPTIONAL']
+                    or role in (bi.R_IFPRE, bi.R_IFBOOT)):
+                continue
+            h += s['secs'] if s['flags'] & bi.F['BENCH_F_AUTO'] else s['hands']
+        return h
+
+    @staticmethod
+    def minutes_near(secs):
+        m = (secs + 30) // 60
+        return 1 if secs and not m else m
+
+    def count_text(self, run, n, secs):
+        hands = min(self.run_hands(run), secs)
+        if hands:
+            return self.m['COUNT2_FMT'] % (n, self.minutes_near(secs - hands),
+                                           self.minutes_near(hands))
+        return self.m['COUNT_FMT'] % (n, self.minutes_near(secs))
 
     @staticmethod
     def minutes(secs):
@@ -266,7 +294,7 @@ class Bench:
 
     def mode_screen(self):
         mins = [self.minutes(self.run_sum(self.select(k), 'main')[0])
-                for k in range(3)]
+                for k in range(5)]
         return self.ask_screen('mode question',
                                self.text(self.m['MODES_FMT'] % tuple(mins)),
                                self.mode_answers)
@@ -274,7 +302,7 @@ class Bench:
     def confirm_screen(self, mode):
         run = self.select(mode)
         secs, n = self.run_sum(run, 'main')
-        lines = self.text(self.m['COUNT_FMT'] % (n, self.minutes(secs)))
+        lines = self.text(self.count_text(run, n, secs))
         extra, k = self.run_sum(run, 'optional')
         if k:
             lines += self.text(self.m['WAVE2_FMT'] % self.minutes(extra))
@@ -282,6 +310,8 @@ class Bench:
         if k:
             lines += self.text(self.m['IFPRE_FMT'] % self.minutes(extra))
         lines += self.text(None, self.m[{bi.MODE_PORTCHECK: 'PORT_TEXT',
+                                          bi.MODE_PROBE: 'PROBE_TEXT',
+                                          bi.MODE_BATCH: 'BATCH_TEXT',
                                           bi.MODE_REVERIFY: 'REVERIFY_TEXT'}
                                          .get(mode, 'FULL_TEXT')], None)
         if mode != bi.MODE_PORTCHECK:
@@ -433,11 +463,12 @@ def render():
     out += ['', '("Go on: <step>" replaces the first answer when a step you '
             'left, or the restart, is waiting for its question.)', '']
 
-    for mode in (bi.MODE_FULL, bi.MODE_REVERIFY, bi.MODE_PORTCHECK):
+    for mode in (bi.MODE_FULL, bi.MODE_REVERIFY, bi.MODE_PORTCHECK,
+                 bi.MODE_PROBE, bi.MODE_BATCH):
         scr, n, secs = b.confirm_screen(mode)
         run = b.select(mode)
-        out += ['### %s: %d steps, about %d min' % (
-            b.mode_answers[mode], n, b.minutes(secs)), '']
+        out += ['### %s: %s' % (
+            b.mode_answers[mode], b.count_text(run, n, secs).rstrip('.')), '']
         out += block(scr, 'Bench session')
         needs = mode == bi.MODE_REVERIFY
         out += ['', '| # | Step | Kind | Time |%s Question |' % (' Needs |' if needs else ''),
@@ -451,12 +482,14 @@ def render():
             elif role == bi.R_IFBOOT:
                 kind += ('; only without the stage 5 flag or without the display '
                          'driver in this start')
-            elif role == bi.R_NEED and s['id'] in ('jobs', 'jvpu'):
+            elif role == bi.R_NEED and s['id'] in ('jobs', 'jvpu') and mode == bi.MODE_REVERIFY:
                 kind += '; must pass (a restart offered if it cannot run)'
             elif role == bi.R_NEED:
                 kind += '; must pass'
             elif role == bi.R_OPT:
                 kind += '; may skip, never fail'
+            elif role == bi.R_ALSO and mode in (bi.MODE_PROBE, bi.MODE_BATCH):
+                kind += '; a reading, no verdict'
             elif role == bi.R_ALSO:
                 kind += '; not needed for the verified line'
             nd = ''

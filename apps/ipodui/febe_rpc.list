@@ -18,9 +18,32 @@
 # (fat_slot_fault, ata_flush_stats, rbfs_rename_fault: the device log's
 # opcode "counters"); their getters cross instead.  febe_link_check.py
 # fails on a listed name that the linked firmware defines as data.
+# p19-copfileio (2026-11-05): calls the shell makes through code outside
+# apps/ipodui, found by scripts/febe_reach_check.py (the transitive walk):
+#  default_event_handler: misc.c's system events (the USB screen and its
+#    settings_apply, the codepage and language loads, the power-off's
+#    ata_spindown, the battery latch's record writes) on the CPU, with the
+#    ui thread waiting; its own calls back into the shell serve inline;
+#  volume_size: the capacity panel's (the FAT's reader lock and bpb);
+#  core_alloc_ex: font.c's loads (buflib's handle table on the CPU).
+#  core_heap_walk (4gh-b5, developer builds): heapchk.c's walk of the
+#    core heap runs on buflib's core, never beside a compaction; its
+#    struct buflib_walk result comes back through the be_call's cache ops.
+#  settings_apply: the developer menus' (the codepage and language loads).
+#  status_save: the resume point and settings write (settings_write_config);
+#  volume_recalc_free_commit: Developer's free-space fix (writes the FAT).
+# Shell modules link with the same --wrap options (modules.make): their
+# calls into the core used to reach the real functions from the COP.
 direct: audio_status
 direct: pcm_is_playing
 direct: mixer_channel_status
+# #137 (developer builds): the indexer's ops table takes the Apple
+# fallback job's address; it is only ever called on the storage worker
+direct: afb_job
+# 4gh-b5 (developer builds): a reason's name from a const table in
+# .rodata; it reads no heap and nothing any core writes (the walk itself,
+# core_heap_walk, crosses)
+direct: buflib_walk_why
 ab_store_get
 ab_store_idle
 ab_store_load
@@ -99,11 +122,14 @@ clockpol_lit24_set
 clockpol_note_input
 clockpol_set_enabled
 core_alloc
+core_alloc_ex
 core_allocatable
 core_available
 core_free
+core_heap_walk
 core_pin
 core_unpin
+default_event_handler
 devbench_vclk_gov
 devbench_vclk_verify
 dsp_eq_enable
@@ -143,6 +169,7 @@ mixer_set_tap
 pcmbuf_underruns
 playlist_amount
 playlist_create
+playlist_end_video_ipodui
 playlist_get_current
 playlist_get_display_index
 playlist_insert_context_add
@@ -150,6 +177,7 @@ playlist_insert_context_create
 playlist_insert_context_release
 playlist_insert_dbq_ipodui
 playlist_insert_track
+playlist_play_video_ipodui
 playlist_randomise
 playlist_reserve_ipodui
 playlist_resume
@@ -189,8 +217,10 @@ rbfs_rename_intent_usb_exit
 rbfs_write
 read_line
 rolo_load
+settings_apply
 sound_set_pitch
 sound_set_volume
+status_save
 storage_post_job
 sys_poweroff
 sys_reboot
@@ -226,6 +256,7 @@ tagcache_ui_generation
 tagcache_ui_generation_ctx
 tagcache_ui_numeric
 tagcache_ui_precompute_request
+tagcache_ui_save_spot
 tagcache_ui_scan_owed
 tagcache_ui_seeks
 tagcache_ui_seeks_ctx
@@ -253,3 +284,5 @@ ui_eq_dsp_set
 ui_sc_refresh
 viz_tap_close
 viz_tap_open
+volume_recalc_free_commit
+volume_size
