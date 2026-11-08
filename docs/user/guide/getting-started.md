@@ -42,7 +42,7 @@ How to tell:
 - **Right player:** this firmware is only for the iPod Video (5th generation and 5.5 generation, "5G" and "5.5G"). Never put it on an iPod Classic, nano, mini or any other model.
 
 > [!WARNING]
-> A wrong pick can leave the player running with the wrong battery gauge, buffer sizes or memory use, or fail to start. [check on device] If that happens, put the right zip's files over the top (see "Updating" below); your music stays where it is. Do not guess "hard drive, 32 MB" for a unit you are unsure about; check first.
+> A wrong pick can leave the player running with the wrong battery gauge, buffer sizes or memory use, or fail to start. If that happens, put the right zip's files over the top (see "Updating" below); your music stays where it is. Do not guess "hard drive, 32 MB" for a unit you are unsure about; check first.
 
 ## Before you install
 
@@ -54,7 +54,7 @@ How to tell:
    - **Windows:** in File Explorer, right-click the player's drive, choose Properties, and read "File system". It must say FAT32.
    - **macOS:** select the player in Finder and choose Get Info, or look in Disk Utility. "MS-DOS (FAT32)" is right. "Mac OS Extended" or "HFS+" is the Mac format.
    - **Linux:** `lsblk -f` shows `vfat` for the right format and `hfsplus` for the wrong one.
-3. **A player in Mac format is not supported by these steps.** The patching tool refuses to touch it. You must first restore it to Windows format with Apple's own tools (iTunes on Windows is the proven way), which erases the player completely. Do that, copy your music back, and then start here. We do not support converting it with `ipodpatcher -c`. [check on device]
+3. **A player in Mac format is not supported by these steps.** The patching tool refuses to touch it. You must first restore it to Windows format with Apple's own tools (iTunes on Windows is the proven way), which erases the player completely. Do that, copy your music back, and then start here. We do not support converting it with `ipodpatcher -c`.
 4. Download the zip and check it (next section). Turn off any music-library program that opens by itself when the player is connected (iTunes or Music) and make sure it is closed. On Windows, also turn off its automatic sync for this player, since it can rewrite the player when you connect it.
 
 ## Check your download
@@ -74,7 +74,7 @@ You need the free `ipodpatcher` command-line tool, which writes the start-up pro
 - **Windows (64-bit):** `ProkBox5g-<version>-ipodpatcher-windows-x86_64.exe`
 - **Linux (64-bit):** `ProkBox5g-<version>-ipodpatcher-linux-x86_64`
 
-Check it against `SHA256SUMS` as above. Save it in the same folder as the unzipped files and, to match the commands below, rename it to `ipodpatcher` (`ipodpatcher.exe` on Windows). On macOS and Linux make it runnable once with `chmod +x ipodpatcher`, and run it as `./ipodpatcher` unless you put it on your path. These tools are built unmodified from the source download (`ProkBox5g-<version>-source.tar.gz`, folder `utils/ipodpatcher`), and it is a general tool that other projects also use, so its output mentions "Rockbox" and its author; that is expected. [check on device]
+Check it against `SHA256SUMS` as above. Save it in the same folder as the unzipped files and, to match the commands below, rename it to `ipodpatcher` (`ipodpatcher.exe` on Windows). On macOS and Linux make it runnable once with `chmod +x ipodpatcher`, and run it as `./ipodpatcher` unless you put it on your path. These tools are built unmodified from the source download (`ProkBox5g-<version>-source.tar.gz`, folder `utils/ipodpatcher`), and it is a general tool that other projects also use, so its output mentions "Rockbox" and its author; that is expected.
 
 > [!NOTE]
 > **Advanced: build it yourself.** Unpack the source download, run `make -C utils/ipodpatcher` (a C compiler is needed), and use the `ipodpatcher` it produces. Build it without `BOOTOBJS`; the commands here give it the start-up file from the zip.
@@ -84,7 +84,7 @@ Check it against `SHA256SUMS` as above. Save it in the same folder as the unzipp
 - **macOS and Linux:** put `sudo` in front of every `ipodpatcher` command below.
 - **Windows:** open the Start menu, type `cmd`, right-click Command Prompt and choose "Run as administrator". Use that window for every command, after changing into the folder that holds `ipodpatcher.exe` and the unzipped files (`cd` followed by the folder's path).
 - **macOS:** the downloaded tool is not signed by a registered developer and may be blocked. If so, allow it under System Settings › Privacy & Security, or remove the download mark with `xattr -d com.apple.quarantine ipodpatcher`; or build it yourself (see the advanced note above).
-- **Linux:** run it with `sudo`; the player appears as a disk such as `/dev/sdb`. Check with `lsblk` that you are pointing at the player and nothing else. Linux has not been tested for 0.8.0. [check on device]
+- **Linux:** run it with `sudo`; the player appears as a disk such as `/dev/sdb`. Check with `lsblk` that you are pointing at the player and nothing else. We have not tried these steps on Linux for 0.8.0 yet; reports are welcome.
 
 Connect only one iPod at a time.
 
@@ -96,7 +96,7 @@ There is no installer app in 0.8.0. You install by hand, in this order: save a b
 > Take the firmware-partition backup **once**, on a player that has never had ProkBox installed. Never run it again on an installed player: that would overwrite the good backup with a copy of the ProkBox start-up program, and restoring it later would put ProkBox back instead of Apple's software. Put a date in the name and keep the file somewhere safe, one per player.
 
 1. Unzip the download.
-2. Connect the player. Hold **Select** and **Play** during a restart to enter Disk Mode if it does not show up. [check on device]
+2. Connect the player. Hold **Select** and **Play** during a restart to enter Disk Mode if it does not show up.
 3. **macOS only:** unmount, without ejecting, so the tool can reach the disk. Find the disk with `diskutil list` (the iPod is the external disk, for example `/dev/disk4`), then run `diskutil unmountDisk /dev/disk4` with your own number. Never use any `diskutil` erase or format option. Make sure Music or iTunes did not open again.
 4. **Save a backup of the firmware partition**, once: `ipodpatcher -r ProkBox-backup-2026-11-06.bin` (use today's date; with `sudo` or from the Administrator window). The file is written to the folder you are in. Check that it exists and is not empty. Copy it to your computer's safe place.
 5. **Copy the ProkBox files first.** On macOS, unplug and reconnect the player so the drive mounts again. Show hidden files (Finder: **Cmd+Shift+.**; Windows Explorer: View › Show › Hidden items; Linux file manager: **Ctrl+H**). Copy the folder whose name starts with a dot onto the top level of the player's drive, and the other files from the zip except `bootloader-ipodvideo.ipod` (you will use that in step 7, and it does not need to go on the player). Wait until the copy finishes.
@@ -114,7 +114,7 @@ If anything fails halfway, do not unplug: read the message, and run the same com
 To move to a newer version, you only replace the files. You do not repeat the backup or the start-up program step.
 
 1. Download and check the new zip for the same variant.
-2. Connect the player, show hidden files, and copy the new zip's dot-folder and files over the old ones, agreeing to replace them. Your settings, library, play counts and resume points are kept. [check on device]
+2. Connect the player, show hidden files, and copy the new zip's dot-folder and files over the old ones, agreeing to replace them. Your settings, library, play counts and resume points are kept.
 3. Eject and restart. The first-start notice appears again.
 
 Run `ipodpatcher` again only if the release notes say the start-up program changed.

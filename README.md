@@ -2,7 +2,7 @@
 
 **ProkBox5g: a device-tuned fork of Rockbox for the iPod Video (5G/5.5G).**
 
-ProkBox5g is a community-driven, open-source firmware from the ProkBox project. It brings the look, feel and behaviour of the iPod Classic's final software (2.0.5) to the iPod Video 5.5G. It is built on the [Rockbox](https://www.rockbox.org) open-source firmware, which supplies the kernel, drivers, playback engine, codecs and music database. On top of that sits a native user interface designed to feel like the iPod Classic 7G: split-screen menus with live previews, smooth lists, Cover Flow, a 7G-style Now Playing screen, and first-class audiobooks with chapters, per-chapter art, resume and speed control.
+ProkBox5g is a community-driven, open-source firmware from the ProkBox project. It brings the look, feel and behaviour of the iPod Classic's final software (2.0.5) to the iPod Video 5.5G. It is built on the [Rockbox](https://www.rockbox.org) open-source firmware, which supplies the kernel, drivers, playback engine, codecs and music database. On top of that sits a native user interface designed to feel like the iPod Classic 7G: split-screen menus with live previews, smooth lists, a 7G-style Now Playing screen, video, and first-class audiobooks with chapters, per-chapter art, resume and speed control.
 
 It is a community-driven project. Development started on one modified iPod Video 5.5G (1 TB flash, 3000 mAh battery, USB-C, haptic clicker), and the same build is meant for stock 5G and 5.5G units. The *5g* in the name marks this build line; other hardware, if it ever comes, gets its own.
 
@@ -49,7 +49,7 @@ Questions, bug reports that don't fit the issue tracker, and trademark or takedo
 - Every release ships its complete corresponding source next to the binaries. How each obligation is met is recorded in `docs/legal.md`.
 
 ## Status
-In active development and **not yet tested on hardware**. Do not install it on a device whose contents you haven't backed up. See `docs/ROADMAP.md` for phases and status.
+**Pre-release (0.8.0), in daily use on real hardware.** Every release is installed and checked on the developer's own iPod Video 5.5G (flash, 64 MB, modded) before it is published. The other variants (hard drive, 32 MB, stock battery and dock) build from the same code but haven't been tried on a real player yet; testers are very welcome. Back up your music before installing. Planned next: Album Flow (an album cover browser), sleep and hibernation, and Photos. See `docs/ROADMAP.md` for phases and status.
 
 ## How it is made
 ProkBox5g is developed with the help of AI coding assistants. A person directs the work, reviews and tests it, and decides what ships; the assistants write much of the code and documentation under that direction. Every change goes through the same build, test and review gates whoever wrote it.

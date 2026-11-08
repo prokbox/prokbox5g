@@ -11,7 +11,7 @@ You can always return. There are four ways, from gentlest to most complete. Read
 Either of these starts Apple's own software for this session only:
 
 - Slide the **Hold** switch on and restart the player, or
-- hold **Menu** while it starts. Hold it from the moment you begin the restart (**Menu** and **Select** together for about 8 seconds) until Apple's screen appears, rather than waiting for the screen to go dark. [check on device]
+- hold **Menu** while it starts. Hold it from the moment you begin the restart (**Menu** and **Select** together for about 8 seconds) until Apple's screen appears, rather than waiting for the screen to go dark.
 
 Restart again with Hold off and nothing held to come back to ProkBox. Your music is untouched.
 
@@ -30,15 +30,15 @@ Apple's software then runs again with your files still on the drive, but its lib
 
 ## 3. Lost the backup file
 
-Remove just the start-up program with `ipodpatcher -d`, run the same way (unmount first on macOS). It takes ProkBox out of the start-up chain and leaves your music alone. [check on device] If that does not bring Apple's software back, use route 4.
+Remove just the start-up program with `ipodpatcher -d`, run the same way (unmount first on macOS). It takes ProkBox out of the start-up chain and leaves your music alone. If that does not bring Apple's software back, use route 4.
 
 ## 4. Full restore (erases everything)
 
 Use this if the player won't start at all, or you want it back to a factory state. If ProkBox merely misbehaves, try route 1 first.
 
 1. Restart: hold **Menu** and **Select** for about 8 seconds.
-2. Right away, hold **Select** and **Play** until Disk Mode appears. [check on device]
-3. Connect to a computer and use Apple's own restore tool. iTunes on Windows is the proven one. Finder on a recent Mac and the Apple Devices app may also offer it. [check on device]
+2. Right away, hold **Select** and **Play** until Disk Mode appears.
+3. Connect to a computer and use Apple's own restore tool. iTunes on Windows is the proven one. Finder on a recent Mac and the Apple Devices app may also offer it; we haven't tried them.
 4. Choose **Restore**. This erases the player and puts back Apple's software, formatted for that computer. A Mac restore leaves the Mac format, which ProkBox cannot use until it is restored to Windows format again from a Windows computer.
 
 > [!WARNING]
