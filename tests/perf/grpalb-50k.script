@@ -1,0 +1,36 @@
+# #230: a composer's and a genre's albums at 50k, opened on purpose (the
+# timing: "lib open albums" src=, us= and el_us=; before #230 both
+# scanned). tests/perf/grpalb_check.sh 50k runs it twice: with the
+# slice-against-scan check on (PROKBOX_ARTALB_CHECK), and without it for
+# the timings.
+# Music menu by default (no Cover Flow or Compilations row; checked with
+# shots): Playlists, Artists, Albums, Songs, Genres (+4), Composers (+5),
+# Audiobooks, Search.
+wait 3000
+wait_db 1500000     # first run: the database builds (minutes)
+wait 15000          # the boot update (and a pre-#230 list file's rewrite)
+key SELECT          # Music
+wait 1000
+wheel +5 600        # Composers
+wait 600
+key SELECT
+wait 1500
+shot composers
+key SELECT          # the first composer's albums
+wait 5000
+shot composer_albums
+key MENU
+wait 1000
+key MENU            # Music, on Composers
+wait 1000
+wheel -1 600        # Genres
+wait 600
+key SELECT
+wait 1500
+shot genres
+key SELECT          # the first genre: its artists, "All Albums" first
+wait 3000
+key SELECT          # All Albums: the genre's albums
+wait 5000
+shot genre_albums
+quit

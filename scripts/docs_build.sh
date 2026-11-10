@@ -53,6 +53,18 @@ while [ $# -gt 0 ]; do
     shift
 done
 [ -n "$VER" ] && export HUGO_PARAMS_VERSION="$VER"
+
+# Writers' notes never reach a reader: the site, the PDF and the release notes
+# are built from docs/user (0.8.0 shipped eleven "[check on device]" markers).
+# A release note's line held for a bench result is an HTML comment
+# "<!-- RELEASE-FILL: ... -->": invisible on the page, so it is refused here
+# until it is filled or removed (0.8.1's line for #219)
+marks=$(cd "$ROOT" && grep -rnE '\[(check on device|TODO|TBD|FIXME)[^]]*\]|RELEASE-FILL' docs/user README.md) || rc=$?
+case "${rc:-0}" in
+    0) echo "docs: writers' notes left in the user docs:" >&2; echo "$marks" >&2; exit 1 ;;
+    1) ;;
+    *) echo "docs: the writers'-note check failed to run" >&2; exit 1 ;;
+esac
 case "$OUT" in /*) ;; *) OUT=$(pwd)/$OUT ;; esac   # hugo resolves relative paths against site/
 
 hugo --source "$ROOT/site" --destination "$OUT" --cleanDestinationDir --minify \

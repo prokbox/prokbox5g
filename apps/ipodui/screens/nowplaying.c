@@ -1120,12 +1120,18 @@ static void draw_chapter_lines(struct np_mem *m, bool clear)
             cnt.src = NP_COUNT_NONE;
     }
     else
-        cnt = np_counter_pick(t->is_audiobook, t->is_podcast,
-                              t->queue_index, t->queue_count,
-                              m->sc->chapter, t->scrub.ch.count);
+        /* a library shuffle: the place in the whole library (0.8.1) */
+        cnt = np_counter_lib(np_counter_pick(t->is_audiobook, t->is_podcast,
+                                             t->queue_index, t->queue_count,
+                                             m->sc->chapter,
+                                             t->scrub.ch.count),
+                             t->is_audiobook, t->lib_pos, t->lib_songs);
     if (cnt.src != NP_COUNT_NONE)
     {
         snprintf(buf, sizeof(buf), str(LANG_NP_N_OF_M), cnt.n, cnt.m);
+        UPDATE_TRACE("np count %s q=%d/%d lib=%d/%d", buf,
+                     t->queue_index + 1, t->queue_count, t->lib_pos,
+                     t->lib_songs);
         lcd_putsxy(0, cell_y(font, COUNT_CAP_TOP, CAP_SMALL) - BODY_Y,
                    (const unsigned char *)buf);
     }

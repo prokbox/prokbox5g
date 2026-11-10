@@ -66,6 +66,7 @@ bool cfgsafe_valid(const char *path)
 /* tmp is whole: it takes file's name, file keeps old's */
 static int replace(const char *tmp, const char *file, const char *old)
 {
+    POWERCUT_POINT("cfg.written", file);    /* tmp written, closed */
     if (exists(file))
     {
         if (cfgsafe_valid(file))
@@ -76,6 +77,7 @@ static int replace(const char *tmp, const char *file, const char *old)
         else if (!safefile_remove(file, old))
             return -1;          /* an empty file is nobody's fallback */
     }
+    POWERCUT_POINT("cfg.moved", file);
     if (rename(tmp, file) < 0)
     {
         /* a failed rename may still have landed: undo onto a free name */
@@ -83,6 +85,7 @@ static int replace(const char *tmp, const char *file, const char *old)
             rename(old, file);
         return -1;
     }
+    POWERCUT_POINT("cfg.renamed", file);
     return 0;
 }
 

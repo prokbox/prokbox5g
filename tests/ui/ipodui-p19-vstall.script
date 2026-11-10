@@ -32,10 +32,10 @@
 # golden: skip
 # timeout: 200
 # logbetween: start v0 viz soak s=\d+ bcm=[1-9]\d* cpu=0 hold=\d+/\d+ms fb=0
-# logbetween: h1 f1 video: FEED refused \(status, want\)
-# logbetween: h1 f1 video: FEED refused: n, in flight
-# logbetween: h0 h1 video: still: posts, data waits \([0-2],
-# logbetween: h0 h1 video: data still: file
+# logbetween: h1 f1 video: FEED refused -?\d+ -?\d+ \(status, want\)
+# logbetween: h1 f1 video: FEED refused: \d+ \d+ \(n, in flight\)
+# logbetween: h0 h1 video: still: [0-2] \d+ \(posts, data waits\)
+# logbetween: h0 h1 video: data still: file -?\d+ -?\d+ \(waits, ms\)
 # logbetween: h0 h1 video buf -?\d+ st=
 # logbetween: f1 x0 video prog end pics=[1-9]\d\d+ audio_ms=\d+
 # logbetween: f1 x0 video prog end still=1 behind=1 data=1 ref=1

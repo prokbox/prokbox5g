@@ -45,14 +45,18 @@
 #define LIB_SHUF_HISTORY    100     /* played entries kept before deleting */
 
 /* ---- the resume record: ROCKBOX_DIR "/" LIB_SHUF_FILE -------------------
- * Written (whole, 80 B) after every refill and every shelf commit, AFTER
+ * Written (whole, 92 B) after every refill and every shelf commit, AFTER
  * the playlist control file is synced (a power cut in between leaves an
  * older record: 'queued' then disagrees and the run restarts a lap,
  * shuffle.md item 5 and Device checks). Native byte order. It also holds
  * the shelf's albums flag for ordinary queues (frozen default 9.13). */
 #define LIB_SHUF_FILE       "npshuf.dat"
 #define LIB_SHUF_MAGIC      0x46535049u     /* "IPSF" */
-#define LIB_SHUF_VERSION    1
+/* 2 (0.8.1): + struct lib_shuf_count, 92 B. A version 1 record (80 B)
+ * is upgraded at the boot read (lib_shuf_rec_upgrade()): its run goes
+ * on in a new lap, whose songs are counted from 1. */
+#define LIB_SHUF_VERSION    2
+#define LIB_SHUF_V1_SIZE    80
 
 enum lib_shuf_src {
     LIB_SHUF_SRC_NONE = 0,      /* an ordinary queue */
@@ -72,7 +76,21 @@ struct lib_shuf_stamp {         /* 16 B */
                                    0 when the source is not ALBUMS */
 };
 
-struct lib_shuffle_rec {        /* 80 B, checked by a static assert */
+/* Now Playing's "n of M" over a library source (0.8.1): which music
+ * song of its lap each queued entry is, so the counter reads library-wide
+ * ("1 of 5432") instead of the window ("1 of 50"). Ordinals count the
+ * entries the source has queued since it started, every lap, in queue
+ * order: the playlist only grows at its end, and the history trimmed at
+ * its start is invisible to positions taken from the end. Kept by the
+ * refill, the shelf commit and the boot check; read through
+ * lib_shuf_count_pos(). */
+struct lib_shuf_count {         /* 12 B */
+    uint32_t total;             /* entries queued by the source, all laps */
+    uint32_t lap_at;            /* ordinal of this lap's first entry */
+    uint32_t prev_at;           /* the lap before it (== lap_at: none) */
+};
+
+struct lib_shuffle_rec {        /* 92 B, checked by a static assert */
     uint32_t magic, version;
     struct lib_shuf_stamp stamp;
     uint8_t  source;            /* enum lib_shuf_src */
@@ -86,13 +104,17 @@ struct lib_shuffle_rec {        /* 80 B, checked by a static assert */
         struct shuf_songs  s;   /* LIB_SHUF_SRC_SONGS */
         struct shuf_albums a;   /* LIB_SHUF_SRC_ALBUMS */
     } it;
+    struct lib_shuf_count count;    /* version 2 */
     uint32_t crc;               /* lib_shuf_rec_sum() of the bytes before */
 };
-#define LIB_SHUF_REC_SIZE   80
+#define LIB_SHUF_REC_SIZE   92
 /* The queue is one audiobook queued alone by lib_play() (Revision 2: it
  * ends by stopping, even with Repeat All). Kept across a reboot: valid
  * for an ordinary queue (source NONE) of exactly 'queued' entries. */
 #define LIB_SHUF_F_BOOK     0x01
+/* The next entry the source queues is the first of a lap (a Repeat lap,
+ * a restart after a database change): lib_shuf_count_queued() takes it. */
+#define LIB_SHUF_F_LAP      0x02
 
 enum lib_shuf_check {
     LIB_SHUF_RESUME = 0,        /* continue: same database, same queue */
@@ -116,10 +138,40 @@ enum lib_shuf_check lib_shuf_rec_check(const struct lib_shuffle_rec *r,
                                        uint32_t queued_now);
 /* A new lap over the current database (shuffle.md item 6): Songs over n
  * entries, Albums over n albums, seeded shuf_lap_seed(seed, lap + 1),
- * 'first' none; the stamp becomes *now. Then seal and write again. */
+ * 'first' none; the stamp becomes *now; the next entry queued counts as
+ * the lap's first (LIB_SHUF_F_LAP). Then seal and write again. */
 void lib_shuf_rec_restart(struct lib_shuffle_rec *r, uint32_t n,
                           const struct lib_shuf_stamp *now);
 uint32_t lib_shuf_rec_sum(const struct lib_shuffle_rec *r);
+/* A version 1 record of 'len' bytes read into *r: intact (magic, CRC
+ * over its first 76 bytes), it becomes version 2 in place with a zero
+ * count, sealed, and true is returned (the caller then restarts its lap
+ * and counts the queue it resumed). Anything else is left as it is. */
+bool lib_shuf_rec_upgrade(struct lib_shuffle_rec *r, size_t len);
+
+/* ---- the counter (struct lib_shuf_count; pure, host-tested) ------------ */
+
+/* The iterator's lap number (Songs or Albums; 0 for none) */
+uint32_t lib_shuf_rec_lap(const struct lib_shuffle_rec *r);
+/* After the iterator moved: a lap number other than 'lap_before' means
+ * the next entry queued starts a lap (LIB_SHUF_F_LAP). */
+void lib_shuf_count_note_lap(struct lib_shuffle_rec *r, uint32_t lap_before);
+/* One entry queued at the end by the source */
+void lib_shuf_count_queued(struct lib_shuffle_rec *r);
+/* 'k' counted entries removed from the end of the queue */
+void lib_shuf_count_unqueue(struct lib_shuffle_rec *r, uint32_t k);
+/* 'k' entries the count never saw are at the end of the queue (a power
+ * cut between the control-file sync and the record): counted, in the
+ * lap they were queued in */
+void lib_shuf_count_extra(struct lib_shuffle_rec *r, uint32_t k);
+/* A lap starts at the entry 'back' from the end (1 = the last queued):
+ * a shelf commit's new order, which starts at the current song */
+void lib_shuf_count_lap_from(struct lib_shuffle_rec *r, uint32_t back);
+/* 1-based position within its lap of the queued entry with 'after'
+ * entries queued after it, or 0 if the count does not cover it. An entry
+ * from before the previous lap is placed by that lap's length (exact
+ * while the library did not change). O(1). */
+uint32_t lib_shuf_count_pos(const struct lib_shuffle_rec *r, uint32_t after);
 
 /* ---- the runtime (lib_shuffle.c, P; UI thread unless marked) ------------ */
 
@@ -138,6 +190,12 @@ enum np_shuffle lib_shuffle_mode(void);
  * playlist->index under the playlist mutex, Revision 1 item 2). OFF ends
  * the library source (the window stays, in play order). 0 or < 0. */
 int  lib_shuffle_set_mode(enum np_shuffle mode);
+/* Now Playing's counter: the playing entry's position in the lap of a
+ * library source (lib_shuf_count_pos()), 'after' = entries queued after
+ * it (playlist_amount() - playlist_get_display_index()); 0 for an
+ * ordinary queue or an entry the count does not cover (the caller then
+ * shows the queue). O(1), no I/O. UI thread. */
+int  lib_shuffle_lap_pos(int after);
 /* "off" / "songs" / "albums" (trace lines) */
 const char *lib_shuffle_mode_name(enum np_shuffle mode);
 /* Audio thread (np_playback.c's track-change callback): sets a flag only. */
@@ -154,7 +212,7 @@ void lib_shuffle_settle(void);
 /* Boot, after the playlist resume: reads and checks the record. */
 void lib_shuffle_resume(void);
 /* lib_play() built a queue: one audiobook alone (book) or anything else.
- * Writes the record (80 B) only when the persisted flag changes, or for
+ * Writes the record (92 B) only when the persisted flag changes, or for
  * a book whose queue length differs. UI thread. */
 void lib_shuffle_note_book(bool book);
 /* After a boot's playlist_resume(): the resumed queue is the book the

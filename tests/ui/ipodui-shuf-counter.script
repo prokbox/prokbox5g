@@ -1,0 +1,150 @@
+# 0.8.1: during Shuffle Songs the Now Playing counter reads library-wide
+# ("1 of <all music songs>", the 7G's "1 of 5,432"), not the refill window
+# ("1 of 50", then "56 of 100"). Shuffle Songs, then 55 NEXTs: the window
+# has refilled (past 50 songs) and the counter says 56 of the whole
+# library (302 music songs in the test library). M is lib_stats()'s
+# song count (the precompute); "np count" traces each drawn counter with
+# the queue position and the library numbers behind it
+# (q=<queue n>/<queue m> lib=<lap n>/<songs>).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-shuf-counter.script
+# needs: library
+# trace: shuf
+# log: shuf: start songs ok queued=50
+# log: np count 1 of 302 q=1/50 lib=1/302
+# log: shuf: refill +50
+# log: np count 56 of 302 q=56/100 lib=56/302
+# nolog: np count 56 of 100
+# nolog: np count 1 of 50
+# nolog: bad command
+# golden: skip start walked
+# timeout: 180
+
+wait 1000
+wait_db 30000
+art_wait 120000
+sim_clock 15:08
+clock_format 24
+charger off
+repeat off
+wheel +4            # "Shuffle Songs"
+wait 500
+key SELECT          # plays; Now Playing is pushed
+wait 1500
+shot start          # "1 of <all music songs>"
+key PLAY            # paused: the 2 s tracks would advance on their own
+wait 300            # and move the count; NEXT still changes track
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+wait 3000
+shot walked         # "56 of <all music songs>"
+audio_stop
+wait 1000
+quit

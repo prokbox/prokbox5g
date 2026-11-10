@@ -20,8 +20,9 @@
  * KIND, either express or implied.
  *
  ****************************************************************************/
-/* Host shim for tests/fatcrash: the core allocator calls fat.c makes
- * (the directory burst buffer, R1), backed by malloc */
+/* Host shim for tests/fatcrash: the core allocator calls fat.c and
+ * file_internal.c make (the directory burst buffer, R1; the walk lookup
+ * cache, #243), backed by malloc */
 #ifndef FATCRASH_CORE_ALLOC_H
 #define FATCRASH_CORE_ALLOC_H
 #include <stdlib.h>
@@ -43,6 +44,18 @@ static inline int core_alloc_ex(size_t size, struct buflib_callbacks *ops)
             return (fatcrash_core_blocks[i] = malloc(size)) ? i + 1 : -1;
     return -1;
 }
+static inline int core_alloc(size_t size)
+{ return core_alloc_ex(size, NULL); }
+static inline int core_free(int handle)
+{
+    free(fatcrash_core_blocks[handle - 1]);
+    fatcrash_core_blocks[handle - 1] = NULL;
+    return 0;
+}
+/* the walk cache's room check (#243); a test may set it (one variable
+ * for the whole program) */
+__attribute__((weak)) size_t fatcrash_core_room = 1 << 20;
+static inline size_t core_allocatable(void) { return fatcrash_core_room; }
 static inline void core_pin(int handle) { (void)handle; }
 static inline void *core_get_data(int handle)
 { return fatcrash_core_blocks[handle - 1]; }

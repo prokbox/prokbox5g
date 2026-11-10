@@ -123,6 +123,7 @@
 #include "xcore.h"              /* XCORE_BSS (P19) */
 #include "ipodui/bootbatt.h"    /* the drained latch */
 #include "ipodui/uilog.h"       /* ui_log(): #118 USB flush time */
+#include "ipodui/modclass.h"     /* the USB path's own disk work */
 #endif
 #include "hang_watch.h"         /* ProkBox: hang_suspend(), a shutdown */
 #include "bcmjob_pp.h"          /* P19: bcmjob_owner_event() */
@@ -872,6 +873,12 @@ long default_event_handler_ex(long event, void (*callback)(void *), void *parame
              * UI thread's ack hands the disk to the host; this line is
              * logged to RAM and written on the exit path */
             long usb_flush_tick = current_tick;
+            /* the flush and the boot-file probes either side of the
+             * session are the firmware's disk work, not that of a module
+             * still on top (the accountant, modclass.h); not across
+             * gui_usb_screen_run(), which books a game's owed suspend()
+             * to the game */
+            modclass_save(true);
 #endif
             system_flush();
 #ifdef HAVE_IPOD_UI
@@ -883,13 +890,22 @@ long default_event_handler_ex(long event, void (*callback)(void *), void *parame
             check_bootfile(false); /* gets initial size */
 #endif
 #endif
+#ifdef HAVE_IPOD_UI
+            modclass_save(false);
+#endif
             gui_usb_screen_run(false, seqnum);
+#ifdef HAVE_IPOD_UI
+            modclass_save(true);
+#endif
 #ifdef BOOTFILE
 #if !defined(USB_NONE) && !defined(USB_HANDLED_BY_OF)
             check_bootfile(true);
 #endif
 #endif
             system_restore();
+#ifdef HAVE_IPOD_UI
+            modclass_save(false);
+#endif
             return SYS_USB_CONNECTED;
         }
 

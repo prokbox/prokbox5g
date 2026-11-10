@@ -1,0 +1,88 @@
+# p081-bootwalk (fix 1, fix 3): a boot digest slower than the boot
+# window (SIM_DIGEST_SLOW_MS, SIM_SCAN_SLOW_MS: the device's directory reads; the host's are
+# instant) no longer turns into a full walk. The window hands over at
+# 1 s, the digest finishes behind it, boosted, and an unchanged library
+# skips the walk ("trust", "bg=1"). A change made while it is still
+# finishing is caught: this boot's digest sees it (walk "digest"), or it
+# trusted the stamp, which keeps the last walk's digest, so the next boot
+# walks. A power-off while it runs writes the stamp back as it was, so
+# the next boot digests again instead of walking. Every boost hold ends ("db boost off ... depth=0", none
+# unmatched). #218: a track started as soon as the menu is up, under the
+# boosted walk and under the background digest, plays with no underrun.
+# The sim disk ends as it began.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p081-bootwalk-bg.script
+# needs: music
+# env: SIM_DIGEST_SLOW_MS=4800
+# env: SIM_SCAN_SLOW_MS=4000
+# timeout: 360
+# golden: skip
+# fulls-extra: 4   (the main menu's Now Playing row at each play and stop)
+# log: boot stamp walk=1 why=nostamp
+# log: db boost off why=walk depth=0
+# log: boot stamp walk=0 why=trust
+# log: st=0 bg=1
+# log: db boost off why=digest depth=0
+# log: boot window ms=
+# log: why=digest_fail skipped=1 off=1
+# log: stamp write=1 skipped=2
+# nolog: why=slow
+# nolog: boost off unmatched
+# nolog: dedicated off unmatched
+# nolog: pcm underrun
+
+wait 3000
+wait_db 30000
+boot_nostamp
+reboot
+
+wait 2500                # the playlist store is up (the walk still runs)
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait_pos 4000 30000     # under the boosted walk
+expect_boot_walk 1 15000 nostamp
+audio_stop
+wait_db 30000
+wait 15000          # the (slowed) walk ends and settles: its stamp
+reboot
+
+# unchanged: the digest outlasts the window, finishes behind it, trusts
+wait 2500                # the digest still runs (~4.8 s here)
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait_pos 3000 30000     # under the background digest
+expect_boot_walk 0 15000 trust
+audio_stop
+wait 3000
+expect_boot_walk 0 0
+shot bg_trust
+reboot
+
+# a power-off while the digest still runs: this boot proved nothing, the
+# stamp goes back as it was ("off=1"), and the next boot digests again
+# and trusts (no "nostamp" walk)
+wait 500
+reboot
+
+expect_boot_walk 0 15000 trust
+wait 6000
+reboot
+
+# a track added while the digest is still finishing (the window has
+# handed over; the script runs from there)
+copy_file /Music/Tone%20Collective/Sine%20Studies/03%20Warble.mp3 /Music/Tone%20Collective/Sine%20Studies/03%20Warble3.mp3
+wait_db 30000
+wait 20000          # the digest (~4.8 s), then its (slowed) walk and scan
+reboot
+
+# caught in one of the two boots, whichever way the timing fell: the
+# library has the track now
+wait_db 30000
+expect_stat /Music/Tone%20Collective/Sine%20Studies/03%20Warble3.mp3 playcount=0..max 15000
+wait 3000
+rm_file /Music/Tone%20Collective/Sine%20Studies/03%20Warble3.mp3
+reboot
+
+# put back: the removal is caught too (H2's deleted-file pass)
+expect_boot_walk 1 15000 digest
+wait_db 30000
+expect_not_in_db /Music/Tone%20Collective/Sine%20Studies/03%20Warble3.mp3 30000
+wait 3000
+shot restored

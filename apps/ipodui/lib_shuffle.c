@@ -35,13 +35,15 @@
  * The playlist mutex is taken per insert/delete by playlist.c and never
  * held across a file-name read (tagcache_retrieve) or a yield.
  *
- * Static RAM: the 80 B record plus 16 B of flags and stamps. Nothing is
+ * Static RAM: the 92 B record plus 16 B of flags and stamps. Nothing is
  * allocated: file names go through library.c's play scratch, stacked on
  * its existing pool (as lib_path() does).
  *
  * Trace (UPDATE_TRACE: sim.log; logf with LOGF_ENABLE; nothing on a
  * release build). <m> is off | songs | albums, <src> none | songs | albums:
- *   shuf: start <m> ok queued=<n>
+ *   shuf: start <m> ok queued=<n> us=<wall> cpu=<thread cpu>
+ *                                 (simulator: lib_shuffle_start() entry
+ *                                 to the first track queued and started)
  *   shuf: start <m> fail <why>    why: off | empty | no-albums | create
  *                                 | refill
  *   shuf: mode <m> ok src=<src> queued=<n> cur=<playlist index>
@@ -53,6 +55,7 @@
  *   shuf: refill stop (<why>)     why: gen | insert
  *   shuf: lap n=<n>               a new lap (database changed)
  *   shuf: boot record <c>         0 resume, 1 restart, 2 bad
+ *   shuf: record upgraded v1      a 0.8.0 record (no count): a new lap
  *   shuf: record write failed | record write short
  *   shuf: no file name e=<entry> */
 
@@ -78,6 +81,7 @@
 #include "buffering.h"              /* buffering_is_filling() (npfix) */
 #ifdef SIMULATOR
 #include <stdio.h>                  /* shuf_expect_settled */
+#include "ipodui/simclock.h"        /* the start trace's times */
 #endif
 
 #define SHUF_PATH   ROCKBOX_DIR "/" LIB_SHUF_FILE
@@ -89,6 +93,7 @@ static int src_gen = -1;                /* RAM cache generation it runs on */
 static volatile bool want_refill;       /* audio thread: a track changed */
 static bool loaded;                     /* the record was read at boot */
 static bool boot_check;                 /* resumed record not checked yet */
+static bool upgraded;                   /* it came from 0.8.0 (no count) */
 static volatile bool disk_ran;          /* buffering thread: storage ran */
 
 const char *lib_shuffle_mode_name(enum np_shuffle mode)
@@ -128,7 +133,9 @@ static void rec_write(void)
     close(fd);
 }
 
-/* Boot: one 80 B read, once (lib_shuffle_resume() or the first idle). */
+/* Boot: one 92 B read, once (lib_shuffle_resume() or the first idle). A
+ * 0.8.0 record (80 B, version 1) is upgraded: the first refill's check
+ * then restarts its lap and counts the queue it resumed (0.8.1). */
 static void rec_load(void)
 {
     struct lib_shuffle_rec r;
@@ -145,6 +152,12 @@ static void rec_load(void)
     {
         got = read(fd, &r, sizeof(r));
         close(fd);
+    }
+    if (got > 0 && lib_shuf_rec_upgrade(&r, (size_t)got))
+    {
+        upgraded = true;
+        got = sizeof(r);
+        UPDATE_TRACE("shuf: record upgraded v%d", 1);
     }
     /* intactness only here; the stamp is checked at the first refill,
      * once the database is in RAM */
@@ -202,12 +215,15 @@ static bool is_music(uint32_t e)
  * (RAM only). */
 static int next_entry(struct lib_tracks *lt, int *skips)
 {
+    uint32_t lap = lib_shuf_rec_lap(&rec);
+
     if (rec.source == LIB_SHUF_SRC_SONGS)
     {
         for (;;)
         {
             uint32_t e = shuf_songs_next(&rec.it.s, repeat_on());
 
+            lib_shuf_count_note_lap(&rec, lap);     /* Repeat: a new lap */
             if (e == SHUF_NONE)
                 return -1;
             if (is_music(e))
@@ -219,8 +235,11 @@ static int next_entry(struct lib_tracks *lt, int *skips)
     if (rec.source == LIB_SHUF_SRC_ALBUMS && lt->fd >= 0)
     {
         uint32_t a, k;
+        bool ok = shuf_albums_next(&rec.it.a, album_len, lt, repeat_on(),
+                                   &a, &k);
 
-        if (shuf_albums_next(&rec.it.a, album_len, lt, repeat_on(), &a, &k))
+        lib_shuf_count_note_lap(&rec, lap);
+        if (ok)
             return lib_tracks_entry(lt, a, k);
     }
     return -1;
@@ -402,6 +421,7 @@ static int refill_step(int max)
             done = true;
             break;
         }
+        lib_shuf_count_queued(&rec);    /* Now Playing's "n of M" */
         n++;
         ses.added++;
     }
@@ -472,11 +492,20 @@ static void boot_resume_check(void)
         c = LIB_SHUF_BAD;
     else
         c = lib_shuf_rec_check(&rec, sizeof(rec), &now, q);
+    /* 0.8.0's record has no count: number the resumed queue from its
+     * start, and the next refill begins a new lap (0.8.1) */
+    if (upgraded && c == LIB_SHUF_RESUME)
+        c = LIB_SHUF_RESTART;
     switch (c)
     {
     case LIB_SHUF_RESUME:
         break;
     case LIB_SHUF_RESTART:
+        /* entries queued after the record (a power cut before it was
+         * written) belong to the lap that queued them */
+        if (upgraded)
+            memset(&rec.count, 0, sizeof(rec.count));
+        lib_shuf_count_extra(&rec, upgraded ? q : q - rec.queued);
         lib_shuf_rec_restart(&rec, rec.source == LIB_SHUF_SRC_ALBUMS
                              ? lt.albums : (uint32_t)now.entries, &now);
         break;
@@ -484,6 +513,7 @@ static void boot_resume_check(void)
         rec.source = LIB_SHUF_SRC_NONE;
         break;
     }
+    upgraded = false;
     lib_tracks_close(&lt);
     src_tick = playlist_get_current()->created_tick;
     src_gen = tagcache_ui_generation();
@@ -497,6 +527,19 @@ bool lib_shuffle_active(void)
     if (rec.source == LIB_SHUF_SRC_NONE)
         return false;
     return boot_check || playlist_get_current()->created_tick == src_tick;
+}
+
+int lib_shuffle_lap_pos(int after)
+{
+    rec_load();
+    if (after < 0 || !lib_shuffle_active())
+        return 0;
+    /* a resumed record not checked yet: its count covers the queue it
+     * was written with, and only that one */
+    if (boot_check
+        && (upgraded || rec.queued != (uint32_t)playlist_amount()))
+        return 0;
+    return (int)lib_shuf_count_pos(&rec, (uint32_t)after);
 }
 
 enum np_shuffle lib_shuffle_mode(void)
@@ -570,6 +613,9 @@ int lib_shuffle_start(enum np_shuffle mode, uint32_t first)
     struct lib_shuffle_rec keep;
     const char *why = "off";
     int rc;
+#ifdef SIMULATOR
+    unsigned long t0 = sim_clock_now_us(), c0 = sim_clock_cpu_us();
+#endif
 
     rec_load();
     ses.on = false;             /* a new queue: a refill under way ends */
@@ -594,6 +640,9 @@ int lib_shuffle_start(enum np_shuffle mode, uint32_t first)
     }
     src_tick = playlist_get_current()->created_tick;
     rec.flags &= ~LIB_SHUF_F_BOOK;  /* a library source is not a book */
+    rec.flags &= ~LIB_SHUF_F_LAP;   /* a new run: its count starts at 0 */
+    memset(&rec.count, 0, sizeof(rec.count));
+    upgraded = false;
     rc = refill();
     if (rc <= 0)
     {
@@ -605,8 +654,14 @@ int lib_shuffle_start(enum np_shuffle mode, uint32_t first)
     }
     global_settings.playlist_shuffle = true;
     playlist_start(0, 0, 0);
+#ifdef SIMULATOR
+    UPDATE_TRACE("shuf: start %s ok queued=%d us=%lu cpu=%lu",
+                 lib_shuffle_mode_name(mode), playlist_amount(),
+                 sim_clock_now_us() - t0, sim_clock_cpu_us() - c0);
+#else
     UPDATE_TRACE("shuf: start %s ok queued=%d", lib_shuffle_mode_name(mode),
                  playlist_amount());
+#endif
     return 0;
 }
 
@@ -902,6 +957,12 @@ int lib_shuffle_set_mode(enum np_shuffle mode)
          * new source's (known item 2: a playlist_delete() per entry posted
          * a flush each and overflowed the audio queue mid-loop) */
         gone = playlist_delete_range_ipodui(NULL, -1, playlist_amount());
+        /* the counter: the new order starts at the current song ("1 of
+         * M"); the history keeps its numbers (0.8.1) */
+        rec.flags &= ~LIB_SHUF_F_LAP;
+        if (gone > 0)
+            lib_shuf_count_unqueue(&rec, (uint32_t)gone);
+        lib_shuf_count_lap_from(&rec, 1);
         src_tick = playlist_get_current()->created_tick;
         refill();               /* traces "shuf: refill ..." */
         audio_flush_and_reload_tracks();

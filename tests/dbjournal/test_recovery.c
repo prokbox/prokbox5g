@@ -51,7 +51,7 @@ enum { tag_filename, tag_playcount, tag_rating, tag_playtime,
 enum { CMD_UPDATE_NUMERIC, CMD_UPDATE_MASTER_HEADER };
 struct index_entry { int32_t tag_seek[TAG_COUNT]; int32_t flag; };
 #ifdef RECOVERY_BIG
-#define ROWS 50000          /* the checkpoint measure: a 50k library */
+#define ROWS 65000          /* the checkpoint measure: a 65k library */
 #else
 #define ROWS 2
 #endif
@@ -445,10 +445,10 @@ int main(int argc, char **argv)
     CHECK(COMMAND_QUEUE_IS_EMPTY && !ui_stats_dropped && durable() == 310);
     CHECK(boot_replay() && ram.indices[0].tag_seek[tag_playcount] == 310);
 
-    /* MED-5: a recovery checkpoint of a 50k library with 1,000 played
+    /* MED-5: a recovery checkpoint of a 65k library with 1,000 played
      * tracks writes only the values that differ from the master on disk
      * (play count, play time, lastplayed: 3 per played track), not 6 per
-     * row (300,000 frames, ~19 MB with these paths). */
+     * row (390,000 frames, ~25 MB with these paths; 300,000 / ~19 MB at 50k). */
     reset();
     context.master.tch.entry_count = ROWS;
     for (int row = 0; row < ROWS; row++)

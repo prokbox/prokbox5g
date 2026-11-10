@@ -827,8 +827,124 @@ static void mp4_vide_entry(int fd, struct mp3entry *id3, uint32_t size)
 }
 #endif
 
+#ifdef HAVE_METADATA_EXTRAS
+/* ProkBox p081: what the first parse saw of the chapters, so that their
+ * count needs no second walk of the file (mp4_read_chapters(fd, NULL):
+ * 100-450 seeks and reads per file, each one a cluster-chain walk on the
+ * device when the 'moov' sits behind the media data). The count it gives
+ * is the one that walk gave (chapters.h: the chapter_count contract). */
+struct mp4_chap_seen {
+    int chpl;                   /* -1: no 'chpl'; else its chapter count */
+    uint32_t chap_id;           /* the first tref/chap track id, 0: none */
+    uint32_t cur_id;            /* tkhd of the trak being read */
+    uint32_t cur_timescale;     /* its mdhd */
+    int ntext;                  /* usable text traks seen */
+    uint32_t text_id[MP4_MAX_CHAP_REFS];
+    uint32_t text_n[MP4_MAX_CHAP_REFS];     /* their sample counts */
+};
+#define MP4_SEEN_PARAM  , struct mp4_chap_seen *seen
+#define MP4_SEEN_ARG    , seen
+
+static uint32_t seen_be32(const uint8_t *b)
+{
+    return ((uint32_t)b[0] << 24) | ((uint32_t)b[1] << 16)
+           | ((uint32_t)b[2] << 8) | b[3];
+}
+
+/* A 'text' trak's 'minf': the counts of its sample tables, read from the
+ * atom headers (one read each, a few for the whole trak); kept when they
+ * make a chapter track as chap_walk() takes one. The file position is put
+ * back where it was. */
+static void mp4_text_trak(int fd, struct mp4_chap_seen *seen, uint32_t size)
+{
+    off_t start = lseek(fd, 0, SEEK_CUR);
+    uint32_t pos = 0, end = size;
+    uint32_t stts_n = 0, stsz_n = 0, stsc_n = 0, stco_n = 0;
+    bool in_stbl = false;
+
+    while (start >= 0 && end - pos >= 8)
+    {
+        uint8_t a[20];
+        uint32_t asz, type, bsize, v;
+        uint32_t want = MIN((uint32_t)sizeof(a), end - pos);
+
+        if (lseek(fd, start + (off_t)pos, SEEK_SET) < 0
+            || read(fd, a, want) != (ssize_t)want)
+            break;
+        asz = seen_be32(a);
+        type = seen_be32(a + 4);
+        if (asz < 8 || asz > end - pos)
+            break;                      /* 64-bit, to the end, or corrupt */
+        bsize = asz - 8;
+        if (!in_stbl && type == MP4_stbl)
+        {
+            in_stbl = true;
+            end = pos + asz;
+            pos += 8;
+            continue;
+        }
+        if (in_stbl)
+        {
+            /* the bounds chap_walk() checks: a count that fits its atom */
+            if (type == MP4_stts && bsize >= 8 && want >= 16
+                && (v = seen_be32(a + 12)) <= (bsize - 8) / 8)
+                stts_n = v;
+            else if (type == MP4_stsz && bsize >= 12 && want >= 20)
+            {
+                v = seen_be32(a + 16);
+                if (seen_be32(a + 12) || v <= (bsize - 12) / 4)
+                    stsz_n = v;         /* uniform size, or a table */
+            }
+            else if (type == MP4_stsc && bsize >= 8 && want >= 16
+                     && (v = seen_be32(a + 12)) <= (bsize - 8) / 12)
+                stsc_n = v;
+            else if ((type == MP4_stco || type == MP4_co64) && bsize >= 8
+                     && want >= 16 && (v = seen_be32(a + 12))
+                        <= (bsize - 8) / (type == MP4_co64 ? 8 : 4))
+                stco_n = v;
+        }
+        pos += asz;
+    }
+    if (seen->cur_timescale && stts_n && stsz_n && stsc_n && stco_n
+        && seen->ntext < MP4_MAX_CHAP_REFS)
+    {
+        seen->text_id[seen->ntext] = seen->cur_id;
+        seen->text_n[seen->ntext++] = stsz_n;
+    }
+    if (start >= 0)
+        lseek(fd, start, SEEK_SET);
+}
+
+/* The count chap_walk() and mp4_read_chapters(fd, NULL) give: ffmpeg's
+ * 'chpl' (cut at 255) loses to a referenced text track with more */
+static int mp4_chap_count(const struct mp4_chap_seen *seen)
+{
+    uint32_t text_n = 0;
+    bool text = false;
+    int k;
+
+    for (k = 0; seen->chap_id && k < seen->ntext; k++)
+    {
+        if (seen->text_id[k] == seen->chap_id)
+        {
+            text = true;
+            text_n = seen->text_n[k];
+            break;
+        }
+    }
+    if (seen->chpl > 0 && !(text && text_n > (uint32_t)seen->chpl))
+        return seen->chpl;
+    if (text)
+        return text_n < AB_MAX_CHAPTERS ? (int)text_n : AB_MAX_CHAPTERS;
+    return 0;
+}
+#else
+#define MP4_SEEN_PARAM
+#define MP4_SEEN_ARG
+#endif
+
 static bool read_mp4_container(int fd, struct mp3entry* id3,
-                               uint32_t size_left)
+                               uint32_t size_left MP4_SEEN_PARAM)
 {
     uint32_t size    = 0;
     uint32_t type    = 0;
@@ -869,14 +985,49 @@ static bool read_mp4_container(int fd, struct mp3entry* id3,
             size -= 4;
             /* Fall through */
 
+        case MP4_trak:
+#ifdef HAVE_METADATA_EXTRAS
+            seen->cur_id = 0;
+            seen->cur_timescale = 0;
+#endif
+            /* Fall through */
         case MP4_moov:
         case MP4_udta:
         case MP4_mdia:
         case MP4_stbl:
-        case MP4_trak:
-            rc = read_mp4_container(fd, id3, size);
+#ifdef HAVE_METADATA_EXTRAS
+        case MP4_tref:
+#endif
+            rc = read_mp4_container(fd, id3, size MP4_SEEN_ARG);
             size = 0;
             break;
+
+#ifdef HAVE_METADATA_EXTRAS
+        case MP4_tkhd:                  /* p081: the trak's id */
+        case MP4_mdhd:                  /* p081: its timescale */
+            {
+                uint8_t b[24];
+                uint32_t n = MIN(size, (uint32_t)sizeof(b));
+
+                if (size < (type == MP4_tkhd ? 32u : 24u)
+                    || read(fd, b, n) != (ssize_t)n)
+                    break;
+                size -= n;
+                if (type == MP4_tkhd)
+                    seen->cur_id = seen_be32(b + (b[0] == 1 ? 20 : 12));
+                else
+                    seen->cur_timescale = seen_be32(b + (b[0] == 1 ? 20 : 12));
+            }
+            break;
+
+        case MP4_chap:                  /* p081: in a 'tref' */
+            if (size >= 4 && !seen->chap_id)
+            {
+                read_uint32be(fd, &seen->chap_id);
+                size -= 4;
+            }
+            break;
+#endif
 
         case MP4_ilst:
             /* We need at least a size of 8 to read the next atom. */
@@ -890,19 +1041,23 @@ static bool read_mp4_container(int fd, struct mp3entry* id3,
         case MP4_minf:
             if (handler == MP4_soun)
             {
-                rc = read_mp4_container(fd, id3, size);
+                rc = read_mp4_container(fd, id3, size MP4_SEEN_ARG);
                 size = 0;
             }
 #if defined(HAVE_IPOD_UI) || defined(HAVE_BCMFW_VIDEO)
             else if (handler == MP4_vide && !id3->is_video)
                 mp4_vide_entry(fd, id3, size);
 #endif
+#ifdef HAVE_METADATA_EXTRAS
+            else if (handler == MP4_text)
+                mp4_text_trak(fd, seen, size);
+#endif
             break;
 
         case MP4_stsd:
             lseek(fd, 8, SEEK_CUR);
             size -= 8;
-            rc = read_mp4_container(fd, id3, size);
+            rc = read_mp4_container(fd, id3, size MP4_SEEN_ARG);
             size = 0;
             break;
 
@@ -1029,8 +1184,31 @@ static bool read_mp4_container(int fd, struct mp3entry* id3,
                 if (size < 9)
                     break;
 
+#ifdef HAVE_METADATA_EXTRAS
+                /* p081: the count as chap_read_chpl() reads it (version
+                 * 1: a 24-bit high part, then the 8-bit count); the
+                 * stock byte at offset 8 still decides the lead_trim */
+                uint8_t h[9];
+                if (read(fd, h, 9) != 9)
+                {
+                    size = 0;
+                    break;
+                }
+                chapters = h[8];
+                if (seen->chpl < 0)
+                {
+                    uint32_t used = h[0] == 1 ? 9 : 5;
+                    uint32_t n = h[0] == 1
+                        ? ((seen_be32(h + 4) & 0xffffff) << 8) | h[8] : h[4];
+                    if (n > (size - used) / 9)  /* 9 bytes an entry */
+                        n = (size - used) / 9;
+                    seen->chpl = n < AB_MAX_CHAPTERS ? (int)n
+                                                     : AB_MAX_CHAPTERS;
+                }
+#else
                 lseek(fd, 8, SEEK_CUR);
                 read_uint8(fd, &chapters);
+#endif
                 size -= 9;
 
                 /* the first chapter will be used as the lead_trim */
@@ -1058,11 +1236,17 @@ static bool read_mp4_container(int fd, struct mp3entry* id3,
 
 bool get_mp4_metadata(int fd, struct mp3entry* id3)
 {
+#ifdef HAVE_METADATA_EXTRAS
+    struct mp4_chap_seen seen_s, *seen = &seen_s;
+
+    memset(seen, 0, sizeof(*seen));
+    seen->chpl = -1;
+#endif
     id3->codectype = AFMT_UNKNOWN;
     id3->filesize = 0;
     errno = 0;
 
-    if (read_mp4_container(fd, id3, ffilesize(fd)) && (errno == 0)
+    if (read_mp4_container(fd, id3, ffilesize(fd) MP4_SEEN_ARG) && (errno == 0)
         && (id3->samples > 0) && (id3->frequency > 0)
         && (id3->filesize > 0))
     {
@@ -1089,7 +1273,13 @@ bool get_mp4_metadata(int fd, struct mp3entry* id3)
         /* Only count chapters here; the table itself is read on demand
          * via metadata_read_chapters() into a caller-owned buffer. A single
          * Nero chapter is the Nero gapless hack, not a real chapter list. */
+#ifdef HAVE_METADATA_EXTRAS
+        /* p081: from the first parse (the count-only walk read the file
+         * again, from its start) */
+        int count = mp4_chap_count(seen);
+#else
         int count = mp4_read_chapters(fd, NULL);
+#endif
         id3->chapter_count = count > 0 ? count : 0;
         if (id3->chapter_count > 1)
             id3->is_audiobook = true;

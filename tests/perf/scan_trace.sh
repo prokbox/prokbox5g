@@ -33,8 +33,9 @@
 # prints the second boot's scan trace: the devmode "scantrace" log lines
 # of apps/tagcache.c (SCAN_TRACE) for the no-change probe and for a
 # no-op update. Per stage: ms (host time in the sim: counts are the
-# transferable numbers), storage commands (device only; the sim has no
-# ATA layer, so 0), folders, entries, audio files, failed ignore-file
+# transferable numbers), storage commands (on the device ATA commands; in
+# the sim each file open, read or write counts one, filesystem-sim.c;
+# both read 0 before p081's slot fix), folders, entries, audio files, failed ignore-file
 # lookups, filename-table lookups and tag-file reads.
 set -e
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)

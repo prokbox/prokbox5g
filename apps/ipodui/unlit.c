@@ -68,6 +68,7 @@
 #include "ipodui/artcache.h"
 #include "ipodui/screens/nowplaying.h"
 #include "ipodui/preview.h"     /* ui_fb_settle() (P19) */
+#include "ipodui/screens/video.h"   /* ui_video_session() (#184) */
 
 #ifdef SIMULATOR
 int sim_header_clock(void);     /* sim_cmd_clock.c: pinned minute, or -1 */
@@ -323,6 +324,12 @@ void ui_unlit_sysevent(long ev, intptr_t data)
         if (data && !was && (ui_usb_screen_active()
                              || ipodui_stock_ui_allowed()))
             return;
+        /* #184: a video playing keeps its picture; Hold only locks */
+        if (data && !was && ui_video_session())
+        {
+            UPDATE_TRACE("unlit skip %s", "video");
+            return;
+        }
         a = ui_unlit_step(&st, data ? UE_HOLD_ON : UE_HOLD_OFF, current_tick,
                           is_backlight_on(true));
         if (!was && st.face)

@@ -88,6 +88,7 @@ static bool ui_stats_restart, ui_candidate_maybe_published, ui_reload_pending;
 static int ui_candidate_exported;
 /* 3.20: the header's busy-glyph job count (tagcache_ui_updating()) */
 #define UI_UPD_RUN(stmt) do { stmt; } while (0)
+#define BT_MARK(s) do { } while (0)
 static int playing, mem_full;
 static bool ui_begin_mem_wait;
 static bool ui_candidate_changed, ui_active_pre_done, ui_commit_pending, ui_scan_pending;
@@ -138,7 +139,11 @@ static int ui_generation_buffer(struct ui_generation_io *io)
 { if (mem_full) return 0;
   io->buffer = io_buffer; io->size = sizeof(io_buffer); return ++handles; }
 static struct dbgen_ops ui_generation_ops(struct ui_generation_io *io)
-{ struct dbgen_ops ops = { 0, 0, 0, 0, io }; return ops; }
+{ struct dbgen_ops ops = { .opaque = io }; return ops; }
+/* p081-fatdb: the candidate's files read back from the medium */
+static bool readback_ok = true;
+static int readbacks;
+static bool ui_candidate_readback(void) { readbacks++; return readback_ok; }
 static int core_free(int h) { (void)h; handles--; return 0; }
 static void audio_buffer_regrow(void) {}
 static void strmemccpy(char *d, const char *s, size_t n) { snprintf(d, n, "%s", s); }
@@ -177,6 +182,7 @@ harness += function("static void ui_retry_later(int which, const char *what, int
 harness += function("static bool ui_candidate_begin(void)")
 harness += function("static bool ui_initial_build_begin(void)")
 harness += function("static void ui_candidate_abandon(int rc)")
+harness += function("static void ui_retired_ram_release(void)")
 harness += function("static bool ui_candidate_publish(void)")
 harness += source[source.index("static bool ui_rebuild_owed;"):
                   source.index("/* The owed fresh rebuild")]
@@ -288,6 +294,18 @@ int main(void)
     assert(ui_build == ui_active && !ui_busy && !ui_candidate_pending);
     EVERY_SECOND(30, assert(ui_candidate_publish()));
     assert(stages == 1);
+    /* p081-fatdb: a candidate whose files do not read back from the
+     * medium is dropped before staging, keeping the active library */
+    reset();
+    ui_build = &ui_context_b;
+    ui_build->stat.ready = ui_build->stat.ramcache = true;
+    ui_busy = true;
+    readback_ok = false;
+    readbacks = 0;
+    assert(!ui_candidate_publish() && stages == 0 && readbacks == 1);
+    assert(ui_build == ui_active && ui_active != &ui_context_b);
+    assert(!ui_busy && !ui_candidate_pending);
+    readback_ok = true;
     /* Success resets the backoff. */
     reset();
     ui_build = &ui_context_b;
@@ -296,6 +314,40 @@ int main(void)
     current_tick += 2 * HZ;
     assert(ui_candidate_publish() && ui_active == &ui_context_b);
     assert(!ui_retry[UI_RETRY_PUBLISH].delay && !ui_busy);
+
+    /* p081-floor: the generation a publication retires gives its RAM
+     * cache back at once when nothing holds it ... */
+    reset();
+    ui_build = &ui_context_b;
+    ui_build->stat.ready = ui_build->stat.ramcache = true;
+    ui_context_a.ram.handle = 7;
+    handles++;                  /* a live allocation (core_free() counts) */
+    ui_context_a.stat.ramcache = true;
+    assert(ui_candidate_publish() && ui_active == &ui_context_b);
+    assert(ui_context_a.ram.handle == 0 && !ui_context_a.stat.ramcache);
+    assert(!ui_context_a.reserved);
+    /* ... and only once its last holder is gone (a search, a database
+     * queue's rebase) */
+    reset();
+    ui_build = &ui_context_b;
+    ui_build->stat.ready = ui_build->stat.ramcache = true;
+    ui_context_a.ram.handle = 7;
+    handles++;                  /* a live allocation (core_free() counts) */
+    ui_context_a.readers = 1;
+    assert(ui_candidate_publish() && ui_active == &ui_context_b);
+    assert(ui_context_a.ram.handle == 7);
+    ui_retired_ram_release();
+    assert(ui_context_a.ram.handle == 7);
+    ui_context_a.readers = 0;
+    ui_retired_ram_release();
+    assert(ui_context_a.ram.handle == 0 && !ui_context_a.reserved);
+    /* a candidate being built is never the retired one */
+    reset();
+    ui_build = &ui_context_b;
+    ui_context_b.ram.handle = 7;
+    handles++;
+    ui_retired_ram_release();
+    assert(ui_context_b.ram.handle == 7);
 
     /* Finding 3: I/O, memory or USB failures never escalate; three
      * content failures request one fresh rebuild elsewhere. */

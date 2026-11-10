@@ -22,31 +22,36 @@
 #
 #***************************************************************************
 
-# Run on cloned, disposable 50k simdisks, never the golden or source disk.
+# Run on cloned, disposable stress simdisks, never the golden or source
+# disk: each unit at its ceiling (#229: 32 MB build/sim-50k, 64 MB
+# build/sim-65k; SNAPSHOT_SOURCE overrides both).
 # Build sim-persist32/64 with --ipodui --ram=32/64 before invoking this.
 set -eu
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
-SOURCE=${SNAPSHOT_SOURCE:-$ROOT/build/sim-50k/simdisk}
-[ "$(cat "$SOURCE/Synth/.synthetic")" = 50000 ] || {
-    echo 'Run tests/perf/lib50k.sh first (requires a built 50k database).' >&2
-    exit 2
-}
-"$ROOT/tests/perf/ensure50k.sh" "$SOURCE" || exit 1
-# #47: measure the steady state, not the one-time re-sort (settle50k.sh)
-SETTLED=$("$ROOT/tests/perf/settle50k.sh" "$SOURCE")
-if [ "$SETTLED" != "$SOURCE" ]; then
-    trap 'rm -rf "$(dirname "$SETTLED")"' EXIT
-    SOURCE=$SETTLED
-fi
+. "$ROOT/tests/perf/stress_size.sh"
+TMPS=
+trap 'for t in $TMPS; do rm -rf "$t"; done' EXIT
 for RAM in ${*:-32 64}; do
     case "$RAM" in 32|64) ;; *) exit 2 ;; esac
+    SOURCE=${SNAPSHOT_SOURCE:-$(stress_disk "$RAM")}
+    [ -f "$SOURCE/Synth/.synthetic" ] || {
+        echo "Run $(stress_lib "$RAM") first (requires a built stress database)." >&2
+        exit 2
+    }
+    "$ROOT/tests/perf/ensure65k.sh" "$SOURCE" || exit 1
+    # #47: measure the steady state, not the one-time re-sort (settle65k.sh)
+    SETTLED=$("$ROOT/tests/perf/settle65k.sh" "$SOURCE")
+    if [ "$SETTLED" != "$SOURCE" ]; then
+        TMPS="$TMPS $(dirname "$SETTLED")"
+        SOURCE=$SETTLED
+    fi
     BUILD=$ROOT/build/sim-persist$RAM
     [ -x "$BUILD/rockboxui" ] || exit 2
     RUN=$(mktemp -d "$ROOT/build/snapshot-memory-$RAM.XXXXXX")
     mkdir -p "$RUN/simdisk"
     cp -cR "$SOURCE/." "$RUN/simdisk/"
     SIM_BUILD=$BUILD SIMDISK=$RUN/simdisk SHOTS_TIMEOUT=360 \
-        "$ROOT/scripts/shots.sh" "$ROOT/tests/perf/snapshot-50k.script" \
+        "$ROOT/scripts/shots.sh" "$ROOT/tests/perf/snapshot-65k.script" \
         "$ROOT/out/shots/snapshot-memory-$RAM"
     rg 'snapshot stress|expect_snapshot_stress' \
         "$ROOT/out/shots/snapshot-memory-$RAM/sim.log"

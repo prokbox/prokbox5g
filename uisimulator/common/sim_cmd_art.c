@@ -48,6 +48,7 @@
 #include "sim_cmd_art.h"
 #include "audio.h"
 #include "sim_db.h"
+#include "file.h"           /* disk_read_for (#230) */
 
 /* "Idle" state of the art cache builder thread, for "art_wait":
  *  -1  no builder in this build (the default here: either Agent B's
@@ -221,6 +222,48 @@ static void disk_active(long ms)
 
     sim_disk_active_until = t ? t : 1;
     fprintf(stderr, "sim_script: disk_active %ld ms\n", ms);
+}
+
+/* disk_read_for <ms>: a background reader's storage traffic (#230): a
+ * small read every 500 ms for ms, as the art builder's pass keeps the
+ * drive busy; the idle power-off must wait for it (powermgmt.c) */
+static void disk_read_for(long ms, int lineno)
+{
+    static const char path[] = "/disk_read_for.tmp";
+    long end = current_tick + ms * HZ / 1000;
+    int n = 0, fd;
+    char b[64];
+
+    /* its own file, so a fresh disk has something to read */
+    memset(b, 0x5a, sizeof(b));
+    fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+    if (fd < 0 || write(fd, b, sizeof(b)) != (ssize_t)sizeof(b))
+    {
+        if (fd >= 0)
+            close(fd);
+        fprintf(stderr, "sim_script:%d: expect_disk_read failed: can't "
+                "write %s\n", lineno, path);
+        return;
+    }
+    close(fd);
+    while (TIME_BEFORE(current_tick, end))
+    {
+        fd = open(path, O_RDONLY);
+        if (fd >= 0)
+        {
+            if (read(fd, b, sizeof(b)) > 0)
+                n++;
+            close(fd);
+        }
+        sleep(HZ / 2);
+    }
+    remove(path);
+    if (n < 2)
+        fprintf(stderr, "sim_script:%d: expect_disk_read failed: %d reads "
+                "in %ld ms\n", lineno, n, ms);
+    else
+        fprintf(stderr, "sim_script: disk_read_for %ld ms reads=%d\n", ms,
+                n);
 }
 
 /* --- expect_art <manifest> ------------------------------------------- */
@@ -429,6 +472,8 @@ bool sim_cmd_art(const char *cmd, char *argv[], int argc, int lineno)
                 sim_art_persistence(argv[1]) ? "ok" : "failed", argv[1]);
     else if (!strcmp(cmd, "disk_active") && argc >= 2)
         disk_active(atol(argv[1]));
+    else if (!strcmp(cmd, "disk_read_for") && argc >= 2)
+        disk_read_for(atol(argv[1]), lineno);
     else if (!strcmp(cmd, "audio_reload"))
     {
         /* a real refill, without a key (a key pauses the art builder):

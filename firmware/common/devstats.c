@@ -81,6 +81,13 @@ void devstats_io(bool write, unsigned long sector, unsigned long count,
     restore_irq(old);
 }
 
+uint32_t devstats_self_cmds(void)
+{
+    unsigned int slot = THREAD_ID_SLOT(thread_self());
+
+    return slot < DEVSTATS_SLOTS ? devstats.t[slot].cmds : 0;
+}
+
 void devstats_disk_sleep(bool ok)
 {
     if (ok)

@@ -1,0 +1,24 @@
+# #230: the idle timer waits for storage to be quiet, as on the device.
+# The simulator's file layer now keeps the last read's tick
+# (filesystem-sim.c, storage_last_disk_activity()), so a long background
+# job that keeps reading (the art builder's first pass at 50k songs, which
+# powered the simulator off at 3,936 of 4,952 albums) holds the power-off
+# off; once the reads stop, the 1-minute idle timer powers off as before.
+# Red before the change: the power-off came about 60 s in, during the reads.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p18-idle-poweroff-disk.script
+# golden: skip
+# timeout: 240
+# log: disk_read_for 100000 ms reads=
+# log: power off batt=
+# logbetween: r0 r1 no power off batt=
+# nolog: sleep enter
+
+wait 4000
+sleep_mode off
+idle_poweroff 1         # 1 min, the setting's least
+ab_mark r0
+disk_read_for 100000    # 100 s of reads: past the 60 s timeout
+ab_mark r1
+shot reads_done         # still on after 100 s with the drive busy
+wait 90000              # then quiet: the power-off ends the run
+quit

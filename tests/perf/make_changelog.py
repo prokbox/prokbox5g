@@ -26,8 +26,10 @@
 
     tests/perf/make_changelog.py <simdisk> [lines] [--shuffle | --realistic]
 
-Reads <simdisk>/.rockbox/database_4.tcd (the filename tag file) and writes
-<simdisk>/.rockbox/database_changelog.txt with one line per entry (or the
+Reads database_4.tcd (the filename tag file) of the active database
+generation (<simdisk>/.rockbox/database_gen<N>/, the newest intact
+manifest's; the flat <simdisk>/.rockbox/ on an older disk) and writes
+database_changelog.txt beside it, with one line per entry (or the
 first 'lines' of them), in master index order (idx_id) like the shell's
 export (ui_export_changelog() in apps/tagcache.c), each with a play count
 and a resume position: what the shell's import reads after a rebuild.
@@ -38,7 +40,7 @@ from an older database and imported into a rebuilt one: 5% of the lines
 re-added or retagged later sit at the end of the old database, and 2%
 more lines name files that no longer exist (deleted since the export),
 spread through the file; each of those is a lookup that finds nothing.
-Used by tests/perf/import50k.sh to time the changelog import on the 50k
+Used by tests/perf/import65k.sh to time the changelog import on the 65k
 synthetic library.
 """
 import os
@@ -67,11 +69,46 @@ def quote(s):
     return s.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
 
 
+DBGEN_MAGIC = 0x47445049      # apps/ipodui/dbgen.c: "IPDG", native endian
+
+
+def active_db_dir(rockbox):
+    """The active database generation's folder (#230): the intact
+    database_manifest<0|1>.dat with the higher seq names database_gen<N>
+    (apps/ipodui/dbgen.c, struct manifest: magic, version, seq, gen,
+    little-endian). The manifest's checksum isn't checked here: a torn
+    manifest makes the import fail loudly in the sim. Without manifests,
+    the old flat layout."""
+    best = None
+    for slot in (0, 1):
+        try:
+            with open(os.path.join(rockbox, 'database_manifest%d.dat'
+                                   % slot), 'rb') as f:
+                head = f.read(20)
+        except OSError:
+            continue
+        if len(head) < 20:
+            continue
+        magic, _version, seq, gen = struct.unpack('<IIQI', head)
+        if magic != DBGEN_MAGIC:
+            continue
+        d = os.path.join(rockbox, 'database_gen%d' % gen)
+        if os.path.isdir(d) and (best is None or seq > best[0]):
+            best = (seq, d)
+    if best:
+        return best[1]
+    if os.path.exists(os.path.join(rockbox, 'database_%d.tcd'
+                                   % TAG_FILENAME)):
+        return rockbox
+    sys.exit('make_changelog: no database in %s (no intact manifest, no '
+             'flat database_%d.tcd)' % (rockbox, TAG_FILENAME))
+
+
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith('--')]
     if not args:
         sys.exit(__doc__)
-    db = os.path.join(args[0], '.rockbox')
+    db = active_db_dir(os.path.join(args[0], '.rockbox'))
     rows = sorted(entries(os.path.join(db, 'database_%d.tcd'
                                        % TAG_FILENAME)))
     if len(args) > 1:

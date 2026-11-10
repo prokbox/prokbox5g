@@ -63,6 +63,7 @@
 #include "ipodui/preview.h"     /* ui_fb_settle() (P19) */
 #include "ipodui/alarm_ring.h"      /* alarm_dark_wait() */
 #include "ipodui/sdk/sdk_int.h"     /* sdk_sleep_enter() */
+#include "ipodui/updscreen.h"       /* ui_upd_yield() */
 #include "hang_watch.h"          /* hang_idle_begin(): asleep is idle */
 #include "power_sleep.h"        /* SLEEP_REFUSE_*, struct sleep_req */
 #ifdef HAVE_POWER_SLEEP
@@ -783,6 +784,10 @@ bool ui_sleep_run(void)
     sdk_sleep_enter(r == SLEEP_TIMER);  /* P12: a game suspends; its
                                          * record goes with the sleep's
                                          * own saves */
+    /* p081-pageboost: the library page's build hold (a boost) given back
+     * to the wake: power_sleep() refuses any boost held (the entry
+     * window, if any, holds its own while it runs the build) */
+    ui_upd_yield(UPD_YIELD_SLEEP, true);
     q = quiesce(r, &entry);
     if (q == SQ_SLEEP)
     {
@@ -796,6 +801,8 @@ bool ui_sleep_run(void)
     }
     tagcache_ui_sleep_cut(false);       /* awake (or off): commits run */
     ui_sleep_storage_hold(false);
+    ui_upd_yield(UPD_YIELD_SLEEP, false);   /* the page's build: boosted
+                                             * again if it is still up */
     switch (q)
     {
     case SQ_OFF:

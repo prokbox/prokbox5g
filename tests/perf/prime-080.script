@@ -1,0 +1,8 @@
+# The 0.8.0 release's first build of a stress library (tests/perf/upgrade080.sh):
+# run by the 0.8.0 simulator, so only commands it knows. Boot, build the
+# library from nothing, let the boot-time background work finish, quit.
+# golden: skip
+wait 3000
+wait_db 1500000     # the first build (minutes at 65k)
+wait 15000          # the library file and the publication behind it
+quit

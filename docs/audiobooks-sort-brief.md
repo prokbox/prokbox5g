@@ -172,7 +172,7 @@ New data is **added** (LIBFILE_VERSION stays 1, as with #49 and #58). `pre_curre
 6. **Threads:** the flag write runs only on the tagcache thread (queued command). The art builder only posts. The precompute holds no RAM pointer across a yield. The UI thread reads only the file.
 7. **Splashes:** none. Bad sections fall back to the scan, logged.
 8. **Persistence:** settings are saved on change. A power cut mid-catch-up loses nothing: the bit marks progress and `series_stamp` forces the redo. Through a rebuild the flags are recomputed at scan. USB connect stops the pass, which resumes on the next stopped pass.
-9. **Scale:** extend `tests/perf/lib50k.sh` with `--books 5000 --series 600` (series of 2–40 books, 5% Various Authors, 10% multi-file, 20% unnumbered). Report precompute and `lib_open` sim times plus device estimates for all 4 modes.
+9. **Scale:** extend `tests/perf/lib65k.sh` with `--books 5000 --series 600` (series of 2–40 books, 5% Various Authors, 10% multi-file, 20% unnumbered). Report precompute and `lib_open` sim times plus device estimates for all 4 modes.
 10. **Deferred work:** the catch-up waits for stop. One script each for *ready*, *fresh/rebuilding* (the pass must not run; flags come from the scan), and *dirty*.
 11. **Stock unchanged:** `.text` cmp-identical with `english.lang` held equal. All upstream edits are guarded.
 12. See §5.

@@ -141,8 +141,10 @@ static bool gone(const char *p, const char *keep)
 
 static int replace(const char *tmp, const char *dest, const char *prev)
 {
-    bool had = exists(dest);
+    bool had;
 
+    POWERCUT_POINT("save.written", dest);       /* tmp written, closed */
+    had = exists(dest);
     if (!had && exists(prev))
     {
         /* an earlier replace cut between 3 and 4: the old file first */
@@ -152,8 +154,10 @@ static int replace(const char *tmp, const char *dest, const char *prev)
     }
     if (!gone(prev, dest))                              /* 2 */
         return -1;
+    POWERCUT_POINT("save.prev_gone", dest);
     if (had && rename(dest, prev) < 0)                  /* 3 */
         return -1;
+    POWERCUT_POINT("save.moved", dest);
     if (rename(tmp, dest) < 0)                          /* 4 */
     {
         /* a failed rename may still have landed: undo only onto a free
@@ -162,7 +166,9 @@ static int replace(const char *tmp, const char *dest, const char *prev)
             rename(prev, dest);
         return -1;
     }
+    POWERCUT_POINT("save.renamed", dest);
     remove(prev);           /* 5: a leftover goes at the next replace or */
+    POWERCUT_POINT("save.done", dest);
     return 0;               /* at recovery */
 }
 
@@ -175,6 +181,59 @@ int safefile_replace(const char *tmp, const char *dest, const char *prev)
     modclass_save(true);
     rc = replace(tmp, dest, prev);
     modclass_save(false);
+    return rc;
+}
+
+/* 1 if the byte at 'off' reads */
+static bool reads_at(int fd, off_t off)
+{
+    char c;
+
+    return lseek(fd, off, SEEK_SET) == off && read(fd, &c, 1) == 1;
+}
+
+int safefile_heal_cut(const char *path)
+{
+    /* read-only for the check (a writer's close rewrites the entry) */
+    int fd = open(path, O_RDONLY);
+    off_t size, lo, hi;
+    int rc = 0;
+
+    if (fd < 0)
+        return -1;
+    size = lseek(fd, 0, SEEK_END);
+    if (size > 0 && !reads_at(fd, size - 1))
+    {
+        close(fd);
+        fd = open(path, O_RDWR);
+        if (fd < 0)
+            return -1;
+        /* the chain ends before the size: find where (a binary search
+         * over 512-byte blocks; the chain is whole up to its end) */
+        lo = 0;                             /* blocks known to read */
+        hi = (size - 1) / 512;              /* first block known not to */
+        if (!reads_at(fd, 0))
+            hi = 0;
+        else
+            lo = 1;
+        while (lo < hi)
+        {
+            off_t mid = lo + (hi - lo) / 2;
+
+            if (reads_at(fd, mid * 512))
+                lo = mid + 1;
+            else
+                hi = mid;
+        }
+        /* the size cut back to the chain: the chain's last cluster gets
+         * its end mark and the size follows (FAT first). The link past
+         * it is free now (that is why the tail failed to read), so
+         * nothing anyone owns is freed; a cut in between leaves it cut
+         * as before, healed at the next boot */
+        rc = ftruncate(fd, lo * 512) == 0 ? 1 : -1;
+    }
+    if (close(fd) != 0)
+        rc = -1;
     return rc;
 }
 

@@ -44,6 +44,21 @@ tests/video/vclass_test.sh >"$VLOG" 2>&1 || vrc=$?
 grep -v '^ok  ' "$VLOG" || true
 rm -f "$VLOG"
 [ $vrc -eq 0 ] || { echo "FAIL: tests/video/vclass_test.sh"; exit 1; }
+# #224: the player's log lines keep their numbers inside ui_log's slot
+# (before the ffmpeg check below: this one needs no media tools)
+VLT=$(mktemp -d)
+if ! "${HOSTCC:-cc}" -std=gnu99 -O1 -Wall -Wextra -Werror ${EXTRA_CFLAGS:-} \
+        -Iapps/video -o "$VLT/test_vlogline" tests/video/test_vlogline.c \
+        2>"$VLT/cc.log"; then
+    echo "FAIL: compiling test_vlogline"
+    cat "$VLT/cc.log"
+    rm -rf "$VLT"
+    exit 1
+fi
+python3 -I tests/video/vlog_names.py >"$VLT/names" \
+    || { rm -rf "$VLT"; echo "FAIL: tests/video/vlog_names.py"; exit 1; }
+"$VLT/test_vlogline" <"$VLT/names" || { rm -rf "$VLT"; exit 1; }
+rm -rf "$VLT"
 for t in ffmpeg ffprobe; do
     if ! command -v "$t" >/dev/null 2>&1; then
         echo "SKIP mp4demux: $t not installed"

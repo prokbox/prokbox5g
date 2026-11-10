@@ -175,7 +175,26 @@ enum artrec_state {             /* no record = PENDING */
                                    until the host tool (7b) builds it */
 };
 
-enum artsrc_kind { ARTSRC_NONE = 0, ARTSRC_FILE = 1, ARTSRC_EMBEDDED = 2 };
+/* ARTSRC_SYNCDB (#225 S3): a cover from the stock firmware's cover
+ * database (syncart.h), for a track a sync app put in iPod_Control/Music.
+ * The record's fields then: src_type AA_TYPE_RAW565 (| ARTREC_T_SIG2,
+ * | ARTREC_T_PANEL_EMB), src_hash artkey_fnv32() of the image file's path
+ * XOR offset x 2654435761 (where the image is), src_size its bytes,
+ * src_crc its CRC in the SIG2 style.
+ * Rollback (an older build, 0.8.0, on such an index): the record reads as
+ * "not a file source"; that build's image-file search (no S1) finds none,
+ * so it is kept: thumbnail and bundle stay, never re-signed
+ * (artrec_sig_valid() false), no wipe. It cannot open the source again,
+ * so whatever needs a new decode fails there: the panel set's panel, the
+ * Now Playing cover, and (only if that build's Now Playing layout tag
+ * differs, np_stale(); #225 does not change it) the bundle's re-compose,
+ * which would fail that build's passes until the album's tags change. */
+enum artsrc_kind { ARTSRC_NONE = 0, ARTSRC_FILE = 1, ARTSRC_EMBEDDED = 2,
+                   ARTSRC_SYNCDB = 3 };
+/* The shell's own source type (src_type's low nibble, beside metadata.h's
+ * AA_TYPE_*): raw RGB565 little-endian pixels, row-major, no row padding
+ * (the cover database's image files) */
+#define AA_TYPE_RAW565     0x0e
 
 #define ARTREC_NO_SLOT 0xffffffffu
 
@@ -266,6 +285,13 @@ static inline artcache_key_t artrec_book_key(const struct artcache_rec *r)
 #define ARTREC_T_MASK      0x0f
 #define ARTREC_T_SIG2      0x80
 #define ARTREC_T_UNSIGNED  0x40
+/* #225 S3 (owner Q1, 2026-11-08): an ARTSRC_SYNCDB record whose track
+ * also has embedded art: the thumbnail, Album Flow and Now Playing screen
+ * images come from the cover database's 200 px image, the panel-sized
+ * ones (the panel set's 300 px panels and the main menu's Now Playing
+ * row cover, npcover.pak) from the embedded art (decoded). Informational:
+ * the panel build picks its own source by the same rule (source_decode()). */
+#define ARTREC_T_PANEL_EMB 0x20
 static inline unsigned artrec_src_type(const struct artcache_rec *r)
 {
     return r->src_type & ARTREC_T_MASK;

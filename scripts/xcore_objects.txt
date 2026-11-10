@@ -29,8 +29,10 @@ need lcd-video.c:bcmfw_poweron if *:bcm_boot_switch
 need lcd-video.c:bcm_port_dead if *:bcm_boot_switch
 need lcd-video.c:bcmjob_gen if *:bcmjob_init
 need lcd-video.c:bcmjob_on if *:bcmjob_init
-# bcmjob-dev.c (in lcd-video.c): the port lock's depth, the request record
-need lcd-video.c:bcm_port_depth if *:bcmjob_init
+# bcmjob-dev.c (in lcd-video.c): the port lock's state (its depth, whether
+# the outermost lock took the mutex, the tick block it found: one struct
+# bpl_state since the 2026-11-09 save/restore fix), the request record
+need lcd-video.c:bcm_port_st if *:bcmjob_init
 # P19 MF-4, the pixel hand-off (developer builds): the frame's producer
 # core and the fence-timeout counter; vplayer's overlay request
 need lcd-fb-xcore.c:lfx_core if *:lcd_fb_claim
@@ -42,7 +44,6 @@ need vplayer.c:ovl_slide if *:lcd_fb_publish
 # day 4e: the last play's long-play record (the player's thread writes,
 # the bench's vlong step reads on the shell's core)
 need vplayer.c:prog if *:lcd_fb_publish
-need lcd-video.c:bcm_port_mtx if *:bcmjob_init
 need lcd-video.c:jd_req if *:bcmjob_init
 need lcd-video.c:jd_ack if *:bcmjob_init
 need lcd-video.c:jd_owner if *:bcmjob_init

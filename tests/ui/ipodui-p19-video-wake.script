@@ -26,12 +26,12 @@
 # timeout: 300
 # logbetween: p0 p1 sim stor on by=buffering
 # logbetween: p0 p1 no sim stor on by=video
-# logbetween: p0 p1 no video: thread late \(ms past its wait, audio ms\) \(([7-9]\d\d|\d{4,}),
-# logbetween: p1 q0 video: end: index reads ahead, here \([1-9]\d*, 0\)
+# logbetween: p0 p1 no video: thread late ([7-9]\d\d|\d{4,}) -?\d+ \(ms past its wait, audio ms\)
+# logbetween: p1 q0 video: end: [1-9]\d* 0 \(index reads ahead, here\)
 # logbetween: q0 q1 sim stor on by=buffering
 # logbetween: q0 q1 no sim stor on by=video
-# logbetween: q0 q1 no video: thread late \(ms past its wait, audio ms\) \((2[4-9]\d\d|[3-9]\d{3}|\d{5,}),
-# logbetween: q1 x0 video: end: index reads ahead, here \([1-9]\d*, 0\)
+# logbetween: q0 q1 no video: thread late (2[4-9]\d\d|[3-9]\d{3}|\d{5,}) -?\d+ \(ms past its wait, audio ms\)
+# logbetween: q1 x0 video: end: [1-9]\d* 0 \(index reads ahead, here\)
 # nolog: video: index read ahead
 # nolog: video: stopped, BCM given back
 # nolog: video: image lost

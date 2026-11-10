@@ -1,0 +1,51 @@
+# #237: USB plugged in during a first build. The USB screen takes over;
+# the build's candidate is dropped at USB (tagcache.c, SYS_USB_CONNECTED)
+# and built again after it. After the unplug the library page comes back
+# at once (still no library), stays until the build is done, then the
+# main menu with the music. The page gives its build hold back before
+# the USB handler (p081-pageboost: no boost through the session), so
+# depth 0 comes at the plug, not at the page's leave after the unplug.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-firstbuild-usb.script
+# needs: library
+# fresh-db
+# timeout: 240
+# golden: skip
+# nolog: upd bar back
+# nolog: upd stuck
+# logbetween: b0 u0 upd push mode=boot
+# logbetween: b0 u0 upd draw bar=([1-9]\d*) step=2
+# logbetween: u0 u1 no upd done
+# logbetween: u0 u1 upd dedicated depth=0
+# logbetween: u0 u1 upd hold give why=usb
+# logbetween: u1 u2 upd push mode=boot
+# logbetween: u2 u3 upd draw bar=1000
+# logbetween: u2 u3 upd done ms=
+# logbetween: u2 u3 upd dedicated depth=0
+# logbetween: u2 u3 no upd push
+
+ab_mark b0
+scan_slow 3         # every folder 30 ms: the build lasts seconds
+wait 2500
+shot page_before    # the page, the walk part-way
+ab_mark u0
+usb_connect
+wait 2500
+shot usb            # the USB screen
+usb_disconnect
+ab_mark u1
+wait 1500
+shot page_again     # the page again: the build runs anew
+ab_mark u2
+wait_db 60000
+wait 3000
+shot menu_after     # the main menu
+ab_mark u3
+scan_slow 0
+key SELECT          # Music
+wait 600
+wheel +1            # Artists
+wait 300
+key SELECT
+wait 800
+shot artists
+quit

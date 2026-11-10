@@ -31,6 +31,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include "dbgen.h"
+#include "crcfast.h"
 
 static unsigned checks;
 #define CHECK(c) do { checks++; if (!(c)) { \
@@ -138,7 +139,8 @@ static void reseal(const char *root, const char *name, size_t offset, uint32_t v
     memcpy(m + 296, &sum, 4);
     put(root, name, m, sizeof(m));
 }
-static struct dbgen_ops ops = { files, 3, validate, cancel, NULL };
+static struct dbgen_ops ops = { files, 3, validate, cancel, NULL, NULL,
+                                NULL, NULL, NULL };
 
 int main(int argc, char **argv)
 {
@@ -199,6 +201,50 @@ int main(int argc, char **argv)
     put(root, "database_manifest0.dat", manifests[0], lens[0]);
     put(root, "database_manifest1.dat", manifests[1], lens[1]);
     CHECK(dbgen_select(root, active, work, sizeof(work), &ops) == DBGEN_OK);
+
+    /* p081-bootload: the boot's quick choice is select's first try, read
+     * from sizes alone; the fast CRC tables give select the same verdicts
+     * (and accept what the nibble CRC stamped); content damage of the
+     * same size passes the quick choice and is caught by the full select,
+     * with the tables or without. */
+    {
+        static struct crcfast tables;
+        struct dbgen_ops fops = ops;
+        char quick[DBGEN_PATH_MAX];
+        unsigned char b;
+        crcfast_init(&tables);
+        fops.crc = &tables;
+        CHECK(dbgen_select_quick(root, quick, work, sizeof(work), &ops) == DBGEN_OK);
+        CHECK(!strcmp(quick, gen1));
+        CHECK(dbgen_select(root, active, work, sizeof(work), &fops) == DBGEN_OK);
+        CHECK(!strcmp(active, gen1));
+        path(p, gen1, files[1].name);
+        int fd = open(p, O_RDWR);
+        CHECK(fd >= 0 && pread(fd, &b, 1, 20000) == 1);
+        b ^= 0x40;
+        CHECK(pwrite(fd, &b, 1, 20000) == 1 && close(fd) == 0);
+        CHECK(dbgen_select_quick(root, quick, work, sizeof(work), &ops) == DBGEN_OK);
+        CHECK(!strcmp(quick, gen1));        /* the quick choice can't see it */
+        CHECK(dbgen_select(root, active, work, sizeof(work), &fops) == DBGEN_OK);
+        CHECK(!strcmp(active, gen0));       /* the full select does */
+        CHECK(dbgen_select(root, active, work, sizeof(work), &ops) == DBGEN_OK);
+        CHECK(!strcmp(active, gen0));
+        put(gen1, files[1].name, "bad", 3); /* another size: quick sees it */
+        CHECK(dbgen_select_quick(root, quick, work, sizeof(work), &ops) == DBGEN_CORRUPT);
+        CHECK(quick[0] == 0);
+        fill(gen1, 2);
+        CHECK(dbgen_select_quick(root, quick, work, sizeof(work), &fops) == DBGEN_OK);
+        CHECK(!strcmp(quick, gen1));
+        put(root, "database_manifest1.dat", "torn", 4); /* select's next try */
+        CHECK(dbgen_select_quick(root, quick, work, sizeof(work), &ops) == DBGEN_OK);
+        CHECK(!strcmp(quick, gen0));
+        put(root, "database_manifest0.dat", "torn", 4); /* none: select it */
+        CHECK(dbgen_select_quick(root, quick, work, sizeof(work), &ops) == DBGEN_CORRUPT);
+        put(root, "database_manifest0.dat", manifests[0], lens[0]);
+        put(root, "database_manifest1.dat", manifests[1], lens[1]);
+        CHECK(dbgen_select(root, active, work, sizeof(work), &fops) == DBGEN_OK);
+        CHECK(!strcmp(active, gen1));
+    }
 
     stop = true;
     CHECK(dbgen_prepare(root, active, candidate, work, sizeof(work), &ops) == DBGEN_CANCELLED);

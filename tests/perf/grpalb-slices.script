@@ -1,0 +1,37 @@
+# #230: a composer's and a genre's albums from their precomputed ranges,
+# on the collision fixture (tests/perf/artalb_fixture.py; driven by
+# tests/perf/grpalb_check.sh, which sets PROKBOX_ARTALB_CHECK: at the first
+# composer's and the first genre's albums opened, library.c checks every
+# composer's and genre's range against the scan).
+# Music menu by default (no Cover Flow or Compilations row; checked with
+# shots): Playlists, Artists, Albums, Songs, Genres (+4), Composers (+5),
+# Audiobooks, Search.
+wait 3000
+wait_db 300000
+wait 5000
+
+key SELECT          # Music
+wait 1000
+wheel +5 600        # Composers
+wait 600
+key SELECT
+wait 1500
+shot composers
+key SELECT          # the first composer's albums: the composers' check
+wait 5000
+shot composer_albums
+key MENU
+wait 1000
+key MENU            # Music, on Composers
+wait 1000
+wheel -1 600        # Genres
+wait 600
+key SELECT
+wait 1500
+shot genres
+key SELECT          # the first genre: its artists, "All Albums" first
+wait 3000
+key SELECT          # All Albums: the genres' check
+wait 5000
+shot genre_albums
+quit

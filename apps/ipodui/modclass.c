@@ -170,8 +170,15 @@ static void viol(int rule, const char *name)
     if (acc.viol & rule)
         return;
     acc.viol |= rule;
-    UPDATE_TRACE("modclass viol %s %s", mod_name(acc.mod), name);
-    ui_log("modclass", "viol %s %s", mod_name(acc.mod), name);
+    /* the counts the rule judged: only the UI thread's commands are
+     * booked, so a reads breach is the module's or the shell's own work
+     * done while the module is on top and outside a modclass_save() */
+    UPDATE_TRACE("modclass viol %s %s n=%lu entry=%lu writes=%lu",
+                 mod_name(acc.mod), name, (unsigned long)acc.reads,
+                 (unsigned long)acc.entry_reads, (unsigned long)acc.writes);
+    ui_log("modclass", "viol %s %s n=%lu entry=%lu writes=%lu",
+           mod_name(acc.mod), name, (unsigned long)acc.reads,
+           (unsigned long)acc.entry_reads, (unsigned long)acc.writes);
 }
 
 /* an entry window over its budget (Class A, the only class built) */

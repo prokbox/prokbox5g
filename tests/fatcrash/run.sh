@@ -79,14 +79,58 @@ fi
 echo "fsreplay $(cat "$out/emptyslot.txt")"
 if [ -z "$FATCRASH_NO_CONTROLS" ] && git -C "$top" cat-file -e 9507ca6c6e 2>/dev/null; then
     git -C "$top" show 9507ca6c6e:firmware/common/fat.c >"$out/fat_0b.c"
+    # (that fat.c predates fat_dirent_gen: today's file layer without the
+    # walk lookup cache, #243)
     # shellcheck disable=SC2086
     cc $CFLAGS -I"$fs" -DMAX_VIRT_SECTOR_SIZE=2048 \
        -DDEFAULT_VIRT_SECTOR_SIZE=2048 -DFSREPLAY_NO_SLOT_FAULT \
+       -DFILE_NO_WALK_CACHE \
        -o "$out/fsreplay_0bfat" "$here/fsreplay.c" "$out/fat_0b.c" \
        "$fs/disk_cache.c" "$fs/linked_list.c" $fl
     "$out/fsreplay_0bfat" emptyslot 32 2048 >/dev/null 2>&1 && rc=0 || rc=$?
     [ "$rc" = 3 ] || { echo "emptyslot control: no panic (rc $rc)"; exit 1; }
     echo "fsreplay negative control (9507ca6c6e fat.c panics) caught"
+fi
+
+# p081-fatdb: dbgen's prepare never removes or truncates through a damaged
+# chain (apps/chaincheck.c, dbgen.c guard_directory()): a cut, a
+# chain past its size into another folder's file or the generation's own
+# folder cluster, two files on one chain; the folder is set aside, a
+# healthy one cleared as before. Folder writes the drive acknowledged and
+# did not keep (the removes', the temp's) are caught by the read-backs
+# from the medium, logged, the folder kept and set aside next pass; clean
+# runs log nothing, every line under 60 characters. Controls: no guard
+# (ops.chain NULL, the code before) must harm keep.dat or the folder
+# cluster; read-backs through the cache must miss the dropped writes
+# shellcheck disable=SC2086
+cc $CFLAGS -I"$top/apps/ipodui" -I"$here" -I"$top/apps" \
+   -DMAX_VIRT_SECTOR_SIZE=2048 \
+   -DDEFAULT_VIRT_SECTOR_SIZE=2048 -o "$out/dbguard" "$here/dbguard.c" \
+   "$top/apps/ipodui/dbgen.c" "$top/apps/ipodui/crcfast.c" "$top/apps/chaincheck.c" \
+   "$fs/crc32.c" "$fs/fat.c" "$fs/disk_cache.c" "$fs/linked_list.c" $fl
+"$out/dbguard" >"$out/dbguard.txt" 2>&1 || {
+    echo "dbguard FAILED"; cat "$out/dbguard.txt"; exit 1; }
+tail -1 "$out/dbguard.txt"
+if [ -z "$FATCRASH_NO_CONTROLS" ]; then
+    if "$out/dbguard" off >"$out/dbguard_off.txt" 2>&1; then
+        echo "dbguard negative control (no guard) passed: no teeth"; exit 1
+    fi
+    grep -q HARMED "$out/dbguard_off.txt" && grep -q FREED \
+        "$out/dbguard_off.txt" || {
+        echo "dbguard negative control failed for another reason"
+        cat "$out/dbguard_off.txt"; exit 1; }
+    echo "dbguard negative control (no guard): $(tail -1 "$out/dbguard_off.txt")"
+    # the read-backs through the disk cache (no drop): blind to a folder
+    # write the drive did not keep, so the dropped-write cases must fail
+    if "$out/dbguard" cache >"$out/dbguard_cache.txt" 2>&1; then
+        echo "dbguard negative control (read-back via the cache) passed:" \
+             "no teeth"; exit 1
+    fi
+    [ "$(grep -c 'keeps no folder write.*FAIL' "$out/dbguard_cache.txt")" \
+        -eq 4 ] || { echo "dbguard cache control failed for another reason"
+        cat "$out/dbguard_cache.txt"; exit 1; }
+    echo "dbguard negative control (read-back via the cache):" \
+         "$(tail -1 "$out/dbguard_cache.txt")"
 fi
 
 # shellcheck disable=SC2086
@@ -291,6 +335,11 @@ cc $CFLAGS -DFAT_NO_DIR_BURST -o "$out/dirburst_off" $srcs
 cc $CFLAGS -DFATCRASH_BREAK_BURST_DROP -o "$out/dirburst_broken" $srcs
 # shellcheck disable=SC2086
 cc $CFLAGS -DFATCRASH_BREAK_BURST_DROP_ALL -o "$out/dirburst_broken_all" $srcs
+# #225: the shipped count is 8 slots; a 2-slot build keeps the LRU's
+# eviction path under the same mutation, fault and USB tests (with 8, the
+# small test folders may never evict)
+# shellcheck disable=SC2086
+cc $CFLAGS -DFAT_DIR_BURST_SLOTS=2 -o "$out/dirburst_2" $srcs
 tracks=${DIRBURST_TRACKS:-6000}
 # geometry: storage sectors per cluster : BPB bytes per sector (2048 is the
 # 5.5G's on-disk layout, scaled by fat.c's secmult = 4)
@@ -317,24 +366,28 @@ done
 for g in 2:512 8:512 32:512 8:2048 32:2048; do
     spc=${g%:*} bps=${g#*:}
     for seed in 1 2 3; do
-        "$out/dirburst" mut $seed $spc $bps >"$out/mut_on.txt" 2>&1 \
-            || { echo "dirburst mut $seed $g FAILED"; cat "$out/mut_on.txt"; exit 1; }
         "$out/dirburst_off" mut $seed $spc $bps >"$out/mut_off.txt" 2>&1 \
             || { echo "dirburst_off mut $seed $g FAILED"; cat "$out/mut_off.txt"; exit 1; }
-        cmp -s "$out/mut_on.txt" "$out/mut_off.txt" \
-            || { echo "dirburst mut $seed $g: listings differ"; exit 1; }
+        for b in dirburst dirburst_2; do
+            "$out/$b" mut $seed $spc $bps >"$out/mut_on.txt" 2>&1 \
+                || { echo "$b mut $seed $g FAILED"; cat "$out/mut_on.txt"; exit 1; }
+            cmp -s "$out/mut_on.txt" "$out/mut_off.txt" \
+                || { echo "$b mut $seed $g: listings differ"; exit 1; }
+        done
     done
-    echo "dirburst mut spc:bps=$g: 3 seeds ok, identical to upstream reads"
+    echo "dirburst mut spc:bps=$g: 3 seeds ok (8 and 2 slots), identical to upstream reads"
 done
 # read errors on bursts (single-sector retry, stream position, readdir
 # retry) and a USB unmount/host write/remount in mid-enumeration
 for g in 4:512 32:512 4:2048 32:2048; do
     spc=${g%:*} bps=${g#*:}
     for m in fault usb; do
-        "$out/dirburst" $m - $spc $bps >"$out/db_$m.txt" 2>&1 \
-            || { echo "dirburst $m $g FAILED"; cat "$out/db_$m.txt"; exit 1; }
+        for b in dirburst dirburst_2; do
+            "$out/$b" $m - $spc $bps >"$out/db_$m.txt" 2>&1 \
+                || { echo "$b $m $g FAILED"; cat "$out/db_$m.txt"; exit 1; }
+        done
     done
-    echo "dirburst fault + usb spc:bps=$g: ok"
+    echo "dirburst fault + usb spc:bps=$g: ok (8 and 2 slots)"
 done
 # writes never drop slots / mount and unmount never drop them
 run_broken() { "$out/$1" "$2" "$3" 32; }

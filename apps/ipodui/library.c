@@ -114,6 +114,8 @@
 #include "ipodui/library.h"
 #include "ipodui/lib_shuffle.h"
 #include "ipodui/align_check.h"
+#include "ipodui/uilog.h"
+#include "ipodui/lib_openlog.h"
 #ifdef HAVE_DEVSTATS
 #include "devstats.h"     /* #47: the lib open trace's cmds= */
 #endif
@@ -258,11 +260,12 @@ typedef char lib_rec_size_check[
  * album table 1, panel set 2, stats 1, books by author 3 (#59). A file
  * with more than LIBFILE_MAX_SEC is never written (pre_sec_begin()).
  * Phase 14a video builds: movies 2, TV shows 5, video stats 1 more.
- * #47: the artists' albums 1 more. */
+ * #47: the artists' albums 1 more. #230: the composers' and genres'
+ * albums 1 more (one section for both: the non-video header is full). */
 #ifdef HAVE_BCMFW_VIDEO
-#define LIB_PRE_SECTIONS 39
+#define LIB_PRE_SECTIONS 40
 #else
-#define LIB_PRE_SECTIONS 31
+#define LIB_PRE_SECTIONS 32
 #endif
 /* #47: one version for the lists and the tag files' order */
 typedef char lib_grouping_check[
@@ -382,10 +385,13 @@ bool lib_generation_pool_prepare(struct tagcache_context *ctx)
 }
 /* Growth is refused while audio plays (P6 Rev 1 item 2), so the spare
  * must hold what a user stacks up then. Measured (fix round M4,
- * tests/perf/lib50k.sh 50000 playing; "lib pool peak"): playing from
+ * tests/perf/lib65k.sh 50000 playing; "lib pool peak"): playing from
  * Songs, then Albums (4,882 rows), Artists > artist > album, Songs, a
  * book page, Songs: peak 618,568 of 665,536 B, no refusal; 46,968 B
- * left covers a book page's blob (AB_BLOB_MAX_SIZE 43,048). Past that a
+ * left covers a book page's blob (AB_BLOB_MAX_SIZE 43,048). At 65k
+ * (2026-11-08, tests/perf/lib65k.sh 65000 playing; Albums 6,343 rows):
+ * peak 801,096 of 845,536 B, 44,440 B left, still above the blob (50k
+ * on the same code: 618,592 of 665,536 B). Past that a
  * list opens empty, as with no database, and "lib alloc refused" is
  * logged; no splash. */
 static int fetches;             /* label cache misses since the last frame */
@@ -1250,10 +1256,22 @@ static bool slot_resize(int h, size_t size)
     return true;
 }
 
-/* #47: the open Artists list read from the precompute file (its rows are
- * the file's LIB_ARTISTS ROWS, in order), or 0: an artist's row number
- * there finds its albums in the file (from_artist_slice()) */
-static int art_view;
+/* #47, #230: the open Artists, Composers and Genres lists read from the
+ * precompute file (their rows are the file's ROWS of that category, in
+ * order), or 0: a group's row number there finds its albums in the file
+ * (from_group_slice()). The 7G's only ways to a group's albums go through
+ * that list (Artists > an artist, Composers > a composer, Genres > a
+ * genre > All Albums), and it stays open below its children, so the row
+ * is found in RAM, with no read of the file's ROWS section; any other
+ * way (the list closed) scans. */
+enum { SL_ARTIST, SL_COMPOSER, SL_GENRE, SL_KINDS };
+static int grp_view[SL_KINDS];
+static const uint8_t sl_cat[SL_KINDS] = {
+    LIB_ARTISTS, LIB_COMPOSERS, LIB_GENRES
+};
+static const char * const sl_names[SL_KINDS] UNUSED_ATTR = {
+    "artist", "composer", "genre"
+};
 #ifdef SIMULATOR
 static bool artalb_scan_only;   /* lib_artalb_check(): the reference */
 #endif
@@ -1265,8 +1283,9 @@ static void slot_free(int h)
 
     if (h <= 0 || h > MAX_VIEWS || !slots[h - 1].size)
         return;
-    if (h == art_view)
-        art_view = 0;
+    for (i = 0; i < SL_KINDS; i++)
+        if (h == grp_view[i])
+            grp_view[i] = 0;
     sl = &slots[h - 1];
     off = sl->off;
     size = sl->size;
@@ -1573,17 +1592,30 @@ static int scan(struct tagcache_context *ctx, struct bctx *c, int cls, int group
  * representative, idx), 0 for a case variant of the row before (group
  * views; step 4). Returns m and the row count in *rows, or -1 if the
  * database changed (or the precompute must stop). */
+static int rows_finish(struct tagcache_context *ctx, struct bctx *c,
+                       int group, int order, int n, int *rows);
+
 static int rows_build(struct tagcache_context *ctx, struct bctx *c, int cls, int group, int order,
                       const struct lib_filter *f, int cap, int *rows)
 {
-    struct rec *tmp;
-    int n, i, j, r = 0, rep = -1;
+    int n;
 
     *rows = 0;
     n = scan(ctx, c, cls, group, order, f, cap);
     if (n < 0)
         return -1;
+    return rows_finish(ctx, c, group, order, n, rows);
+}
 
+/* Steps 2-4 over the n records scan() left at c->recs_off (#230: also
+ * over a group's tracks gathered by the precompute, pre_grp_block()). */
+static int rows_finish(struct tagcache_context *ctx, struct bctx *c,
+                       int group, int order, int n, int *rows)
+{
+    struct rec *tmp;
+    int i, j, r = 0, rep = -1;
+
+    *rows = 0;
     c->group = G_NONE;
     c->order = -1;              /* identity only, no tie-breaks */
     if (group != G_NONE && n > 1)
@@ -1999,35 +2031,62 @@ static void counts_from_table(int h)
     slot_free(th);
 }
 
-/* #47: an artist's albums (lib_open(LIB_ALBUMS, artist filter)) from the
- * precompute file's per-artist range (libfile.h, LIB_ARTISTS ALBUMS) into
- * view h, laid out with the extras 'what' (counts and keys filled), when
- * the artist is a row of the open Artists list read from the file
- * (art_view). One open, the header, one 8-byte read and one read of the
- * artist's records; no RAM walk, no album table search. Each record is
- * checked against the RAM cache (the range has no sum of its own).
- * Returns the row count, or -1 (scan instead, the view as it came). */
-static int from_artist_slice(int h, const struct lib_filter *f,
-                             unsigned what)
+/* Which group's albums lib_open(cat, f) lists, if one from the file
+ * could: an artist's (#47), a composer's or a genre's (#230), alone;
+ * else -1 (no slice: the scan). */
+static int slice_kind(enum lib_cat cat, const struct lib_filter *f)
+{
+    if (cat != LIB_ALBUMS || !f || f->album != LIB_ANY
+#ifdef HAVE_BCMFW_VIDEO
+        || f->season != LIB_ANY
+#endif
+        )
+        return -1;
+    if (f->artist != LIB_ANY && f->genre == LIB_ANY
+        && f->composer == LIB_ANY)
+        return SL_ARTIST;
+    if (f->composer != LIB_ANY && f->artist == LIB_ANY
+        && f->genre == LIB_ANY)
+        return SL_COMPOSER;
+    if (f->genre != LIB_ANY && f->artist == LIB_ANY
+        && f->composer == LIB_ANY)
+        return SL_GENRE;
+    return -1;
+}
+
+/* #47, #230: a group's albums (lib_open(LIB_ALBUMS, artist, composer or
+ * genre filter): 'kind', the group's representative 'rep') from the
+ * precompute file's per-group range (libfile.h: LIB_ARTISTS ALBUMS,
+ * LIBFILE_CAT_GRPALB) into view h, laid out with the extras 'what'
+ * (counts and keys filled), when the group is a row of its open list read
+ * from the file (grp_view[kind]). One open, the header, one 8-byte read
+ * (a composer or genre: a 16-byte head first) and one read of the group's
+ * records; no RAM walk, no album table search. Each record is checked
+ * against the RAM cache (the range has no sum of its own). Returns the
+ * row count, or -1 (scan instead, the view as it came; *why says why). */
+static int from_group_slice(int h, int kind, int rep, unsigned what,
+                            const char **why)
 {
     struct tagcache_context *ctx = tagcache_context_active();
     const struct libfile_sec *p;
     const struct libfile_hdr *hd;
     struct libfile_sec sec;
-    struct view *v = get_view(art_view);
+    struct view *v = get_view(grp_view[kind]);
     size_t size, raw, orig = slots[h - 1].size;
-    uint32_t se[2], arts, row;
+    uint32_t se[2], head[LIBFILE_GRPALB_HEAD], rows, row, base, first;
     const int32_t *a;
     int fd, th, n, i;
     bool ok;
 
-    if (!v || v->cat != LIB_ARTISTS || !view_fresh(v))
+    *why = "list";              /* the group's list is not open */
+    if (!v || v->cat != sl_cat[kind] || !view_fresh(v))
         return -1;
-    arts = v->count;
-    for (row = 0; row < arts && v->rows[row] != f->artist; row++)
+    rows = v->count;
+    for (row = 0; row < rows && v->rows[row] != rep; row++)
         ;
-    if (row == arts)
+    if (row == rows)
         return -1;
+    *why = "file";
     th = slot_new(LIBFILE_HDR_SIZE);
     if (th <= 0)
         return -1;
@@ -2038,19 +2097,38 @@ static int from_artist_slice(int h, const struct lib_filter *f,
         return -1;
     }
     hd = (const struct libfile_hdr *)get_view(th);
-    p = pre_sec(hd, LIB_ARTISTS, LIBFILE_ROWS, sizeof(int32_t));
-    ok = p && p->count == arts;
-    p = ok ? pre_sec(hd, LIB_ARTISTS, LIBFILE_ALBUMS, sizeof(uint32_t))
-           : NULL;
-    ok = p && p->count >= LIBFILE_ARTALB_HDR(arts);
+    p = pre_sec(hd, sl_cat[kind], LIBFILE_ROWS, sizeof(int32_t));
+    ok = p && p->count == rows;
+    if (ok)
+    {
+        p = kind == SL_ARTIST
+            ? pre_sec(hd, LIB_ARTISTS, LIBFILE_ALBUMS, sizeof(uint32_t))
+            : pre_sec(hd, LIBFILE_CAT_GRPALB, 0, sizeof(uint32_t));
+        *why = "section";       /* a file from before it: rewritten once */
+    }
+    ok = ok && p;
     if (ok)
         sec = *p;
     slot_free(th);              /* view h is the newest again */
-    ok = ok
-        && lseek(fd, sec.offset + row * 4, SEEK_SET)
-           == (off_t)(sec.offset + row * 4)
+    base = 0;
+    if (ok && kind != SL_ARTIST)
+    {
+        /* the head: which blocks there are, and where the genres' is */
+        ok = sec.count >= LIBFILE_GRPALB_HEAD
+            && lseek(fd, sec.offset, SEEK_SET) == (off_t)sec.offset
+            && read(fd, head, sizeof(head)) == (ssize_t)sizeof(head)
+            && head[0] == LIBFILE_GRPALB_TAG
+            && head[kind == SL_COMPOSER ? 1 : 2] == rows;
+        base = kind == SL_COMPOSER ? LIBFILE_GRPALB_HEAD : head[3];
+        ok = ok && base >= LIBFILE_GRPALB_HEAD && base < sec.count;
+        *why = "block";         /* no room for it at precompute time */
+    }
+    first = base + rows + 1;    /* LIBFILE_ARTALB_HDR(rows) for artists */
+    ok = ok && sec.count >= rows + 1 && first <= sec.count
+        && lseek(fd, sec.offset + (base + row) * 4, SEEK_SET)
+           == (off_t)(sec.offset + (base + row) * 4)
         && read(fd, se, sizeof(se)) == (ssize_t)sizeof(se)
-        && se[0] >= LIBFILE_ARTALB_HDR(arts) && se[0] <= se[1]
+        && se[0] >= first && se[0] <= se[1]
         && se[1] <= sec.count
         && (se[1] - se[0]) % LIBFILE_ARTALB_WORDS == 0;
     if (!ok)
@@ -2058,10 +2136,11 @@ static int from_artist_slice(int h, const struct lib_filter *f,
         close(fd);
         return -1;
     }
+    *why = "room";
     n = (se[1] - se[0]) / LIBFILE_ARTALB_WORDS;
     size = view_layout(get_view(h), n, what);
     raw = (size_t)n * sizeof(struct libfile_artalb);
-    /* grown only when the scan's room is too small (an artist with most
+    /* grown only when the scan's room is too small (a group with most
      * of the library's albums); never shrunk here, so a fallback to the
      * scan never has to grow the view back */
     if (size + raw > orig && !slot_resize(h, size + raw))
@@ -2080,7 +2159,7 @@ static int from_artist_slice(int h, const struct lib_filter *f,
     close(fd);
     /* after the reads (they may yield): the view and the RAM cache */
     v = get_view(h);
-    a = tagcache_ui_seeks_ctx(ctx, f->artist, NULL);
+    a = tagcache_ui_seeks_ctx(ctx, rep, NULL);
     ok = ok && a && v->off_cnt && v->off_key;
     for (i = 0; ok && i < n; i++)
     {
@@ -2092,7 +2171,10 @@ static int from_artist_slice(int h, const struct lib_filter *f,
 
         s = e->rep >= 0 && e->rep < tagcache_ui_count()
             ? tagcache_ui_seeks_ctx(ctx, e->rep, &flag) : NULL;
-        ok = s && class_ok(C_MUSIC, flag) && same_artist(ctx, s, a);
+        ok = s && class_ok(C_MUSIC, flag)
+             && (kind == SL_ARTIST ? same_artist(ctx, s, a)
+                 : same_tag(ctx, s, a, kind == SL_COMPOSER ? tag_composer
+                                                           : tag_genre));
         /* rows and extras lie below 'size', the records above it */
         v->rows[i] = e->rep;
         ((uint32_t *)view_ext(v, v->off_cnt))[i] = e->count;
@@ -2101,8 +2183,9 @@ static int from_artist_slice(int h, const struct lib_filter *f,
     }
     if (!ok)
     {
-        UPDATE_TRACE("lib artist slice bad row=%lu n=%d", (unsigned long)row,
-                     n);
+        UPDATE_TRACE("lib %s slice bad row=%lu n=%d", sl_names[kind],
+                     (unsigned long)row, n);
+        *why = "record";
         if (size + raw > orig)
             slot_resize(h, orig);       /* a shrink: cannot fail */
         return -1;
@@ -2288,7 +2371,7 @@ static int build(enum lib_cat cat, const struct lib_filter *f,
 {
     int group, order, cls;
     int gen = tagcache_ui_generation();
-    int n, m, r = 0, i, h;
+    int n, m, r = 0, i, h, kind;
     unsigned what;
     size_t size;
     struct bctx c;
@@ -2348,24 +2431,26 @@ static int build(enum lib_cat cat, const struct lib_filter *f,
         if (file)
             *src = "file";
     }
-    else if (n > 0 && cat == LIB_ALBUMS && f->artist != LIB_ANY
-             && f->album == LIB_ANY && f->genre == LIB_ANY
-             && f->composer == LIB_ANY
-#ifdef HAVE_BCMFW_VIDEO
-             && f->season == LIB_ANY
-#endif
+    else if (n > 0 && (kind = slice_kind(cat, f)) >= 0
 #ifdef SIMULATOR
              && !artalb_scan_only
 #endif
              )
     {
-        /* #47: an artist's albums, one range of the file */
-        r = from_artist_slice(h, f, what);
+        /* #47, #230: an artist's, composer's or genre's albums, one range
+         * of the file */
+        const char *why;
+
+        r = from_group_slice(h, kind, kind == SL_ARTIST ? f->artist
+                             : kind == SL_COMPOSER ? f->composer : f->genre,
+                             what, &why);
         if (tagcache_ui_generation() != gen)
             goto changed;
         file = r >= 0;
         if (file)
             *src = "slice";
+        else
+            UPDATE_TRACE("lib %s slice missed why=%s", sl_names[kind], why);
     }
     if (!file)
     {
@@ -2421,8 +2506,10 @@ static int build(enum lib_cat cat, const struct lib_filter *f,
 
     v = get_view(h);
     v->cat = cat;
-    if (cat == LIB_ARTISTS && file)
-        art_view = h;           /* #47 */
+    if (file && unfiltered(f))
+        for (i = 0; i < SL_KINDS; i++)
+            if (cat == sl_cat[i])
+                grp_view[i] = h;        /* #47, #230 */
     v->sub = sub_of(cat, f);
     v->by_author = by_author;
     v->pinned = 0;
@@ -2518,6 +2605,29 @@ void lib_set_book_order(int order)
     book_order_gen++;           /* an open books list reopens */
 }
 
+/* #230: the filter's kind for the device's open timing line */
+static unsigned openlog_kind(const struct lib_filter *f)
+{
+    unsigned set;
+
+    if (unfiltered(f))
+        return LOL_ALL;
+    set = (f->artist != LIB_ANY) + (f->album != LIB_ANY)
+          + (f->genre != LIB_ANY) + (f->composer != LIB_ANY)
+#ifdef HAVE_BCMFW_VIDEO
+          + (f->season != LIB_ANY)
+#endif
+          ;
+    if (set != 1)
+        return LOL_OTHER;
+    return f->artist != LIB_ANY ? LOL_ARTIST
+         : f->album != LIB_ANY ? LOL_ALBUM
+         : f->genre != LIB_ANY ? LOL_GENRE
+         : f->composer != LIB_ANY ? LOL_COMPOSER : LOL_OTHER;
+}
+
+static struct lib_openlog openlog;      /* 16 B: kinds logged this boot */
+
 static int lib_open_held(enum lib_cat cat, const struct lib_filter *f)
 {
     unsigned long start UNUSED_ATTR = open_us();
@@ -2560,25 +2670,41 @@ static int lib_open_held(enum lib_cat cat, const struct lib_filter *f)
                  LIB_CMDS_FMT,
                  cat_names[cat], slots[h - 1].count, open_us() - start,
                  yields, src, now_us() - t0 LIB_CMDS_ARG);
+    {
+        /* #230: the device's figure (wall time), rate-limited: the first
+         * open of each kind this boot, then only slow ones */
+        unsigned long ms = (now_us() - t0) / 1000;
+        unsigned kind = openlog_kind(f);
+
+        if (lib_openlog_due(&openlog, cat, kind, ms))
+            ui_log("lib", LIB_OPENLOG_FMT, ms, slots[h - 1].count,
+                   cat_names[cat], lib_openlog_kinds[kind], src);
+    }
     return h;
 }
 
 #ifdef SIMULATOR
-/* #47 check (sim only, PROKBOX_ARTALB_CHECK set in the environment): at
- * the first artist's albums opened, every artist of the open Artists list
- * (art_view) is opened twice, from its range and by the scan, and rows,
- * counts and keys compared. Logs "lib artalb check artists= albums=
- * slices= bad=" (tests/perf/artalb_check.sh wants slices = artists and
- * bad=0). */
-static void lib_artalb_check(void)
+/* #47, #230 check (sim only, PROKBOX_ARTALB_CHECK set in the
+ * environment): at the first artist's, composer's or genre's albums
+ * opened, every group of that open list (grp_view[kind]) is opened twice,
+ * from its range and by the scan, and rows, counts and keys compared.
+ * Logs "lib artalb check artists= albums= slices= bad=" (composers:
+ * "lib cmpalb check composers=", genres: "lib genalb check genres=";
+ * tests/perf/artalb_check.sh and grpalb_check.sh want groups > 0, slices =
+ * groups and bad=0). */
+static void lib_artalb_check(int kind)
 {
-    static bool done;
-    int i, k, bad = 0, total = 0, rows = 0, slices = 0, ah = art_view;
+    static const char * const what[SL_KINDS] = {
+        "artalb check artists", "cmpalb check composers",
+        "genalb check genres"
+    };
+    static bool done[SL_KINDS];
+    int i, k, bad = 0, total = 0, rows = 0, slices = 0, ah = grp_view[kind];
     uint32_t *ref = NULL;
 
-    if (done || !getenv("PROKBOX_ARTALB_CHECK") || !get_view(ah))
+    if (done[kind] || !getenv("PROKBOX_ARTALB_CHECK") || !get_view(ah))
         return;
-    done = true;
+    done[kind] = true;
     for (i = 0; get_view(ah) && i < get_view(ah)->count; i++)
     {
         struct lib_filter f = LIB_FILTER_ANY;
@@ -2586,7 +2712,12 @@ static void lib_artalb_check(void)
         struct view *v;
         int h, n;
 
-        f.artist = get_view(ah)->rows[i];
+        if (kind == SL_ARTIST)
+            f.artist = get_view(ah)->rows[i];
+        else if (kind == SL_COMPOSER)
+            f.composer = get_view(ah)->rows[i];
+        else
+            f.genre = get_view(ah)->rows[i];
         h = build(LIB_ALBUMS, &f, &src);
         total++;
         if (h <= 0)
@@ -2624,8 +2755,8 @@ static void lib_artalb_check(void)
                     || ref[4 * k + 2] != y[2 * k]
                     || ref[4 * k + 3] != y[2 * k + 1])
                 {
-                    UPDATE_TRACE("lib artalb check differs artist=%d row=%d",
-                                 i, k);
+                    UPDATE_TRACE("lib %s differs group=%d row=%d",
+                                 what[kind], i, k);
                     bad++;
                     break;
                 }
@@ -2634,7 +2765,7 @@ static void lib_artalb_check(void)
             slot_free(h);
     }
     free(ref);
-    UPDATE_TRACE("lib artalb check artists=%d albums=%d slices=%d bad=%d",
+    UPDATE_TRACE("lib %s=%d albums=%d slices=%d bad=%d", what[kind],
                  total, rows, slices, bad);
 }
 #endif
@@ -2644,8 +2775,8 @@ int lib_open(enum lib_cat cat, const struct lib_filter *f)
     struct tagcache_context *held = tagcache_context_acquire();
     int result = lib_open_held(cat, f);
 #ifdef SIMULATOR
-    if (cat == LIB_ALBUMS && f && f->artist != LIB_ANY)
-        lib_artalb_check();
+    if (slice_kind(cat, f) >= 0)
+        lib_artalb_check(slice_kind(cat, f));
 #endif
     tagcache_context_release(held);
     return result;
@@ -4543,16 +4674,17 @@ static bool NO_INLINE pre_keys(struct tagcache_context *ctx, struct pre *p, int 
  * the master index counts each row's tracks of class 'cls'. */
 /* Row of album entry 'i' (seeks s, flag) through the identity map that
  * pre_counts() sorted at recs_off (m records), or -1. */
-static int pre_row_of(struct tagcache_context *ctx, struct pre *p, int m, int i, const int32_t *s,
-                      int32_t flag)
+static int pre_map_row(struct tagcache_context *ctx, struct pre *p,
+                       size_t off, int m, int group, int i,
+                       const int32_t *s, int32_t flag)
 {
     const struct rec *map;
     struct rec k;
     int lo = 0, hi = m;
 
     k.idx = i;
-    group_ident(ctx, &p->c, &k, G_ALBUM, s, flag);
-    map = recs_at(&p->c, p->c.recs_off);
+    group_ident(ctx, &p->c, &k, group, s, flag);
+    map = recs_at(&p->c, off);
     while (lo < hi)
     {
         int mid = (lo + hi) / 2;
@@ -4566,6 +4698,12 @@ static int pre_row_of(struct tagcache_context *ctx, struct pre *p, int m, int i,
             hi = mid;
     }
     return -1;
+}
+
+static int pre_row_of(struct tagcache_context *ctx, struct pre *p, int m,
+                      int i, const int32_t *s, int32_t flag)
+{
+    return pre_map_row(ctx, p, p->c.recs_off, m, G_ALBUM, i, s, flag);
 }
 
 /* disc, track, then master index: lib_open(LIB_SONGS, album filter)'s
@@ -5798,6 +5936,356 @@ empty:  /* the readers scan; pre_current() takes the file */
     return true;
 }
 
+/* -- #230: each composer's and genre's albums (LIBFILE_CAT_GRPALB) ------- */
+
+/* One group's block, computed (not yet written): r rows, p records; at
+ * 'off', p representatives (int32, row by row) then r album counts. */
+struct grp_res {
+    uint32_t r, p;
+    size_t off;
+};
+
+/* Every offset is a multiple of 4 in a word-aligned buflib block: work is
+ * 16 x na, map + 12 x m, then 4-byte arrays (arr, trk, rw), and *top
+ * steps down from hdr_off (pre_bytes(): 20 x n + SEEN_BYTES + 800/544 +
+ * 2048) by 4 x (np + r) */
+#define GRP_W(o, k) (((uint32_t *)(bx_base(&p->c) + (o)))[k]) /* align-ok: o a multiple of 4 in a word-aligned block (above) */
+
+/* What lib_open(LIB_ALBUMS, filter by row) lists for every row of 'cat'
+ * (LIB_COMPOSERS or LIB_GENRES, its ROWS written), by the scan's own
+ * steps, without a scan per row. In the block from 'work' up to '*top'
+ * (rows_build()'s identity table, SEEN_BYTES, at the top while it runs):
+ *   map  rec[m]     every identity of the group (exact tag seek, as the
+ *                   scan's step 2 keeps them) -> its row: rows_build() of
+ *                   the unfiltered category (the very rows of its ROWS
+ *                   section), then sorted by identity (pre_counts()'s map)
+ *   arr  uint32[r]  each row's matching tracks, then fill cursors
+ *   trk  int32[T]   the T matching tracks, row by row, in master index
+ *                   order (the scan's order)
+ *   rw   uint32[r]  each row's album rows
+ *   rec  rec[max]   one row's tracks as the scan's records (G_ALBUM
+ *                   identity), through rows_finish(): steps 2-4 of the
+ *                   scan's own build, so the same rows in the same order
+ *                   with the same representatives
+ * A matching track is a music track (the albums' class) whose tag is set
+ * (the scan's filter is same_tag() against a tagged row). Each row's
+ * representatives replace its tracks at the front of trk (never past its
+ * own), and the result moves to the top of the room (*top drops to it):
+ * 12m + 8r + 4T + 12 max bytes (and 12m + 4 KB while the map is made). A block without that room, or a
+ * track no row takes (a broken invariant), is left out (res->r = 0): its
+ * readers scan. False if the precompute must stop. */
+static bool pre_grp_block(struct tagcache_context *ctx, struct pre *p,
+                          int cat, int tag, size_t work, size_t *top,
+                          struct grp_res *res)
+{
+    const struct libfile_sec *rs = pre_sec(pre_hdr(p), cat, LIBFILE_ROWS,
+                                           sizeof(int32_t));
+    int group, order, cls, acls, m, r, i, total = tagcache_ui_count_ctx(ctx);
+    size_t map = work, arr, trk, rw, rec, dst;
+    uint32_t j, t, run, maxrow, np, unassigned = 0;
+
+    res->r = 0;
+    if (!rs || !rs->count
+        || map + 16 * sizeof(struct rec) + SEEN_BYTES > *top)
+        goto none;
+    classify(LIB_ALBUMS, NULL, &group, &order, &acls);  /* their class */
+    classify(cat, NULL, &group, &order, &cls);
+    p->c.seen_off = *top - SEEN_BYTES;     /* only while rows_build() */
+    p->c.recs_off = map;
+    p->c.memo.generation = -1;
+    m = rows_build(ctx, &p->c, cls, group, order, NULL,
+                   (int)((*top - SEEN_BYTES - map) / sizeof(struct rec)),
+                   &r);
+    if (m < 0)
+        return false;
+    if ((uint32_t)r != rs->count)
+        goto none;
+    /* the identity -> row map */
+    for (i = 0; i < m; i++)
+    {
+        struct rec *e, k;
+        int32_t flag;
+        const int32_t *s;
+
+        if (!pre_step(ctx, p))
+            return false;
+        e = &recs_at(&p->c, map)[i];
+        k.idx = e->idx;
+        s = tagcache_ui_seeks_ctx(ctx, e->idx, &flag);
+        if (s)
+            group_ident(ctx, &p->c, &k, group, s, flag);
+        else
+            k.k1 = k.k2 = 0xffffffffu;
+        k.idx = e->k1;                  /* the row */
+        *e = k;
+    }
+    p->c.group = G_NONE;
+    p->c.order = -1;
+    if (!sort_recs(ctx, &p->c, map, m))
+        return false;
+    arr = map + (size_t)m * sizeof(struct rec);
+    if (arr + (size_t)r * sizeof(uint32_t) > *top)
+        goto none;
+    memset(bx_base(&p->c) + arr, 0, (size_t)r * sizeof(uint32_t));
+    /* pass 1: each row's tracks */
+    for (i = 0; i < total; i++)
+    {
+        int32_t flag;
+        const int32_t *s;
+        int row;
+
+        if (!pre_step(ctx, p))
+            return false;
+        s = tagcache_ui_seeks_ctx(ctx, i, &flag);
+        if (!s || !class_ok(acls, flag) || !str_of(ctx, s, tag))
+            continue;
+        row = pre_map_row(ctx, p, map, m, group, i, s, flag);
+        if (row < 0 || row >= r)
+            unassigned++;
+        else
+            GRP_W(arr, row)++;
+    }
+    if (unassigned)
+    {
+        /* a safety net for a broken invariant: the readers scan */
+        UPDATE_TRACE("lib precompute %s albums unassigned=%lu",
+                     cat_names[cat], (unsigned long)unassigned);
+        goto none;
+    }
+    for (j = 0, t = 0, maxrow = 0; j < (uint32_t)r; j++)
+    {
+        uint32_t c = GRP_W(arr, j);
+
+        GRP_W(arr, j) = t;              /* the row's start, as a cursor */
+        t += c;
+        if (c > maxrow)
+            maxrow = c;
+    }
+    trk = arr + (size_t)r * sizeof(uint32_t);
+    rw = trk + (size_t)t * sizeof(int32_t);
+    rec = rw + (size_t)r * sizeof(uint32_t);
+    if (rec + (size_t)maxrow * sizeof(struct rec) > *top)
+        goto none;
+    /* pass 2: the tracks, row by row (the cursors end at row ends) */
+    for (i = 0; i < total; i++)
+    {
+        int32_t flag;
+        const int32_t *s;
+        int row;
+
+        if (!pre_step(ctx, p))
+            return false;
+        s = tagcache_ui_seeks_ctx(ctx, i, &flag);
+        if (!s || !class_ok(acls, flag) || !str_of(ctx, s, tag))
+            continue;
+        row = pre_map_row(ctx, p, map, m, group, i, s, flag);
+        if (row >= 0 && row < r)
+            GRP_W(trk, GRP_W(arr, row)++) = i;
+    }
+    /* each row's albums: the scan's steps 2-4 over its tracks */
+    for (j = 0, run = 0, np = 0; j < (uint32_t)r; run = GRP_W(arr, j++))
+    {
+        uint32_t end = GRP_W(arr, j), k, q;
+        int mm, rr;
+
+        for (k = run; k < end; k++)
+        {
+            struct rec e;
+            int32_t flag;
+            const int32_t *s;
+
+            if (!pre_step(ctx, p))
+                return false;
+            e.idx = (int32_t)GRP_W(trk, k);
+            s = tagcache_ui_seeks_ctx(ctx, e.idx, &flag);
+            if (s)
+                group_ident(ctx, &p->c, &e, G_ALBUM, s, flag);
+            else
+                e.k1 = e.k2 = 0xffffffffu;
+            recs_at(&p->c, rec)[k - run] = e;
+        }
+        p->c.recs_off = rec;
+        mm = rows_finish(ctx, &p->c, G_ALBUM, O_TITLE, (int)(end - run),
+                         &rr);
+        if (mm < 0)
+            return false;
+        for (k = 0, q = 0; k < (uint32_t)mm; k++)
+        {
+            struct rec e = recs_at(&p->c, rec)[k];
+
+            if (e.k2)                   /* np + q <= k + run: behind */
+                GRP_W(trk, np + q++) = (uint32_t)e.idx;
+        }
+        GRP_W(rw, j) = rr;
+        np += rr;
+    }
+    /* to the top: the counts first (upwards, past the reps' end), then
+     * the reps (upwards, below the counts) */
+    dst = *top - (size_t)(np + r) * sizeof(uint32_t);
+    memmove(bx_base(&p->c) + dst + (size_t)np * 4, bx_base(&p->c) + rw,
+            (size_t)r * 4);
+    memmove(bx_base(&p->c) + dst, bx_base(&p->c) + trk, (size_t)np * 4);
+    res->r = r;
+    res->p = np;
+    res->off = dst;
+    *top = dst;
+    return true;
+
+none:
+    UPDATE_TRACE("lib precompute no %s albums", cat_names[cat]);
+    return true;
+}
+
+/* Heap sort of n records (struct libfile_artalb) at 'off' by rep,
+ * yielding through pre_step(); re-fetched after every step. */
+static bool pre_artalb_sort(struct tagcache_context *ctx, struct pre *p,
+                            size_t off, uint32_t n)
+{
+    uint32_t end = n, i = n / 2;
+
+#define AA(k) (((struct libfile_artalb *)(bx_base(&p->c) + off))[k])
+    for (;;)
+    {
+        uint32_t root;
+        struct libfile_artalb t;
+
+        if (i > 0)
+            root = --i;
+        else
+        {
+            if (end <= 1)
+                break;
+            end--;
+            t = AA(0); AA(0) = AA(end); AA(end) = t;
+            root = 0;
+        }
+        for (;;)
+        {
+            uint32_t child = 2 * root + 1;
+
+            if (!pre_step(ctx, p))
+                return false;
+            if (child >= end)
+                break;
+            if (child + 1 < end && AA(child).rep < AA(child + 1).rep)
+                child++;
+            if (AA(root).rep >= AA(child).rep)
+                break;
+            t = AA(root); AA(root) = AA(child); AA(child) = t;
+            root = child;
+        }
+    }
+#undef AA
+    return true;
+}
+
+/* Writes LIBFILE_CAT_GRPALB (libfile.h). Runs last in pre_albumtab(), so
+ * the album entries it left at the block's start (the LIB_ALBUMS rows
+ * first) are free to change: the na music ones are packed in place to
+ * their records (16 of 24 B: rep, count, key) and sorted by rep, the
+ * count and key the scan's counts_from_table() finds for a row (a music
+ * row's rep is never a book's or a show's); then each group's
+ * pre_grp_block() in the room after them. */
+static bool pre_group_albums(struct tagcache_context *ctx, struct pre *p)
+{
+    const struct libfile_sec *as = pre_sec(pre_hdr(p), LIB_ALBUMS,
+                                           LIBFILE_ROWS, sizeof(int32_t));
+    uint32_t na = as ? as->count : 0;
+    size_t work = (size_t)na * sizeof(struct libfile_artalb);
+    size_t top = p->hdr_off, recs0 = p->c.recs_off, seen0 = p->c.seen_off;
+    struct grp_res res[2] = { { 0, 0, 0 }, { 0, 0, 0 } };
+    uint32_t head[LIBFILE_GRPALB_HEAD], g, i, j, base;
+    bool ok = true;
+
+#define AA(k) (((struct libfile_artalb *)bx_base(&p->c))[k])
+    if (work < top)
+    {
+        for (i = 0; i < na; i++)
+        {
+            struct libfile_album e =
+                ((struct libfile_album *)bx_base(&p->c))[i];
+
+            if (!pre_step(ctx, p))
+                return false;
+            AA(i).rep = e.rep;          /* 16 B at 16i: behind 24i */
+            AA(i).count = e.count;
+            AA(i).key_lo = e.key_lo;
+            AA(i).key_hi = e.key_hi;
+        }
+        ok = pre_artalb_sort(ctx, p, 0, na)
+             && pre_grp_block(ctx, p, LIB_COMPOSERS, tag_composer, work, &top,
+                              &res[0])
+             && pre_grp_block(ctx, p, LIB_GENRES, tag_genre, work, &top,
+                              &res[1]);
+    }
+    else
+        UPDATE_TRACE("lib precompute no %s albums", "group");
+    p->c.recs_off = recs0;
+    p->c.seen_off = seen0;
+    if (!ok)
+        return false;
+    head[0] = LIBFILE_GRPALB_TAG;
+    head[1] = res[0].r;
+    head[2] = res[1].r;
+    head[3] = LIBFILE_GRPALB_HEAD
+              + (res[0].r ? res[0].r + 1 + LIBFILE_ARTALB_WORDS * res[0].p
+                          : 0);
+    if (!pre_sec_begin(p, LIBFILE_CAT_GRPALB, 0, sizeof(uint32_t))
+        || !pre_put(p, head, sizeof(head)))
+        return false;
+    for (g = 0, base = LIBFILE_GRPALB_HEAD; g < 2; base = head[3], g++)
+    {
+        uint32_t r = res[g].r, run = base + r + 1;
+        size_t cnt = res[g].off + (size_t)res[g].p * 4;
+
+        if (!r)
+            continue;
+        for (i = 0; i <= r; i++)
+        {
+            if (!pre_put(p, &run, sizeof(run)))
+                return false;
+            if (i < r)
+                run += LIBFILE_ARTALB_WORDS * GRP_W(cnt, i);
+        }
+        for (j = 0; j < res[g].p; j++)
+        {
+            struct libfile_artalb o;
+            int32_t rep = (int32_t)GRP_W(res[g].off, j);
+            uint32_t lo = 0, hi = na;
+
+            if (!pre_step(ctx, p))
+                return false;
+            o.rep = rep;
+            o.count = 0xffffffffu;      /* not an album's own rep: as */
+            o.key_lo = o.key_hi = 0;    /* counts_from_table() leaves it */
+            while (lo < hi)
+            {
+                uint32_t mid = (lo + hi) / 2;
+
+                if (AA(mid).rep == rep)
+                {
+                    o = AA(mid);
+                    break;
+                }
+                if (AA(mid).rep < rep)
+                    lo = mid + 1;
+                else
+                    hi = mid;
+            }
+            if (!pre_put(p, &o, sizeof(o)))
+                return false;
+        }
+    }
+#undef AA
+    pre_sec_end(p);
+    UPDATE_TRACE("lib precompute group albums composers=%lu/%lu "
+                 "genres=%lu/%lu", (unsigned long)res[0].r,
+                 (unsigned long)res[0].p, (unsigned long)res[1].r,
+                 (unsigned long)res[1].p);
+    return true;
+}
+#undef GRP_W
+
 /* LIBFILE_CAT_ALBUMTAB: albums, books and shows, sorted by representative,
  * assembled from their columns (read back) at the start of the block. */
 static bool pre_albumtab(struct tagcache_context *ctx, struct pre *p)
@@ -5918,7 +6406,8 @@ static bool pre_albumtab(struct tagcache_context *ctx, struct pre *p)
             return false;
     }
     pre_sec_end(p);
-    return pre_panels(ctx, p, a) && pre_artist_albums(ctx, p, idx_off);
+    return pre_panels(ctx, p, a) && pre_artist_albums(ctx, p, idx_off)
+           && pre_group_albums(ctx, p);
 }
 
 #ifdef LIB_P11
@@ -6883,6 +7372,10 @@ static bool pre_current(struct tagcache_context *ctx, int hh)
     ok = ok && (!pre_sec(h, LIBFILE_CAT_ALBUMTAB, 0,
                          sizeof(struct libfile_album))
                 || pre_sec(h, LIB_ARTISTS, LIBFILE_ALBUMS, sizeof(uint32_t)));
+    /* #230: and without the composers' and genres' albums, once */
+    ok = ok && (!pre_sec(h, LIBFILE_CAT_ALBUMTAB, 0,
+                         sizeof(struct libfile_album))
+                || pre_sec(h, LIBFILE_CAT_GRPALB, 0, sizeof(uint32_t)));
     /* #59: books without their author order are from before Sort By */
     ok = ok && (!pre_sec(h, LIB_AUDIOBOOKS, LIBFILE_ROWS, sizeof(int32_t))
                 || pre_sec(h, LIBFILE_CAT_BOOKS_AUTHOR, LIBFILE_ROWS,
@@ -7218,7 +7711,7 @@ int lib_precompute_ctx(struct tagcache_context *ctx, bool force, bool (*stop)(vo
     return LIB_PRE_DONE;
 }
 
-/* Measured (2026-10-06, tests/perf/lib50k.sh: the shell simulator on an
+/* Measured (2026-10-06, tests/perf/lib65k.sh: the shell simulator on an
  * Apple M3, thread CPU time; 50,000 synthetic tracks, 4,970 albums, 1,006
  * album artists, 50 books, 20 shows; RAM cache 6.93 MB). Device estimate
  * = sim CPU x 400 (scripts/check_trace.py SIM_FACTOR, uncalibrated) plus

@@ -225,6 +225,15 @@ void tagcache_remove_statefile(void);
 
 void tagcache_screensync_event(void);
 void tagcache_screensync_enable(bool state);
+#if defined(HAVE_IPOD_UI) && !defined(__PCTOOL__)
+/* p081 (#237): hold the database build at full speed while someone waits
+ * on it (a progress page). Counted: every true needs exactly one false,
+ * from any thread, on every exit path; holders nest. While held, the build
+ * runs boosted (one cpu_boost per holder) and yields every 100 ms instead
+ * of 40 ms. An unmatched false is logged and ignored. */
+void tagcache_dedicated_build(bool on);
+int tagcache_dedicated_build_depth(void);   /* holders now (tests, trace) */
+#endif
 
 #ifdef HAVE_TC_RAMCACHE
 bool tagcache_is_in_ram(void);
@@ -265,6 +274,26 @@ int tagcache_ui_sidecars(void);
 void tagcache_ui_sidecars_reset(void);
 /* A scan is owed (posted, or deferred while audio holds the memory). */
 bool tagcache_ui_scan_owed(void);
+/* #157: the library work running now, for the library page's bar
+ * (apps/ipodui/updscreen.h): the stage, and *permille its real progress
+ * (-1 unknown): #237's count of a first build's tree (no scale: it only
+ * slows), the walk's entries against the last whole walk's (else that
+ * count, else the boot digest's), the commit's index steps. Any thread;
+ * volatile reads only, no I/O. */
+enum { TC_UI_PROG_NONE, TC_UI_PROG_PROBE, TC_UI_PROG_WALK,
+       TC_UI_PROG_COMMIT, TC_UI_PROG_JOBS, TC_UI_PROG_COUNT };
+int tagcache_ui_progress(int *permille);
+/* #157: + 1 each time a scan (a probe walk, the scan it hands over to and
+ * its commit) has ended, whatever its outcome */
+unsigned tagcache_ui_scans_ended(void);
+/* #237: the active library is missing (a first install, or one that must
+ * be built again from nothing): 1; one exists (loaded or not): 0; not yet
+ * known (the tagcache thread has not looked at the disk): -1 */
+int tagcache_ui_no_library(void);
+/* #237 (owner 2026-11-09): on battery below this percentage a first
+ * build starts only on a charger; one under way stops cleanly when the
+ * charger goes (the library page's cut) and runs again with power */
+#define TAGCACHE_UI_BUILD_MIN_PCT 15
 #ifdef HAVE_TC_RAMCACHE
 /* #87/#89 (apps/ipodui/bootstamp.h): the boot window starts the library's
  * boot check at once; its state: 0 pending, 1 walking (permille: the

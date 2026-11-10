@@ -452,7 +452,10 @@ int dbq_commit(uint32_t *tag)
         mutex_unlock(&persist_mtx);
         return -1;
     }
+    /* p081: PLAY waits on this write (lib_play(), library.c) */
+    cpu_boost(true);
     ok = persist_table(seq, true);
+    cpu_boost(false);
     if (ok)
     {
         struct dbq_hdr h;

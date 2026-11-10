@@ -109,22 +109,45 @@ bool boot_stamp_saved(struct boot_stamp *out, enum boot_why *why)
 
 /* One folder, depth first, in the order the library walk reads it
  * (tagcache.c check_dir()): path[len] is its end; the hidden folder and
- * "._" sidecars are left out, a folder's entries end with a marker. */
-static enum boot_digest_state walk_dir(struct boot_digest *d, char *path,
+ * "._" sidecars are left out, a folder's entries end with a marker.
+ * p081: a subfolder opens from its entry (opendir_child(): no walk from
+ * the root and no re-read of every ancestor per folder, which was most of
+ * the digest's time), and the path grows by memcpy (no vuprintf). */
+static enum boot_digest_state walk_dir(struct boot_digest *d, DIR *parent,
+                                       const struct dirent *pe, char *path,
                                        size_t len, size_t sz, long deadline,
                                        bool (*stop)(void))
 {
     enum boot_digest_state st = BOOT_DIGEST_MATCH;
     struct dirent *e;
-    DIR *dir = opendir(path);
+    DIR *dir = parent ? opendir_child(parent, pe, path) : opendir(path);
+    const bool slash = len && path[len - 1] == '/';
 
+    (void)pe;
     if (!dir)
         return BOOT_DIGEST_FAIL;
+#ifdef SIMULATOR
+    {
+        /* tests/ui (p081): "# env: SIM_DIGEST_SLOW_MS=n" spreads n ms
+         * of sleep over the digest's first folders (at most 400 ms each),
+         * the device's slower directory reads (the host's are instant),
+         * so it outlasts the boot window whatever the library's size */
+        static long left = -1;
+        long ms;
+        if (left < 0)
+            left = getenv("SIM_DIGEST_SLOW_MS")
+                   ? atol(getenv("SIM_DIGEST_SLOW_MS")) : 0;
+        ms = left < 400 ? left : 400;
+        left -= ms;
+        if (ms > 0)
+            sleep(ms * HZ / 1000);
+    }
+#endif
     while ((e = readdir(dir)) != NULL)
     {
         struct dirinfo info;
         bool isdir;
-        int n;
+        size_t n;
 
         if (is_dotdir_name(e->d_name)
             || (e->d_name[0] == '.' && e->d_name[1] == '_'))
@@ -141,14 +164,15 @@ static enum boot_digest_state walk_dir(struct boot_digest *d, char *path,
         }
         info = dir_get_info(dir, e);
         isdir = (info.attribute & ATTR_DIRECTORY) != 0;
-        n = snprintf(path + len, sz - len, "%s%s",
-                     len && path[len - 1] == '/' ? "" : "/", e->d_name);
-        if (n < 0 || (size_t)n >= sz - len)
+        n = strlen(e->d_name);
+        if (len + !slash + n >= sz)
         {
-            path[len] = '\0';
             st = BOOT_DIGEST_FAIL;
             break;
         }
+        path[len] = '/';
+        memcpy(path + len + !slash, e->d_name, n + 1);
+        n += !slash;
         if (isdir && !strcasecmp(path, ROCKBOX_DIR))
         {
             path[len] = '\0';           /* ours: changes at every run */
@@ -157,7 +181,7 @@ static enum boot_digest_state walk_dir(struct boot_digest *d, char *path,
         boot_digest_entry(d, e->d_name, isdir, (uint32_t)info.size,
                           (uint32_t)info.mtime, BOOT_DIRENT_CLUSTER(e));
         if (isdir)
-            st = walk_dir(d, path, len + n, sz, deadline, stop);
+            st = walk_dir(d, dir, e, path, len + n, sz, deadline, stop);
         path[len] = '\0';
         if (st != BOOT_DIGEST_MATCH)
             break;
@@ -185,7 +209,8 @@ enum boot_digest_state boot_stamp_digest(struct boot_digest *d,
             continue;                   /* as the walk: once, if there */
         if ((size_t)strlcpy(path, roots[i], pathsz) >= pathsz)
             return BOOT_DIGEST_FAIL;
-        st = walk_dir(d, path, strlen(path), pathsz, deadline, stop);
+        st = walk_dir(d, NULL, NULL, path, strlen(path), pathsz, deadline,
+                      stop);
         if (st != BOOT_DIGEST_MATCH)
             return st;
     }

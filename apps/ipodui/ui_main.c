@@ -92,6 +92,7 @@
 #include "ipodui/usbscreen.h"
 #include "usb_buf_alloc.h"       /* usb_buf_set_log() */
 #include "ipodui/usbbusy.h"
+#include "ipodui/updscreen.h"
 #include "ipodui/notice.h"
 #include "ipodui/sysscreen.h"
 #include "ipodui/np_playback.h"
@@ -443,6 +444,14 @@ static void refresh(struct ui_screen *s)
     uint32_t before = band_only ? panel_band_hash(s) : 0;
 #endif
 
+    if (s->hidden)
+    {
+        /* #157: what is under it still shows (the USB frame); a repaint
+         * asked meanwhile (an abandoned sleep's) is the page's own full
+         * draw when it shows, or the menu's after it leaves */
+        ui_clear_dirty();
+        return;
+    }
     if ((dirty & UI_DIRTY_BODY) && !ui_screen_is_split(s))
         ui_panel_hide();            /* no panel: nothing may claim for it */
     header = draw_dirty(s, dirty);
@@ -1329,7 +1338,8 @@ static bool global_hold(const struct ui_input *in)
         /* P12 W4-0 (Q29): a Class A game's long MENU leaves the game */
         if (sdk_takes_long_menu())
             return false;
-        if (!in->release && ui_depth() > 1)
+        /* #237: not off the library page while the library is made */
+        if (!in->release && ui_depth() > 1 && !ui_upd_up())
         {
             UPDATE_TRACE("hold MENU: to the main menu from %s",
                          ui_top()->ops->name);
@@ -1716,6 +1726,10 @@ static void shell_main(void)
     /* the first-boot legal notice, once per build (notice.h): over the
      * menu and a locked screen; the boot work above is already done */
     ui_notice_boot();
+    /* #237: no library yet: the library page over all of it until the
+     * build is done (an alarm's ring comes first) */
+    if (!alarm_ringing())
+        ui_upd_boot();
 
     for (;;)
     {
@@ -1869,6 +1883,8 @@ static void shell_main(void)
             ui_anim_idle();
             ui_pop();
             dir = ui_take_transition();
+            if (ui_take_pop_cut())
+                dir = 0;            /* #157: no slide; refreshed in full */
             if (dir)
                 slide_start(dir, from_split);
             continue;

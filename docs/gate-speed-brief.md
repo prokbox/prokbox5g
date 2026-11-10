@@ -151,7 +151,7 @@ Inputs that can change the result: `apps/`, `firmware/`, `lib/`, `uisimulator/`,
 - Key = hash of `git ls-files -s` plus the working-tree diff over those paths, plus the two configure arg lines. Store the receipts (`floor ...`, `floor gate: ok ...`, `floor_watch all_cases`) in `~/.cache/rockbox-gate/floor-<key>/`.
 - **`FLOOR_REUSE=1` reuses a receipt for an identical key** and prints `floor: reused <key> measured <date> in <worktree>`; `FLOOR_FRESH=1` forces a run. Default for `--quick --changed` (already skips unless those paths changed) and for the full gate: **measure** (Q4). Reuse pays only in re-gates after tests/docs-only fixes.
 - Independent of reuse: run the 32 MB and 64 MB halves **in parallel**, move the `sim-ui32` build into the build phase, and schedule the floor jobs in the shared pool. Wall cost goes from 14 min to about 3 min of the critical path (about 7 worker-min). Saves about 11 min.
-- Risk: none for the parallel part (each half uses its own build and disposable clone of `build/sim-50k`); reuse has the usual stale-key risk, mitigated by hashing the sources not the binary (the binary embeds a build date).
+- Risk: none for the parallel part (each half uses its own build and disposable clone of `build/sim-65k`); reuse has the usual stale-key risk, mitigated by hashing the sources not the binary (the binary embeds a build date).
 
 ### Idea 5. Build parallelism and caching
 

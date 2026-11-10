@@ -1,0 +1,26 @@
+# #225 S3: a synced library's covers on screen. The first-run sequence of
+# ipodctl-first.script (so ipodctl_sim.sh's checks hold), then Music >
+# Albums (rows with covers from the synthetic cover database, from
+# embedded art, and the note glyph) and Now Playing of the first album.
+#   IPODCTL_SCRIPT=ipodctl-covers.script tests/perf/ipodctl_sim.sh 600
+# golden: skip albums np
+# timeout: 1800
+wait 4000
+wait_db 3000000
+art_wait 3000000
+copy ../ui/fixtures/refresh.mp3 /iPod_Control/Music/F00/ZZZZ.mp3
+update_db_wait_change 3000000
+art_wait 3000000
+key SELECT          # Music
+wait 800
+wheel +2            # Albums
+wait 400
+key SELECT
+wait 1500
+shot albums
+key SELECT          # the first album
+wait 800
+key SELECT          # its first song
+wait 4000
+expect_playing 300
+shot np

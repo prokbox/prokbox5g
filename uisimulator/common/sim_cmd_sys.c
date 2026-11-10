@@ -27,6 +27,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "config.h"
+#include <unistd.h>
 #include "system.h"
 #include "kernel.h"
 #include "button.h"
@@ -398,6 +399,26 @@ bool sim_cmd_sys(const char *cmd, char *argv[], int argc, int lineno)
         return true;
     }
 #endif
+    if (!strcmp(cmd, "powercut") && argc >= 2 && !strcmp(argv[1], "now"))
+    {   /* powercut now (#237): the simulator dies here, whatever runs
+         * (a build mid-walk): no close, no flush, no shutdown */
+        fprintf(stderr, "sim_script: powercut hit now\n");
+        fflush(stderr);
+        fflush(stdout);
+        _exit(0);
+    }
+    if (!strcmp(cmd, "powercut") && argc >= 3 && !strcmp(argv[1], "at"))
+    {   /* powercut at <point> [file]: the simulator dies (no close, no
+         * flush, no shutdown) the first time the code passes that named
+         * write point (filesystem-sim.c sim_powercut_point(); the points
+         * are listed in tests/ui/README.md). Logs "powercut hit <point>"
+         * then; "powercut <point> not reached" at the part's end. */
+        extern void sim_powercut_arm(const char *point, const char *file);
+        sim_powercut_arm(argv[2], argc >= 4 ? argv[3] : NULL);
+        fprintf(stderr, "sim_script: powercut armed at %s%s%s\n", argv[2],
+                argc >= 4 ? " " : "", argc >= 4 ? argv[3] : "");
+        return true;
+    }
     if (!strcmp(cmd, "fs_chaincut") && argc >= 3)
     {   /* fs_chaincut <path> <bytes>: the file's cluster chain cut after
          * <bytes>, its size kept (filesystem-sim.c; a write cut by a

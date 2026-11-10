@@ -3,6 +3,12 @@
 # Damages only this simulator's test disk (sim_cmd_dbrec.h). Each part's
 # boot also runs the automatic update scan (tagcache_autoupdate: on), which
 # publishes into an unreferenced directory: the checks allow for that.
+# p081-bootload: the boot's quick choice (manifests and sizes only) lets
+# main.c go on; the damage here keeps the sizes, so it picks the damaged
+# newest generation, and the full check, run before anything reads it,
+# overrules it (A: the older one; E: a fresh build from the root).
+# log: -> database_gen
+# log: -> .rockbox u=0 r=0
 # needs: library
 # timeout: 240
 # golden: skip recovered

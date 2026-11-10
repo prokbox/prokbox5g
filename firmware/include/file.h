@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2002 by Björn Stenberg
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -103,5 +104,16 @@ int fdprintf(int fildes, const char *fmt, ...) ATTRIBUTE_PRINTF(2, 3);
 #define readlink        FS_PREFIX(readlink)
 #endif
 #endif /* FILEFUNCTIONS_DEFINED */
+
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+/* ProkBox (#243): around a directory walk, on then off (nesting, any
+ * thread): folder lookups by path are served from a small cache while one
+ * is on. Results are the same either way; only the time differs */
+#ifdef FILE_WALK_CACHE
+void file_walk_cache(bool on);
+#else
+static inline void file_walk_cache(bool on) { (void)on; }
+#endif
+#endif
 
 #endif /* _FILE_H_ */

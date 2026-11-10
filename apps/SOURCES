@@ -177,6 +177,9 @@ ipodui/screens/playlists.c
 ipodui/artkey.c
 ipodui/artfmt.c
 ipodui/dbgen.c
+ipodui/crcfast.c
+/* p081-fatdb: the file layer's chain guard (tagcache.c, on the CPU) */
+chaincheck.c
 ipodui/dbjournal.c
 ipodui/safefile.c
 ipodui/cfgsafe.c
@@ -194,6 +197,9 @@ ipodui/screens/alarms.c
 #endif
 ipodui/artblur.c
 ipodui/artcache.c
+/* #225 S3: covers from the stock firmware's cover database (read only) */
+ipodui/syncart.c
+ipodui/artdb_core.c
 ipodui/rowart.c
 ipodui/nav_core.c
 ipodui/preview.c
@@ -221,6 +227,7 @@ ipodui/dbqueue_core.c
 ipodui/shuffle_core.c
 ipodui/lib_shuffle_rec.c
 ipodui/usbscreen.c
+ipodui/updscreen.c
 ipodui/uilog.c
 #ifdef HAVE_IPOD_UI_DEVMODE    /* a release links nothing of it (fw-ship byte for byte) */
 ipodui/heapchk.c            /* 4gh-b5: the heap walk (developer builds) */

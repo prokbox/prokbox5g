@@ -132,6 +132,55 @@ file_error:
     return dirp;
 }
 
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+/* ProkBox (p081): open the folder 'entry' names, the entry 'parent' just
+ * returned, at its first cluster. opendir() walks the path from the root
+ * and reads every ancestor folder up to the name (decoding each long name
+ * on the way); a depth-first walk paid that per folder: most of the boot
+ * digest's time (laptop emulator profile, 646 folders). Same stream set-up
+ * as opendir(): a file object bound like open_path_component()'s (the
+ * entry's position in the parent, its dircache slot), scan rewound.
+ * Anything else (the root's listing, which the namespace merges, a stale
+ * entry, no free stream) opens 'path' as before. */
+DIR * rbfs_opendir_child(DIR *parentp, const struct dirent *entry,
+                         const char *path)
+{
+    struct file_base_info info;
+
+    file_internal_lock_WRITER();
+
+    struct dirstr_desc * const parent = get_dirstr(parentp);
+    struct dirstr_desc *dir;
+
+    if (parent && entry == &parent->entry && parent->scan.item == -1
+        && (entry->info.attr & ATTR_DIRECTORY) && entry->info.fstclus
+#ifdef HAVE_DIRCACHE
+        /* only an entry the FAT driver read carries its first cluster
+         * (uncached_readdir_dirent()); one dircache served does not */
+        && !parent->scan.scan.dcscan.serialnum
+#endif
+        && (dir = alloc_dirstr())
+        && fat_open(&parent->stream.infop->fatfile, entry->info.fstclus,
+                    &info.fatfile) >= 0)
+    {
+        info.fatfile.e = parent->scan.scan.fatscan;
+#ifdef HAVE_DIRCACHE
+        dircache_dcfile_init(&info.dcfile);     /* as read: not cached */
+#endif
+        filestr_base_init(&dir->stream);
+        fileop_onopen_internal(&dir->stream, &info, FF_DIR | FO_DIRECTORY);
+        dir->scan.item = -1;
+        fat_rewind(&dir->stream.fatstr);
+        ns_dirscan_rewind(&dir->scan);
+        file_internal_unlock_WRITER();
+        return (DIR *)dir;
+    }
+
+    file_internal_unlock_WRITER();
+    return rbfs_opendir(path);
+}
+#endif /* HAVE_IPOD_UI && !BOOTLOADER */
+
 /* close a directory stream */
 int rbfs_closedir(DIR *dirp)
 {

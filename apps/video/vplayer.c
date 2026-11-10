@@ -46,6 +46,7 @@
 #include "ipodui/uilog.h"
 #include "vplayer.h"
 #include "vpcore.h"
+#include "vlogline.h"       /* #224: be_log's line, numbers first */
 #include "vix_file.h"
 #include "bcmres.h"
 #include "bcmvideo_image.h"     /* and bcmprobe_image.h */
@@ -134,6 +135,8 @@ struct vblock
     /* the video clock (dev28): wall time since the PCM started, pulled
        toward elapsed by at most VPLAYER_SLEW of the time passed */
     bool clk_on;
+    bool pcm_on;                /* audio_us(): the PCM played our clock */
+    struct vpc_follow follow;   /* #218: the clock the video follows */
     int64_t clk;                /* us, at clk_t */
     uint32_t clk_t;
     uint32_t tr_t0;             /* the start-up clock trace's zero */
@@ -212,13 +215,13 @@ static void be_log(const char *what, long a, long b)
     if (++lg_sec_n > lg_peak)
         lg_peak = lg_sec_n;
     lg_lines++;
-    if (!strncmp(what, "sdram:", 6))    /* register words */
-        snprintf(line, sizeof(line), "%s %08lx %08lx", what,
-                 (unsigned long)a, (unsigned long)b);
-    else if (!strncmp(what, "vclk ", 5))    /* vclk.c's lines, as they are */
+    /* #224: the numbers before the legend (vlogline.h): ui_log's 62
+       bytes cut the legend, never a value; "sdram:" lines are register
+       words, vclk.c's lines are logged as they are */
+    if (!strncmp(what, "vclk ", 5))
         snprintf(line, sizeof(line), "%s", what);
     else
-        snprintf(line, sizeof(line), "%s (%ld, %ld)", what, a, b);
+        vlog_line(line, sizeof(line), what, a, b, !strncmp(what, "sdram:", 6));
     /* the guard's detail is stage 6's (its own log, below); the shell's
        log has vpcore's one-line summary (dev32: five lines a read, up to
        three reads a session, crowded session 28's log) */
@@ -1268,6 +1271,7 @@ static int64_t audio_us(bool playing)
     int64_t target;
     bool pcm_on;
 
+    B->pcm_on = false;
     if (!id3)
         return (int64_t)B->el * 1000;
     /* elapsed is the DAC's position at the start of the PCM chunk now
@@ -1279,6 +1283,7 @@ static int64_t audio_us(bool playing)
        clock through a first coarse update, a 420 ms leap (session 24) */
     pcm_on = playing &&
         mixer_channel_status(PCM_MIXER_CHAN_PLAYBACK) == CHANNEL_PLAYING;
+    B->pcm_on = pcm_on;
 
     if (id3->elapsed != B->el || !pcm_on)
     {
@@ -1617,9 +1622,9 @@ static void port_report(void)
         /* the logging itself, before its own two lines add to it */
         uint32_t lines = lg_lines, us = lg_us, peak = lg_peak;
 
-        be_log("video: log lines, us formatting and appending",
+        be_log("video: log lines (lines, us formatting and appending)",
                (long)lines, (long)us);
-        be_log("video: log peak lines a second, permille of the session",
+        be_log("video: log peak (lines a second, permille of the session)",
                (long)peak, (long)(wall ? (uint64_t)us * 1000 / wall : 0));
     }
     be_log("video: thread active permille, session s",
@@ -1706,6 +1711,7 @@ static void vplayer_thread(void)
     st = audio_status();
     playing = (st & AUDIO_STATUS_PLAY) && !(st & AUDIO_STATUS_PAUSE);
     B->last_a = audio_us(playing);
+    vpc_follow_reset(&B->follow, B->last_a, false);
     B->tr_t0 = bcm_video_now_us();     /* the start-up clock trace */
     /* day 4e: this play's long-play record (the last play's goes) */
     memset(&prog, 0, sizeof(prog));
@@ -1773,6 +1779,7 @@ static void vplayer_thread(void)
             B->el_at_us = bcm_video_now_us();
             B->clk_on = false;          /* re-anchored at the new place */
             B->last_a = (int64_t)ev.data * 1000;
+            vpc_follow_reset(&B->follow, B->last_a, true);
             vpc_seek(v, B->last_a);
         }
         if (v->state == VPC_IDLE || v->state == VPC_FAILED)
@@ -1782,14 +1789,23 @@ static void vplayer_thread(void)
             continue;
         }
         a = audio_us(playing);
-        /* the audio jumped while playing our file (a seek the shell made,
-           a repeat): follow.  Not at its end: the clock can reset there */
-        if (playing && audio_handle() >= 0 &&
-            (a + 300000 < B->last_a || a > B->last_a + 1500000))
         {
-            be_log("video: audio jumped (from, to ms)",
-                   (long)(B->last_a / 1000), (long)(a / 1000));
-            vpc_seek(v, a);
+            /* the audio jumped while playing our file (a seek the shell
+               made, a repeat): follow, once the PCM plays it and a second
+               reading agrees (#218: the start's passing positions seeked
+               2-4 times).  Before the PCM's first play, paused, stalled,
+               or not on our file (its end: the clock can reset there),
+               the clock holds */
+            bool jump, on = B->pcm_on && audio_handle() >= 0;
+
+            a = vpc_follow(&B->follow, a, on, bcm_video_now_us(), &jump);
+            if (jump)
+            {
+                be_log("video: audio jumped (from, to ms)",
+                       (long)(B->last_a / 1000), (long)(a / 1000));
+                vpc_seek(v, a);
+                B->last_a = a;
+            }
         }
         if (playing && audio_handle() >= 0 && a > B->last_a &&
             a <= B->last_a + 1500000)

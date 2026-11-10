@@ -1,0 +1,34 @@
+# #225 review item 1: a re-sync (the stock firmware's databases written
+# again: new image ids, every picture changed in place) owes a re-check
+# of every synced album, and that debt survives a pass cut short. The
+# first boot builds from the first sync; the re-sync's files
+# (tests/perf/ipodctl_library.py --resync-root build/tmp/ipc-resync:
+# mkfixture --mirror) are copied in; the next boot's pass sees the
+# databases changed, rebuilds the map and is cut after 5 albums
+# (IPODUI_SIM_SYN_CUT, armed after the first build: once); the boot
+# after must still re-check the rest, so every synced thumbnail ends up
+# mirrored (ipodctl_sim.sh THUMBS_MIRROR).
+#   IPODCTL_SCRIPT=ipodctl-resync.script THUMBS_MIRROR=1 S1_PASSES=1 \
+#       tests/perf/ipodctl_sim.sh 1000 --resync-root "$PWD/build/tmp/ipc-resync"
+# (an absolute root, from the top of the tree: the copies below name it
+# relative to tests/perf)
+# env: IPODUI_SIM_SYN_CUT=5
+# golden: skip
+# timeout: 1800
+wait 4000
+wait_db 3000000
+art_wait 3000000
+copy ../ui/fixtures/refresh.mp3 /.rockbox/artcache/simcut.arm
+copy ../../build/tmp/ipc-resync/iPod_Control/Artwork/ArtworkDB /iPod_Control/Artwork/ArtworkDB
+copy ../../build/tmp/ipc-resync/iPod_Control/Artwork/F1028_1.ithmb /iPod_Control/Artwork/F1028_1.ithmb
+copy ../../build/tmp/ipc-resync/iPod_Control/Artwork/F1029_1.ithmb /iPod_Control/Artwork/F1029_1.ithmb
+copy ../../build/tmp/ipc-resync/iPod_Control/iTunes/iTunesDB /iPod_Control/iTunes/iTunesDB
+reboot
+wait 4000
+wait_db 3000000
+wait 20000          # the pass: the map rebuilt, then cut (the builder stops)
+reboot
+wait 4000
+wait_db 3000000
+art_wait 3000000
+shot done

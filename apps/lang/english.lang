@@ -19363,15 +19363,15 @@
   user: core
   <source>
     *: none
-    ipodui: "ProkBox5g 0.8.0"
+    ipodui: "ProkBox5g 0.8.1"
   </source>
   <dest>
     *: none
-    ipodui: "ProkBox5g 0.8.0"
+    ipodui: "ProkBox5g 0.8.1"
   </dest>
   <voice>
     *: none
-    ipodui: "ProkBox5g 0.8.0"
+    ipodui: "ProkBox5g 0.8.1"
   </voice>
 </phrase>
 <phrase>
@@ -27362,5 +27362,124 @@
   <voice>
     *: none
     ipodui_devmode: "Still"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_LIB_PAGE_TITLE
+  desc: iPod UI shell, the full-screen page while the first library is built (#237; our own words)
+  user: core
+  <source>
+    *: none
+    ipodui: "Preparing Your Library"
+  </source>
+  <dest>
+    *: none
+    ipodui: "Preparing Your Library"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Preparing Your Library"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_LIB_STEP_FIND
+  desc: iPod UI shell, library page step: the music folders are being looked through (#237)
+  user: core
+  <source>
+    *: none
+    ipodui: "Finding your music..."
+  </source>
+  <dest>
+    *: none
+    ipodui: "Finding your music..."
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Finding your music..."
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_LIB_STEP_ADD
+  desc: iPod UI shell, library page step: each song is being read and added (#237)
+  user: core
+  <source>
+    *: none
+    ipodui: "Adding your songs..."
+  </source>
+  <dest>
+    *: none
+    ipodui: "Adding your songs..."
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Adding your songs..."
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_UPD_LIBRARY
+  desc: iPod UI shell, library page step after the unplug: the library takes in the changes (#157)
+  user: core
+  <source>
+    *: none
+    ipodui: "Updating your library..."
+  </source>
+  <dest>
+    *: none
+    ipodui: "Updating your library..."
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Updating your library..."
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_LIB_STEP_SORT
+  desc: iPod UI shell, library page step: the library is being sorted (#237)
+  user: core
+  <source>
+    *: none
+    ipodui: "Sorting your library..."
+  </source>
+  <dest>
+    *: none
+    ipodui: "Sorting your library..."
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Sorting your library..."
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_LIB_STEP_FINISH
+  desc: iPod UI shell, library page step: the last moments before the menu (#237)
+  user: core
+  <source>
+    *: none
+    ipodui: "Almost ready..."
+  </source>
+  <dest>
+    *: none
+    ipodui: "Almost ready..."
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Almost ready..."
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_LIB_STEP_POWER
+  desc: iPod UI shell, library page step: the battery is low, the first library build waits for a charger (#237; our own words)
+  user: core
+  <source>
+    *: none
+    ipodui: "Connect to power to finish your library."
+  </source>
+  <dest>
+    *: none
+    ipodui: "Connect to power to finish your library."
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Connect to power to finish your library."
   </voice>
 </phrase>

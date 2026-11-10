@@ -29,6 +29,6 @@ cd "$ROOT"
 TASK_TMP=$(mktemp -d)
 trap 'rm -rf "$TASK_TMP"' EXIT
 "${HOSTCC:-cc}" -std=gnu99 -O1 -g -Wall -Wextra -Werror -DDBGEN_HOST \
-    -Iapps/ipodui tests/dbgen/test_dbgen.c apps/ipodui/dbgen.c \
+    -Iapps/ipodui -Iapps tests/dbgen/test_dbgen.c apps/ipodui/dbgen.c apps/ipodui/crcfast.c \
     -o "$TASK_TMP/test_dbgen"
 "$TASK_TMP/test_dbgen" "$TASK_TMP"

@@ -23,6 +23,7 @@
  * KIND, either express or implied.
  *
  ****************************************************************************/
+#include <stdlib.h>
 #include <time.h>
 
 unsigned long sim_scan_us(void);
@@ -30,10 +31,41 @@ unsigned long sim_scan_us(void);
  * directory it walks, so a test library's update lasts long enough to
  * see (the header's busy glyph, 3.20); 0: off */
 int sim_scan_slow_ticks;
+/* p081: "# env: SIM_SCAN_SLOW_MS=n" spreads n ms of sleep over a
+ * process's first walked folders (at most 200 ms each), so a boot's own
+ * walk (before the script runs) lasts long enough whatever the library's
+ * size. Returns the ticks the walk sleeps at this folder. */
+static long scan_slow_left = -1;
+int sim_scan_slow_now(void);
+int sim_scan_slow_now(void)
+{
+    long ms;
+
+    if (sim_scan_slow_ticks > 0)
+        return sim_scan_slow_ticks;
+    if (scan_slow_left < 0)
+    {
+        const char *v = getenv("SIM_SCAN_SLOW_MS");
+        scan_slow_left = v ? atol(v) : 0;
+    }
+    ms = scan_slow_left < 200 ? scan_slow_left : 200;
+    scan_slow_left -= ms;
+    return (int)(ms / 10);                  /* HZ 100: ticks */
+}
 unsigned long sim_scan_us(void)
 {
     struct timespec t;
 
     clock_gettime(CLOCK_MONOTONIC, &t);
+    return (unsigned long)t.tv_sec * 1000000UL + t.tv_nsec / 1000;
+}
+
+/* #245: the calling thread's own CPU time (the commit trace's stages,
+ * apps/tagcache.c COMMIT_TRACE): other threads' turns are not counted */
+unsigned long sim_thread_cpu_us(void)
+{
+    struct timespec t;
+
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &t);
     return (unsigned long)t.tv_sec * 1000000UL + t.tv_nsec / 1000;
 }

@@ -1516,7 +1516,10 @@ void handle_auto_poweroff(void)
          audio_stat == (AUDIO_STATUS_PLAY | AUDIO_STATUS_PAUSE)))
     {
         if (TIME_AFTER(tick, last_event_tick + timeout)
-#if !(CONFIG_PLATFORM & PLATFORM_HOSTED)
+#if !(CONFIG_PLATFORM & PLATFORM_HOSTED) \
+        || (defined(SIMULATOR) && defined(HAVE_IPOD_UI))
+            /* #230: the shell's simulator models it too (filesystem-sim.c);
+             * the stock one stays upstream's */
             && TIME_AFTER(tick, storage_last_disk_activity() + timeout)
 #endif
         ) {

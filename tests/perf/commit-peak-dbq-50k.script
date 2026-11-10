@@ -1,5 +1,5 @@
 # Commit peak with a 50k database queue live (#109, design 1.3 M6; the
-# 16-A "commit with a 50k queue live" case): as commit-peak-50k.script,
+# 16-A "commit with a 50k queue live" case): as commit-peak.script,
 # but Songs row 0 plays first (snapshot_play: lib_play() of all 50,000
 # rows, indices[] and the slot table ~406 KB held) and stops; the update
 # then commits with the queue still current. The peak margin is the

@@ -137,6 +137,13 @@ bool   rbfs_dir_exists(const char *dirname);
 
 struct dirinfo rbfs_dir_get_info(DIR *dirp, struct DIRENT *entry);
 const char *   rbfs_root_realpath(void);
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+/* ProkBox (p081): the folder 'entry' just read from 'parent', opened at its
+ * first cluster without walking 'path' from the root again; 'path' (its
+ * full path) is the fallback where that can't be done */
+DIR *  rbfs_opendir_child(DIR *parent, const struct DIRENT *entry,
+                          const char *path);
+#endif
 #endif /* !DIRFUNCTIONS_DECLARED */
 
 #endif /* _FILESYSTEM_NATIVE__DIR_H_ */

@@ -26,21 +26,21 @@
 
     tests/perf/synthetic_library.py <simdisk> [tracks]
 
-Writes <tracks> (default 50,000) tiny tagged MP3 files under
+Writes <tracks> (default 65,000) tiny tagged MP3 files under
 <simdisk>/Synth/<artist>/<album>/NN <title>.mp3: one second of audio (the
 frames of tests/ui/fixtures/refresh.mp3) behind an ID3v2.3 tag with
 title, artist, album, album artist, genre, composer, track and disc
 numbers. Deterministic (fixed seed), idempotent (a stamp file holds the
 track count), ~2.4 KB per file.
 
-Shape, for 50k tracks: 10 tracks per album (5,000 albums), 1,250 artists
-(4 albums each), 2 % of albums by "Various Artists" (compilations),
-24 genres, 400 composers on half the tracks, 50 audiobooks (genre
-Audiobook, 10 tracks each) and 20 podcasts (genre Podcast, 25 episodes),
-titles from a word list so sort keys spread over A-Z and '#'.
+Shape, for 65k tracks: 10 tracks per album (6,461 albums with the podcasts),
+1,625 artists (4 albums each), 2 % of albums by "Various Artists"
+(compilations), 24 genres, 400 composers on half the tracks, 65 audiobooks
+(genre Audiobook, 10 tracks each) and 26 podcasts (genre Podcast, 25
+episodes), titles from a word list so sort keys spread over A-Z and '#'.
 
-Run it via tests/perf/lib50k.sh, which keeps it away from the test
-library in build/sim-ui (its own simdisk, build/sim-50k).
+Run it via tests/perf/lib65k.sh, which keeps it away from the test
+library in build/sim-ui (its own simdisk, build/sim-65k).
 """
 import os
 import random
@@ -95,7 +95,7 @@ def main():
     if len(sys.argv) < 2:
         sys.exit(__doc__)
     disk = sys.argv[1]
-    total = int(sys.argv[2]) if len(sys.argv) > 2 else 50000
+    total = int(sys.argv[2]) if len(sys.argv) > 2 else 65000
     top = os.path.join(disk, 'Synth')
     stamp = os.path.join(top, '.synthetic')
     if os.path.exists(stamp) and open(stamp).read().strip() == str(total):

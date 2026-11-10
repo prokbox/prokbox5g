@@ -38,6 +38,9 @@ void backlight_on(void);
  * Hold on and "backlight on button hold" at Off; it ends at the timeout,
  * a BACKLIGHT_OFF or a Hold change */
 void backlight_on_through_hold(void);
+/* #184: true for a video session: Hold no longer turns the light off (the
+ * hidden "backlight on button hold" rule is skipped); false ends it */
+void backlight_hold_lit(bool on);
 #endif
 void backlight_off(void);
 void backlight_set_timeout(int value);

@@ -1,0 +1,21 @@
+# p081-bootwalk (fix 2): the session that builds the library from scratch
+# leaves a stamp, so the next boot (here after a crash, with no clean
+# shutdown) trusts it instead of walking again ("nostamp").
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p081-bootwalk-first.script
+# needs: music
+# fresh-db
+# timeout: 180
+# golden: skip
+# log: boot stamp walk=1 why=db
+# log: boot stamp settle=1 skipped=0
+# log: boot stamp walk=0 why=trust
+# nolog: why=nostamp
+
+wait 3000
+wait_db 60000
+wait 6000           # the first build settles: its stamp is written
+boot_unclean        # a crash from here on: only the settled stamp counts
+reboot
+
+expect_boot_walk 0 15000 trust
+shot after_first_build

@@ -177,7 +177,7 @@ file    = shard "%02X" of key>>56, name "%08X" of (key>>32)&0xFFFFFFFF   (probe>
 **Device builder scheduling:**
 - **Thread:** a separate `artcache` thread at `PRIORITY_BACKGROUND`, on the CPU core. It is created only while there is work, then exits, so its stack is freed.
   - Note that the tagcache thread boosts during a build (`tagcache.c:5052` and `5248`). The art builder must **not**.
-  - It runs unboosted, sleeping between albums.
+  - It runs boosted (p081-bootwalk: every pass, not only a maintenance one), dropping the boost while it waits and in the gap it sleeps between albums.
 - **Trigger:** the end of a tagcache commit. There is no event for this today, so add a tiny `#ifdef HAVE_IPOD_UI` callback in `tagcache.c` `commit()`, or poll `tagcache_get_stat()->commit_step` from the shell.
 - **Throttling:** process one album, then `yield()`/`sleep(HZ/10)`. Pause while any of these holds:
   - the user pressed a button in the last 2 s (stopped or paused; during playback see below)
@@ -186,7 +186,7 @@ file    = shard "%02X" of key>>56, name "%08X" of (key>>32)&0xFFFFFFFF   (probe>
 - Run at full rate while charging or on USB power.
 - **During playback (#58 idle build, owner 2026-10-09; replaces 4b-1's fill windows):**
   - While the user interacts (backlight lit, no clock face), the builder does **nothing**: no reads, no writes, no CPU. Its wait blocks on an event (`art build wait lit`), never a poll. This keeps the UI free of hitches and the refills free of storage contention.
-  - While the user is idle (the unlit clock face is up, or the backlight is off, and no key is held) it runs **continuously** at `PRIORITY_BACKGROUND`, unboosted, with the usual gap between albums, until the backlog is done. It may wake storage on battery (the backlog is finite). Wakes: `artcache_note_idle()` (the UI, on `SYS_IPODUI_BACKLIGHT_OFF`) and `PLAYBACK_EVENT_STOP_OR_PAUSE`.
+  - While the user is idle (the unlit clock face is up, or the backlight is off, and no key is held) it runs **continuously** at `PRIORITY_BACKGROUND`, boosted while it works (p081-bootwalk), with the usual gap between albums, until the backlog is done. It may wake storage on battery (the backlog is finite). Wakes: `artcache_note_idle()` (the UI, on `SYS_IPODUI_BACKLIGHT_OFF`) and `PLAYBACK_EVENT_STOP_OR_PAUSE`.
   - On the charger it also builds while lit once no key came for 2 s (the backlight may stay on there): one timed wake, not a poll.
   - A user who comes back mid-album stops it before the album's next read or write (`io_go()`); nothing of it is kept, and it is redone at the next idle. A panel stops at its next band write and is redone the same way.
   - The albums the user saw PENDING (the hint ring: list rows on screen, the Now Playing album) go first once idle. **Now Playing art that is PENDING while the user watches stays the placeholder until the next idle** (no single build in a fill window: that was the only option with any playback risk).

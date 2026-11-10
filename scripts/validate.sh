@@ -663,7 +663,7 @@ else
     echo "skip build fw-ship, fw-rel-bcm-mod, fw-rel-bcmv, sim-rel-bcm (--quick: full gate only)"
 fi
 }
-REL_BCM_END_MAX=1500000  # the resident backstop (P9_END_MAX, set later on)
+REL_BCM_END_MAX=1750000  # the resident backstop (1.75 MB from 0.8.1, owner 2026-11-09) (P9_END_MAX, set later on)
 
 BOOT_IDENTITY_VERSION=ipodui-boot-identity
 # The module builds (sim-ui-mod, fw-ui-mod; P12 close): configure has no
@@ -1803,7 +1803,7 @@ fi
 # 1,100,000 B; P8B_T_END_MAX 1,072,000 B (8b-T interim, retired when 8b-2
 # merged), P8B_END_MAX 1,096,000 B and P8B_IPOD_MAX 820,000 B (8b close).
 P9_CEILING=1250000       # backstop, rockbox.ipod bytes
-P9_END_MAX=1500000       # backstop, resident core (_end)
+P9_END_MAX=1750000       # backstop, resident core (_end): 1.75 MB from 0.8.1 (owner, 2026-11-09; planned for 0.9.0 on 2026-11-07)
 P9_DECODERS="a52 a52_rm aac aac_bsf adx aiff alac ape asap atrac3_oma atrac3_rm au ay cook flac gbs hes kss mod mpa mpc nsf opus raac sgc shorten sid smaf spc speex tta vgm vorbis vox wav wav64 wavpack wma wmapro"
 p9_trims_on() { # build dir
     ! grep -q '^#ifdef IPODUI_TRIM_DEFAULTS' firmware/export/config/ipodvideo-variant.h \
@@ -2160,12 +2160,14 @@ elif [ $ub_run = 1 ]; then
 fi
 
 step "audio buffer floor (16-A, #105; docs/hardware.md budget rules)"
-# The binding rule: at 50k tracks the playing/paused audio file buffer stays
+# The binding rule: at each unit's stress ceiling (#229: 32 MB at 50k
+# tracks, 64 MB at 65k) the playing/paused audio file buffer stays
 # >= 7,500,000 B (32 MB unit) and >= 39,000,000 B (64 MB unit) at every
-# worst case (tests/perf/floor-50k.script, receipts "floor ..." in
+# worst case (tests/perf/floor-50k.script / floor-65k.script, receipts "floor ..." in
 # out/shots/floor-{32,64}/sim.log). --quick --changed runs it only when
 # apps/, firmware/, lib/ or uisimulator/ changed; FLOOR_GATE=0 skips it.
-# The first run builds the 50k library (tests/perf/lib50k.sh; minutes).
+# The first run builds the 50k and 65k libraries (tests/perf/lib50k.sh,
+# lib65k.sh; minutes).
 floor_run=1
 if [ "${FLOOR_GATE:-1}" = 0 ]; then
     floor_run=0; echo "note floor gate skipped (FLOOR_GATE=0)"

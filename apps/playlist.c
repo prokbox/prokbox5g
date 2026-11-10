@@ -1861,6 +1861,14 @@ static int get_next_index(const struct playlist_info* playlist, int steps,
     {
         repeat_mode = REPEAT_ALL;
     }
+#if defined(HAVE_IPOD_UI) && defined(HAS_BUTTON_HOLD)
+    /* #184 (owner, 2026-11-07): with Hold on, a video's end is the end:
+     * its one-item queue never wraps (Repeat One / All would play it
+     * again). The video screen flushes what was buffered ahead when Hold
+     * changes (ui_video_hold_changed()), so this rule is the one used. */
+    if (pl_video_session() && playlist == &current_playlist && button_hold())
+        repeat_mode = REPEAT_OFF;
+#endif
 
     steps = calculate_step_count(playlist, steps);
     switch (repeat_mode)

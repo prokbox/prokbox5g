@@ -79,3 +79,14 @@ struct np_counter np_counter_pick(bool is_audiobook, bool is_podcast,
     }
     return c;
 }
+
+struct np_counter np_counter_lib(struct np_counter c, bool is_audiobook,
+                                 int lib_pos, int lib_songs)
+{
+    if (c.src != NP_COUNT_QUEUE || is_audiobook || lib_pos <= 0
+        || lib_songs <= 0)
+        return c;
+    c.n = lib_pos;
+    c.m = lib_songs > lib_pos ? lib_songs : lib_pos;
+    return c;
+}

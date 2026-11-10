@@ -303,6 +303,7 @@ uisimulator/common/filesystem-sim.c  ipodui-p12-modclass ipodui-p12-extras-* ipo
 uisimulator/common/stubs.c           ipodui-p12-alarm-* ipodui-p12-tooling-* ipodui-p18-sleep-*
 tests/perf/floor_gate.sh             ipodui-p12-mod-* ipodui-p12-modclass
 tests/perf/floor-50k.script          ipodui-p12-mod-* ipodui-p12-modclass
+tests/perf/floor-65k.script          ipodui-p12-mod-* ipodui-p12-modclass
 # framework (W1-F)
 apps/ipodui/modclass.h               ipodui-p12-modclass ipodui-p12-extras-* ipodui-p12-*-while-playing
 apps/ipodui/modclass.c               ipodui-p12-modclass ipodui-p12-extras-* ipodui-p12-*-while-playing

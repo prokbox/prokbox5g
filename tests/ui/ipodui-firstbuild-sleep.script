@@ -1,0 +1,53 @@
+# p081-pageboost: hold PLAY on the first-build library page (#237) sleeps.
+# The page holds the build boosted (tagcache_dedicated_build()); the
+# device's power_sleep() refuses while any boost is held, so the page
+# gives its hold back at sleep entry and takes it again at the wake, the
+# page still up and the build still to finish. The build outlasts the
+# sleep-entry window (30 s, its job cut and owed), so it is still to do
+# at the wake. Red at bfce123111 (the page kept its hold: "sleep refused
+# why=2" twice, awake, dark, boosted).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-firstbuild-sleep.script
+# needs: library
+# fresh-db
+# timeout: 420
+# golden: skip
+# nolog: upd bar back
+# nolog: upd stuck
+# nolog: sim_sleep: sleep refused
+# nolog: sleep refused
+# nolog: tier=off
+# logbetween: b0 s0 upd push mode=boot
+# logbetween: b0 s0 upd draw bar=([1-9]\d*) step=2
+# logbetween: s0 w0 sim_sleep: sleep enter
+# logbetween: s0 w0 upd hold give why=sleep
+# logbetween: s0 w0 no upd done
+# logbetween: s0 w0 upd hold take why=wake
+# logbetween: w0 w1 no upd done
+# logbetween: w1 e0 upd draw bar=1000
+# logbetween: w1 e0 upd done ms=
+# logbetween: w1 e0 upd dedicated depth=0
+
+sleep_mode soft       # soft sleep is off by default (developer switch)
+ab_mark b0
+scan_slow 25          # every folder 250 ms: the build outlasts the window
+wait 2500
+expect_boost 1+       # the page's hold (and the build's own)
+shot page_before      # the page, the walk part-way
+ab_mark s0
+hold PLAY 1500        # dark at once, PLAY's release awaited
+expect_sleep asleep 45000   # the window's 30 s, the entry's 5 s bound
+expect_boost 0        # nothing boosted asleep
+key SELECT            # wakes; swallowed
+expect_sleep button 3000
+ab_mark w0
+wait 1500
+expect_boost 1+       # the page's hold again: the build goes on boosted
+shot page_after       # the page again, the bar where it was or further
+ab_mark w1
+wait_db 150000
+wait 3000
+expect_boost 0 3000   # the page over: every hold given back
+shot menu_after       # the main menu
+ab_mark e0
+scan_slow 0
+quit

@@ -89,6 +89,10 @@ struct ui_screen {
     void *priv;                 /* small inline state */
     unsigned char transition;   /* enum ui_transition it was pushed with;
                                    its pop mirrors it */
+    unsigned char hidden;       /* #157: not shown yet (the library page's
+                                   first second after an unplug): refresh
+                                   draws and pushes nothing, the frame
+                                   under it stays (padding: no growth) */
     uint16_t arena_mark;        /* P11: the screen arena's top before this
                                    screen's enter() (ui_push_t); reset to
                                    it when the screen leaves */
@@ -138,6 +142,11 @@ void ui_pop_to_root(void);
  * unlit face's wake swallowing can never eat it (Phase 8a fix M2).
  * ui_take_pop_request() returns true once if 's' is still on top. */
 void ui_pop_request(struct ui_screen *s);
+/* #157: the same, but the pop lands with no slide (a screen that has
+ * not drawn anything of its own yet: what is under it just shows).
+ * ui_take_pop_cut() returns true once after such a request was taken. */
+void ui_pop_request_cut(struct ui_screen *s);
+bool ui_take_pop_cut(void);
 bool ui_take_pop_request(void);
 struct ui_screen *ui_top(void);
 int  ui_depth(void);
@@ -267,6 +276,7 @@ void     ui_arena_reset(uint16_t mark); /* mark <= top, else logged and
                                            EQ, Language, Reset (U2a/U2b) */
 #define UI_ARENA_B_LEGAL        2048    /* screens/legal.c (U2b) */
 #define UI_ARENA_B_CHARGING     64      /* sysscreen.c (U2b) */
+#define UI_ARENA_B_UPDATE       64      /* updscreen.c (#157, #237) */
 #define UI_ARENA_B_VIZ          4640    /* viz.c (#126): the view's state
                                            (480 B ARM) and the tap's ring
                                            (viz_tap_bytes(512): 4,143 B);

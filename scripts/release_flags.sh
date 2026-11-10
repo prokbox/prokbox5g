@@ -51,4 +51,4 @@ RELEASE_REQUIRED="bootloader-ipodvideo.ipod .rockbox/modules.pak .rockbox/bcmvid
 
 # The resident cap: _end in rockbox.elf, decimal bytes (validate.sh
 # REL_BCM_END_MAX, the same backstop).
-RELEASE_END_MAX=1500000
+RELEASE_END_MAX=1750000   # 0.9.0 (owner, 2026-11-07): 1.75 MB, held until 1.0; 2.0 MB is a safety reserve

@@ -384,6 +384,17 @@ enum np_snap np_pb_snapshot(struct np_track *t)
     t->stars = np_rating_from_tag(id3->rating);
     t->queue_index = playlist_get_display_index() - 1;
     t->queue_count = playlist_amount();
+    /* 0.8.1: Shuffle Songs counts the library, not the refill window;
+     * both numbers are kept as they go (no scan, no I/O) */
+    t->lib_pos = lib_shuffle_lap_pos(t->queue_count - 1 - t->queue_index);
+    t->lib_songs = 0;
+    if (t->lib_pos > 0)
+    {
+        struct lib_stats st;
+
+        if (lib_stats(&st) && st.songs > 0)
+            t->lib_songs = st.songs;
+    }
     t->length_ms = id3->length;
     memset(&t->scrub, 0, sizeof(t->scrub));
     memset(&t->book, 0, sizeof(t->book));  /* P6: B fills it (book map) */

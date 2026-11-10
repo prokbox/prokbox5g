@@ -79,6 +79,16 @@
  *   MENU          video_end(): the player and the sound stop (the file's
  *                 spot is kept by the track-finish handler), back to the
  *                 list.
+ *   Hold          (#184, owner 2026-11-07) locks the keys, never the
+ *                 picture: the screen stays lit (backlight_hold_lit() for
+ *                 the session), no Hold face comes over it (unlit.c), the
+ *                 video plays on and the lock shows in the strip for a
+ *                 moment, again at any key that still arrives (the wheel
+ *                 and buttons are dead on the unit; the simulator's
+ *                 scripted keys and an accessory's are not). With Hold on
+ *                 the video's end is the end: its queue never wraps
+ *                 (playlist.c get_next_index()), back to the list with
+ *                 the spot reset as for any finished video.
  *
  * The overlay: while the video owns the panel, lcd_update() reaches
  * nothing, so the strip is drawn into the frame and handed to the image
@@ -122,6 +132,8 @@
 #include "ipodui/screens/nowplaying.h"
 #include "ipodui/screens/setwidgets.h"
 #include "ipodui/screens/video.h"
+#include "ipodui/unlit_core.h"     /* the padlock (#184) */
+#include "backlight.h"
 
 /* the overlay strip, full width at the bottom */
 #define STRIP_H     44
@@ -136,11 +148,12 @@
 #define START_GRACE (4 * HZ)    /* the audio may not report PLAY at once */
 #define SCRUB_REST  (HZ / 6)    /* the wheel at rest: seek */
 #define SLIDE_MS    220         /* the strip slides up / down this long */
+#define LOCK_SHOW   (3 * HZ / 2)  /* Hold: the lock's life (#184) */
 
 static const struct ui_screen_ops video_ops;
 static void video_end(void);
 
-enum strip { ST_NONE, ST_VOLUME, ST_OVERLAY, ST_SCRUB };
+enum strip { ST_NONE, ST_VOLUME, ST_OVERLAY, ST_SCRUB, ST_LOCK };
 
 static struct {
     bool owned;                 /* vplayer_start() succeeded, not yet stopped */
@@ -164,6 +177,7 @@ static struct {
     int shown_px;               /* the bar's fill the strip shows */
     bool spot_kept;             /* this pause's spot is written (#154) */
     long spot_at;               /* paused: the spot is written after this */
+    long lock_until;            /* ST_LOCK hides (#184) */
 #ifdef SIMULATOR
     short sim_fail;             /* tests: a fail_why to fake, 0 none */
 #endif
@@ -327,6 +341,8 @@ static void verr_show(struct ui_screen *s, int e)
 
 /* -- the first-use check (cold) ------------------------------------------ */
 
+#define PREP_FG LCD_RGBPACK(235, 235, 240)  /* its text (also the tests') */
+
 /* The first play on a unit checks the video chip first (vplayer.h
  * vplayer_check_due(), about a second, once per unit and video image):
  * "Preparing Video..." on the video's black, in the list font, centred.
@@ -343,7 +359,7 @@ static void preparing_draw(void)
     lcd_clear_display();
     lcd_setfont(ui_theme->font_ui);
     lcd_set_drawmode(DRMODE_FG);
-    lcd_set_foreground(LCD_RGBPACK(235, 235, 240));
+    lcd_set_foreground(PREP_FG);
     font_getstringsize((const unsigned char *)s, &w, &h, ui_theme->font_ui);
     lcd_putsxy((LCD_WIDTH - w) / 2, (LCD_HEIGHT - h) / 2, s);
     lcd_set_drawmode(DRMODE_SOLID);
@@ -406,6 +422,16 @@ static void put_glyph(enum np_glyph_id id, int x, int align, np_px fg,
                   BAR_Y + (BAR_H - h) / 2, NULL, fg, edge);
 }
 
+/* the unlit face's padlock (dark on paper there), light on the strip */
+static void lock_fill(void *ctx, int x, int y, int w, int h, int g)
+{
+    int c = 255 - g < 235 ? 255 - g : 235;
+
+    (void)ctx;
+    lcd_set_foreground(LCD_RGBPACK(c, c, c + (c > 230 ? 5 : 0)));
+    lcd_fillrect(x, y, w, h);
+}
+
 static void draw_strip_pixels(void)
 {
     struct mp3entry *id3 = audio_current_track();
@@ -422,6 +448,14 @@ static void draw_strip_pixels(void)
     lcd_setfont(ui_theme->font_title);
     lcd_set_drawmode(DRMODE_FG);
     lcd_set_foreground(LCD_RGBPACK(235, 235, 240));
+    if (vs.strip == ST_LOCK)
+    {
+        int w = unlit_glyph_w(UNLIT_G_LOCK);
+
+        unlit_paint_glyph(UNLIT_G_LOCK, (LCD_WIDTH - w) / 2, STRIP_Y + 4,
+                          lock_fill, NULL);
+        return;
+    }
     if (vs.strip == ST_VOLUME)
     {
         /* the speakers either side say it is the volume (the 7G's) */
@@ -484,7 +518,22 @@ static bool strip_up(void)
 static void video_end(void)
 {
     if (vs.owned)
+    {
+        /* #168: while the picture played the shell never repainted its
+         * frame (the chip owns the panel), so it still holds what was
+         * there at the start: "Preparing Video..." after a first-use
+         * check, the dark header, the strip. The stop hands the panel
+         * back with a full update of that frame, and the pop's slide
+         * reads its outgoing rect from it: both must find the video's
+         * black. Drawn before the stop, pushed by nothing here. */
+        ui_fb_settle(0, 0, LCD_WIDTH, LCD_HEIGHT);  /* P19 screen truth */
+        lcd_set_viewport(NULL);
+        lcd_set_background(LCD_BLACK);
+        lcd_clear_display();
+        vs.strip = ST_NONE;
         vplayer_stop();
+        backlight_hold_lit(false);  /* Hold's own rule again (#184) */
+    }
     playlist_end_video_ipodui();    /* its sound stops with it (#154) */
     vs.owned = false;               /* after: no Now Playing row for it */
     if (vs.strip != ST_NONE)
@@ -602,6 +651,14 @@ static void strip_hide(void)
     vs.slide_up = false;
 }
 
+/* #184: the lock, for a moment */
+static void lock_show(void)
+{
+    vs.lock_until = current_tick + LOCK_SHOW;
+    if (vs.strip != ST_LOCK)
+        strip_show(ST_LOCK);
+}
+
 /* a held NEXT / PREV: the audio waits (audio_pre_ff_rewind(), as the
  * shell's hold does) while the strip's diamond runs along the bar on the
  * shell's curve; the release lands it (owner, 2026-10-15) */
@@ -639,6 +696,24 @@ static void scrub_apply(void)
     spot_owe();
     if (np_pb_seek(vs.scrub_ms, np_pb_seq()))
         vplayer_seek(vs.scrub_ms);
+}
+
+void ui_video_hold_changed(bool on)
+{
+    if (!vs.owned || vs.err)
+        return;
+    UPDATE_TRACE("video hold %s", on ? "on: lit, keys locked" : "off");
+    if (vs.hold_dir)
+        hold_land();                    /* its release won't come */
+    /* what playback buffered after this video was picked under the old
+     * rule (the wrap of Repeat One / All): fetched again under the new
+     * one (playlist.c get_next_index()) */
+    if (global_settings.repeat_mode != REPEAT_OFF)
+        audio_flush_and_reload_tracks();
+    if (on)
+        lock_show();
+    else if (vs.strip == ST_LOCK)
+        strip_hide();
 }
 
 /* -- start --------------------------------------------------------------- */
@@ -686,6 +761,7 @@ void ui_video_play(const char *path, int tc_idx)
         return;
     }
     vs.owned = true;
+    backlight_hold_lit(true);               /* #184: Hold never darkens it */
     if (playlist_play_video_ipodui(path, elapsed, offset) < 0)
     {
         video_end();                        /* logged; nothing plays */
@@ -739,6 +815,29 @@ static int video_enter(struct ui_screen *s, const void *arg)
     return 0;
 }
 
+#ifdef SIMULATOR
+/* Tests (ipodui-p19-video-exit, #168): what the way back slides out. The
+ * pop's slide reads its old rect from the framebuffer (slide_capture), so
+ * a "Preparing Video..." frame left there would show on the way out:
+ * its text pixels (PREP_FG, nothing else on these screens) are counted */
+static int prep_px_on_fb(void)
+{
+    const fb_data want = (fb_data)PREP_FG;
+    int x, y, n = 0;
+
+    lcd_set_viewport(NULL);             /* FBADDR uses the current viewport */
+    for (y = 0; y < LCD_HEIGHT; y++)
+    {
+        /* not ownable: a simulator-only check that reads the PP framebuffer itself, never the panel on the BCM */
+        const fb_data *px = FBADDR(0, y);
+
+        for (x = 0; x < LCD_WIDTH; x++)
+            n += px[x] == want;
+    }
+    return n;
+}
+#endif
+
 static void video_leave(struct ui_screen *s)
 {
     (void)s;
@@ -746,6 +845,10 @@ static void video_leave(struct ui_screen *s)
         hold_land();
     video_end();                        /* hold MENU, a failure, the end */
     UPDATE_TRACE("video leave audio=%d", audio_status());   /* 0: #154 */
+#ifdef SIMULATOR
+    if (!vs.err)
+        UPDATE_TRACE("video exit frame prep_px=%d", prep_px_on_fb());
+#endif
     vs.err = VE_NONE;
 }
 
@@ -809,6 +912,11 @@ static enum ui_result video_input(struct ui_screen *s,
                          in->key == UI_KEY_SELECT ? "select" : "menu");
             return UI_POP;
         }
+        return UI_HANDLED;
+    }
+    if (button_hold())
+    {
+        lock_show();                    /* #184: locked, the lock says so */
         return UI_HANDLED;
     }
     if (vs.hold_dir && in->key != UI_KEY_NEXT && in->key != UI_KEY_PREV)
@@ -956,6 +1064,7 @@ static int video_tick(struct ui_screen *s)
     if (!(st & AUDIO_STATUS_PLAY)
         && (vs.seen_play || TIME_AFTER(current_tick, vs.start + START_GRACE)))
     {
+        UPDATE_TRACE("video end hold=%d", (int)button_hold());
         video_end();                    /* the track ended */
         ui_pop_request(s);
         return TIMEOUT_BLOCK;
@@ -967,7 +1076,9 @@ static int video_tick(struct ui_screen *s)
         if (!strip_up())
             strip_show(ST_OVERLAY);
     }
-    if (button_wheel_touches() != vs.touches)
+    if (button_hold())
+        vs.touches = button_wheel_touches();    /* locked: no overlay */
+    else if (button_wheel_touches() != vs.touches)
     {
         vs.touches = button_wheel_touches();
         if (!strip_up() || vs.strip != ST_VOLUME)
@@ -1000,6 +1111,9 @@ static int video_tick(struct ui_screen *s)
         scrub_apply();
     if (strip_up() && vs.strip == ST_VOLUME
         && TIME_AFTER(current_tick, vs.vol_until))
+        strip_hide();
+    if (strip_up() && vs.strip == ST_LOCK
+        && TIME_AFTER(current_tick, vs.lock_until))
         strip_hide();
     if (strip_up() && (vs.strip == ST_OVERLAY || vs.strip == ST_SCRUB)
         && !vs.paused && !vs.seek_due && !vs.hold_dir

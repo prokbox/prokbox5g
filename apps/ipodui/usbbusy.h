@@ -55,6 +55,9 @@ int  ui_usbbusy_poll(struct ui_header_state *st, bool lit);
 /* the screen went dark: input.c (the backlight-off event), sleep.c (a
  * sleep's dark entry); UI thread */
 void ui_usbbusy_dark(void);
+/* #157: the post-USB moment is still open (from ui_usbbusy_begin() until
+ * the scan has been quiet its gap, or never started in its grace) */
+bool ui_usbbusy_moment(void);
 
 /* The snapshot batch (modload.h, #106; docs/phase16-brief.md 4.2) is the
  * same routine the boot window runs. It does not exist yet: this is the

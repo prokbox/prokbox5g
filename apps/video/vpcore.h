@@ -232,7 +232,10 @@ struct vpc_stats
                                    FIFO or packet queue full, lockstep) */
     uint32_t piece_waits;       /* a sample's piece "not buffered" after
                                    its last byte was (the audio's buffer
-                                   reset under us): pushed again later */
+                                   reset under us, or the audio took the
+                                   file after a probe from it) */
+    uint32_t piece_direct;      /* #218: of them, read from the file at
+                                   once (the packet kept) */
     uint32_t aborts;            /* packets dropped part way (port or
                                    "not buffered"); params ride again */
     uint32_t feed_refusals;     /* sessions restarted: the image refused
@@ -485,6 +488,41 @@ int vpc_audio_config(struct vpc *v, uint32_t in, uint32_t out,
 int vpc_audio_block(struct vpc *v, uint32_t in, uint32_t out, uint32_t off,
                     uint16_t *pcm, uint32_t bytes, uint32_t gain,
                     struct vpc_audio_times *t);
+
+/* #218: the audio position the player's clock follows, and when a move of
+   it is a jump (a seek the shell made, a repeat) the video must follow.
+   The owner's rc.6/rc.7 logs: every start, the position read 2.9 s, then
+   0, then 3.2 s while the sound started, and each read seeked the video
+   (2 to 4 seeks in the first seconds).  Now:
+     - until the PCM first plays, the clock holds where the video started;
+     - while the PCM doesn't play (a pause, a stall), it holds;
+     - a move past the window (back 300 ms, on 1.5 s) is judged only while
+       the PCM plays, and only on a second reading at least
+       VPC_JUMP_CONFIRM_US later that agrees with the first (moving on in
+       step); meanwhile the clock holds. */
+#define VPC_JUMP_BACK_US        300000
+#define VPC_JUMP_ON_US          1500000
+#define VPC_JUMP_CONFIRM_US     100000
+#define VPC_JUMP_AGREE_US       300000
+
+struct vpc_follow
+{
+    int64_t last;               /* the position given out last */
+    int64_t pend_a;             /* a jump seen, not yet confirmed: where */
+    uint32_t pend_t;            /*   and when */
+    bool pend;
+    bool pcm_seen;              /* the PCM played since the start */
+    uint32_t jumps, held;       /* confirmed jumps; readings held */
+};
+
+/* The start (or a seek the player made itself): the clock at a */
+void vpc_follow_reset(struct vpc_follow *f, int64_t a, bool keep_pcm_seen);
+
+/* One reading: a the audio's position, pcm_on whether the PCM plays our
+   file now, now_us a clock.  Returns the position to use; *jump is set
+   when a confirmed jump wants a seek to it. */
+int64_t vpc_follow(struct vpc_follow *f, int64_t a, bool pcm_on,
+                   uint32_t now_us, bool *jump);
 
 /* Ends the session and gives the BCM back. */
 void vpc_stop(struct vpc *v);

@@ -46,6 +46,7 @@ static enum ui_transition transition_kind = UI_T_PUSH;
 static ui_leave_hook_fn leave_hook;
 static ui_cover_hook_fn cover_hook;
 static struct ui_screen *pop_req; /* ui_pop_request(), one pending */
+static bool pop_cut;             /* #157: that pop lands with no slide */
 
 /* -- the screen arena (P11, screen_stack.h) -------------------------------- */
 
@@ -152,7 +153,10 @@ static void leave_top(void)
     struct ui_screen *s = &stack[depth - 1];
 
     if (pop_req == s)
+    {
         pop_req = NULL;
+        pop_cut = false;
+    }
     if (leave_hook)
         leave_hook(s);
     if (s->ops->leave)
@@ -257,9 +261,24 @@ void ui_pop_to_root(void)
     transition = -1;
 }
 
+void ui_pop_request_cut(struct ui_screen *s)
+{
+    pop_req = s;
+    pop_cut = true;
+}
+
+bool ui_take_pop_cut(void)
+{
+    bool c = pop_cut;
+
+    pop_cut = false;
+    return c;
+}
+
 void ui_pop_request(struct ui_screen *s)
 {
     pop_req = s;
+    pop_cut = false;
 }
 
 bool ui_take_pop_request(void)

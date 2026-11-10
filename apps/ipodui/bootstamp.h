@@ -65,10 +65,13 @@
                                          * reads as torn (one walk) */
 #define BOOT_STAMP_CLEAN        0x0001u      /* flags: a clean shutdown */
 #define BOOT_STAMP_WALK_EVERY   10           /* Q3: every 10th boot walks */
-#define BOOT_DIGEST_CAP_MS      1000         /* slower: walk (never "clean and
-                                              * no USB" alone, until the
-                                              * device's 'boot digest ms='
-                                              * line says otherwise) */
+#define BOOT_DIGEST_CAP_MS      1000         /* p081: slower: the boot window
+                                              * hands over and the digest
+                                              * finishes in the background */
+#define BOOT_DIGEST_MAX_MS      30000        /* p081: slower still: SLOW, walk
+                                              * (a backstop; a digest reads
+                                              * only the folders a walk reads
+                                              * and opens no file) */
 #define BOOT_HOLD_MS            3000         /* Q4: the boot screen's hold */
 
 struct boot_stamp {            /* the hidden folder's boot_stamp.dat */
@@ -91,7 +94,7 @@ struct boot_stamp {            /* the hidden folder's boot_stamp.dat */
 /* Why a boot walks or not; only the first skips the walk */
 enum boot_why {
     BOOT_WHY_TRUST = 0,     /* stamp sound and the digest matches */
-    BOOT_WHY_SLOW,          /* digest over BOOT_DIGEST_CAP_MS: walk */
+    BOOT_WHY_SLOW,          /* digest over BOOT_DIGEST_MAX_MS: walk */
     BOOT_WHY_NOSTAMP,       /* none: first boot, an unclean end, a USB
                              * session or an unsettled library at shutdown */
     BOOT_WHY_TORN,          /* wrong size, magic, version or CRC */
@@ -130,6 +133,15 @@ bool boot_stamp_check(const void *buf, size_t len, struct boot_stamp *out);
 enum boot_why boot_stamp_precheck(const struct boot_stamp *s, bool have,
                                   uint32_t generation);
 enum boot_why boot_stamp_verdict(enum boot_digest_state st);
+/* p081: a digest el_ms in: the boot screen holds for it, it goes on in the
+ * background (the boot window hands over; the walk is decided when it
+ * ends), or it stops (SLOW: walk) */
+enum boot_digest_pace {
+    BOOT_PACE_HOLD = 0,
+    BOOT_PACE_BACKGROUND,
+    BOOT_PACE_STOP,
+};
+enum boot_digest_pace boot_digest_pace(long el_ms);
 static inline bool boot_why_trusted(enum boot_why w)
 {
     return w == BOOT_WHY_TRUST;

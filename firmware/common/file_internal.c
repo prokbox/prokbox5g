@@ -29,6 +29,9 @@
 #include "rb_namespace.h"
 #include "string-extra.h"
 #include "rbunicode.h"
+#ifdef FILE_WALK_CACHE
+#include "core_alloc.h"
+#endif
 
 /* Define LOGF_ENABLE to enable logf output in this file */
 //#define LOGF_ENABLE
@@ -269,6 +272,151 @@ void fill_dirinfo_native(struct dirinfo_native *dinp)
 }
 #endif /* HAVE_DIRCACHE */
 
+#ifdef FILE_WALK_CACHE
+/* ProkBox (#243): the walk lookup cache. Without dircache every open(),
+ * opendir() and file_exists() scans each folder on its path again, name
+ * by name (a library walk resolved /Music, the artist and the album for
+ * every track: ~7x stock's lookup time at 10k tracks). While a walk has
+ * it on, folders are kept here, keyed by the parent's first cluster and
+ * the name, and a lookup of one skips the scan of its parent. A folder is
+ * kept when a lookup's scan finds it, and when a listing (readdir) reads
+ * it: the walk's next opendir() is of that folder (a scan of the parent
+ * from its start for every folder grew with the square of its size).
+ *  - Folders only: a folder's entry never changes in place (no size, no
+ *    cluster change, never written through), so the only way one goes
+ *    stale is an entry added or freed, or a remount, and fat.c moves
+ *    fat_dirent_gen for each (any thread); a slot set under another
+ *    generation is never read. Misses are not kept.
+ *  - Exactly what the scan finds: the first entry whose name matches
+ *    case-insensitively, as strcasecmp() (one byte for one byte, so equal
+ *    names have equal lengths); the scan state (the entry's index and
+ *    count) is the one the scan leaves. A name already kept stays (the
+ *    first of a name). A name longer than a slot holds, a listed name in
+ *    the OEM code page, and FF_NOISO lookups scan as before.
+ *  - Shared by every thread: lookups and mutations hold the file writer
+ *    lock, listings the reader lock; nothing in here yields. No resident
+ *    RAM: a movable core_alloc() made by the first file_walk_cache(true),
+ *    freed by the last (false), taken only from free memory (never by
+ *    shrinking the audio buffer; no room: no cache). The pointer is
+ *    fetched again at every use. */
+#ifndef WALK_CACHE_SLOTS
+#define WALK_CACHE_SLOTS 16         /* x 128 B: tests/walkcache */
+#endif
+struct walk_cache_slot
+{
+    struct fat_file fatfile;        /* the folder; .dircluster: the key */
+    uint32_t        filesize;       /* as its entry says */
+    uint32_t        age;            /* last use; 0: empty */
+    uint8_t         attr;           /* its entry's attributes */
+    uint8_t         length;         /* name bytes */
+    char            name[128 - 26]; /* not terminated */
+};
+static int walk_cache_handle;       /* > 0: on */
+static int walk_cache_users;
+static unsigned int walk_cache_gen; /* fat_dirent_gen the slots are of */
+static uint32_t walk_cache_tick;
+#ifdef WALK_CACHE_STATS
+unsigned long walk_cache_hits, walk_cache_misses;
+#endif
+
+/* the slots, or NULL: off, or emptied when a directory entry changed */
+static struct walk_cache_slot * walk_cache_slots(void)
+{
+    if (walk_cache_handle <= 0)
+        return NULL;
+
+    struct walk_cache_slot *s = core_get_data(walk_cache_handle);
+    if (walk_cache_gen != fat_dirent_gen)
+    {
+        memset(s, 0, WALK_CACHE_SLOTS * sizeof (*s));
+        walk_cache_gen = fat_dirent_gen;
+    }
+
+    return s;
+}
+
+/* the slot of 'name' in the folder whose first cluster is 'dircluster' */
+static struct walk_cache_slot * walk_cache_find(struct walk_cache_slot *s,
+                                                const struct fat_file *parent,
+                                                const char *name,
+                                                size_t length)
+{
+    for (int i = 0; i < WALK_CACHE_SLOTS; i++, s++)
+    {
+#if defined(WALKCACHE_BREAK) && (WALKCACHE_BREAK & 32)
+        if (s->age && s->fatfile.dircluster == parent->firstcluster)
+            return s;               /* negative control: the name ignored */
+#endif
+        if (s->age && s->length == length
+            && s->fatfile.dircluster == parent->firstcluster
+            IF_MV( && s->fatfile.volume == parent->volume )
+            && !strncasecmp(s->name, name, length))
+            return s;
+    }
+
+    return NULL;
+}
+
+/* keep 'file', found or listed in its parent under 'name', if a folder */
+static void walk_cache_put(const struct fat_file *parent,
+                           const struct fat_file *file,
+                           const struct fat_direntry *fatent,
+                           const char *name, size_t length)
+{
+    struct walk_cache_slot *s = walk_cache_slots();
+    if (!s || !(fatent->attr & ATTR_DIRECTORY) || length > sizeof (s->name)
+        || walk_cache_find(s, parent, name, length))
+        return;
+
+    /* an empty slot (age 0), else the least recently used */
+    struct walk_cache_slot *victim = s;
+#if !defined(WALKCACHE_BREAK) || !(WALKCACHE_BREAK & 16)
+    for (int i = 1; i < WALK_CACHE_SLOTS; i++)
+        if (s[i].age < victim->age)
+            victim = &s[i];
+#endif                              /* else: always slot 0 */
+
+    victim->fatfile  = *file;
+    victim->filesize = fatent->filesize;
+    victim->attr     = fatent->attr;
+    victim->length   = length;
+    memcpy(victim->name, name, length);
+    victim->age      = ++walk_cache_tick;
+}
+
+void file_walk_cache(bool on)
+{
+    const size_t size = WALK_CACHE_SLOTS * sizeof (struct walk_cache_slot);
+    int handle = 0;
+
+    /* outside the lock: an allocation may call other owners back */
+    if (on && !walk_cache_users && core_allocatable() >= size + 64)
+        handle = core_alloc(size);
+
+    file_internal_lock_WRITER();
+    if (on)
+    {
+        if (walk_cache_users++ == 0 && handle > 0 && walk_cache_handle <= 0)
+        {
+            memset(core_get_data(handle), 0, size);
+            walk_cache_handle = handle;
+            walk_cache_gen = fat_dirent_gen;
+            walk_cache_tick = 0;
+            handle = 0;
+        }
+    }
+    else if (walk_cache_users > 0 && --walk_cache_users == 0)
+    {
+        handle = walk_cache_handle;
+        walk_cache_handle = 0;
+    }
+    file_internal_unlock_WRITER();
+
+    if (handle > 0)
+        core_free(handle);          /* not installed, or the last off */
+}
+#endif /* FILE_WALK_CACHE */
+
 int uncached_readdir_dirent(struct filestr_base *stream,
                             struct dirscan_info *scanp,
                             struct DIRENT *entry)
@@ -285,6 +433,23 @@ int uncached_readdir_dirent(struct filestr_base *stream,
     entry->info.wrttime = fatent.wrttime;
 #if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
     entry->info.fstclus = fatent.firstcluster;  /* #89: the boot digest */
+#endif
+#ifdef FILE_WALK_CACHE
+    if (rc == 1)    /* a long name (2: OEM, decoded by the caller) */
+    {
+        /* as a lookup's scan of this folder leaves the entry it finds */
+        const struct fat_file *parent = &stream->infop->fatfile;
+        struct fat_file file;
+        IF_MV( file.volume = parent->volume; )
+        file.firstcluster = fatent.firstcluster;
+        file.dircluster   = parent->firstcluster;
+        file.e            = scanp->fatscan;
+#if defined(WALKCACHE_BREAK) && (WALKCACHE_BREAK & 64)
+        file.e.entry++;             /* negative control: a wrong position */
+#endif
+        walk_cache_put(parent, &file, &fatent, fatent.name,
+                       strlen(fatent.name));
+    }
 #endif
 
     return rc;
@@ -441,6 +606,34 @@ static void walk_check_prefix(struct pathwalk *walkp,
     compp->attr |= ATTR_PREFIX;
 }
 
+#ifdef FILE_WALK_CACHE
+/* a hit: compp and walkp as the scan would leave them */
+static bool walk_cache_get(struct pathwalk *walkp,
+                           struct pathwalk_component *compp)
+{
+    struct walk_cache_slot *s = walk_cache_slots();
+    if (!s || (walkp->callflags & FF_NOISO))
+        return false;
+
+    s = walk_cache_find(s, &compp->nextp->info.fatfile, compp->name,
+                        compp->length);
+#if defined(WALKCACHE_BREAK) && (WALKCACHE_BREAK & 8)
+    s = NULL;                       /* negative control: never a hit */
+#endif
+#ifdef WALK_CACHE_STATS
+    if (s) walk_cache_hits++; else walk_cache_misses++;
+#endif
+    if (!s)
+        return false;
+
+    s->age = ++walk_cache_tick;
+    compp->info.fatfile = s->fatfile;
+    walkp->filesize = s->filesize;
+    compp->attr |= s->attr;
+    return true;
+}
+#endif /* FILE_WALK_CACHE */
+
 /* opens the component named by 'comp' in the directory 'parent' */
 static NO_INLINE int open_path_component(struct pathwalk *walkp,
                                          struct pathwalk_component *compp,
@@ -465,6 +658,11 @@ static NO_INLINE int open_path_component(struct pathwalk *walkp,
     stream->infop = &parentp->info;
     fat_filestr_init(&stream->fatstr, &parentp->info.fatfile);
     rewinddir_internal(&compp->info);
+
+#ifdef FILE_WALK_CACHE
+    if (walk_cache_get(walkp, compp))
+        goto found;
+#endif
 
     while ((rc = readdir_internal(stream, &compp->info, &dir_fatent)) > 0)
     {
@@ -497,6 +695,12 @@ static NO_INLINE int open_path_component(struct pathwalk *walkp,
 
     walkp->filesize = dir_fatent.filesize;
     compp->attr    |= dir_fatent.attr;
+#ifdef FILE_WALK_CACHE
+    if (!(callflags & FF_NOISO))
+        walk_cache_put(&parentp->info.fatfile, &compp->info.fatfile,
+                       &dir_fatent, compp->name, compp->length);
+found:
+#endif
 
     if (callflags & FF_CHECKPREFIX)
         walk_check_prefix(walkp, compp);

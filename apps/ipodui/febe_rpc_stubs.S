@@ -198,6 +198,7 @@ febe_invoke:
     FEBE_STUB lcd_sleep
     FEBE_STUB lib_shuffle_active
     FEBE_STUB lib_shuffle_idle
+    FEBE_STUB lib_shuffle_lap_pos
     FEBE_STUB lib_shuffle_mode
     FEBE_STUB lib_shuffle_note_book
     FEBE_STUB lib_shuffle_resumed_book
@@ -260,6 +261,7 @@ febe_invoke:
     FEBE_STUB rbfs_mkdir
     FEBE_STUB rbfs_open
     FEBE_STUB rbfs_opendir
+    FEBE_STUB rbfs_opendir_child
     FEBE_STUB rbfs_read
     FEBE_STUB rbfs_readdir
     FEBE_STUB rbfs_remove
@@ -286,6 +288,7 @@ febe_invoke:
     FEBE_STUB tagcache_context_published
     FEBE_STUB tagcache_context_release
     FEBE_STUB tagcache_context_release_passive
+    FEBE_STUB tagcache_dedicated_build
     FEBE_STUB tagcache_get_commit_step
     FEBE_STUB tagcache_get_stat
     FEBE_STUB tagcache_is_initialized
@@ -307,10 +310,13 @@ febe_invoke:
     FEBE_STUB tagcache_ui_disk_entries
     FEBE_STUB tagcache_ui_generation
     FEBE_STUB tagcache_ui_generation_ctx
+    FEBE_STUB tagcache_ui_no_library
     FEBE_STUB tagcache_ui_numeric
     FEBE_STUB tagcache_ui_precompute_request
+    FEBE_STUB tagcache_ui_progress
     FEBE_STUB tagcache_ui_save_spot
     FEBE_STUB tagcache_ui_scan_owed
+    FEBE_STUB tagcache_ui_scans_ended
     FEBE_STUB tagcache_ui_seeks
     FEBE_STUB tagcache_ui_seeks_ctx
     FEBE_STUB tagcache_ui_sidecars

@@ -617,7 +617,7 @@ void powerlog_set(bool on);         /* devmode toggle; off at boot */
     - `HAVE_UTF8_NORMALIZE` is defined in `fw-ui` and `sim-ui` (checked by the size step: `utf8_normalize` is in the ELF and `metadata.c` calls it).
     - Pair and class tables together ≤ 8,192 B.
     - Instructions per tag reported (checklist 3).
-    - An NFD-tagged album and its NFC twin show as one album in the 50k perf library (`tests/perf/lib50k.sh` with an NFD slice).
+    - An NFD-tagged album and its NFC twin show as one album in the 50k perf library (`tests/perf/lib65k.sh` with an NFD slice).
 11. **Dock rails.** Under `!DOCK30`, `PWRMGMT3` is written without `LOUT2EN`/`ROUT2EN` at boot (a sim trace `p9 lineout=0`). The accessory rail stays on (O5): `p9 accessory=1` at boot in every `!DOCK30` variant, and no `accessory_supply_set` call on the USB or charging-sleep paths (grep plus traces in `ipodui-p9-smoke-usb` and the 8a charging-sleep script) (M4).
 
 11a. **Statistics, resume and post-USB scan survive the trims (H1, H2).** `ipodui-p9-stats-playcount` (playcount +1 and a fresh lastplayed after a track plays to its end), `ipodui-p9-rating-persist` (a rating survives power-off and reboot) and `ipodui-p9-usb-rescan` (an album added over USB appears after disconnect) pass. The existing P6 book-resume scripts pass unchanged.
@@ -667,7 +667,7 @@ void powerlog_set(bool on);         /* devmode toggle; off at boot */
   - reads per hour from the log.
 - **H7: COP.** Art-builder busy time per fill window and the boost ratio, to feed the COP decision (⚠️ P5).
 - **H8: haptics.** Motor pulse length and frequency feel (#23). It sets the `HAPTIC_TICK_*` values (⚠️ V4).
-- **Thumb-cold speed check (only if 9b wants it):** a `lib50k`-equivalent open, the art builder per album, and a Search keystroke, ARM vs `--thumb-cold`.
+- **Thumb-cold speed check (only if 9b wants it):** a `lib65k`-equivalent open, the art builder per album, and a Search keystroke, ARM vs `--thumb-cold`.
 - **Retired:** "Deleted files, dircache branch" (dircache is compiled out in shell builds).
 
 ## 10. ⚠️ Frozen defaults (the owner round confirms; not revised mid-phase)

@@ -62,6 +62,7 @@
 #endif
 #ifdef HAVE_IPOD_UI
 #include "ipodui/usbscreen.h"
+#include "ipodui/modclass.h"    /* the restore is the firmware's */
 #endif
 
 struct usb_screen_vps_t
@@ -319,6 +320,11 @@ void gui_usb_screen_run(bool early_usb, intptr_t seqnum)
     usb_acknowledge(SYS_USB_CONNECTED_ACK, seqnum);
 #ifdef HAVE_IPOD_UI
     ui_usb_screen_loop(early_usb);
+    /* the restore after the session (fonts, settings, the playlist's
+     * resume) is the firmware's disk work, not that of a module still on
+     * top: the session's own bracket closed with the loop, before the
+     * game's owed suspend(), which stays the module's */
+    modclass_save(true);
 #else
     usb_screens_draw(usb_screen_vps_ar);
     handle_usb_events(title);
@@ -375,6 +381,9 @@ void gui_usb_screen_run(bool early_usb, intptr_t seqnum)
     lcd_set_backdrop(NULL);
 #endif
 
+#ifdef HAVE_IPOD_UI
+    modclass_save(false);
+#endif
     pop_current_activity();
 #ifdef SIMULATOR
     in_usb_screen = false;

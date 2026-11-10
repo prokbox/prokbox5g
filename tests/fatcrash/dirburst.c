@@ -202,6 +202,21 @@ static void dc_empty(void)
     dc_unlock_cache();
 }
 
+/* fully cold: the disk cache emptied and every burst slot dropped (a
+ * remount, as fat_mount()/fat_unmount() drop them all). With 8 slots
+ * (#225) a folder read just before stays in a slot through dc_empty(),
+ * so a test that must reach the disk starts here. No handle may be open */
+static void cold(void)
+{
+    dc_empty();
+    root_unmount_volume();
+    fileobj_mgr_unmount();
+    fat_unmount();
+    if (fat_mount(0) != 0) { fprintf(stderr, "remount\n"); exit(2); }
+    root_mount_path("/", NSITEM_HIDDEN);
+    root_mount_path("/", NSITEM_CONTENTS);
+}
+
 /* ---- lib ---- */
 static const char *words[] = { "Midnight", "Velvet", "Harbour", "Signal",
     "Paper", "Lanterns", "Northern", "Echoes", "Static", "Gardens",
@@ -238,6 +253,32 @@ static void walk(const char *path, struct walk *w, int depth)
             char sub[MAX_PATH];
             snprintf(sub, sizeof(sub), "%s/%s", path, e->d_name);
             walk(sub, w, depth + 1);
+        }
+    }
+    rbfs_closedir(d);
+}
+
+/* p081: the same walk, each subfolder opened from its parent's entry
+ * (rbfs_opendir_child(): no path walk from the root per folder) */
+static void walk_child(DIR *parent, const struct dirent *pe,
+                       const char *path, struct walk *w, int depth)
+{
+    DIR *d = parent ? rbfs_opendir_child(parent, pe, path)
+                    : rbfs_opendir(path);
+    struct dirent *e;
+    if (!d) { fprintf(stderr, "opendir_child %s\n", path); exit(2); }
+    w->dirs++;
+    while ((e = rbfs_readdir(d)))
+    {
+        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, ".."))
+            continue;
+        w->entries++;
+        w->h = fnv(w->h, e->d_name, strlen(e->d_name) + 1);
+        if ((e->info.attr & ATTR_DIRECTORY) && depth < 8)
+        {
+            char sub[MAX_PATH];
+            snprintf(sub, sizeof(sub), "%s/%s", path, e->d_name);
+            walk_child(d, e, sub, w, depth + 1);
         }
     }
     rbfs_closedir(d);
@@ -303,6 +344,30 @@ static int lib(unsigned long tracks, unsigned spc)
             rd_cmds, rd_secs, ms);
     printf("stat walk_cmds %lu walk_secs %lu\n", rd_cmds, rd_secs);
 
+    /* (1b) p081: the walk by entry (the boot digest's and the scan's) */
+    struct walk wp = { 0, 0, 2166136261u }, wc = { 0, 0, 2166136261u };
+    cold();
+    rd_cmds = rd_secs = 0;
+    c0 = clock();
+    walk("/Music", &wp, 0);
+    ms = (double)(clock() - c0) * 1000.0 / CLOCKS_PER_SEC;
+    fprintf(stderr, "walk_path (cold): %lu commands, %lu sectors, host %.0f "
+            "ms\n", rd_cmds, rd_secs, ms);
+    cold();
+    rd_cmds = rd_secs = 0;
+    c0 = clock();
+    walk_child(NULL, NULL, "/Music", &wc, 0);
+    double msc = (double)(clock() - c0) * 1000.0 / CLOCKS_PER_SEC;
+    printf("walk_child: %lu dirs %lu entries names %08x\n", wc.dirs,
+           wc.entries, wc.h);
+    fprintf(stderr, "walk_child: %lu commands, %lu sectors, host %.0f ms\n",
+            rd_cmds, rd_secs, msc);
+    if (wc.dirs != w.dirs || wc.entries != w.entries || wc.h != w.h)
+    {
+        fprintf(stderr, "FAIL walk_child differs from the path walk\n");
+        return 1;
+    }
+
     /* (2) the deleted-file pass: open every track by its path */
     unsigned long found = 0, missing = 0;
     dc_empty();
@@ -321,6 +386,180 @@ static int lib(unsigned long tracks, unsigned spc)
             rd_cmds, rd_secs, ms);
     printf("stat open_cmds %lu open_secs %lu\n", rd_cmds, rd_secs);
     return missing != 0;
+}
+
+/* ---- ipc: the synced-library layout (#225) ----
+ * Apple's sync software keeps every track in one of 50 folders
+ * (iPod_Control/Music/F00..F49) under a random four-character 8.3 name,
+ * so an album's tracks are scattered over the folders and a folder holds
+ * tracks/50 names. layout 0 = that; layout 1 = the drag-and-drop tree
+ * (/Music/<artist>/<album>/NN <title>.mp3, long names) for comparison.
+ * Prints storage commands (cold disk cache) for: the scan's walk, an open
+ * of every track in walk order (the scan's tag read opens by path), and
+ * the art builder's stock image-file search for each album's first track
+ * (albumart.c search_albumart_files(): 19 lookups, then png_folder()'s 2;
+ * every one misses here, as it does in the synced folders), in album-key
+ * order (unrelated to folder order). */
+static unsigned long ipc_rnd = 1;
+static unsigned ipc_r(void)
+{
+    ipc_rnd = ipc_rnd * 6364136223846793005ull + 1442695040888963407ull;
+    return (unsigned)(ipc_rnd >> 33);
+}
+
+static unsigned long probe_n;
+static void probe(const char *fmt, ...)
+{
+    char p[MAX_PATH];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(p, sizeof(p), fmt, ap);
+    va_end(ap);
+    probe_n++;
+    if (rbfs_file_exists(p)) { fprintf(stderr, "probe hit %s\n", p); exit(2); }
+}
+
+/* the stock order for one album: dir ends in '/', stem = track name
+ * without its suffix, parent = dir's parent (ends in '/') */
+static void album_probes(const char *dir, const char *stem,
+                         const char *parent, const char *artist,
+                         const char *album)
+{
+    static const char *ext[] = { "jpeg", "jpg", "bmp" };
+    for (int i = 0; i < 3; i++) probe("%s%s.%s", dir, stem, ext[i]);
+    for (int i = 0; i < 3; i++) probe("%s%s.%s", dir, album, ext[i]);
+    for (int i = 0; i < 3; i++) probe("%scover.%s", dir, ext[i]);
+    probe("%sfolder.jpg", dir);
+    for (int i = 0; i < 3; i++)
+        probe("/.rockbox/albumart/%s-%s.%s", artist, album, ext[i]);
+    for (int i = 0; i < 3; i++) probe("%s%s.%s", parent, album, ext[i]);
+    for (int i = 0; i < 3; i++) probe("%scover.%s", parent, ext[i]);
+    probe("%scover.png", dir);
+    probe("%sfolder.png", dir);
+}
+
+static int ipc(unsigned long tracks, unsigned spc, int layout)
+{
+    const unsigned long per_album = 10, albums = (tracks + 9) / per_album;
+    static char (*paths)[160];
+    static unsigned long *first;    /* each album's first track */
+    char p[MAX_PATH], a[96], b[96], t[96];
+    unsigned long n = 0;
+    paths = malloc(tracks * sizeof(*paths));
+    first = malloc(albums * sizeof(*first));
+    mkfs(spc);
+    mount();
+    rbfs_mkdir("/.rockbox");          /* the hidden folder, no albumart/ */
+    for (int i = 0; i < 40; i++)
+    {
+        snprintf(p, sizeof(p), "/.rockbox/settings file %02d.cfg", i);
+        put(p, 0, 0);
+    }
+    if (layout == 0)
+    {
+        rbfs_mkdir("/iPod_Control");
+        rbfs_mkdir("/iPod_Control/iTunes");
+        rbfs_mkdir("/iPod_Control/Artwork");
+        rbfs_mkdir("/iPod_Control/Music");
+        for (int f = 0; f < 50; f++)
+        {
+            snprintf(p, sizeof(p), "/iPod_Control/Music/F%02d", f);
+            rbfs_mkdir(p);
+        }
+        /* tracks land in a random folder each, as the sync does */
+        for (unsigned long al = 0; al < albums; al++)
+            for (unsigned long tr = 0; tr < per_album && n < tracks; tr++)
+            {
+                static const char cs[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+                char nm[5];
+                do {
+                    for (int k = 0; k < 4; k++) nm[k] = cs[ipc_r() % 26];
+                    nm[4] = 0;
+                    snprintf(paths[n], sizeof(paths[0]),
+                             "/iPod_Control/Music/F%02u/%s.MP3",
+                             ipc_r() % 50, nm);
+                } while (rbfs_file_exists(paths[n]));
+                if (!tr) first[al] = n;
+                put(paths[n++], 0, 0);
+            }
+    }
+    else
+    {
+        rbfs_mkdir("/Music");
+        unsigned long artists = albums / 4 ? albums / 4 : 1;
+        for (unsigned long al = 0; al < albums; al++)
+        {
+            unsigned long ar = al % artists;
+            title(a, sizeof(a), (unsigned)ar * 7 + 1, 2 + ar % 3);
+            snprintf(p, sizeof(p), "/Music/%s %04lu", a, ar);
+            if (al < artists) rbfs_mkdir(p);
+            title(b, sizeof(b), (unsigned)al * 13, 2 + al % 3);
+            snprintf(p, sizeof(p), "/Music/%s %04lu/%s %05lu", a, ar, b, al);
+            rbfs_mkdir(p);
+            for (unsigned long tr = 0; tr < per_album && n < tracks; tr++)
+            {
+                title(t, sizeof(t), (unsigned)(al * 31 + tr), 1 + tr % 3);
+                snprintf(paths[n], sizeof(paths[0]), "%s/%02lu %s.mp3", p,
+                         tr + 1, t);
+                if (!tr) first[al] = n;
+                put(paths[n++], 0, 0);
+            }
+        }
+    }
+    dc_empty();
+
+    /* (1) the walk */
+    struct walk w = { 0, 0, 2166136261u };
+    rd_cmds = rd_secs = 0;
+    walk(layout ? "/Music" : "/iPod_Control/Music", &w, 0);
+    printf("ipc layout=%d tracks=%lu albums=%lu spc=%u\n", layout, n,
+           albums, spc);
+    printf("walk: %lu dirs %lu entries %lu commands %lu sectors\n",
+           w.dirs, w.entries, rd_cmds, rd_secs);
+
+    /* (2) an open of every track in walk order (approximated by folder
+     * order: paths sorted by their folder) */
+    dc_empty();
+    rd_cmds = rd_secs = 0;
+    for (int f = 0; f < (layout ? 1 : 50); f++)
+        for (unsigned long i = 0; i < n; i++)
+        {
+            if (!layout)
+            {
+                int ff = (paths[i][21] - '0') * 10 + (paths[i][22] - '0');
+                if (ff != f) continue;
+            }
+            int fd = rbfs_open(paths[i], O_RDONLY);
+            if (fd < 0) { fprintf(stderr, "open %s\n", paths[i]); exit(2); }
+            rbfs_close(fd);
+        }
+    printf("opens: %lu tracks %lu commands %lu sectors\n", n, rd_cmds,
+           rd_secs);
+
+    /* (3) the art builder's image-file search, albums in key order */
+    dc_empty();
+    rd_cmds = rd_secs = 0;
+    probe_n = 0;
+    unsigned long stride = albums > 1 ? 7919 % albums : 1;
+    if (!stride) stride = 1;
+    for (unsigned long k = 0, al = 0; k < albums; k++, al = (al + stride) % albums)
+    {
+        const char *path = paths[first[al]];
+        char dir[MAX_PATH], parent[MAX_PATH], stem[96];
+        const char *slash = strrchr(path, '/');
+        size_t dl = (size_t)(slash - path) + 1;
+        memcpy(dir, path, dl); dir[dl] = 0;
+        snprintf(stem, sizeof(stem), "%s", slash + 1);
+        *strrchr(stem, '.') = 0;
+        memcpy(parent, dir, dl - 1); parent[dl - 1] = 0;
+        *(strrchr(parent, '/') + 1) = 0;
+        title(b, sizeof(b), (unsigned)al * 13, 2 + al % 3);
+        title(a, sizeof(a), (unsigned)al * 7 + 1, 2);
+        album_probes(dir, stem, parent, a, b);
+    }
+    printf("art probes: %lu albums %lu lookups %lu commands %lu sectors\n",
+           albums, probe_n, rd_cmds, rd_secs);
+    return 0;
 }
 
 /* ---- mut ---- */
@@ -575,7 +814,7 @@ static int fault(unsigned spc)      /* spc >= 4 */
     nref = list_d(ref, MAXN, &errs);
 
     /* A: the first burst fails once; the single-sector retry serves it */
-    dc_empty();
+    cold();
     fail_reads = 1; fail_min = 2; fail_lo = 0; fail_hi = img_sectors;
     n = list_d(got, MAXN, &errs);
     if (fail_reads || errs || n != nref || memcmp(ref, got, n * 80))
@@ -589,7 +828,7 @@ static int fault(unsigned spc)      /* spc >= 4 */
     for (unsigned sec = 1; sec < 4; sec++)
     {
         unsigned long x = data_start + spc + sec;
-        dc_empty();
+        cold();
         fail_reads = 3; fail_min = 1; fail_lo = x; fail_hi = x + 1;
         n = list_d(got, MAXN, &errs);
         if (fail_reads || errs > 1 || n != nref ||
@@ -665,6 +904,7 @@ static int usb(unsigned spc)
     return fails != 0;
 }
 
+#ifndef DIRBURST_NO_MAIN  /* tests/walkcache includes this file */
 int main(int argc, char **argv)
 {
     if (argc == 5)
@@ -675,9 +915,13 @@ int main(int argc, char **argv)
         return usb((unsigned)atoi(argv[3]));
     if (argc >= 4 && !strcmp(argv[1], "lib"))
         return lib(strtoul(argv[2], NULL, 0), (unsigned)atoi(argv[3]));
+    if (argc >= 4 && (!strcmp(argv[1], "ipc") || !strcmp(argv[1], "tree")))
+        return ipc(strtoul(argv[2], NULL, 0), (unsigned)atoi(argv[3]),
+                   argv[1][0] == 't');
     if (argc >= 4 && !strcmp(argv[1], "mut"))
         return mut((unsigned)atoi(argv[2]), (unsigned)atoi(argv[3]));
     fprintf(stderr, "usage: dirburst lib <tracks> <spc> [bps] | "
             "mut <seed> <spc> [bps] | fault - <spc> [bps] | usb - <spc> [bps]\n");
     return 2;
 }
+#endif /* DIRBURST_NO_MAIN */

@@ -234,6 +234,11 @@ int create_stream_internal(struct file_base_info *parentinfop,
  * the other name's chain; 1 dropped, 0 not an alias, < 0 undecided */
 int rbfs_intent_alias_drop(const char *path, unsigned int callflags);
 #endif
+#ifdef FILE_WALK_CACHE
+/* fat.c (#243): moves whenever a directory entry is added or freed and at
+ * every mount and unmount; the walk cache drops its slots when it has */
+extern unsigned int fat_dirent_gen;
+#endif
 int remove_stream_internal(const char *path, struct filestr_base *stream,
                            unsigned int callflags);
 int test_stream_exists_internal(const char *path, unsigned int callflags);

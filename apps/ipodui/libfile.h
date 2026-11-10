@@ -87,8 +87,11 @@
  *                     LIB_AUDIOBOOKS sections stay in title order (Search,
  *                     lib_book_tracks() and the album table read them).
  *                     A current file without it is rewritten once.
+ *   LIBFILE_CAT_GRPALB  col 0 (#230): each composer's and each genre's
+ *                     albums, in one section (below)
  *   Phase 14a, video builds only (HAVE_BCMFW_VIDEO, LIBFILE_VERSION 2;
- *   docs/phase14a-brief.md 3.3), 8 more sections, 38 in all:
+ *   docs/phase14a-brief.md 3.3), 8 more sections (38 in all then;
+ *   40 with #47's and #230's added ones, where a non-video file has 32):
  *   LIB_MOVIES        ROWS, KEY (title order, sort keys as Songs)
  *   LIB_TVSHOWS       ROWS, COUNT (episodes), KEY, MTIME, TRACKS (each
  *                     show's episodes ordered season, episode, title;
@@ -109,7 +112,8 @@
 #define LIBFILE_TEMP        "database_lib.tmp"
 #define LIBFILE_MAGIC       0x424c5049u     /* "IPLB" */
 #ifdef HAVE_BCMFW_VIDEO
-/* Phase 14a (docs/phase14a-brief.md 3.3): 8 more sections (38 of 48).
+/* Phase 14a (docs/phase14a-brief.md 3.3): 8 more sections (38 of 48;
+ * 40 with #47 and #230).
  * A video build writes version 2 and a non-video build version 1: a unit
  * switched between builds rewrites the file once each way (accepted). */
 #define LIBFILE_VERSION     2
@@ -190,6 +194,36 @@ struct libfile_artalb {         /* 16 bytes */
 };
 #define LIBFILE_ARTALB_HDR(artists)  ((uint32_t)(artists) + 1u)
 #define LIBFILE_ARTALB_WORDS         4u
+
+/* #230: cat LIBFILE_CAT_GRPALB, col 0, elem 4, an ADDED section
+ * (LIBFILE_VERSION stays; a current file with an album table but without
+ * it is rewritten once, pre_current(), its lists readable meanwhile).
+ * ONE section for two groups: a non-video file already holds 31 of its
+ * 32 (LIBFILE_MAX_SEC), so the composers and the genres share it, as
+ * #100's pool shares the panel set's. What lib_open(LIB_ALBUMS, composer
+ * filter) and lib_open(LIB_ALBUMS, genre filter) list for each row of
+ * the LIB_COMPOSERS and LIB_GENRES ROWS sections, in the #47 element
+ * format, so that opening a composer's or a genre's albums reads one
+ * range instead of scanning the RAM cache and searching the album table
+ * row by row. Layout (element indices from the section start):
+ *   uint32 head[4]        LIBFILE_GRPALB_TAG, C, G, gbase: C and G the
+ *                         composer and genre rows the blocks are for (0:
+ *                         that block was not built, its readers scan),
+ *                         gbase the element index of the genre block
+ *   composer block at 4   (C > 0) uint32 start[C + 1] (absolute element
+ *                         indices; start[C] = the block's end), then the
+ *                         records, composer by composer in ROWS order
+ *   genre block at gbase  (G > 0) the same for the genres
+ * The records are struct libfile_artalb: each album row's representative
+ * (the group's FIRST track of that album, which may not be the album's
+ * own representative), then the album's COUNT and KEY when that
+ * representative is an album table entry's, else 0xffffffff and 0 (what
+ * the scan's counts_from_table() leaves). Read in pieces, so not checked
+ * against the section sum: the reader checks each record against the
+ * RAM cache instead. */
+#define LIBFILE_CAT_GRPALB      0x7a
+#define LIBFILE_GRPALB_TAG      0x41505247u     /* "GRPA" */
+#define LIBFILE_GRPALB_HEAD     4u
 
 struct libfile_sec {            /* 16 bytes */
     uint8_t  cat, col;

@@ -51,6 +51,10 @@ void ui_video_play(const char *path, int tc_idx);
  * its audio is never Now Playing, so the main menu's row ignores it */
 bool ui_video_session(void);
 
+/* #184: the Hold switch changed (input.c, SYS_IPODUI_HOLD_CHANGED); in a
+ * video session the lock shows and the end-of-video rule follows Hold */
+void ui_video_hold_changed(bool on);
+
 /* V6, screens/setvideos.c (3.8): pushes Videos > Settings (Start
  * Playing, Fit to Screen). Called by the Videos menu (V5). */
 void ui_setvideos_push(void);
@@ -63,6 +67,7 @@ extern const struct ui_screen_ops ui_videos_screen;
 #else
 #include <stdbool.h>
 static inline bool ui_video_session(void) { return false; }
+static inline void ui_video_hold_changed(bool on) { (void)on; }
 #endif /* HAVE_BCMFW_VIDEO */
 
 #endif /* IPODUI_SCREENS_VIDEO_H */

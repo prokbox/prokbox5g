@@ -159,6 +159,9 @@ void devstats_pcm_start(void);
 void devstats_snapshot(struct devstats *out);
 /* "name" of a slot's current thread into buf ("-" if free), no yield */
 void devstats_slot_name(unsigned int slot, char *buf, int size);
+/* p081: the calling thread's storage commands so far (its slot as
+ * devstats_io() files it: THREAD_ID_SLOT, never id % DEVSTATS_SLOTS) */
+uint32_t devstats_self_cmds(void);
 
 #if !defined(SIMULATOR) && (CONFIG_PLATFORM & PLATFORM_NATIVE)
 #include "system.h"

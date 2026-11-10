@@ -291,11 +291,12 @@ static void usb_compose_frame(usb_px *dst, const usb_px *disc,
         }
 }
 
-/* A run-length coded 4-bit glyph in black, centred in the box */
+/* A run-length coded 4-bit glyph in black, centred in the box, 'up'
+ * rows above the centre */
 static void usb_glyph_over(usb_px *dst, int stride, const unsigned char *rle,
-                           int w, int h)
+                           int w, int h, int up)
 {
-    usb_px *row = dst + ((USB_N - h) / 2) * stride + (USB_N - w) / 2;
+    usb_px *row = dst + ((USB_N - h) / 2 - up) * stride + (USB_N - w) / 2;
     int x = 0, y = 0;
 
     while (y < h)
@@ -323,15 +324,62 @@ USB_ARM_ENTRY static void usb_idle_glyph(usb_px *dst, int stride, int glyph)
     if (glyph == 0)     /* UI_USB_GLYPH_DOCK30 */
     {
         usb_glyph_over(dst, stride, usb_glyph_dock30, USB_DOCK30_W,
-                       USB_DOCK30_H);
+                       USB_DOCK30_H, 0);
         return;
     }
 #endif
 #if !defined(HAVE_IPOD_DOCK30) || defined(USB_BOTH_GLYPHS)
-    usb_glyph_over(dst, stride, usb_glyph_usbc, USB_USBC_W, USB_USBC_H);
+    usb_glyph_over(dst, stride, usb_glyph_usbc, USB_USBC_W, USB_USBC_H, 0);
 #endif
     (void)glyph;
 }
+
+/* #157: the ejected pictogram (the owner's 7G captures usb-ejecting and
+ * usb-ok-to-disconnect-bar*): the connector raised USB_EJ_UP rows and a
+ * solid black arrow pointing down under it, our own drawing: a 5-wide
+ * stem of USB_EJ_STEM rows, then a 13-wide head narrowing 2 a row to a
+ * point, on the glyphs' axis (column 46 of the box). */
+#ifndef USB_PURE_ONLY
+#define USB_EJ_UP    8
+#define USB_EJ_STEM  6
+#define USB_EJ_HEAD  7
+#define USB_EJ_CX    (USB_N / 2)
+
+static void usb_eject_arrow(usb_px *dst, int stride, int y0)
+{
+    int i, x;
+
+    for (i = 0; i < USB_EJ_STEM + USB_EJ_HEAD; i++)
+    {
+        int hw = i < USB_EJ_STEM ? 2 : USB_EJ_HEAD - 1 - (i - USB_EJ_STEM);
+        usb_px *row = dst + (y0 + i) * stride;
+
+        for (x = USB_EJ_CX - hw; x <= USB_EJ_CX + hw; x++)
+            row[x] = 0;
+    }
+}
+
+USB_ARM_ENTRY static void usb_eject_glyph(usb_px *dst, int stride, int glyph)
+{
+#if defined(HAVE_IPOD_DOCK30) || defined(USB_BOTH_GLYPHS)
+    if (glyph == 0)     /* UI_USB_GLYPH_DOCK30 */
+    {
+        usb_glyph_over(dst, stride, usb_glyph_dock30, USB_DOCK30_W,
+                       USB_DOCK30_H, USB_EJ_UP);
+        usb_eject_arrow(dst, stride, (USB_N - USB_DOCK30_H) / 2 - USB_EJ_UP
+                                     + USB_DOCK30_H + 1);
+        return;
+    }
+#endif
+#if !defined(HAVE_IPOD_DOCK30) || defined(USB_BOTH_GLYPHS)
+    usb_glyph_over(dst, stride, usb_glyph_usbc, USB_USBC_W, USB_USBC_H,
+                   USB_EJ_UP);
+    usb_eject_arrow(dst, stride, (USB_N - USB_USBC_H) / 2 - USB_EJ_UP
+                                 + USB_USBC_H + 1);
+#endif
+    (void)glyph;
+}
+#endif /* !USB_PURE_ONLY */
 
 /* Strip layout, in RGB565 pixels of one box each, then the maps */
 #define USB_SLOT        (USB_N * USB_N)
@@ -426,6 +474,12 @@ static struct ui_usb_state st;          /* 4 B */
 static bool usb_running;
 static bool usb_ejected;                /* "OK to Disconnect" shows */
 static unsigned usb_sessions;           /* ui_usb_sessions() */
+static bool usb_wrote;                  /* #157: the host wrote this session */
+
+bool ui_usb_host_wrote(void)
+{
+    return usb_wrote;
+}
 
 unsigned ui_usb_sessions(void)
 {
@@ -632,6 +686,39 @@ static void usb_draw_idle_direct(int glyph)
     lcd_set_viewport(NULL);
     usb_draw_disc(FBADDR(USB_BOX_X, USB_BOX_Y), LCD_WIDTH);
     usb_idle_glyph(FBADDR(USB_BOX_X, USB_BOX_Y), LCD_WIDTH, glyph);
+}
+
+/* #157: the disc with the ejected pictogram, after the unplug */
+void ui_usb_eject_disc(void)
+{
+    lcd_set_viewport(NULL);
+    usb_draw_disc(FBADDR(USB_BOX_X, USB_BOX_Y), LCD_WIDTH);
+    usb_eject_glyph(FBADDR(USB_BOX_X, USB_BOX_Y), LCD_WIDTH,
+                    usb_glyph_now());
+}
+
+/* #237: the disc with the sync arrows standing still (frame 0), from the
+ * strip the USB screen composes into (it composes again at its entry);
+ * without the strip the plain disc */
+void ui_usb_sync_disc(void)
+{
+    bool kept;
+    usb_px *strip = ui_strip_claim(UI_STRIP_OWNER_USB, &kept);
+
+    lcd_set_viewport(NULL);
+    if (!strip)
+    {
+        usb_draw_disc(FBADDR(USB_BOX_X, USB_BOX_Y), LCD_WIDTH);
+        return;
+    }
+    if (!kept)
+    {
+        cpu_boost(true);
+        usb_compose_all(strip, usb_glyph_now());
+        cpu_boost(false);
+    }
+    usb_blit_box(strip + USB_SLOT_FRAME0 * USB_SLOT);
+    ui_strip_put();
 }
 
 /* Shows 'frame' (-1 idle) in the framebuffer box from the strip, or
@@ -1163,6 +1250,15 @@ void ui_usb_screen_loop(bool early)
            tagcache_is_initialized() ? 1 : 0);
 #else
     ui_log("usb", "release tick=%ld scan_pending=0", current_tick);
+#endif
+#if defined(HAVE_USB_STATS) && !defined(SIMULATOR)
+    {   /* #157: a session with no WRITE leaves nothing to update */
+        struct usb_storage_stats ws;
+        usb_storage_get_stats(&ws);
+        usb_wrote = ws.wr_cmds != 0;
+    }
+#else
+    usb_wrote = true;   /* the simulator's disk is host files: no count */
 #endif
     ui_usbbusy_begin();                 /* #84: the glyph while the scan runs */
     if (powermgmt_poweroff_blocked() != blocked0)

@@ -42,7 +42,12 @@
  *                      cleared by its wake
  *   pll_hold <ms>      a PLL hold (or a boost) for <ms> from now: the
  *                      sleep refuses (power_sleep()'s checks, review H1)
- *                      until it ends; PCM still running refuses too
+ *                      until it ends; PCM still running refuses too,
+ *                      and so does any boost held (cpu_boost() counts in
+ *                      the shell's simulator, as on the device)
+ *   expect_boost <n>[+] [ms]  the boost count (every holder) is <n> (n+:
+ *                      at least n) within [ms] (default: now); else
+ *                      "expect_boost failed"
  *   power_cut          the battery dies now: the sim exits with no
  *                      shutdown path (follow it with "reboot")
  *   vbus <0|1>         a bare VBUS level (no USB host, no charger state);
@@ -112,7 +117,8 @@ struct sim_sleep_result {
 void sim_sleep_run(const struct sleep_core_req *rq,
                    struct sim_sleep_result *out);
 /* power_sleep()'s refusal checks in the sim (review H1): PCM running
- * (the pause's fade), or a pll_hold standing; 0 or SLEEP_REFUSE_* */
+ * (the pause's fade), a pll_hold standing, or a boost held (any
+ * holder: sim_cpu_boost_counter()); 0 or SLEEP_REFUSE_* */
 int sim_sleep_refusal(void);
 /* The sim RTC in seconds since 2000: the iPod's RTC holds local time,
  * so the host's clock plus its UTC offset (taken once, fixed: the RTC

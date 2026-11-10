@@ -29,8 +29,9 @@
 # build/risk/qemu/libinsn.dylib). Compiles apps/ipodui/search_core.c at
 # -mcpu=arm7tdmi -Os as the firmware does, runs tests/search/insn_main.c
 # per workload (WL 0 = baseline) and prints instructions per byte and per
-# title, and the per-keystroke estimate over the 1.28 MB haystack of 50k
-# titles plus the group labels (section 6 item 3). A measurement, not a
+# title, and the per-keystroke estimate over the 1.66 MB haystack of 65k
+# titles plus the group labels (section 6 item 3; 1.28 MB at 50k, scaled by
+# the bench's title bytes, 886,767 -> 1,151,621 B). A measurement, not a
 # gate: exits 0 when a tool is missing. Not run by scripts/test.sh.
 set -u
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
@@ -86,7 +87,7 @@ for wl in 1:first_char_h 2:refine_ha 3:rare_q 4:two_words; do
         [ "$n" = 3 ] && c3=$c
         echo "$name: $(( d / REPS / nt )) instructions per title," \
              "$(( d * 100 / REPS / nb )) / 100 per byte;" \
-             "1.28 MB keystroke: ~$(( d * 1280 / REPS / nb / 1000 )) M instructions"
+             "1.66 MB keystroke: ~$(( d * 1662 / REPS / nb / 1000 )) M instructions"
     else
         echo "$name: not measured"
     fi

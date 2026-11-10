@@ -1,0 +1,101 @@
+# #184 (owner, 2026-11-07): Hold while a video plays
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p19-video-hold.script
+# (ipodui-p19-* default to build/sim-ui-video; the gate runs them there)
+# needs: video
+# timeout: 240
+#
+# 1. Hold on while a video plays locks the controls (PLAY, SELECT and the
+#    wheel do nothing) but the screen stays lit and the video keeps
+#    playing: no Hold face over the picture, no dark backlight (the hidden
+#    "backlight on Hold" setting is Off on this target, which used to turn
+#    the panel off), and the lock shows briefly over the picture.
+# 2. With Hold on, the video's end is the end: back to the list, the spot
+#    cleared as for any finished video, never another play. Repeat is set
+#    to All, the one case where the video's one-item queue would go on
+#    (it wraps and plays the same video again).
+# 3. Hold off at the end: unchanged. With Repeat All the queue wraps and
+#    the same video plays again from its start (no next video: a video's
+#    queue is that one file, #154); MENU stops it.
+#
+# Disk: tests/fixtures/videos/mkvideos.sh (Movies/ Short Film, 13 s,
+# chapters at 0, 4, 8 s). Main menu with Videos on: Music, Videos, ...
+# Short Film's spot is left at none (played to its end) for the others.
+
+# golden: skip
+# trace: video
+# (the simulator's audio clock jumps back ~1.5 s every 3 s, logged as
+# "audio jumped"; only a jump to under a second is the queue wrapping)
+# logbetween: h0 h1 video hold on: lit, keys locked
+# logbetween: h0 h1 unlit skip video
+# logbetween: h0 h1 no unlit enter
+# logbetween: h0 h1 no vol step
+# logbetween: h0 h1 no video: backlight 0 -?\d+ \(on, audio ms\)
+# logbetween: h1 e1 no video: audio jumped \d+ \d{1,3} \(from, to ms\)
+# logbetween: h1 e1 video end hold=1
+# logbetween: r0 r1 video: audio jumped \d+ \d{1,3} \(from, to ms\)
+# nolog: video error page
+
+wait 4000
+wait_db 45000
+repeat all
+
+# 1. Hold on while Short Film plays
+wheel -10 300
+wheel +1 300        # Videos
+wait 600
+key SELECT
+wait 900
+key SELECT          # Movies
+wait 1200
+wheel -10 300
+wheel +3 300        # Short Film
+wait 400
+key SELECT
+wait_pos 1500 30000 Film.m4v
+ab_mark h0
+hold_switch on
+wait 600
+shot locked         # the lock in the strip (the frame the image shows over the picture)
+key PLAY            # dead under Hold
+wait 300
+key SELECT
+wheel +4 300
+wait 1500
+expect_playing 500  # never paused
+expect_video 30 playing
+video_shot held     # the picture, the lock gone
+ab_mark h1
+
+# 2. still on Hold, the end (13 s): back to the list, no second play
+wait_pos 12000 40000 Film.m4v
+wait 6000           # past the end (a wrap would be playing by now)
+ab_mark e1
+expect_video 0 none
+hold_switch off
+wait 1200
+shot list
+key SELECT          # Short Film again: from its start (the spot cleared)
+wait 700
+expect_pos 0 1500
+key MENU
+wait 1500
+expect_video 0 none
+
+# 3. Hold off, Repeat All: the queue wraps, the same video again
+key SELECT
+wait 700
+expect_pos 0 1500
+ab_mark r0
+wait_pos 12000 40000 Film.m4v
+wait 6000           # past the end: playing again from the start
+expect_video 30 playing
+ab_mark r1
+key MENU
+wait 1500
+expect_video 0 none
+repeat off
+key SELECT          # leave Short Film played to its end for the others
+wait_pos 12000 40000 Film.m4v
+wait 3000
+expect_video 0 none
+quit

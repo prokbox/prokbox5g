@@ -65,6 +65,7 @@
 #include "ipodui/header.h"            /* UI_BATT_RED_PCT */
 #include "ipodui/artblur.h"
 #include "ipodui/safefile.h"
+#include "ipodui/syncart.h"           /* #225 S3: synced covers */
 #include "mv.h"                     /* volume_size(): the pool's cap (Q9) */
 #include "timefuncs.h"              /* the rotation's clock (#100) */
 #include "ipodui/align_check.h"
@@ -114,6 +115,9 @@
 #define F_INDEX_TMP ARTCACHE_DIR "/index.tmp"
 #define F_INDEX_PREV ARTCACHE_DIR "/index.prev"
 #define F_PAK       ARTCACHE_DIR "/thumbs.pak"
+/* #225 S3: a re-check of every album is owed after the stock firmware's
+ * databases changed (removed by the pass that completes it) */
+#define F_SYNOWE    ARTCACHE_DIR "/syncart.owe"
 #define F_PAK_TMP   ARTCACHE_DIR "/thumbs.pak.tmp"
 #define F_PANELS    ARTCACHE_DIR "/panels.pak"
 #define F_PANELS_TMP ARTCACHE_DIR "/panels.pak.tmp"
@@ -321,6 +325,7 @@ static bool panel_stage(struct bwork *w);
 #ifdef SIMULATOR
 void sim_read_count2_begin(void);   /* uisimulator/common/filesystem-sim.c */
 int sim_read_count2_end(unsigned long *bytes);
+int sim_exists_count2(void);
 #endif
 static bool regroup_window(void);       /* #92 */
 static const char *blocked(void);
@@ -393,10 +398,11 @@ static inline bool usb_owns_disk(void)
 }
 
 #ifdef HAVE_ADJUSTABLE_CPU_FREQ
-/* A maintenance pass runs boosted, but never while it waits (a low
- * battery, the database, USB): the waits drop the boost and take it
- * back before the work goes on. One boost at most, so it stays balanced
- * however the pass ends. */
+/* A pass runs boosted (p081: every pass, not only maintenance), but never
+ * while it waits (a low battery, the database, USB, the gap between
+ * albums): the waits drop the boost and take it back before the work
+ * goes on. One boost at most, so it stays balanced however the pass
+ * ends. */
 static bool fast_boosted;
 static void fast_boost(bool on)
 {
@@ -696,6 +702,15 @@ struct bwork {
                                        slot its header does not name
                                        (#117): the old tag cleared first */
     bool no_boost;                  /* np-sharp: decode() never boosts */
+    /* #225 S3: the album's cover in the stock firmware's cover database
+     * (syncart_lookup(); the image file's path in src[]) */
+    struct syncart_ent syn;
+    artcache_key_t syn_key;         /* the album syn_find() looks up */
+    bool panel_emb;                 /* panel set: embedded art first */
+    bool syn_rebuilt;               /* the databases changed and this
+                                       re-check is owed (F_SYNOWE): a
+                                       synced record's CRC is checked */
+    uint32_t syn_first;             /* syncart path_of(): trec's chunk */
     bool pidx_ok;                   /* #100: pidx loaded (this boot, USB) */
     struct artpool_idx pidx;        /* #100: panelpool.idx */
     /* books.idx as the books pass will write it (P6): the header on disk
@@ -1383,6 +1398,13 @@ static bool pace_input(void)
            || TIME_BEFORE(current_tick, last_input + PACE_QUIET);
 }
 
+/* #225 budget review M1: set while a pace point runs inside the synced-
+ * cover map's build, which holds a block from the audio buffer: the point
+ * yields but never waits in pace_defer() (whose wait ends on USB or power
+ * only, so playback started meanwhile would find the block still taken);
+ * syn_pace() waits for the user itself, re-checking playback */
+static bool pace_nodefer;
+
 static void pace_defer(void)
 {
     bool fb = FAST_BOOSTED();
@@ -1441,7 +1463,7 @@ static void art_pace_at(PACE_ARGS)
         return;
     busy = true;
     yield();
-    if (input && pace_input())
+    if (input && pace_input() && !pace_nodefer)
         pace_defer();
     busy = false;
     pace_t0 = pace_now();
@@ -2782,7 +2804,14 @@ static int wait_ready(bool gap)
     if (ev)
         return ev;
     if (gap && !maintenance)
+    {
+        bool fb = FAST_BOOSTED();
+
+        fast_boost(false);          /* p081: boosted for work, not gaps */
         ev = pump(charger_inserted() ? GAP_CHARGING : GAP_TICKS);
+        if (fb)
+            fast_boost(true);
+    }
     else
     {
         yield();                    /* the last album needed no I/O */
@@ -2972,6 +3001,21 @@ static uint32_t alloc_slot(struct bwork *w)
     return s;
 }
 
+/* #177: a cache file whose cluster chain ends before its size (a write
+ * cut by a power loss) is cut back to its chain (safefile_heal_cut()):
+ * the host then reads it, and no rename keeps it cut as a prev, no remove
+ * follows its dangling link. Logged; nothing on screen. */
+static void art_heal(const char *path)
+{
+    const char *n = strrchr(path, '/');
+
+    if (safefile_heal_cut(path) > 0)
+    {
+        UPDATE_TRACE("art healed cut chain %s", n ? n + 1 : path);
+        ui_log("art", "cut chain healed: %s", n ? n + 1 : path);
+    }
+}
+
 /* Opens the committed index (repairing what needs it) and the album
  * table. False: nothing to build. */
 static bool pass_begin(struct bwork *w)
@@ -3029,6 +3073,16 @@ static bool pass_begin(struct bwork *w)
         static bool recovered;      /* #91 H1: once per boot */
         if (!recovered)
         {
+            /* #177: the files written in place or rotated into a prev,
+             * healed before any rename or remove follows a cut chain */
+            static const char *const heal[] = {
+                F_PANELS, F_PANELS_PREV, F_POOL, F_POOLX, F_POOLX_PREV,
+                F_PAK, F_NPCOVER, F_INDEX, F_INDEX_PREV, F_BPAK, F_BIDX,
+                F_BIDX_PREV,
+            };
+
+            for (unsigned i = 0; i < ARRAYLEN(heal); i++)
+                art_heal(heal[i]);
             recovered = true;
             artfile_recover(F_INDEX, F_INDEX_TMP, F_INDEX_PREV);
             artfile_recover(F_PANELS, F_PANELS_TMP, F_PANELS_PREV);
@@ -3156,6 +3210,145 @@ unavailable:
     FAIL(w);
     UPDATE_TRACE("art retain index reason=%d", (int)rc);
     return false;
+}
+
+/* #225 S3: the synced-cover map, at a pass's start. Cheap when nothing
+ * changed (syncart_check(): four 8 KB reads into the idle decode block);
+ * after a sync or a library change it is built again from the album
+ * table's representatives: a transient block (syncart_need(), ~32 B an
+ * album + 48 KB), only while audio is stopped (allocated right after the
+ * check, no yield between: device-reality 2), freed before the pass goes
+ * on; playback or USB stops the build at its next pace point and the
+ * next pass tries again. A rebuild makes this pass re-check every album
+ * (w->sweep): a sync may have added, moved or replaced covers. */
+static bool resolve(struct bwork *w, const struct artalb_rec *t);
+static bool syn_go(void)
+{
+    return !stopped && !usb_owns_disk() && !audio_status()
+           && pause_count <= 0 && bw->db_gen == tagcache_ui_generation();
+}
+
+/* the build's pace point: a yield, then (the user on) a wait in short
+ * steps that ends as soon as playback, USB or a stop wants the block back
+ * (budget review M1: never pace_defer() while the block is held) */
+static bool syn_pace(void)
+{
+    bool waited = false, fb = false;
+
+    pace_nodefer = true;
+    ART_PACE();
+    pace_nodefer = false;
+    while (syn_go() && pace_input())
+    {
+        int hw;
+
+        if (!waited)
+        {
+            waited = true;
+            fb = FAST_BOOSTED();
+            resize_boost_release();
+            fast_boost(false);      /* never boosted while it waits */
+        }
+        if (npf_req)
+            np_serve();
+        hw = hang_idle_begin();     /* deferring to the wheel: idle */
+        sleep(HZ / 10);
+        hang_idle_end(hw);
+    }
+    if (waited && fb)
+        fast_boost(true);
+    return syn_go();
+}
+
+static bool syn_path_of(void *ctx, int i, char *buf, size_t len,
+                        uint64_t *key)
+{
+    struct bwork *w = ctx;
+    const struct artalb_rec *t;
+
+    if ((uint32_t)i < w->syn_first || (uint32_t)i >= w->syn_first + w->tn)
+    {
+        int n = artalb_read(w->tpath, &w->thdr, i, TCHUNK, w->trec);
+
+        w->syn_first = i;
+        w->tn = n > 0 ? n : 0;
+        if (n <= 0)
+            return false;
+    }
+    t = &w->trec[i - w->syn_first];
+    if (!t->key || !resolve(w, t))
+        return false;
+    *key = t->key;
+    strlcpy(buf, w->path, len);
+    return true;
+}
+
+static void syncart_pass(struct bwork *w)
+{
+    uint32_t commit = (uint32_t)w->thdr.lib.commitid;
+    struct syncart_hdr st;
+    long t0 = current_tick;
+    size_t need;
+    void *blk;
+    int rc, h;
+
+    syncart_forget();
+    blk = core_get_data_pinned(w->dec);
+    rc = syncart_check(commit, blk, w->dec_bytes);
+    core_put_data_pinned(blk);
+    if (rc == SYNCART_STALE_DBS && !file_exists(F_SYNOWE))
+        close(open(F_SYNOWE, O_WRONLY | O_CREAT, 0666));
+    /* owed (now or by a pass a request, USB or a power-off cut short):
+     * this pass re-checks every album, a synced one's pixels too */
+    w->syn_rebuilt = file_exists(F_SYNOWE);
+    if (w->syn_rebuilt)
+        w->sweep = true;
+    if (rc != SYNCART_STALE && rc != SYNCART_STALE_DBS)
+    {
+        if (rc < 0)
+            ui_log("art", "syncdb check rc=%d", rc);
+        return;
+    }
+    need = syncart_need(w->thdr.n_albums);
+    if (audio_status())
+    {
+        UPDATE_TRACE("art syncdb wait bytes=%lu", (unsigned long)need);
+        return;                     /* the old map (if any) stays */
+    }
+    h = core_alloc(need);
+    if (h <= 0)
+    {
+        ui_log("art", "syncdb alloc failed bytes=%lu", (unsigned long)need);
+        return;
+    }
+    blk = core_get_data_pinned(h);
+    w->syn_first = 0;
+    w->tn = 0;
+    rc = syncart_build(commit, w->thdr.n_albums, syn_path_of, w, blk, need,
+                       syn_pace, &st);
+    core_put_data_pinned(blk);
+    core_free(h);
+    w->tn = w->ti = 0;              /* next_album() starts at the top */
+    w->tfirst = 0;
+    syncart_forget();
+    if (rc == SYNCART_BUILT)
+    {
+        /* n: covers mapped / albums under Music; i: images matched to a
+         * song / images; kb: the block */
+        ui_log("art", "syncdb n=%lu/%lu i=%lu/%lu ms=%ld kb=%lu",
+               (unsigned long)st.n, (unsigned long)st.albums,
+               (unsigned long)st.matched, (unsigned long)st.images,
+               (current_tick - t0) * (1000 / HZ),
+               (unsigned long)(need / 1024));
+        if (st.status == SYNCART_ST_MISMATCH)
+            ui_log("art", "syncdb mismatch i=%lu/%lu",
+                   (unsigned long)st.matched, (unsigned long)st.images);
+        else if (st.status == SYNCART_ST_BAD)
+            ui_log("art", "syncdb bad database");
+    }
+    else
+        ui_log("art", "syncdb map rc=%d ms=%ld", rc,
+               (current_tick - t0) * (1000 / HZ));
 }
 
 /* GC (#85 B-M4): records of albums no longer in the table are kept (a
@@ -3308,6 +3501,11 @@ static bool commit_ex(struct bwork *w, bool final, bool force)
     ok = index_write(w, w->delta, w->n_delta, gc, stamp);
     if (ok)
         w->n_delta = 0;
+    if (ok && stamp && w->syn_rebuilt)
+    {
+        remove(F_SYNOWE);           /* #225: the owed re-check is done */
+        w->syn_rebuilt = false;
+    }
     return ok;
 }
 
@@ -3369,11 +3567,26 @@ static bool poster_file(struct bwork *w)
 }
 #endif
 
+/* #225 S1: a track a sync app copied in (under iPod_Control/Music, not
+ * our own link folder, which is never indexed): its folders (F00..F49)
+ * never hold image files, by construction, so the image-file search is
+ * skipped: 21 lookups an album on the first pass, 19 after every changed
+ * sync, all misses (docs/design/ipod-control-support.md §2, §4.1).
+ * Case-blind (FAT); the same rule as afb_core.c afb_in_music_dir()
+ * (syncart.c, resident; afb_core.c is developer-only). */
+static bool synced_track(const char *path)
+{
+    return syncart_synced(path);
+}
+
 /* The stock image-file search into w->src. from_tags: over the tagcache
  * strings, without opening the audio file (w->id3 is only a carrier then);
- * else over the w->id3 get_metadata() filled. */
+ * else over the w->id3 get_metadata() filled. Never for a synced track
+ * (S1): the callers then see "no file", as the search would have said. */
 static bool find_file(struct bwork *w, bool from_tags)
 {
+    if (synced_track(w->path))
+        return false;
     if (from_tags)
     {
         memset(&w->id3, 0, sizeof(w->id3));
@@ -3434,9 +3647,125 @@ static uint32_t src_crc(struct bwork *w, int fd, off_t off, uint32_t size,
     return artfmt_crc_end(crc);
 }
 
-/* The image at 'off' of 'fd' (JPEG or BMP) into 'bm' at bw x bh (0 x 0:
- * its own size) from 'dbuf', the decode block: the decoder's result, -1
- * if the seek failed. */
+/* #225 S3: raw RGB565 little-endian pixels (the cover database's image
+ * files), w x h carried in aaflags. Read in chunks of whole rows (one
+ * storage command per RAW565_CHUNK instead of one per sector), expanded
+ * to 8 bits a channel the way bmp.c expands a 16-bit BMP, and given to
+ * resize.c (area sampling down, linear up), so every target (slot, fit,
+ * the panel's bands through its custom format) works as for a BMP. No
+ * dither at 1:1: a 565 source then comes out bit for bit. */
+/* the slot's width, height (<= 240) and its rows' stride in pixels */
+#define RAW565_FLAGS(w, h, s) \
+    ((int)(((unsigned)(s) << 16) | ((unsigned)(w) << 8) | (unsigned)(h)))
+#define RAW565_W(f)         (((unsigned)(f) >> 8) & 0xff)
+#define RAW565_H(f)         ((unsigned)(f) & 0xff)
+#define RAW565_S(f)         (((unsigned)(f) >> 16) & 0x1ff)
+#define RAW565_CHUNK        8192
+
+/* syncart_row_rgb() writes bmp.h's struct uint8_rgb order */
+typedef char raw565_rgb_layout[sizeof(struct uint8_rgb) == 4
+                               && offsetof(struct uint8_rgb, blue) == 0
+                               && offsetof(struct uint8_rgb, green) == 1
+                               && offsetof(struct uint8_rgb, red) == 2
+                               ? 1 : -1];
+
+struct raw565_args {
+    int fd;
+    int w, h, row, stride;
+    uint8_t *chunk;
+    int chunk_rows, have, at;
+    struct uint8_rgb *rgb;
+    struct img_part part;
+};
+
+static struct img_part *raw565_part(void *args)
+{
+    struct raw565_args *a = args;
+    const uint8_t *p;
+
+    if (a->row >= a->h)
+        return NULL;
+    if (a->at >= a->have)
+    {
+        int rows = MIN(a->chunk_rows, a->h - a->row);
+        ssize_t n = (ssize_t)rows * a->stride * 2;
+
+        if (read(a->fd, a->chunk, n) != n)
+            return NULL;
+        a->have = rows;
+        a->at = 0;
+    }
+    p = a->chunk + (size_t)a->at * a->stride * 2;
+    /* the slot's w pixels (padding included, as the stock firmware shows
+     * it), never the stride's tail */
+    syncart_row_rgb(p, a->w, (uint8_t *)a->rgb);
+    a->at++;
+    a->row++;
+    a->part.len = a->w;
+    a->part.buf = a->rgb;
+    return &a->part;
+}
+
+static int raw565_decode(struct bitmap *bm, int fd, unsigned long len,
+                         int aaflags, int maxsize, int fmt,
+                         const struct custom_format *cf)
+{
+    struct raw565_args a;
+    struct dim src;
+    struct rowset rset;
+    uint8_t *buf;
+    int sw = (int)RAW565_W(aaflags), sh = (int)RAW565_H(aaflags), total;
+    int stride = (int)RAW565_S(aaflags);
+    long left;
+
+    if (!sw || !sh || sw > BM_MAX_WIDTH || stride < sw
+        || len != (unsigned long)stride * sh * 2)
+        return -1;
+    if (fmt & FORMAT_RETURN_SIZE)
+    {
+        bm->width = sw;
+        bm->height = sh;
+        return BM_SIZE(sw, sh, FORMAT_NATIVE, false);
+    }
+    if (bm->width <= 0 || bm->height <= 0)
+    {
+        bm->width = sw;
+        bm->height = sh;
+    }
+    bm->format = FORMAT_NATIVE;
+    total = cf ? (int)cf->get_size(bm)
+               : (int)BM_SIZE(bm->width, bm->height, FORMAT_NATIVE, false);
+    memset(&a, 0, sizeof(a));
+    a.fd = fd;
+    a.w = sw;
+    a.h = sh;
+    a.stride = stride;
+    a.chunk_rows = MAX(1, RAW565_CHUNK / (stride * 2));
+    buf = (uint8_t *)bm->data + ALIGN_UP(total, 4);
+    a.chunk = buf;
+    buf += ALIGN_UP(a.chunk_rows * stride * 2, 4);
+    a.rgb = (struct uint8_rgb *)buf;
+    buf += sw * sizeof(struct uint8_rgb);
+    left = (long)maxsize - (long)(buf - (uint8_t *)bm->data);
+    if (left < (long)BM_SCALED_SIZE(bm->width, 0, 0, 0))
+        return -6;                  /* no room: as read_bmp_fd() */
+    memset(bm->data, 0, total);
+    src.width = sw;
+    src.height = sh;
+    rset.rowstep = 1;
+    rset.rowstart = 0;
+    rset.rowstop = bm->height;
+    if (!resize_on_load(bm, (fmt & FORMAT_DITHER)
+                            && (bm->width != sw || bm->height != sh),
+                        &src, &rset, buf, left, cf, IF_PIX_FMT(0,)
+                        raw565_part, &a))
+        return 0;
+    return total;
+}
+
+/* The image at 'off' of 'fd' (JPEG, BMP or raw RGB565) into 'bm' at bw x
+ * bh (0 x 0: its own size) from 'dbuf', the decode block: the decoder's
+ * result, -1 if the seek failed. */
 static int img_decode(void *dbuf, struct bitmap *bm,
                       int fd, off_t off, unsigned long len, int type,
                       int aaflags, int bw, int bh, int fmt,
@@ -3450,6 +3779,8 @@ static int img_decode(void *dbuf, struct bitmap *bm,
         return -1;
     if (type == AA_TYPE_JPG)
         return clip_jpeg_fd(fd, aaflags, len, bm, decode_bytes, fmt, cf);
+    if (type == AA_TYPE_RAW565)
+        return raw565_decode(bm, fd, len, aaflags, decode_bytes, fmt, cf);
     return read_bmp_fd(fd, bm, decode_bytes, fmt, cf);
 }
 
@@ -3908,6 +4239,8 @@ static bool ps_decode(struct bwork *w, void *dbuf, int fd, off_t off,
         w->ps_io_err = true;
         ok = false;
     }
+    if (ok && w->ps_inplace)
+        POWERCUT_POINT("art.panels.slot", w->ps_path);
     UPDATE_TRACE("art panel stream key=" KEYFMT " rows=%d writes=%d ok=%d",
                  KEYARG(w->ps_key), s.rows, s.writes, (int)ok);
     return ok;
@@ -4252,7 +4585,8 @@ static bool decode_run(struct bwork *w, void *dbuf, int fd, off_t off,
     fb_data *pix;
 
     w->source_terminal = false;
-    if (type != AA_TYPE_JPG && type != AA_TYPE_BMP)
+    if (type != AA_TYPE_JPG && type != AA_TYPE_BMP
+        && type != AA_TYPE_RAW565)
     {
         w->source_terminal = true;
         return false;               /* PNG and unknown */
@@ -4510,8 +4844,102 @@ static bool try_embedded(struct bwork *w, int fd, struct artcache_rec *rec)
     }
 }
 
+/* The synced cover of album w->syn_key, whose track w->path lies under
+ * iPod_Control/Music, into w->syn, its image file's path in w->src (free:
+ * such a track never has an image-file source, S1); false: none. One map
+ * read. By album, so Now Playing's track (not the album's representative)
+ * finds it too. */
+static bool syn_find(struct bwork *w)
+{
+    if (!synced_track(w->path))
+        return false;
+    ART_PACE();
+    return syncart_lookup(w->syn_key, &w->syn, w->src, sizeof(w->src));
+}
+
+static int syn_flags(const struct bwork *w)
+{
+    return RAW565_FLAGS(w->syn.slot_w, w->syn.slot_h,
+                        w->syn.size / (2u * w->syn.slot_h));
+}
+
+/* where the image is: its file and offset (a re-sync that moves it is a
+ * new source) */
+static uint32_t syn_hash(const struct bwork *w)
+{
+    return artkey_fnv32(w->src) ^ (w->syn.offset * 2654435761u);
+}
+
+/* The synced cover (syn_find() found it) as the record's source: no JPEG
+ * decode, one chunked read of its rows. emb: the track also has
+ * embedded art, which the panel-sized images use (the panel set's panels
+ * and the Now Playing row's cover; ARTREC_T_PANEL_EMB). A
+ * bad image (cut, wrong size, its file gone) is no source and terminal:
+ * the caller goes on to the embedded art, else the album is FAILED (the
+ * note glyph) until its tags or the databases change. */
+static bool try_syncdb(struct bwork *w, struct artcache_rec *rec, bool emb)
+{
+    bool ok;
+    int fd;
+
+    ART_PACE();
+    fd = open(w->src, O_RDONLY);
+    if (fd < 0)
+    {
+        /* gone under a map that still names it: no source until the
+         * databases change (the map follows them), never a retry loop */
+        w->source_terminal = true;
+        ui_log("art", "syncdb open failed");
+        return false;
+    }
+    rec->src_kind = ARTSRC_SYNCDB;
+    rec->src_type = AA_TYPE_RAW565;
+    rec->src_size = w->syn.size;
+    rec->src_hash = syn_hash(w);
+    rec->src_crc = src_crc(w, fd, w->syn.offset, w->syn.size, true);
+    ART_PACE();
+    ok = decode(w, fd, w->syn.offset, w->syn.size, AA_TYPE_RAW565,
+                syn_flags(w));
+    rec->src_type |= ARTREC_T_SIG2 | (emb ? ARTREC_T_PANEL_EMB : 0);
+    close(fd);
+    if (!ok)
+    {
+        /* a cut or damaged image: no source (the caller tries the
+         * embedded art), terminal like an unsupported format */
+        w->source_terminal = true;
+        w->source_retry = false;
+        ui_log("art", "syncdb bad image off=%lu size=%lu",
+               (unsigned long)w->syn.offset, (unsigned long)w->syn.size);
+    }
+    return ok;
+}
+
+/* the record's synced cover is the one the map names now: the same place
+ * and size; after a map rebuild (a sync changed the databases) also the
+ * same pixels (CRC: a cover replaced in place) */
+static bool syn_same(struct bwork *w, const struct artcache_rec *old)
+{
+    bool same;
+    int fd;
+
+    if (syn_hash(w) != old->src_hash || w->syn.size != old->src_size)
+        return false;
+    if (!w->syn_rebuilt)
+        return true;
+    fd = open(w->src, O_RDONLY);
+    if (fd < 0)
+        return false;
+    w->source_retry = false;
+    same = src_crc(w, fd, w->syn.offset, w->syn.size, true) == old->src_crc
+           && !w->source_retry;
+    close(fd);
+    return same;
+}
+
 /* Unchanged image-file source (or still none)? For albums whose tags did
- * not change: embedded art can't have changed, a folder image can. */
+ * not change: embedded art can't have changed, a folder image can. A
+ * synced track (#225): unchanged while the cover database gives what the
+ * record holds (a synced cover wins over embedded art for it, Q1). */
 static bool source_unchanged(struct bwork *w, const struct artcache_rec *old)
 {
     bool prefer_emb = global_settings.album_art == AA_PREFER_EMBEDDED;
@@ -4524,6 +4952,16 @@ static bool source_unchanged(struct bwork *w, const struct artcache_rec *old)
     int fd;
     off_t size;
 
+    if (synced_track(w->path))
+    {
+        bool syn = syn_find(w);
+
+        if (old->src_kind == ARTSRC_SYNCDB)
+            return syn && syn_same(w, old);
+        /* embedded or none: a synced cover found now wins (an image
+         * file never: S1) */
+        return !syn && old->src_kind != ARTSRC_FILE;
+    }
     ART_PACE();
     found = find_file(w, true);
     ART_PACE();
@@ -4599,6 +5037,15 @@ static bool source_sig(struct bwork *w, int want, bool sig2,
         close(fd);
         return false;
     }
+    memset(now, 0, sizeof(*now));
+    if (syn_find(w))
+    {
+        /* #225: a synced cover is the first source (never signed like a
+         * file: the caller rebuilds, one read, no decode) */
+        close(fd);
+        now->src_kind = ARTSRC_SYNCDB;
+        return false;
+    }
     ART_PACE();
     file = find_file(w, false);
     ART_PACE();
@@ -4608,7 +5055,6 @@ static bool source_sig(struct bwork *w, int want, bool sig2,
     if (w->vid)
         file_first = false;
 #endif
-    memset(now, 0, sizeof(*now));
     if (file && (file_first || !emb))
     {
         int sfd;
@@ -4735,6 +5181,8 @@ static bool png_folder(struct bwork *w)
     size_t dir = slash ? (size_t)(slash - w->path) + 1 : 0;
     unsigned i;
 
+    if (synced_track(w->path))
+        return false;               /* S1: no image files there */
     for (i = 0; i < ARRAYLEN(names); i++)
     {
         if (dir + strlen(names[i]) >= sizeof(w->src))
@@ -4755,7 +5203,7 @@ static bool png_folder(struct bwork *w)
  * (decoded), ARTREC_NOART or ARTREC_FAILED. */
 static int source_decode(struct bwork *w, struct artcache_rec *rec)
 {
-    bool file_first, ok = false, file, emb;
+    bool file_first, ok = false, file, emb, syn, syn_tried = false;
     int fd;
 
     w->source_terminal = false;
@@ -4780,16 +5228,28 @@ static int source_decode(struct bwork *w, struct artcache_rec *rec)
     if (w->vid)
         file_first = false;
 #endif
-    if (file && file_first)
+    /* #225 S3 (owner Q1): a synced track's cover database image first
+     * (thumbnail, Album Flow, Now Playing: no JPEG decode), except for the
+     * panel set's 300 px panels, which take the embedded art when there
+     * is some (w->panel_emb); the other one if the first fails */
+    syn = syn_find(w);
+    if (syn && !(w->panel_emb && emb))
+    {
+        ok = try_syncdb(w, rec, emb);
+        syn_tried = true;
+    }
+    if (!ok && file && file_first)
         ok = try_file(w, rec);
     if (!ok && emb)
         ok = try_embedded(w, fd, rec);
     if (!ok && file && !file_first)
         ok = try_file(w, rec);
+    if (!ok && syn && !syn_tried)
+        ok = try_syncdb(w, rec, false);
     close(fd);
     if (!ok && w->source_retry)
         return -1;
-    if (!file && !emb)
+    if (!file && !emb && !syn)
     {
         w->source_terminal = png_folder(w);
         return w->source_terminal ? ARTREC_FAILED : ARTREC_NOART;
@@ -4808,6 +5268,15 @@ static int source_open(struct bwork *w, const struct artcache_rec *rec,
     ART_PACE();
     if (rec->src_kind == ARTSRC_FILE)
         return open(w->src, O_RDONLY);
+    if (rec->src_kind == ARTSRC_SYNCDB)
+    {
+        if (!syn_find(w))
+            return -1;
+        *off = w->syn.offset;
+        *len = w->syn.size;
+        *aaflags = syn_flags(w);
+        return open(w->src, O_RDONLY);
+    }
     if (rec->src_kind != ARTSRC_EMBEDDED)
         return -1;
     *off = w->id3.albumart.pos;
@@ -4939,6 +5408,7 @@ static bool np_bundle(struct bwork *w, artcache_key_t key,
         w->lit = true;              /* the album is redone once idle */
         return false;
     }
+    w->syn_key = key;
     fd = source_open(w, rec, &off, &len, &aaflags);
     if (fd < 0)
         return false;
@@ -5018,6 +5488,7 @@ static int album_try(struct bwork *w, const struct artalb_rec *t,
         if (repair_keys[st] == t->key)
             local_repair = true;
     ART_PACE();
+    w->syn_key = t->key;            /* #225: syn_find()'s album */
     have_old = artidx_lookup(&w->rd, t->key, &old, &io_err);
     if (io_err)
     {
@@ -5219,10 +5690,12 @@ static bool panel_load(struct bwork *w)
         int closed;
 
         ok = got == (ssize_t)sizeof(*h)
-             && artpanel_hdr_ok(h, panel.w, panel.h)
-             && bytes >= (off_t)artpanel_slot_offset(panel_slot_bytes,
-                                                    h->n_slots);
-        cut = ok && !file_tail_reads(fd, bytes);
+             && artpanel_hdr_ok(h, panel.w, panel.h);
+        /* #177: shorter than the slots its header names (a cut chain
+         * healed back to its end, art_heal()) is the same damage */
+        cut = ok && (bytes < (off_t)artpanel_slot_offset(panel_slot_bytes,
+                                                        h->n_slots)
+                     || !file_tail_reads(fd, bytes));
         closed = close(fd);
         if (cut)
         {
@@ -5230,6 +5703,8 @@ static bool panel_load(struct bwork *w)
             UPDATE_TRACE("art panels %s", "chain cut: tail unreadable");
             ui_log("art", "panels: file shorter on disk than its size "
                    "(cut chain): recovered or rebuilt");
+            /* healed before it is removed or rotated into the prev */
+            art_heal(F_PANELS);
         }
         torn = !ok && !cut && got == (ssize_t)sizeof(*h)
                && h->magic == ARTPANEL_MAGIC
@@ -5252,13 +5727,16 @@ static bool panel_load(struct bwork *w)
     if (fd >= 0)
     {
         off_t bytes = ffilesize(fd);
+        bool tail;
 
         ok = read(fd, h, sizeof(*h)) == (ssize_t)sizeof(*h)
              && artpanel_hdr_ok(h, panel.w, panel.h)
              && bytes >= (off_t)artpanel_slot_offset(
-                    panel_slot_bytes, h->n_slots)
-             && file_tail_reads(fd, bytes);
-        ok = close(fd) == 0 && ok;
+                    panel_slot_bytes, h->n_slots);
+        tail = file_tail_reads(fd, bytes);
+        ok = close(fd) == 0 && ok && tail;
+        if (!tail)
+            art_heal(F_PANELS_PREV);    /* #177: never kept cut */
         if (ok && artfile_replace(F_PANELS_PREV, F_PANELS) == 0)
         {
             panel_seq++;
@@ -5314,6 +5792,7 @@ static bool panel_stage(struct bwork *w)
         return true;
     if (!io_go(w, "write", 0))
         return false;
+    POWERCUT_POINT("art.panels.begin", F_PANELS);
     ART_PACE();
     in = w->panel_fresh ? -1 : open(F_PANELS, O_RDONLY);
     if (in < 0 && !w->panel_fresh && errno != ENOENT)
@@ -5357,6 +5836,7 @@ static bool panel_stage(struct bwork *w)
     ok = close(out) == 0 && ok;
     if (!ok)
         goto failed;
+    POWERCUT_POINT("art.panels.staged", F_PANELS);
     UPDATE_TRACE("art panel stage copied=%ld", copied);
     w->panel_pending = true;
     return true;
@@ -5395,6 +5875,7 @@ static bool panel_commit(struct bwork *w)
     ok = close(fd) == 0 && ok;
     if (!ok)
         goto failed;
+    POWERCUT_POINT("art.panels.commit", F_PANELS);
     UPDATE_TRACE("art panel commit in place bytes=%d slots=%lu",
                  (int)sizeof(w->phdr), (unsigned long)w->phdr.n_slots);
     panel_seq++;
@@ -5428,6 +5909,7 @@ static bool panel_save(struct bwork *w)
     ok = close(fd) == 0 && ok;
     if (!ok)
         goto failed;
+    POWERCUT_POINT("art.panels.sealed", F_PANELS);
     ART_PACE();
     fd = open(F_PANELS_TMP, O_RDONLY);
     if (fd < 0)
@@ -5485,7 +5967,14 @@ static int panel_stream(struct bwork *w, artcache_key_t key,
 #ifdef HAVE_BCMFW_VIDEO
     w->ps_cw = 0;
 #endif
+    /* #225 Q1: the main menu's panels take a synced track's embedded art
+     * (300 px from the full image), and so does its Now Playing row's
+     * cover (npcover.pak, panel-sized; owner, 2026-11-08); the synced
+     * 200 px image when the track has none */
+    w->panel_emb = true;
+    w->syn_key = key;
     st = source_decode(w, r);
+    w->panel_emb = false;
     if (w->ps_io_err || w->lit)
         st = w->lit ? PANEL_DEFERRED : -1;
     w->stream = false;
@@ -6256,6 +6745,9 @@ static void npr_run_impl(struct bwork *w)
                  KEYARG(key), (unsigned long)s, ok ? ARTREC_OK
                  : (st == ARTREC_OK || npr_abort) ? PANEL_DEFERRED : st,
                  (current_tick - t0) * 1000 / HZ);
+    /* #225: which source the cover came from (tests/perf ipodctl-np) */
+    UPDATE_TRACE("art npcover src key=" KEYFMT " kind=%d ok=%d",
+                 KEYARG(key), (int)r.src_kind, (int)ok);
     if (ok)
         ui_log("art", "npcover build slot=%lu ms=%ld", (unsigned long)s,
                (current_tick - t0) * 1000 / HZ);
@@ -6695,9 +7187,16 @@ static int chap_img(void *ctx, int i, uint32_t *pos, uint8_t *src_type)
  * for the stop: wait_ready() would hold the block until an idle). */
 static int chap_wait(void)
 {
-    int ev = pump(maintenance ? 0 : (charger_inserted() ? GAP_CHARGING
-                                                         : GAP_TICKS));
     bool unboosted = false;
+    int ev;
+
+    if (!maintenance && FAST_BOOSTED())
+    {
+        fast_boost(false);          /* p081: boosted for work, not gaps */
+        unboosted = true;
+    }
+    ev = pump(maintenance ? 0 : (charger_inserted() ? GAP_CHARGING
+                                                     : GAP_TICKS));
 
     while (!ev)
     {
@@ -8416,6 +8915,32 @@ static int run_late(struct bwork *w)
     return ev;
 }
 
+#ifdef SIMULATOR
+/* #225 test knob (ipodctl-resync.script): IPODUI_SIM_SYN_CUT=N cuts a
+ * pass that owes the synced re-check (syn_rebuilt) after N albums, as a
+ * power cut would: what it built so far committed, then the thread stops
+ * for good (the script reboots). Only while the script has armed it (the
+ * file F_SIMCUT, made after the first build, whose own map build owes the
+ * re-check too); disarmed when it cuts. */
+#define F_SIMCUT    ARTCACHE_DIR "/simcut.arm"
+static void sim_syn_cut(struct bwork *w)
+{
+    static long seen;
+    const char *v = getenv("IPODUI_SIM_SYN_CUT");
+
+    if (!v || !w->syn_rebuilt || !file_exists(F_SIMCUT) || ++seen < atol(v))
+        return;
+    if (w->n_delta && io_ok())
+        commit(w, false);
+    remove(F_SIMCUT);
+    UPDATE_TRACE("art sim cut albums=%ld", seen);
+    ui_log("art", "sim cut albums=%ld", seen);
+    hang_idle_begin();              /* stopped on purpose: not hung */
+    for (;;)
+        sleep(HZ);
+}
+#endif
+
 static int run_pass_impl(void)
 {
     struct bwork *w = bw;
@@ -8442,6 +8967,7 @@ static int run_pass_impl(void)
 #ifdef SIMULATOR
     sim_done_gen = -1;              /* an old success cannot mask a failed retry */
 #endif
+    syncart_pass(w);                /* #225 S3 (may set w->sweep) */
     status.total = w->thdr.n_albums;
     status.done = 0;
     build_phase(ARTCACHE_BUILD_PHASE_PREPARE, 0);
@@ -8583,6 +9109,9 @@ static int run_pass_impl(void)
             && io_ok())
             commit(w, false);
         status.done++;
+#ifdef SIMULATOR
+        sim_syn_cut(w);
+#endif
     }
 finish:
     build_phase(ARTCACHE_BUILD_PHASE_FINALIZE, 0);
@@ -8598,11 +9127,12 @@ finish:
     sim_done_gen = w->db_gen;
     {
         unsigned long rb;
+        int ex = sim_exists_count2();
         int rn = sim_read_count2_end(&rb);
 
         UPDATE_TRACE("art build done albums=%d ms=%ld reads=%d "
-                     "read_kb=%lu", status.done,
-                     (current_tick - t0) * (1000 / HZ), rn, rb / 1024);
+                     "read_kb=%lu exists=%d", status.done,
+                     (current_tick - t0) * (1000 / HZ), rn, rb / 1024, ex);
     }
 #else
     UPDATE_TRACE("art build done albums=%d ms=%ld", status.done,
@@ -8769,15 +9299,17 @@ static void art_thread(void)
         want_build = false;
         fast = maintenance;
         build_fast = fast;
+        /* p081-bootwalk: every pass boosted (the pass after a first build
+         * took ~230 s at 24 MHz on the emulator), never while it waits or
+         * sleeps its gap; a maintenance pass also has no gaps and lets
+         * resize boost on this thread */
+        fast_boost(true);
         if (fast)
-        {
-            fast_boost(true);
             resize_set_noboost_thread(thread_self(), false);
-        }
         ev = run_pass();
         if (fast)
             resize_set_noboost_thread(thread_self(), true);
-        fast_boost(false);          /* (a no-op unless a fast pass) */
+        fast_boost(false);
         /* after USB the post-USB rescan requests again; a request during
          * a pass restarts it */
         if (ev != EV_RETRY)

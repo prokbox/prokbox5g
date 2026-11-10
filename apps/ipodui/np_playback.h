@@ -94,6 +94,11 @@ struct np_track {
                                    screen applies its np_rating_ovr */
     int  queue_index;           /* 0-based position in the play queue */
     int  queue_count;           /* entries in the play queue (0: none) */
+    int  lib_pos;               /* 0.8.1: a library shuffle's place of
+                                   this song in its lap (1-based,
+                                   lib_shuffle_lap_pos()), else 0 */
+    int  lib_songs;             /* ...of this many music songs
+                                   (lib_stats(), precomputed), else 0 */
     unsigned long length_ms;    /* the current file (a single-file book is
                                    the whole book; multi-file books: per
                                    file until P6, frozen default 9.12) */

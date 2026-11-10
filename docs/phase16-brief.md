@@ -162,7 +162,7 @@ void safefile_recover(const char *dest, const char *tmp, const char *prev);
 - **Sim commands** (own `sim_cmd_maint.c`): `pause_age <s>`, `user_idle <0|1>`, `maint_expect <job> <ok>`, `boot_unclean`; scripts per §7.
 
 ### 4.0a 16-A The audio-buffer floor gate (#105) (agent T, tooling; **first**)
-- `scripts/validate.sh`: boot the 32 MB and 64 MB sims with the 50k library (`tests/perf/lib50k.sh`), log the audio file buffer after shell start and at a commit peak (a sim command), and fail under the floor (7,500,000 / 39,000,000 B).
+- `scripts/validate.sh`: boot the 32 MB and 64 MB sims with the 50k library (`tests/perf/lib65k.sh`), log the audio file buffer after shell start and at a commit peak (a sim command), and fail under the floor (7,500,000 / 39,000,000 B).
 - Replace `P9_END_MAX` and the `P8B_*` gates with the backstops (`_end` ≤ 1,500,000 B, `rockbox.ipod` ≤ ~1,250,000 B).
 - Print the gap before `inquiry_static`, and fix sizemap's merged string-pool attribution (RUI-0).
 - **Worst cases traced (Revision 3a, M3):**
@@ -298,7 +298,7 @@ Orchestrator: `docs/hardware.md` budget table, ledgers, ROADMAP.
 6. **Threads:** the commit runs on the tagcache thread; the window predicate is read there; `maint_want` from the art thread; the shrink stops audio from the allocating thread (`shrink_callback` handles both cases).
 7. **Splashes:** none (playback's resume path under `HAVE_IPOD_UI` logs).
 8. **Persistence:** a power cut inside the window: the old generation stays (generations, #85); `safefile` recovery; the stamp spoiled at boot. USB mid-window: `tagcache_usb_quiescing` cuts the commit as today; the stamp is spoiled.
-9. **Scale:** 50k tracks: commit and reload sizes from `ui_commit_need()`; the window must fit them in the freed audio buffer (64 MB: yes; 32 MB: measure with `tests/perf/lib50k.sh`).
+9. **Scale:** 50k tracks: commit and reload sizes from `ui_commit_need()`; the window must fit them in the freed audio buffer (64 MB: yes; 32 MB: measure with `tests/perf/lib65k.sh`).
 10. **Deferred work, per state:** #88 in *ready* (update found while paused), *fresh* (initial build while paused: the window lets it finish), *dirty* (USB cut) — one script each; #89 in clean, unclean, after-USB, 10th boot.
 11. **Stock unchanged:** `playlist.c` edits under `HAVE_IPOD_UI`; ledger rows.
 12. **Existing paths doing the same job:** upstream's autoupdate (`tagcache_autoupdate`) stays the trigger; the stamp only skips the probe; `rbfs_rename`'s undo stays as a backstop.

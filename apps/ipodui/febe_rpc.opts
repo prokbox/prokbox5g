@@ -200,6 +200,8 @@
 -Wl,--undefined=lib_shuffle_active
 -Wl,--wrap=lib_shuffle_idle
 -Wl,--undefined=lib_shuffle_idle
+-Wl,--wrap=lib_shuffle_lap_pos
+-Wl,--undefined=lib_shuffle_lap_pos
 -Wl,--wrap=lib_shuffle_mode
 -Wl,--undefined=lib_shuffle_mode
 -Wl,--wrap=lib_shuffle_note_book
@@ -324,6 +326,8 @@
 -Wl,--undefined=rbfs_open
 -Wl,--wrap=rbfs_opendir
 -Wl,--undefined=rbfs_opendir
+-Wl,--wrap=rbfs_opendir_child
+-Wl,--undefined=rbfs_opendir_child
 -Wl,--wrap=rbfs_read
 -Wl,--undefined=rbfs_read
 -Wl,--wrap=rbfs_readdir
@@ -376,6 +380,8 @@
 -Wl,--undefined=tagcache_context_release
 -Wl,--wrap=tagcache_context_release_passive
 -Wl,--undefined=tagcache_context_release_passive
+-Wl,--wrap=tagcache_dedicated_build
+-Wl,--undefined=tagcache_dedicated_build
 -Wl,--wrap=tagcache_get_commit_step
 -Wl,--undefined=tagcache_get_commit_step
 -Wl,--wrap=tagcache_get_stat
@@ -418,14 +424,20 @@
 -Wl,--undefined=tagcache_ui_generation
 -Wl,--wrap=tagcache_ui_generation_ctx
 -Wl,--undefined=tagcache_ui_generation_ctx
+-Wl,--wrap=tagcache_ui_no_library
+-Wl,--undefined=tagcache_ui_no_library
 -Wl,--wrap=tagcache_ui_numeric
 -Wl,--undefined=tagcache_ui_numeric
 -Wl,--wrap=tagcache_ui_precompute_request
 -Wl,--undefined=tagcache_ui_precompute_request
+-Wl,--wrap=tagcache_ui_progress
+-Wl,--undefined=tagcache_ui_progress
 -Wl,--wrap=tagcache_ui_save_spot
 -Wl,--undefined=tagcache_ui_save_spot
 -Wl,--wrap=tagcache_ui_scan_owed
 -Wl,--undefined=tagcache_ui_scan_owed
+-Wl,--wrap=tagcache_ui_scans_ended
+-Wl,--undefined=tagcache_ui_scans_ended
 -Wl,--wrap=tagcache_ui_seeks
 -Wl,--undefined=tagcache_ui_seeks
 -Wl,--wrap=tagcache_ui_seeks_ctx

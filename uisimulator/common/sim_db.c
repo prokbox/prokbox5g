@@ -53,6 +53,13 @@ enum sim_db_state sim_db_state(void)
         return SIM_DB_READY;
     if (st->commit_delayed)
         return SIM_DB_DELAYED;
+#ifdef HAVE_IPOD_UI
+    {   /* #237: a first build's count of the tree is under way */
+        int pm;
+        if (tagcache_ui_progress(&pm) != TC_UI_PROG_NONE)
+            return SIM_DB_BUSY;
+    }
+#endif
     if (st->readyvalid && !st->ready && st->commit_step == 0
         && st->processed_entries == 0)
         return SIM_DB_MISSING;

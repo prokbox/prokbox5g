@@ -98,10 +98,13 @@
 #include "ipodui/sortkey.h"
 #include "audio.h"
 #include "power.h"
+#include "powermgmt.h"   /* #237: battery_level() */
 #ifdef HAVE_TC_RAMCACHE
 #include "ipodui/libfile.h"
 #include "ipodui/library.h"
 #include "ipodui/dbgen.h"
+#include "ipodui/crcfast.h"
+#include "chaincheck.h"
 #include "ipodui/dbjournal.h"
 #include "ipodui/uilog.h"
 #include "ipodui/maint.h"
@@ -432,7 +435,11 @@ static struct tagcache_stat tc_stat;
 #endif
 #ifdef HAVE_IPOD_UI
 static bool ui_maintenance_rebuild;
+/* the pass after USB (Q_START_SCAN) until its check is done: files may
+ * be gone; the user waits on it (p081: held boosted) */
+static bool ui_rescan;
 static volatile bool ui_scan_active;
+static volatile unsigned ui_scans_ended;   /* #157: tagcache_ui_scans_ended() */
 /* #84 (Q6): "._" sidecars seen by the scan in progress / by the last
  * scan that ran to its end. Counted where the walk already skips them. */
 static int ui_sidecars_run, ui_sidecars_done = -1;
@@ -679,6 +686,10 @@ static int ui_rebuild_again;    /* Q_REBUILD data to post again, or 0 */
 static int ui_rebuild_maint;    /* the last rebuild's maintenance bit */
 static int32_t ui_export_bad = -1; /* commit whose export found damage */
 static bool ui_scan_pending, ui_deleted_owed;
+/* #237: a library walked whole from nothing, uncut, since the last USB
+ * session: the post-USB check (Q_START_SCAN) and a cut's owed update
+ * have nothing left to find */
+static bool ui_fresh_walked;
 static bool ui_generation_unresolved;
 static bool ui_generation_fresh; /* definitively unusable selected data, keep old files */
 static bool ui_boot_stats_replayed;
@@ -954,8 +965,14 @@ static bool ui_maint_due(void)
     /* P16: memory a take already freed counts once (maint_take_fits()),
      * and a take refused this pause is not retried (no commit attempt,
      * no disk access, until the pause ends) */
+    /* p081-floor: a peak that no longer fits is refused through
+     * maint_take() (with the window open and the floor short it takes
+     * nothing): the wait is logged and declined once per pause, as for
+     * every other job, not skipped here silently */
     return ui_maint_need && maint_window_open()
-           && !maint_declined(MAINT_COMMIT) && maint_take_fits(ui_maint_need);
+           && !maint_declined(MAINT_COMMIT)
+           && (maint_take_fits(ui_maint_need)
+               || maint_take(MAINT_COMMIT, ui_maint_need));
 }
 
 /* The commit job's peak: its last known one, else a guess from the RAM
@@ -1116,9 +1133,204 @@ static void swap_tagcache_header(TC_CTX_PARAM struct tagcache_header *buf) { (vo
 static void swap_master_header(TC_CTX_PARAM struct master_header *buf) { (void)buf; }
 #endif
 
+#ifdef UI_COMMIT
+/* #245: the commit reads its files in big chunks. It walks the temp file
+ * once per string tag and once more for the numeric tags, and the old
+ * tag files once each, in small reads (an entry's header, then a string);
+ * the device's file layer keeps one 512-byte sector per open file, so each
+ * pass cost a storage command per sector (~10 per file over a commit).
+ * One file at a time is bound to the reader; its reads and seeks go
+ * through tmp_read()/tmp_lseek(), which copy from a window of the file
+ * read whole, sector-aligned, TC_RD_SIZE at a time. Any other fd passes
+ * straight to read()/lseek(). The buffer is the commit buffer's tail
+ * (commit(): ui_commit_need() counts it), and the temp file's size pass
+ * (ui_temp_tag_sizes()) has its own short-lived one. Without a buffer
+ * every call goes straight through, as before. */
+#define TC_RD_SIZE      (32*1024)
+#define TC_RD_ALIGN     512
+/* the same tail's second part: the unique tags' hash heads while their
+ * strings go in (tempbuf_insert()), then master index chunks and the
+ * unsorted tag's write buffer (build_index()) */
+#define TC_SCRATCH_SIZE (64*1024)
+#define TC_CARVE        (TC_RD_SIZE + TC_SCRATCH_SIZE)
+static struct {
+    char *buf;          /* NULL: no reader */
+    long size;
+    int fd;             /* the bound file, -1: none */
+    off_t fsize;        /* its size when bound (it is only read) */
+    off_t base;         /* file offset of buf[0] */
+    long len;           /* bytes valid in buf */
+    off_t pos;          /* the bound file's position */
+} tc_rd = { .fd = -1 };
+
+/* the bound file's real offset is set back to its position; any other
+ * file is then bound (fd < 0: none) */
+static void tmp_bind(int fd)
+{
+    if (tc_rd.fd >= 0)
+        lseek(tc_rd.fd, tc_rd.pos, SEEK_SET);
+    tc_rd.fd = -1;
+    tc_rd.len = 0;
+    if (fd < 0 || !tc_rd.buf)
+        return;
+    tc_rd.pos = lseek(fd, 0, SEEK_CUR);
+    tc_rd.fsize = ffilesize(fd);
+    if (tc_rd.pos >= 0 && tc_rd.fsize >= 0)
+        tc_rd.fd = fd;
+}
+
+static ssize_t tmp_read(int fd, void *dst, size_t n)
+{
+    size_t done = 0;
+
+    if (fd != tc_rd.fd || fd < 0)
+        return read(fd, dst, n);
+    while (done < n && tc_rd.pos < tc_rd.fsize)
+    {
+        off_t o = tc_rd.pos - tc_rd.base;
+        off_t base;
+        ssize_t r;
+
+        if (tc_rd.len > 0 && o >= 0 && o < tc_rd.len)
+        {
+            size_t k = MIN(n - done, (size_t)(tc_rd.len - o));
+
+            memcpy((char *)dst + done, tc_rd.buf + o, k);
+            done += k;
+            tc_rd.pos += k;
+            continue;
+        }
+        /* whole sectors straight into the buffer: no partial sector
+         * through the file's own sector cache */
+        base = tc_rd.pos & ~(off_t)(TC_RD_ALIGN - 1);
+        tc_rd.len = 0;
+        if (lseek(fd, base, SEEK_SET) != base)
+            break;
+        r = read(fd, tc_rd.buf, tc_rd.size);
+        if (r <= tc_rd.pos - base)
+            break;
+        tc_rd.base = base;
+        tc_rd.len = r;
+    }
+    return done;
+}
+
+/* as lseek(): a position past the end or before the start fails and
+ * leaves the position where it was */
+static off_t tmp_lseek(int fd, off_t offset, int whence)
+{
+    off_t pos;
+
+    if (fd != tc_rd.fd || fd < 0)
+        return lseek(fd, offset, whence);
+    pos = whence == SEEK_SET ? offset
+        : whence == SEEK_CUR ? tc_rd.pos + offset : tc_rd.fsize + offset;
+    if (pos < 0 || pos > tc_rd.fsize)
+        return -1;
+    tc_rd.pos = pos;
+    return pos;
+}
+#define TMP_READ(fd, buf, n)        tmp_read(fd, buf, n)
+#define TMP_LSEEK(fd, off, whence)  tmp_lseek(fd, off, whence)
+#define TMP_BIND(fd)                tmp_bind(fd)
+
+/* the scratch part (NULL: none). While a unique tag's strings go in
+ * (tempbuf_insert()), two hashes of TC_HASH_N heads each, an entry index
+ * + 1 (0: none): one keyed by the string's case-folded CRC, its chains
+ * linked through the entries' 'seek' (unused until tempbuf_sort()), and
+ * one keyed by the string's bytes, linked through 'key' (unused until
+ * ui_precompute_keys()); both are set back after the strings are in.
+ * Later the first half holds master index chunks (TC_IDX_BYTES) and the
+ * second half buffers the unsorted tag's writes (build_index()). */
+static char *tc_scratch;
+#define TC_HASH_N       (TC_SCRATCH_SIZE / 2 / sizeof(int32_t))
+#define TC_IDX_BYTES    (TC_SCRATCH_SIZE / 2)
+static bool tc_hash_on;
+
+/* #245: a tag file's entries are written through a buffer (three write()
+ * calls an entry before); tc_write()/tc_tell() on any other fd go
+ * straight through */
+static struct {
+    char *buf;
+    long size, len;
+    int fd;             /* -1: none */
+    off_t pos;          /* the file's position, buffered bytes included */
+    bool err;
+} tc_wb = { .fd = -1 };
+
+static void tc_wb_begin(int fd, char *buf, long size)
+{
+    tc_wb.fd = -1;
+    tc_wb.len = 0;
+    tc_wb.err = false;
+    if (!buf || fd < 0)
+        return;
+    tc_wb.buf = buf;
+    tc_wb.size = size;
+    tc_wb.pos = lseek(fd, 0, SEEK_CUR);
+    if (tc_wb.pos >= 0)
+        tc_wb.fd = fd;
+}
+
+static bool tc_wb_flush(void)
+{
+    if (tc_wb.len > 0 && write(tc_wb.fd, tc_wb.buf, tc_wb.len) != tc_wb.len)
+        tc_wb.err = true;
+    tc_wb.len = 0;
+    return !tc_wb.err;
+}
+
+/* flushes and lets the file go; false if any write failed */
+static bool tc_wb_end(void)
+{
+    bool ok = true;
+
+    if (tc_wb.fd >= 0)
+        ok = tc_wb_flush();
+    tc_wb.fd = -1;
+    return ok;
+}
+
+static ssize_t tc_write(int fd, const void *data, size_t n)
+{
+    if (fd != tc_wb.fd || fd < 0)
+        return write(fd, data, n);
+    if (tc_wb.len + (long)n > tc_wb.size)
+    {
+        if (!tc_wb_flush())
+            return -1;
+        if ((long)n > tc_wb.size)
+        {
+            ssize_t r = write(fd, data, n);
+
+            if (r > 0)
+                tc_wb.pos += r;
+            return r;
+        }
+    }
+    memcpy(tc_wb.buf + tc_wb.len, data, n);
+    tc_wb.len += n;
+    tc_wb.pos += n;
+    return n;
+}
+
+static off_t tc_tell(int fd)
+{
+    return fd == tc_wb.fd && fd >= 0 ? tc_wb.pos : lseek(fd, 0, SEEK_CUR);
+}
+#define TC_WRITE(fd, data, n)   tc_write(fd, data, n)
+#define TC_TELL(fd)             tc_tell(fd)
+#else
+#define TMP_READ(fd, buf, n)        read(fd, buf, n)
+#define TMP_LSEEK(fd, off, whence)  lseek(fd, off, whence)
+#define TMP_BIND(fd)                do { } while (0)
+#define TC_WRITE(fd, data, n)       write(fd, data, n)
+#define TC_TELL(fd)                 lseek(fd, 0, SEEK_CUR)
+#endif
+
 static ssize_t read_tagfile_entry(TC_CTX_PARAM int fd, struct tagfile_entry *buf)
 {
-    ssize_t ret = read(fd, buf, sizeof(*buf));
+    ssize_t ret = TMP_READ(fd, buf, sizeof(*buf));
     if (ret == sizeof(*buf) && TC_STAT(ctx).econ)
         swap_tagfile_entry(TC_CTX_ARG(ctx) buf);
 
@@ -1131,7 +1343,7 @@ static ssize_t write_tagfile_entry(TC_CTX_PARAM int fd, struct tagfile_entry *bu
 
     swap_tagfile_entry(TC_CTX_ARG(ctx) &e);
 
-    return write(fd, &e, sizeof(e));
+    return TC_WRITE(fd, &e, sizeof(e));
 }
 
 enum e_read_errors {
@@ -1153,7 +1365,7 @@ read_tagfile_entry_and_tag(TC_CTX_PARAM int fd, struct tagfile_entry *tfe,
     if (tag_length >= bufsz)
         return e_TAG_TOOLONG;
 
-    if (tag_length > 0 && read(fd, buf, tag_length) != tag_length)
+    if (tag_length > 0 && TMP_READ(fd, buf, tag_length) != tag_length)
         return e_TAG_SIZEMISMATCH;
 
     str_setlen(buf, tag_length);
@@ -1176,6 +1388,13 @@ static ssize_t write_index_entries(TC_CTX_PARAM int fd, struct index_entry *buf,
         ui_candidate_changed = true;
 #endif
 #ifdef TAGCACHE_SUPPORT_FOREIGN_ENDIAN
+#ifdef UI_COMMIT
+    /* #245: native order (every database this firmware writes): the
+     * chunk in one write, not 96 bytes at a time (each sector was read
+     * back and written once per entry it holds) */
+    if (!TC_STAT(ctx).econ)
+        return write(fd, buf, sizeof(*buf) * count);
+#endif
     ssize_t ret = 0;
     for (; count > 0; count--)
     {
@@ -1389,6 +1608,15 @@ static void remove_files(void)
     }
 }
 
+#ifdef HAVE_IPOD_UI
+/* #237: a library is on the disk but unusable (its commit cut: dirty, or
+ * its generation damaged): rebuilt silently with its statistics, not
+ * behind the first-build page (tagcache_ui_no_library(), which also needs
+ * !ready). Set at the boot's select or header check; cleared at USB (the
+ * host may remove it), never by a candidate's own header check. */
+static bool ui_master_dirty;
+#endif
+
 static bool check_all_headers(TC_CTX_ONLY)
 {
     struct master_header myhdr;
@@ -1403,6 +1631,9 @@ static bool check_all_headers(TC_CTX_ONLY)
     if (myhdr.dirty)
     {
         logf("tagcache is dirty!");
+#ifdef HAVE_IPOD_UI
+        ui_master_dirty = true;
+#endif
         return false;
     }
 
@@ -1447,6 +1678,85 @@ static bool update_master_header(TC_CTX_ONLY)
 
 #if !defined(PLUGIN)
 #ifndef __PCTOOL__
+#ifdef HAVE_IPOD_UI
+/* p081: a build someone waits on (the first build, a maintenance rebuild,
+ * the scan after USB, the candidate after a library change, the delayed
+ * commit; #237's first-build page): held boosted, yielding every 100 ms
+ * instead of 40. Background updates keep the short slice, boosted too
+ * (p081-bootwalk: a plain cpu_boost() pair in do_tagcache_build()). */
+#define TC_YIELD_SHORT  (HZ/25)
+#define TC_YIELD_LONG   (HZ/10)
+static int tc_dedicated_depth;          /* holders now (any thread) */
+static long tc_yield_ticks = TC_YIELD_SHORT;
+
+static void tc_dedicated(bool on, const char *why)
+{
+    if (on)
+    {
+        cpu_boost(true);
+        if (tc_dedicated_depth++ == 0)
+            tc_yield_ticks = TC_YIELD_LONG;
+    }
+    else if (tc_dedicated_depth <= 0)
+    {
+        ui_log("db", "dedicated off unmatched why=%s", why);
+        return;                         /* never below zero */
+    }
+    else
+    {
+        if (--tc_dedicated_depth == 0)
+            tc_yield_ticks = TC_YIELD_SHORT;
+        cpu_boost(false);
+    }
+#ifdef HAVE_IPOD_UI_DEVMODE
+    ui_log("db", "dedicated %s why=%s depth=%d", on ? "on" : "off", why,
+           tc_dedicated_depth);
+#endif
+}
+
+/* p081-bootwalk: background library work (the boot digest, a background
+ * walk, the boot walk's deleted-file pass) held boosted as a rare, fast
+ * burst, on the short slice; refcounted and logged like the dedicated
+ * hold so a script can check every hold ends ("db boost") */
+static int tc_boost_depth;
+
+static void tc_boost_hold(bool on, const char *why)
+{
+    if (on)
+    {
+        cpu_boost(true);
+        tc_boost_depth++;
+    }
+    else if (tc_boost_depth <= 0)
+    {
+        ui_log("db", "boost off unmatched why=%s", why);
+        return;
+    }
+    else
+    {
+        tc_boost_depth--;
+        cpu_boost(false);
+    }
+#ifdef HAVE_IPOD_UI_DEVMODE
+    ui_log("db", "boost %s why=%s depth=%d", on ? "on" : "off", why,
+           tc_boost_depth);
+#endif
+}
+
+void tagcache_dedicated_build(bool on)
+{
+    tc_dedicated(on, "ext");
+}
+
+int tagcache_dedicated_build_depth(void)
+{
+    return tc_dedicated_depth;
+}
+#else
+#define TC_YIELD_SHORT  (HZ/25)
+#define tc_yield_ticks  TC_YIELD_SHORT
+#endif
+
 static bool do_timed_yield(void)
 {
     /* Sorting can lock up for quite a while, so yield occasionally */
@@ -1454,7 +1764,7 @@ static bool do_timed_yield(void)
     if (TIME_AFTER(current_tick, wakeup_tick))
     {
         yield();
-        wakeup_tick = current_tick + (HZ/25);
+        wakeup_tick = current_tick + tc_yield_ticks;
         return true;
     }
     return false;
@@ -1771,6 +2081,10 @@ static unsigned ui_walk_usb_seq;
 static volatile bool ui_usb_since_walk;
 static bool ui_boot_decided;            /* the boot check, once */
 static long ui_boot_entries = -1;       /* the digest's count: progress */
+static long ui_walk_total = -1;         /* #157: the last whole walk's entries */
+/* #237: the first build's count of the music tree (its bar's scale), in
+ * progress (NULL: none running) */
+static struct boot_digest *volatile ui_count_dg;
 static volatile signed char ui_boot_state; /* 0 pending, 1 walk, 2 done */
 #ifdef HAVE_IPOD_UI_DEVMODE
 #define UI_BS_LOG(...) ui_log("boot", __VA_ARGS__)
@@ -1797,15 +2111,23 @@ static void ui_walk_vouch(void)
 static long ui_scan_find(const char *path, struct index_entry *idx,
                          char *buf);
 
-static void ui_name_hash(const char *name, struct ui_name_key *k)
+/* t: crcfast tables (p081-bootload: the same h1, faster), or NULL */
+static void ui_name_hash_t(const char *name, struct ui_name_key *k,
+                           const struct crcfast *t)
 {
     size_t len = strlen(name);
     uint32_t h = 2166136261u;   /* FNV-1a */
 
-    k->h1 = crc_32(name, len, 0xffffffff);
+    k->h1 = t ? crcfast_m(t, name, len, 0xffffffff)
+              : crc_32(name, len, 0xffffffff);
     while (len--)
         h = (h ^ (unsigned char)*name++) * 16777619u;
     k->h2 = h;
+}
+
+static void ui_name_hash(const char *name, struct ui_name_key *k)
+{
+    ui_name_hash_t(name, k, NULL);
 }
 
 /* S36 (C1): the filename -> index lookups of the tracks playback loaded.
@@ -3682,6 +4004,194 @@ static void NO_INLINE add_tagcache(char *path, unsigned long mtime)
 }
 #endif /*!defined(PLUGIN)*/
 
+#if defined(HAVE_IPOD_UI_DEVMODE) && defined(UI_COMMIT) && !defined(PLUGIN) \
+    && !defined(__PCTOOL__)
+/* #245 commit trace (devmode only, log lines, no UI): where a commit's
+ * time and storage commands go, per stage, summed over the tags. A stage
+ * is the span from the previous mark to this one. Commands are the
+ * tagcache thread's own (devstats; the simulator counts each file open,
+ * read and write as one). The simulator's time is the thread's CPU time,
+ * and each mark goes into the file trace (IPODUI_FSTRACE), where
+ * tests/fatcrash/fsreplay "count" turns the same spans into the device's
+ * storage commands (tests/perf/commit_trace.sh). */
+#define COMMIT_TRACE
+#ifdef SIMULATOR
+extern unsigned long sim_thread_cpu_us(void);
+extern void sim_fstrace_mark(const char *what);
+#define CT_US()     sim_thread_cpu_us()
+#else
+#define CT_US()     ((unsigned long)USEC_TIMER)
+#endif
+enum { CT_SIZES, CT_LOAD, CT_INSERT, CT_SORT, CT_WRITE, CT_MASTER, CT_NEW,
+       CT_NUMERIC, CT_FINISH, CT_N };
+static const char ct_name[CT_N][8] = { "sizes", "load", "insert", "sort",
+    "write", "master", "new", "numeric", "finish" };
+static struct { unsigned long us, cmds; } ct_b[CT_N];
+static unsigned long ct_t0, ct_c0;
+static bool ct_on;
+static void ct_mark(int b)
+{
+    unsigned long t = CT_US(), c = devstats_self_cmds();
+
+    if (!ct_on)
+        return;
+    ct_b[b].us += t - ct_t0;
+    ct_b[b].cmds += c - ct_c0;
+    ct_t0 = t;
+    ct_c0 = c;
+#ifdef SIMULATOR
+    sim_fstrace_mark(ct_name[b]);
+#endif
+}
+static void ct_begin(void)
+{
+    memset(ct_b, 0, sizeof(ct_b));
+    ct_on = true;
+    ct_t0 = CT_US();
+    ct_c0 = devstats_self_cmds();
+#ifdef SIMULATOR
+    sim_fstrace_mark("begin");
+#endif
+}
+static void ct_log(long files)
+{
+    unsigned long us = 0, cmds = 0;
+    int b;
+
+    if (!ct_on)
+        return;
+    ct_on = false;
+#ifdef SIMULATOR
+    sim_fstrace_mark("end");
+#endif
+    for (b = 0; b < CT_N; b++)
+    {
+        us += ct_b[b].us;
+        cmds += ct_b[b].cmds;
+    }
+    ui_log("db", "committrace ms=%lu cmds=%lu files=%ld",
+           us / 1000, cmds, files);
+    for (b = 0; b < CT_N; b++)
+        ui_log("db", "committrace %lu ms %lu cmds %s",
+               ct_b[b].us / 1000, ct_b[b].cmds, ct_name[b]);
+}
+#define CT_MARK(b)  ct_mark(b)
+#define CT_BEGIN()  ct_begin()
+#define CT_LOG(n)   ct_log(n)
+#else
+#define CT_MARK(b)  do { } while (0)
+#define CT_BEGIN()  do { } while (0)
+#define CT_LOG(n)   do { } while (0)
+#endif
+
+#ifdef COMMIT_TRACE
+/* p081-bootload: the boot's library steps (devmode log lines, no UI):
+ * "boottrace <step> ms=<wall since the thread began> cpu=<the step's
+ * thread CPU ms> cmds=<its storage commands>", from the thread's start to
+ * the end of the first RAM load. Each step is a mark in the file trace
+ * too, so tests/perf/boot_trace.sh's fsreplay "count" gives the device's
+ * storage commands per step. */
+static unsigned long bt_t0, bt_us, bt_c;
+static long bt_tick0;
+static bool bt_on;
+static void bt_mark(const char *step)
+{
+    unsigned long t = CT_US(), c = devstats_self_cmds();
+
+    if (!bt_on)
+        return;
+    ui_log("db", "boottrace %s ms=%ld cpu=%lu cmds=%lu", step,
+           (current_tick - bt_tick0) * (1000 / HZ), (t - bt_us) / 1000,
+           c - bt_c);
+    bt_us = t;
+    bt_c = c;
+#ifdef SIMULATOR
+    sim_fstrace_mark(step);
+#endif
+}
+static void bt_begin(void)
+{
+    bt_on = true;
+    bt_tick0 = current_tick;
+    bt_t0 = bt_us = CT_US();
+    bt_c = devstats_self_cmds();
+#ifdef SIMULATOR
+    sim_fstrace_mark("begin");
+#endif
+}
+static void bt_end(void)
+{
+    if (!bt_on)
+        return;
+    bt_mark("precomp");
+    ui_log("db", "boottrace total cpu=%lu", (CT_US() - bt_t0) / 1000);
+    bt_on = false;
+#ifdef SIMULATOR
+    sim_fstrace_mark("end");
+#endif
+}
+#define BT_BEGIN()  bt_begin()
+#define BT_MARK(s)  bt_mark(s)
+#define BT_END()    bt_end()
+#if defined(SIMULATOR) && defined(HAVE_TC_RAMCACHE)
+extern bool sim_host_append(const char *path, const void *p, size_t n);
+/* BOOT_TRACE_RAMIMG=<host file>: the boot's RAM image, laid out as it is
+ * but with no address and no alignment gap in it (their bytes are not
+ * the load's): per string tag its offset in the block, its header, then
+ * per entry its offset in the tag, header and data; the master index
+ * whole. Two builds' loads of one library compare byte for byte. */
+static void bt_ramimg(void)
+{
+    const char *path = getenv("BOOT_TRACE_RAMIMG");
+    const struct ramcache_header *h = tcramcache.hdr;
+    bool ok = true;
+
+    if (!path || !bt_on || !tc_stat.ramcache || !h)
+        return;
+    ok &= sim_host_append(path, h->entry_count, sizeof(h->entry_count));
+    ok &= sim_host_append(path, h->indices, current_tcmh.tch.entry_count
+                                            * sizeof(struct index_entry));
+    for (int tag = 0; tag < TAG_COUNT; tag++)
+    {
+        const char *t = h->tags[tag];
+        int32_t off = t ? (int32_t)(t - (const char *)h) : -1;
+        const char *p;
+
+        ok &= sim_host_append(path, &off, sizeof(off));
+        if (!t || TAGCACHE_IS_NUMERIC(tag))
+            continue;
+        ok &= sim_host_append(path, t, sizeof(struct tagcache_header));
+        if (tag == tag_filename)
+            continue;                   /* nothing stored */
+        p = t + sizeof(struct tagcache_header);
+        for (int i = 0; i < h->entry_count[tag]; i++)
+        {
+            ssize_t rc;
+            const struct tagfile_entry *fe;
+
+            p = TC_ALIGN_PTR(p, struct tagfile_entry, &rc);
+            fe = (const struct tagfile_entry *)p;
+            off = (int32_t)(p - t);
+            ok &= sim_host_append(path, &off, sizeof(off));
+            ok &= sim_host_append(path, fe, sizeof(*fe) + fe->tag_length);
+            p += sizeof(*fe) + fe->tag_length;
+        }
+    }
+    ok &= sim_host_append(path, NULL, 0);
+    ui_log("db", "boottrace ramimg ok=%d", (int)ok);
+    bt_us = CT_US();                    /* the dump is no step's */
+    bt_c = devstats_self_cmds();
+}
+#define BT_RAMIMG() bt_ramimg()
+#else
+#define BT_RAMIMG() do { } while (0)
+#endif
+#else
+#define BT_RAMIMG() do { } while (0)
+#define BT_BEGIN()  do { } while (0)
+#define BT_MARK(s)  do { } while (0)
+#define BT_END()    do { } while (0)
+#endif
 
 static bool tempbuf_insert(char *str, int id, int idx_id, bool unique)
 {
@@ -3690,7 +4200,37 @@ static bool tempbuf_insert(char *str, int id, int idx_id, bool unique)
     int i;
     unsigned *crcbuf = (unsigned *)&tempbuf[tempbuf_size-4];
     unsigned crc32 = 0xffffffff;
-#ifdef UI_COLLATE
+#if defined(UI_COMMIT) && defined(UI_COLLATE)
+    int32_t *heads = (int32_t *)tc_scratch;
+    int32_t *bheads = heads + TC_HASH_N;
+    uint32_t bhash = 2166136261u;
+
+    if (unique && tc_hash_on)
+    {
+        /* #245: the same string again (an album's every track): found by
+         * its bytes, without case folding it. Equal bytes are equal
+         * case-folded, and only one entry is (they are unique), so it is
+         * the entry the case-folded search below would find. */
+        for (i = 0; str[i]; i++)
+            bhash = (bhash ^ (unsigned char)str[i]) * 16777619u;
+        for (i = bheads[bhash & (TC_HASH_N - 1)] - 1; i >= 0;
+             i = (int)(intptr_t)index[i].key - 1)
+        {
+            if (strcmp(str, index[i].str))
+                continue;
+            if (id < 0 || id >= lookup_buffer_depth)
+            {
+                logf("lookup buf overf.: %d", id);
+                return false;
+            }
+            lookup[id] = &index[i];
+            return true;
+        }
+    }
+    /* the CRCs are read only by a unique tag's search */
+    if (unique)
+        crc32 = ui_casefold_hash(str);
+#elif defined(UI_COLLATE)
     /* #47: one string per name of one shell group (sortkey.h case
      * folding, Latin, Greek and Cyrillic), not ASCII case only */
     crc32 = ui_casefold_hash(str);
@@ -3703,6 +4243,36 @@ static bool tempbuf_insert(char *str, int id, int idx_id, bool unique)
     }
 #endif
 
+#ifdef UI_COMMIT
+    if (unique && tc_hash_on)
+    {
+        /* #245: only the entries with this hash, not all of them (the
+         * strings are unique, so at most one is equal, as the scan
+         * below would find) */
+        for (i = heads[crc32 & (TC_HASH_N - 1)] - 1; i >= 0;
+             i = (int)index[i].seek - 1)
+        {
+            if (crcbuf[-i] != crc32)
+                continue;
+#ifdef UI_COLLATE
+            if (!ui_casefold_cmp(str, index[i].str))
+#else
+            if (!strcasecmp(str, index[i].str))
+#endif
+            {
+                if (id < 0 || id >= lookup_buffer_depth)
+                {
+                    logf("lookup buf overf.: %d", id);
+                    return false;
+                }
+
+                lookup[id] = &index[i];
+                return true;
+            }
+        }
+    }
+    else
+#endif
     if (unique)
     {
         /* Check if the crc does not exist -> entry does not exist for sure. */
@@ -3758,8 +4328,23 @@ static bool tempbuf_insert(char *str, int id, int idx_id, bool unique)
     index[tempbufidx].idlist.next = NULL;
     index[tempbufidx].idx_id = idx_id;
     index[tempbufidx].seek = -1;
+#ifdef UI_COMMIT
+    if (tc_hash_on)
+    {
+        int32_t *head = &heads[crc32 & (TC_HASH_N - 1)];
+
+        index[tempbufidx].seek = *head;     /* next in the chain, + 1 */
+        *head = tempbufidx + 1;
+        head = &bheads[bhash & (TC_HASH_N - 1)];
+        index[tempbufidx].key = (char *)(intptr_t)*head;
+        *head = tempbufidx + 1;
+    }
+#endif
     index[tempbufidx].str = &tempbuf[tempbuf_pos];
 #ifdef UI_COLLATE
+#ifdef UI_COMMIT
+    if (!tc_hash_on)
+#endif
     index[tempbufidx].key = NULL;
 #endif
     memcpy(index[tempbufidx].str, str, len);
@@ -3810,7 +4395,10 @@ static int compare(const void *p1, const void *p2)
         if (r)
             return r;
         /* #47: the shell's group order (library.c cmp_groups()): the
-         * group key, then the case-folded name */
+         * group key, then the case-folded name (#245: equal bytes are
+         * equal case-folded: the same title on many tracks) */
+        if (!strcmp(e1->str, e2->str))
+            return 0;
         return ui_casefold_cmp(e1->str, e2->str);
     }
 #else
@@ -3868,8 +4456,16 @@ static int tempbuf_sort(int fd)
             continue;
 
         idlist = &lookup[i]->idlist;
+#ifdef UI_COMMIT
+        /* #245: after the head, not at the tail: the order of a list
+         * does not matter (each id is fixed up from it once, below), and
+         * walking to the tail made a tag with few values quadratic (one
+         * genre on 50k tracks: 1.25e9 steps) */
+        struct tempbuf_id_list *after = idlist->next;
+#else
         while (idlist->next != NULL)
             idlist = idlist->next;
+#endif
 
         ALIGN_BUFFER(tempbuf_pos, tempbuf_left, alignof(struct tempbuf_id_list));
         tempbuf_left -= sizeof(struct tempbuf_id_list);
@@ -3881,7 +4477,11 @@ static int tempbuf_sort(int fd)
 
         idlist = idlist->next;
         idlist->id = i;
+#ifdef UI_COMMIT
+        idlist->next = after;
+#else
         idlist->next = NULL;
+#endif
 
         do_timed_yield();
     }
@@ -3896,7 +4496,13 @@ static int tempbuf_sort(int fd)
 #ifdef UI_TIMING
     ui_sort_ticks += current_tick - sort_start;
 #endif
+    CT_MARK(CT_SORT);
     memset(lookup, 0, lookup_buffer_depth * sizeof(struct tempbuf_searchidx **));
+#ifdef UI_COMMIT
+    /* the chunk reader's buffer is free until the next temp file pass */
+    tc_rd.len = 0;
+    tc_wb_begin(fd, tc_rd.buf, tc_rd.size);
+#endif
 
     for (i = 0; i < tempbufidx; i++)
     {
@@ -3910,7 +4516,7 @@ static int tempbuf_sort(int fd)
             idlist = idlist->next;
         }
 
-        index[i].seek = lseek(fd, 0, SEEK_CUR);
+        index[i].seek = TC_TELL(fd);
         length = strlen(index[i].str) + 1;
         fe.tag_length = length;
         fe.idx_id = index[i].idx_id;
@@ -3927,22 +4533,36 @@ static int tempbuf_sort(int fd)
         if (write_tagfile_entry(TC_CTX_ARG(ui_build) fd, &fe) != sizeof(struct tagfile_entry))
         {
             logf("tempbuf_sort: write error #1");
+#ifdef UI_COMMIT
+            tc_wb_end();
+#endif
             return -1;
         }
 
-        if (write(fd, index[i].str, length) != length)
+        if (TC_WRITE(fd, index[i].str, length) != length)
         {
             logf("tempbuf_sort: write error #2");
+#ifdef UI_COMMIT
+            tc_wb_end();
+#endif
             return -2;
         }
 
         /* Write some padding. */
         if (fe.tag_length - length > 0)
-            write(fd, "XXXXXXXX", fe.tag_length - length);
+            TC_WRITE(fd, "XXXXXXXX", fe.tag_length - length);
 #ifdef HAVE_IPOD_UI
         do_timed_yield();   /* #172: 50k tag writes in one run otherwise */
 #endif
     }
+#ifdef UI_COMMIT
+    if (!tc_wb_end())
+    {
+        logf("tempbuf_sort: write error #3");
+        return -1;
+    }
+#endif
+    CT_MARK(CT_WRITE);
 
     return i;
 }
@@ -3981,7 +4601,7 @@ static bool build_numeric_indices(struct tagcache_header *h, int tmpfd)
     max_entries = tempbuf_size / sizeof(struct temp_file_entry) - 1;
 
     logf("Building numeric indices...");
-    lseek(tmpfd, sizeof(struct tagcache_header), SEEK_SET);
+    TMP_LSEEK(tmpfd, sizeof(struct tagcache_header), SEEK_SET);
 
     if ( (masterfd = open_master_fd(TC_CTX_ARG(ui_build) &tcmh, true)) < 0)
         return false;
@@ -4006,7 +4626,7 @@ static bool build_numeric_indices(struct tagcache_header *h, int tmpfd)
             int datastart;
 
             /* Read in numeric data. */
-            if (read(tmpfd, tfe, sizeof(struct temp_file_entry)) !=
+            if (TMP_READ(tmpfd, tfe, sizeof(struct temp_file_entry)) !=
                 sizeof(struct temp_file_entry))
             {
                 logf("read fail #1");
@@ -4014,7 +4634,7 @@ static bool build_numeric_indices(struct tagcache_header *h, int tmpfd)
                 return false;
             }
 
-            datastart = lseek(tmpfd, 0, SEEK_CUR);
+            datastart = TMP_LSEEK(tmpfd, 0, SEEK_CUR);
 
             /**
              * Read string data from the following tags:
@@ -4027,7 +4647,7 @@ static bool build_numeric_indices(struct tagcache_header *h, int tmpfd)
              * and stored back to the data offset field kept in memory.
              */
 #define tmpdb_read_string_tag(tag) \
-    lseek(tmpfd, tfe->tag_offset[tag], SEEK_CUR); \
+    TMP_LSEEK(tmpfd, tfe->tag_offset[tag], SEEK_CUR); \
     if ((unsigned long)tfe->tag_length[tag] > (unsigned long)build_idx_bufsz) \
     { \
         logf("read fail: buffer overflow"); \
@@ -4035,7 +4655,7 @@ static bool build_numeric_indices(struct tagcache_header *h, int tmpfd)
         return false; \
     } \
     \
-    if (read(tmpfd, build_idx_buf, tfe->tag_length[tag]) != \
+    if (TMP_READ(tmpfd, build_idx_buf, tfe->tag_length[tag]) != \
         tfe->tag_length[tag]) \
     { \
         logf("read fail #2"); \
@@ -4045,7 +4665,7 @@ static bool build_numeric_indices(struct tagcache_header *h, int tmpfd)
     str_setlen(build_idx_buf, tfe->tag_length[tag]); \
     \
     tfe->tag_offset[tag] = crc_32(build_idx_buf, strlen(build_idx_buf), 0xffffffff); \
-    lseek(tmpfd, datastart, SEEK_SET)
+    TMP_LSEEK(tmpfd, datastart, SEEK_SET)
 
             tmpdb_read_string_tag(tag_filename);
             tmpdb_read_string_tag(tag_artist);
@@ -4053,7 +4673,7 @@ static bool build_numeric_indices(struct tagcache_header *h, int tmpfd)
             tmpdb_read_string_tag(tag_title);
 
             /* Seek to the end of the string data. */
-            lseek(tmpfd, tfe->data_length, SEEK_CUR);
+            TMP_LSEEK(tmpfd, tfe->data_length, SEEK_CUR);
 #ifdef HAVE_IPOD_UI
             do_timed_yield();   /* #172: 50k entries in one run otherwise */
 #endif
@@ -4063,9 +4683,40 @@ static bool build_numeric_indices(struct tagcache_header *h, int tmpfd)
         masterfd_pos = lseek(masterfd, 0, SEEK_CUR);
         lseek(masterfd, sizeof(struct master_header), SEEK_SET);
 
+#ifdef UI_COMMIT
+        /* #245: the old entries a scratch area's worth at a time (one at
+         * a time read each sector once per entry it holds); a match is
+         * written back in place from the entry's own offset */
+        struct index_entry *rchunk = (struct index_entry *)tc_scratch;
+        const int rdepth = TC_IDX_BYTES / sizeof(struct index_entry);
+        int rn = 0, rk = 0;
+        off_t rbase = sizeof(struct master_header);
+#endif
         /* Check if we can resurrect some deleted runtime statistics data. */
         for (i = 0; i < tcmh.tch.entry_count && !USR_CANCEL; i++)
         {
+#ifdef UI_COMMIT
+            if (tc_scratch)
+            {
+                if (rk == rn)
+                {
+                    rbase += (off_t)rn * sizeof(struct index_entry);
+                    rn = MIN(tcmh.tch.entry_count - i, rdepth);
+                    rk = 0;
+                    if (lseek(masterfd, rbase, SEEK_SET) != rbase
+                        || read_index_entries(TC_CTX_ARG(ui_build) masterfd,
+                                              rchunk, rn)
+                           != (ssize_t)sizeof(struct index_entry) * rn)
+                    {
+                        logf("read fail #3");
+                        close(masterfd);
+                        return false;
+                    }
+                }
+                idx = rchunk[rk++];
+            }
+            else
+#endif
             /* Read the index entry. */
             if (read_index_entries(TC_CTX_ARG(ui_build) masterfd, &idx, 1) != sizeof(struct index_entry))
             {
@@ -4080,6 +4731,13 @@ static bool build_numeric_indices(struct tagcache_header *h, int tmpfd)
              */
             if (!(idx.flag & FLAG_DELETED) || (idx.flag & FLAG_RESURRECTED))
                 continue;
+#ifdef UI_COMMIT
+            /* at the entry's end, as the single reads leave it: a match
+             * below steps back over it to write it */
+            if (tc_scratch)
+                lseek(masterfd, rbase + (off_t)rk * sizeof(struct index_entry),
+                      SEEK_SET);
+#endif
 
             /* Now try to match the entry. */
             /**
@@ -4154,6 +4812,66 @@ static bool build_numeric_indices(struct tagcache_header *h, int tmpfd)
         /* Restore the master index position. */
         lseek(masterfd, masterfd_pos, SEEK_SET);
 
+#ifdef UI_COMMIT
+        /* #245: the same, a scratch area's worth of entries at a time
+         * (an entry at a time read and wrote back each sector twice) */
+        if (tc_scratch)
+        {
+            struct index_entry *chunk = (struct index_entry *)tc_scratch;
+            const int depth = TC_IDX_BYTES / sizeof(struct index_entry);
+            int n;
+
+            for (i = 0; i < count && !USR_CANCEL; i += n)
+            {
+                int loc = lseek(masterfd, 0, SEEK_CUR);
+
+                n = MIN(count - i, depth);
+                if (read_index_entries(TC_CTX_ARG(ui_build) masterfd, chunk, n)
+                    != (ssize_t)sizeof(struct index_entry) * n)
+                {
+                    logf("read fail #3");
+                    close(masterfd);
+                    return false;
+                }
+                for (int k = 0; k < n; k++)
+                {
+                    struct index_entry *e = &chunk[k];
+
+                    for (j = 0; j < TAG_COUNT; j++)
+                    {
+                        if (!TAGCACHE_IS_NUMERIC(j))
+                            continue;
+
+                        e->tag_seek[j] = entrybuf[i + k].tag_offset[j];
+                    }
+                    e->flag = entrybuf[i + k].flag;
+
+                    if (e->tag_seek[tag_commitid])
+                    {
+                        /* Data has been resurrected. */
+                        e->flag |= FLAG_DIRTYNUM;
+                    }
+                    else if (tc_stat.ready && current_tcmh.commitid > 0)
+                    {
+                        e->tag_seek[tag_commitid] = current_tcmh.commitid;
+                        e->flag |= FLAG_DIRTYNUM;
+                    }
+                }
+
+                /* Write back the updated index. */
+                lseek(masterfd, loc, SEEK_SET);
+                if (write_index_entries(TC_CTX_ARG(ui_build) masterfd, chunk, n)
+                    != (ssize_t)sizeof(struct index_entry) * n)
+                {
+                    logf("write fail");
+                    close(masterfd);
+                    return false;
+                }
+                do_timed_yield();
+            }
+        }
+        else
+#endif
         /* Commit the data to the index. */
         for (i = 0; i < count && !USR_CANCEL; i++)
         {
@@ -4216,7 +4934,18 @@ static int build_index(int index_type, struct tagcache_header *h, int tmpfd)
     int i;
     struct tagcache_header tch;
     struct master_header   tcmh;
+#ifdef UI_COMMIT
+    /* #245: the master index in TC_IDX_BYTES chunks when there is a
+     * commit scratch area (341 entries, not 64) */
+    struct index_entry idxbuf_stack[IDX_BUF_DEPTH];
+    struct index_entry *idxbuf = tc_scratch ? (struct index_entry *)tc_scratch
+                                            : idxbuf_stack;
+    const int idx_depth = tc_scratch
+        ? (int)(TC_IDX_BYTES / sizeof(struct index_entry)) : IDX_BUF_DEPTH;
+#else
     struct index_entry idxbuf[IDX_BUF_DEPTH];
+    const int idx_depth = IDX_BUF_DEPTH;
+#endif
     int idxbuf_pos;
     int fd = -1, masterfd;
     bool error = false;
@@ -4224,6 +4953,9 @@ static int build_index(int index_type, struct tagcache_header *h, int tmpfd)
     int masterfd_pos;
 
     logf("Building index: %d", index_type);
+#ifdef UI_COMMIT
+    tc_hash_on = false;
+#endif
 
     /* Check the number of entries we need to allocate ram for. */
     commit_entry_count = h->entry_count + 1;
@@ -4298,6 +5030,13 @@ static int build_index(int index_type, struct tagcache_header *h, int tmpfd)
         return 0;
     }
 
+#ifdef UI_COMMIT
+    if (tc_scratch && TAGCACHE_IS_UNIQUE(index_type))
+    {
+        memset(tc_scratch, 0, 2 * TC_HASH_N * sizeof(int32_t));
+        tc_hash_on = true;
+    }
+#endif
     if (fd >= 0)
     {
         /**
@@ -4308,10 +5047,11 @@ static int build_index(int index_type, struct tagcache_header *h, int tmpfd)
         if (TAGCACHE_IS_SORTED(index_type))
         {
             logf("loading tags...");
+            TMP_BIND(fd);       /* #245: read in chunks, then the temp file */
             for (i = 0; i < tch.entry_count && !USR_CANCEL; i++)
             {
                 struct tagfile_entry entry;
-                int loc = lseek(fd, 0, SEEK_CUR);
+                int loc = TMP_LSEEK(fd, 0, SEEK_CUR);
                 bool ret;
                 switch (read_tagfile_entry_and_tag(TC_CTX_ARG(ui_build) fd, &entry, build_idx_buf, build_idx_bufsz))
                 {
@@ -4321,14 +5061,17 @@ static int build_index(int index_type, struct tagcache_header *h, int tmpfd)
                          break;
                     case e_ENTRY_SIZEMISMATCH:
                         logf("read error #7");
+                        TMP_BIND(tmpfd);
                         close(fd);
                         return -2;
                     case e_TAG_TOOLONG:
                         logf("too long tag #3");
+                        TMP_BIND(tmpfd);
                         close(fd);
                         return -2;
                     case e_TAG_SIZEMISMATCH:
                         logf("read error #8");
+                        TMP_BIND(tmpfd);
                         close(fd);
                         return -2;
                 }
@@ -4343,11 +5086,13 @@ static int build_index(int index_type, struct tagcache_header *h, int tmpfd)
                                      TAGCACHE_IS_UNIQUE(index_type));
                 if (!ret)
                 {
+                    TMP_BIND(tmpfd);
                     close(fd);
                     return -3;
                 }
                 do_timed_yield();
             }
+            TMP_BIND(tmpfd);
             logf("done");
         }
         else
@@ -4447,20 +5192,21 @@ static int build_index(int index_type, struct tagcache_header *h, int tmpfd)
         }
     }
 
+    CT_MARK(CT_LOAD);
     /**
      * Load new unique tags in memory to be sorted later and added
      * to the master lookup file.
      */
     if (TAGCACHE_IS_SORTED(index_type))
     {
-        lseek(tmpfd, sizeof(struct tagcache_header), SEEK_SET);
+        TMP_LSEEK(tmpfd, sizeof(struct tagcache_header), SEEK_SET);
         /* h is the header of the temporary file containing new tags. */
         logf("inserting new tags...");
         for (i = 0; i < h->entry_count && !USR_CANCEL; i++)
         {
             struct temp_file_entry entry;
 
-            if (read(tmpfd, &entry, sizeof(struct temp_file_entry)) !=
+            if (TMP_READ(tmpfd, &entry, sizeof(struct temp_file_entry)) !=
                 sizeof(struct temp_file_entry))
             {
                 logf("read fail #3");
@@ -4476,8 +5222,8 @@ static int build_index(int index_type, struct tagcache_header *h, int tmpfd)
                 goto error_exit;
             }
 
-            lseek(tmpfd, entry.tag_offset[index_type], SEEK_CUR);
-            if (read(tmpfd, build_idx_buf, entry.tag_length[index_type]) !=
+            TMP_LSEEK(tmpfd, entry.tag_offset[index_type], SEEK_CUR);
+            if (TMP_READ(tmpfd, build_idx_buf, entry.tag_length[index_type]) !=
                 entry.tag_length[index_type])
             {
                 logf("read fail #4");
@@ -4503,11 +5249,27 @@ static int build_index(int index_type, struct tagcache_header *h, int tmpfd)
                 }
             }
             /* Skip to next. */
-            lseek(tmpfd, entry.data_length - entry.tag_offset[index_type] -
+            TMP_LSEEK(tmpfd, entry.data_length - entry.tag_offset[index_type] -
                     entry.tag_length[index_type], SEEK_CUR);
             do_timed_yield();
         }
         logf("done");
+#ifdef UI_COMMIT
+        if (tc_hash_on)
+        {
+            /* the chain links back out of 'seek' before the sort */
+            struct tempbuf_searchidx *index =
+                (struct tempbuf_searchidx *)tempbuf;
+
+            tc_hash_on = false;
+            for (i = 0; i < tempbufidx; i++)
+            {
+                index[i].seek = -1;
+                index[i].key = NULL;
+            }
+        }
+#endif
+        CT_MARK(CT_INSERT);
 
         /* Sort the buffer data and write it to the index file. */
         lseek(fd, sizeof(struct tagcache_header), SEEK_SET);
@@ -4533,7 +5295,7 @@ static int build_index(int index_type, struct tagcache_header *h, int tmpfd)
             int j;
             int loc = lseek(masterfd, 0, SEEK_CUR);
 
-            idxbuf_pos = MIN(tcmh.tch.entry_count - i, IDX_BUF_DEPTH);
+            idxbuf_pos = MIN(tcmh.tch.entry_count - i, idx_depth);
 
             if (read_index_entries(TC_CTX_ARG(ui_build) masterfd, idxbuf, idxbuf_pos) !=
                 (ssize_t)sizeof(struct index_entry) * idxbuf_pos)
@@ -4578,6 +5340,7 @@ static int build_index(int index_type, struct tagcache_header *h, int tmpfd)
             }
         }
         logf("done");
+        CT_MARK(CT_MASTER);
     }
 
     /**
@@ -4586,16 +5349,21 @@ static int build_index(int index_type, struct tagcache_header *h, int tmpfd)
     // build_normal_index(h, tmpfd, masterfd, idx);
     logf("updating new indices...");
     lseek(masterfd, masterfd_pos, SEEK_SET);
-    lseek(tmpfd, sizeof(struct tagcache_header), SEEK_SET);
+    TMP_LSEEK(tmpfd, sizeof(struct tagcache_header), SEEK_SET);
     lseek(fd, 0, SEEK_END);
+#ifdef UI_COMMIT
+    if (!TAGCACHE_IS_SORTED(index_type) && tc_scratch)
+        tc_wb_begin(fd, tc_scratch + TC_IDX_BYTES,
+                    TC_SCRATCH_SIZE - TC_IDX_BYTES);
+#endif
     for (i = 0; i < h->entry_count && !USR_CANCEL; i += idxbuf_pos)
     {
         int j;
 
-        idxbuf_pos = MIN(h->entry_count - i, IDX_BUF_DEPTH);
+        idxbuf_pos = MIN(h->entry_count - i, idx_depth);
         if (init)
         {
-            memset(idxbuf, 0, sizeof(struct index_entry)*IDX_BUF_DEPTH);
+            memset(idxbuf, 0, sizeof(struct index_entry)*idx_depth);
         }
         else
         {
@@ -4619,7 +5387,7 @@ static int build_index(int index_type, struct tagcache_header *h, int tmpfd)
                 struct temp_file_entry entry;
                 struct tagfile_entry fe;
 
-                if (read(tmpfd, &entry, sizeof(struct temp_file_entry)) !=
+                if (TMP_READ(tmpfd, &entry, sizeof(struct temp_file_entry)) !=
                     sizeof(struct temp_file_entry))
                 {
                     logf("read fail #7");
@@ -4632,13 +5400,13 @@ static int build_index(int index_type, struct tagcache_header *h, int tmpfd)
                 {
                     logf("too long entry!");
                     logf("length=%d", entry.tag_length[index_type]);
-                    logf("pos=0x%02lx", (unsigned long) lseek(tmpfd, 0, SEEK_CUR));
+                    logf("pos=0x%02lx", (unsigned long) TMP_LSEEK(tmpfd, 0, SEEK_CUR));
                     error = true;
                     break ;
                 }
 
-                lseek(tmpfd, entry.tag_offset[index_type], SEEK_CUR);
-                if (read(tmpfd, build_idx_buf, entry.tag_length[index_type]) !=
+                TMP_LSEEK(tmpfd, entry.tag_offset[index_type], SEEK_CUR);
+                if (TMP_READ(tmpfd, build_idx_buf, entry.tag_length[index_type]) !=
                     entry.tag_length[index_type])
                 {
                     logf("read fail #8");
@@ -4649,15 +5417,15 @@ static int build_index(int index_type, struct tagcache_header *h, int tmpfd)
                 }
 
                 /* Write to index file. */
-                idxbuf[j].tag_seek[index_type] = lseek(fd, 0, SEEK_CUR);
+                idxbuf[j].tag_seek[index_type] = TC_TELL(fd);
                 fe.tag_length = entry.tag_length[index_type];
                 fe.idx_id = tcmh.tch.entry_count + i + j;
                 write_tagfile_entry(TC_CTX_ARG(ui_build) fd, &fe);
-                write(fd, build_idx_buf, fe.tag_length);
+                TC_WRITE(fd, build_idx_buf, fe.tag_length);
                 tempbufidx++;
 
                 /* Skip to next. */
-                lseek(tmpfd, entry.data_length - entry.tag_offset[index_type] -
+                TMP_LSEEK(tmpfd, entry.data_length - entry.tag_offset[index_type] -
                       entry.tag_length[index_type], SEEK_CUR);
             }
             else
@@ -4684,6 +5452,9 @@ static int build_index(int index_type, struct tagcache_header *h, int tmpfd)
 
         do_timed_yield();
     }
+#ifdef UI_COMMIT
+    tc_wb_end();    /* as the writes above, its result is not checked */
+#endif
     logf("done");
 
     /* Finally write the header. */
@@ -4696,6 +5467,7 @@ static int build_index(int index_type, struct tagcache_header *h, int tmpfd)
     if (index_type != tag_filename)
         h->datasize += tch.datasize;
     logf("s:%d/%" PRId32 "/%" PRId32, index_type, tch.datasize, h->datasize);
+    CT_MARK(CT_NEW);
     error_exit:
 
     close(fd);
@@ -4717,16 +5489,28 @@ static bool ui_temp_tag_sizes(long count, size_t *sizes)
     bool ok = true;
     long i;
     int fd = open_db_fd(TC_CTX_ARG(ui_build) TAGCACHE_FILE_TEMP, O_RDONLY);
+    int h_rd = 0;
 
     if (fd < 0)
         return false;
+    /* #245: the headers through a reader of its own while the pass runs,
+     * when that much is free without touching the audio buffer (the
+     * commit buffer is not set up yet); else as before */
+    if (!tc_rd.buf && core_allocatable() > 2 * TC_RD_SIZE)
+        h_rd = core_alloc_ex(TC_RD_SIZE, &buflib_ops_locked);
+    if (h_rd > 0)
+    {
+        tc_rd.buf = core_get_data(h_rd);
+        tc_rd.size = TC_RD_SIZE;
+        tmp_bind(fd);
+    }
     memset(sizes, 0, TAG_COUNT * sizeof(*sizes));
-    if (read(fd, &h, sizeof(h)) != sizeof(h))
+    if (TMP_READ(fd, &h, sizeof(h)) != sizeof(h))
         ok = false;
     for (i = 0; ok && i < count; i++)
     {
-        if (read(fd, &e, sizeof(e)) != sizeof(e)
-            || lseek(fd, e.data_length, SEEK_CUR) < 0)
+        if (TMP_READ(fd, &e, sizeof(e)) != sizeof(e)
+            || TMP_LSEEK(fd, e.data_length, SEEK_CUR) < 0)
         {
             ok = false;
             break;
@@ -4736,6 +5520,13 @@ static bool ui_temp_tag_sizes(long count, size_t *sizes)
                 sizes[tag] += e.tag_length[tag];
         if ((i & 255) == 0)
             do_timed_yield();
+    }
+    if (h_rd > 0)
+    {
+        tmp_bind(-1);
+        tc_rd.buf = NULL;
+        tc_rd.size = 0;
+        core_free(h_rd);
     }
     close(fd);
     return ok;
@@ -4809,7 +5600,8 @@ static size_t ui_commit_need(const struct tagcache_header *tmph,
 #endif
     /* and the shell's view pool grows with the new entries (pool_sync()) */
     *reload += tmph->entry_count * TAGCACHE_UI_VIEW_BYTES;
-    return ALIGN_UP(need + 1024, 16);
+    /* #245: and the chunk reader and scratch at its tail (commit()) */
+    return ALIGN_UP(need + 1024, 16) + TC_CARVE;
 }
 
 /* Sets up the commit buffer: the RAM cache (dropped by the commit anyway)
@@ -4910,6 +5702,12 @@ static void ui_after_commit(void)
     if (!ui_db_fresh)
         return;
     ui_db_fresh = false;
+    /* p081 (emulator: "stamp write=0 why=nowalk" after every first build,
+     * so the next boot walked as "nostamp"): a new database holds only
+     * what the walk before this commit read, so no file can be missing
+     * from it either (H2): that walk vouches. Only a walk that read the
+     * whole tree (ui_walk_read); the stamp still waits for the settle */
+    ui_walk_vouch();
     if (!ui_import_pending)     /* remove_files() marked it already */
     {
         int fd = open_db_fd(TC_CTX_ARG(ui_build) TAGCACHE_FILE_IMPORT,
@@ -4939,7 +5737,15 @@ static const struct dbgen_file ui_generation_files[] = {
 };
 
 #define UI_GENERATION_BYTES (16 * 1024)
-struct ui_generation_io { void *buffer; size_t size; };
+/* p081-bootload: the boot's selection, held from the thread's start (no
+ * playback yet: nothing to take from) to the end of its full check: two
+ * 32 KB halves (dbgen's and the validator's) and the CRC tables */
+#define UI_GENERATION_BOOT_BYTES (64 * 1024)
+struct ui_generation_io {
+    void *buffer;
+    size_t size;
+    const struct crcfast *crc;  /* NULL: firmware's crc_32()/crc_32r() */
+};
 
 /* Failing background I/O work is retried with exponential backoff (2 s
  * doubling to 5 min), never every second with full validation passes.
@@ -5070,20 +5876,27 @@ static enum dbgen_result ui_generation_validate(const char *path,
         }
         for (size_t j = 0; ok && j < n; j++)
         {
+            /* p081-bootload: the entry's words in one CRC call (19 calls
+             * of 4 bytes before): the same bytes in the same order, so the
+             * same sum */
+            int32_t words[1 + TAG_COUNT];
+            int k = 0;
             /* FOLDED: set by statistics after the stamp, like their values */
             int32_t flag = idx[j].flag
                 & ~(FLAG_DIRCACHE | FLAG_DIRTYNUM | FLAG_UI_STATS_FOLDED);
-            sum = crc_32(&flag, sizeof(flag), sum);
+            words[k++] = flag;
             for (tag = 0; tag < TAG_COUNT; tag++)
             {
                 int32_t seek = idx[j].tag_seek[tag];
                 if (!ui_runtime_tag(tag))
-                    sum = crc_32(&seek, sizeof(seek), sum);
+                    words[k++] = seek;
                 if (!(flag & FLAG_DELETED) && !TAGCACHE_IS_NUMERIC(tag)
                     && (seek < (int32_t)sizeof(struct tagcache_header)
                         || (uint32_t)seek >= sizes[tag]))
                     ok = false;
             }
+            sum = io->crc ? crcfast_m(io->crc, words, k * sizeof(words[0]), sum)
+                          : crc_32(words, k * sizeof(words[0]), sum);
         }
         i += n;
         if (ui_generation_cancel(opaque))
@@ -5153,6 +5966,7 @@ static enum dbgen_result ui_generation_validate(const char *path,
 
 static int ui_generation_buffer(struct ui_generation_io *io)
 {
+    io->crc = NULL;
     /* Check immediately before allocation: no I/O/yield between the check
      * and allocation can allow playback to start and lose its buffer. */
     if (!ui_audio_room(UI_GENERATION_BYTES))
@@ -5166,13 +5980,83 @@ static int ui_generation_buffer(struct ui_generation_io *io)
     return h;
 }
 
+/* p081-fatdb: dbgen's guard before a prepare removes or truncates in a
+ * scratch generation (dbgen.h); a damaged chain is logged and its whole
+ * directory set aside, never removed through */
+static int ui_generation_chain(const char *path, uint32_t *runs,
+                               int maxruns, int *nruns)
+{
+    struct chain_report r;
+    int rc = chain_check_why(path, runs, maxruns, nruns, &r);
+    if (rc == CHAIN_DAMAGED || rc == CHAIN_UNREADABLE)
+    {
+        /* chaincheck.h: numbers first; the set-aside folder keeps the
+         * file for an image */
+        char line[56];
+        ui_log("db", "gen chain %s",
+               chain_report_line(line, sizeof(line), path, &r));
+    }
+    return rc;
+}
+
+static void ui_generation_note(const char *line)
+{
+    ui_log("db", "%s", line);
+}
+
 static struct dbgen_ops ui_generation_ops(struct ui_generation_io *io)
 {
     struct dbgen_ops ops = {
         ui_generation_files, ARRAYLEN(ui_generation_files),
-        ui_generation_validate, ui_generation_cancel, io
+        ui_generation_validate, ui_generation_cancel, io,
+        ui_generation_chain, ui_generation_note, chain_cache_drop,
+        io ? io->crc : NULL
     };
     return ops;
+}
+
+/* p081-fatdb: the candidate's files read back by name from the medium
+ * before it is published: each tag file at its header's size (12 +
+ * datasize) and magic, the master at 24 + entries * 96. A mismatch is a
+ * directory write the drive did not keep (or a name on another file's
+ * data): logged ("db dir readback"), the candidate dropped with its
+ * folder kept as it is, set aside by the next prepare. */
+static bool ui_candidate_readback(void)
+{
+    struct dbgen_ops ops = ui_generation_ops(NULL);
+    bool ok = true;
+
+    chain_cache_drop();
+    for (unsigned i = 0; i < ARRAYLEN(ui_generation_files); i++)
+    {
+        const char *name = ui_generation_files[i].name;
+        bool master = !strcmp(name, TAGCACHE_FILE_MASTER);
+        char path[MAX_PATH];
+        struct tagcache_header h;
+        long want = -3, got = -1;
+
+        if (!strcmp(name, LIBFILE_NAME))
+            continue;                   /* its own format, checked by validate */
+        snprintf(path, sizeof(path), "%s/%s", tc_stat.db_path, name);
+        int fd = open(path, O_RDONLY);
+        if (fd >= 0)
+        {
+            got = lseek(fd, 0, SEEK_END);
+            if (lseek(fd, 0, SEEK_SET) == 0
+                && read(fd, &h, sizeof(h)) == sizeof(h)
+                && h.magic == TAGCACHE_MAGIC && h.entry_count >= 0
+                && h.datasize >= 0)
+                want = master ? (long)sizeof(struct master_header)
+                                + (long)sizeof(struct index_entry)
+                                  * h.entry_count
+                              : (long)sizeof(h) + h.datasize;
+            close(fd);
+        }
+        if (dbgen_readback_check(ui_db_root, path, want, got, &ops)
+            != DBGEN_OK)
+            ok = false;
+    }
+    return ok;
 }
 
 /* the last ui_candidate_begin() failed only for audio's memory */
@@ -5339,6 +6223,41 @@ static void ui_candidate_abandon(int rc)
     ui_busy = false;
 }
 
+/* p081-floor: the generation a publication retired keeps its RAM cache
+ * only while something still holds it (a search, a database queue's
+ * rebase: ui_context_ref()); then it goes back to the heap, and so to the
+ * audio buffer at its next regrow. Before, it stayed until the next
+ * candidate began: a library published at boot (a rebuild, an upgrade's
+ * new library file) cost a 32 MB unit at 50k its whole RAM cache
+ * (6.9 MB) of audio buffer for the session. Tagcache thread. */
+static void ui_retired_ram_release(void)
+{
+    struct tagcache_context *old =
+        ui_active == &ui_context_a ? &ui_context_b : &ui_context_a;
+
+    if (old == ui_build || old->ram.handle <= 0)
+        return;
+    /* as ui_candidate_begin() claims it: no reference, none to come */
+    int level = disable_irq_save();
+    bool held = old->readers || old->operations || old->reserved
+        || old->writer_count || old->reader_count;
+    if (!held)
+        old->reserved = true;
+    restore_irq(level);
+    if (held)
+        return;
+    long bytes = old->stat.ramcache_allocated;
+    lib_generation_pool_abandon(old);
+    old->ram.hdr = NULL;
+    old->ram.handle = core_free(old->ram.handle);
+    old->stat.ramcache = false;
+    old->stat.ramcache_allocated = 0;
+    old->stat.ramcache_used = 0;
+    old->reserved = false;
+    ui_log("db", "retired ram free gen=%d bytes=%ld", old->generation, bytes);
+    audio_buffer_regrow();
+}
+
 static bool ui_candidate_publish(void)
 {
     struct ui_generation_io io;
@@ -5359,6 +6278,11 @@ static bool ui_candidate_publish(void)
 #ifdef SIMULATOR
     sim_commit_hold(100);       /* commit_hold 100: PLAY during publication */
 #endif
+    if (!ui_candidate_readback())
+    {
+        ui_candidate_abandon(DBGEN_READBACK);
+        return false;
+    }
     if (!lib_generation_pool_prepare(ui_build))
         return false;
     h = ui_generation_buffer(&io);
@@ -5450,6 +6374,7 @@ unlock:
         ui_resort_published();
 #endif
         ui_candidate_stats_release();
+        ui_retired_ram_release();   /* unless still held: the thread's poll */
         /* #88: published, and no commit still owed (a reload-only
          * generation is not the job's end): the window's memory goes
          * back to the audio buffer (maint_poll()'s regrow, or the next
@@ -5470,16 +6395,58 @@ out:
 static char sim_selected[DBGEN_PATH_MAX]; /* boot choice, for sim_cmd_dbrec */
 #endif
 
-static bool ui_generation_select(void)
+/* p081-bootload: the boot's selection buffer, taken at the thread's start
+ * (before main.c goes on: no playback can have started) and held through
+ * the full check: 0 if there is no room (the selection then takes its own
+ * buffer, as before) */
+static int ui_generation_boot_buffer(struct ui_generation_io *io)
 {
-    struct ui_generation_io io;
-    char path[DBGEN_PATH_MAX];
-    int h = ui_generation_buffer(&io);
+    int h = core_alloc_ex(UI_GENERATION_BOOT_BYTES + sizeof(struct crcfast),
+                          &buflib_ops_locked);
     if (h <= 0)
+        return 0;
+    io->buffer = core_get_data(h);
+    io->size = UI_GENERATION_BOOT_BYTES;
+    io->crc = (struct crcfast *)((char *)io->buffer + io->size);
+    crcfast_init((struct crcfast *)io->crc);
+    return h;
+}
+
+/* p081-bootload: the boot's tentative choice, from the manifests and the
+ * files' sizes alone (dbgen_select_quick()): its path goes into
+ * tc_stat.db_path so the shell's start (lib_reserve(): the master's header)
+ * sees the library main.c used to wait for, but nothing is ready, and so
+ * nothing may read or build on its content (readyvalid and ready stay
+ * false: the state an unresolved selection has always had), until
+ * ui_generation_select() has checked it in full. */
+static bool ui_generation_quick(struct ui_generation_io *io)
+{
+    char path[DBGEN_PATH_MAX];
+    struct dbgen_ops ops = ui_generation_ops(io);
+    enum dbgen_result rc = dbgen_select_quick(ui_db_root, path, io->buffer,
+                                              io->size / 2, &ops);
+    ui_log("db", "gen quick rc=%d", rc);
+    if (rc != DBGEN_OK)
         return false;
-    struct dbgen_ops ops = ui_generation_ops(&io);
-    enum dbgen_result rc = dbgen_select(ui_db_root, path, io.buffer,
-                                        io.size / 2, &ops);
+    strmemccpy(tc_stat.db_path, path, sizeof(tc_stat.db_path));
+    return true;
+}
+
+/* io: a held buffer (the boot's), or NULL to take one */
+static bool ui_generation_select_io(struct ui_generation_io *held)
+{
+    struct ui_generation_io own, *io = held ? held : &own;
+    char path[DBGEN_PATH_MAX];
+    int h = held ? 0 : ui_generation_buffer(&own);
+    if (!held && h <= 0)
+        return false;
+    struct dbgen_ops ops = ui_generation_ops(io);
+    enum dbgen_result rc = dbgen_select(ui_db_root, path, io->buffer,
+                                        io->size / 2, &ops);
+    /* p081-bootload: anything but a selection leaves the path as an
+     * unselected boot's (the root), whatever the quick choice put there */
+    if (rc != DBGEN_OK && rc != DBGEN_SALVAGED)
+        strmemccpy(tc_stat.db_path, ui_db_root, sizeof(tc_stat.db_path));
     if (rc == DBGEN_OK || rc == DBGEN_SALVAGED)
     {
         strmemccpy(tc_stat.db_path, path, sizeof(tc_stat.db_path));
@@ -5499,10 +6466,14 @@ static bool ui_generation_select(void)
          * still trustworthy; prepare_empty refuses torn references. */
         ui_generation_fresh = true;
         tc_stat.ready = false;
+        ui_master_dirty = true;         /* #237: a library was there */
         tc_stat.readyvalid = true;
     }
-    core_free(h);
-    audio_buffer_regrow();
+    if (h > 0)
+    {
+        core_free(h);
+        audio_buffer_regrow();
+    }
     ui_log("db", "gen select rc=%d", rc);
 #ifdef SIMULATOR
     strmemccpy(sim_selected, rc == DBGEN_LEGACY ? ui_db_root : path,
@@ -5510,6 +6481,11 @@ static bool ui_generation_select(void)
 #endif
     return rc == DBGEN_OK || rc == DBGEN_LEGACY || rc == DBGEN_CORRUPT
         || rc == DBGEN_SALVAGED;
+}
+
+static bool ui_generation_select(void)
+{
+    return ui_generation_select_io(NULL);
 }
 
 /* A changelog's age: the commit ID its export read (the "## commit"
@@ -5648,6 +6624,43 @@ static void sim_commit_hold(int point)
 }
 #endif
 
+#ifdef UI_COMMIT
+/* #245: the chunk reader and the scratch area from the commit buffer's
+ * tail (ui_commit_need() added TC_CARVE to what it needs), the temp file
+ * bound to the reader. A buffer too small for it commits as before. */
+static void tc_carve(int tmpfd)
+{
+    tc_rd.buf = NULL;
+    tc_rd.size = 0;
+    tc_scratch = NULL;
+    if (tempbuf_size < TC_CARVE + 4096)
+    {
+        logf("tagcache: commit buffer %lu B: no chunk reader",
+             (unsigned long)tempbuf_size);
+        return;
+    }
+    tempbuf_size -= TC_CARVE;
+    tc_rd.buf = tempbuf + tempbuf_size;
+    tc_rd.size = TC_RD_SIZE;
+    tc_scratch = tc_rd.buf + TC_RD_SIZE;
+    tmp_bind(tmpfd);
+}
+
+/* gives the tail back; the temp file was unbound before it was closed */
+static void tc_uncarve(void)
+{
+    tc_hash_on = false;
+    if (!tc_rd.buf || tc_rd.size != TC_RD_SIZE
+        || tc_rd.buf != tempbuf + tempbuf_size)
+        return;
+    tmp_bind(-1);
+    tempbuf_size += TC_CARVE;
+    tc_rd.buf = NULL;
+    tc_rd.size = 0;
+    tc_scratch = NULL;
+}
+#endif
+
 static bool commit(void)
 {
     struct tagcache_header tch;
@@ -5716,6 +6729,7 @@ static bool commit(void)
 
     if (tch.entry_count == 0)
         logf("nothing to commit");
+    CT_BEGIN();
 
     /* Fully initialize existing headers (if any) before going further. */
     tc_stat.ready = check_all_headers(TC_CTX_PASS(ui_build));
@@ -5759,6 +6773,7 @@ static bool commit(void)
     }
     ui_commit_pending = false;
 #endif
+    CT_MARK(CT_SIZES);
 
 #ifdef HAVE_EEPROM_SETTINGS
     remove_db_file(TC_CTX_ARG(ui_build) TAGCACHE_STATEFILE);
@@ -5829,6 +6844,9 @@ static bool commit(void)
     long ui_commit_start = current_tick;
     ui_sort_ticks = 0;
 #endif
+#ifdef UI_COMMIT
+    tc_carve(tmpfd);
+#endif
 
     /* Mark DB dirty so it will stay disabled if commit fails. */
     current_tcmh.dirty = true;
@@ -5859,6 +6877,7 @@ static bool commit(void)
 #endif
         if (ret <= 0)
         {
+            TMP_BIND(-1);
             close(tmpfd);
             logf("tagcache failed init");
             if (ret == 0)
@@ -5876,6 +6895,7 @@ static bool commit(void)
      * so the numeric indices would be built for nothing */
     if (UI_SLEEP_CUT && ui_build != ui_active)
     {
+        TMP_BIND(-1);
         close(tmpfd);
         tc_stat.commit_step = 0;
         goto commit_error;
@@ -5890,6 +6910,7 @@ static bool commit(void)
     if (!build_numeric_indices(&tch, tmpfd))
     {
         logf("Failure to commit numeric indices");
+        TMP_BIND(-1);
         close(tmpfd);
         tc_stat.commit_step = 0;
 #ifdef UI_COMMIT
@@ -5897,6 +6918,7 @@ static bool commit(void)
 #endif
         goto commit_error;
     }
+    CT_MARK(CT_NUMERIC);
 #ifdef UI_COMMIT
     ui_commit_finishing = false;
 #ifdef UI_TIMING
@@ -5905,7 +6927,11 @@ static bool commit(void)
 #endif
 #endif
 
+    TMP_BIND(-1);
     close(tmpfd);
+#ifdef UI_COMMIT
+    tc_uncarve();
+#endif
 
     tc_stat.commit_step = 0;
 
@@ -5927,6 +6953,8 @@ static bool commit(void)
         lseek(masterfd, 0, SEEK_SET);
         write_master_header(TC_CTX_ARG(ui_build) masterfd, &tcmh);
         close(masterfd);
+        CT_MARK(CT_FINISH);
+        CT_LOG(tch.entry_count);
 
         logf("tagcache committed");
 #ifdef UI_TIMING
@@ -5963,6 +6991,9 @@ static bool commit(void)
     } /*!USR_CANCEL*/
 
 commit_error:
+#ifdef UI_COMMIT
+    tc_uncarve();               /* (every path has closed the temp file) */
+#endif
 #ifdef HAVE_TC_RAMCACHE
 #ifdef HAVE_IPOD_UI
     if (!rc)
@@ -7297,6 +8328,23 @@ static int ui_import_table(struct ui_import *imp, const struct tagcache_header *
         return 0;
 
     lseek(filenametag_fd, sizeof(struct tagcache_header), SEEK_SET);
+    /* p081-bootload: the file is read through tc_rd, TC_RD_SIZE at a time
+     * (an entry's header, then its name, cost a storage command a sector:
+     * 6,500 at 50k at every boot's statistics replay), and the names'
+     * CRCs use the crcfast tables; both in one block (40 KB) in the room
+     * checked above. Not while a commit's reader is in use. */
+    const struct crcfast *crct = NULL;
+    int rd_handle = tc_rd.buf ? 0
+        : core_alloc_ex(TC_RD_SIZE + sizeof(struct crcfast),
+                        &buflib_ops_locked);
+    if (rd_handle > 0)
+    {
+        tc_rd.buf = core_get_data(rd_handle);
+        tc_rd.size = TC_RD_SIZE;
+        crct = (const struct crcfast *)(tc_rd.buf + TC_RD_SIZE);
+        crcfast_init((struct crcfast *)crct);
+        TMP_BIND(filenametag_fd);
+    }
     for (i = 0; i < tch->entry_count; i++)
     {
         rc = read_tagfile_entry_and_tag(UI_IMPORT_CTX, filenametag_fd, &fe, name, namesz);
@@ -7304,7 +8352,7 @@ static int ui_import_table(struct ui_import *imp, const struct tagcache_header *
         {
             struct ui_name_key *k =
                 (struct ui_name_key *)core_get_data(handle) + n;
-            ui_name_hash(name, k);
+            ui_name_hash_t(name, k, crct);
             if (offsets)
                 k->h2 = pos;    /* the scan's: verified by a read there */
             k->idx_id = fe.idx_id;
@@ -7317,6 +8365,13 @@ static int ui_import_table(struct ui_import *imp, const struct tagcache_header *
             rc = -1;
         if (rc == -1)
             break;
+    }
+    if (rd_handle > 0)
+    {
+        TMP_BIND(-1);           /* the file's offset where it was read to */
+        tc_rd.buf = NULL;
+        tc_rd.size = 0;
+        core_free(rd_handle);
     }
     if (rc != e_SUCCESS && rc != e_SUCCESS_LEN_ZERO)
     {
@@ -7545,6 +8600,7 @@ static bool ui_candidate_stats_prepare(void)
     if (filenametag_fd >= 0)
         close(filenametag_fd);
     filenametag_fd = -1;
+    BT_MARK("statstable");
     if (table < 0 || (th.entry_count > 0 && table == 0))
     {
         ui_candidate_stats_release();
@@ -7563,6 +8619,7 @@ static bool ui_candidate_stats_prepare(void)
     mutex_unlock(&command_queue_mutex);
     snapshot.scratch = io.buffer;
     snapshot.bytes = io.size;
+    BT_MARK("statsdrain");
     if (boot)
         ok = ui_stats_replay_boot(&snapshot, ok, mh.serial);
     else if (ok)
@@ -8737,6 +9794,25 @@ static bool load_tagcache(void)
     bool ok = false;
     ssize_t bytesleft = tc_stat.ramcache_allocated - sizeof(struct ramcache_header);
     int fd;
+#ifdef UI_COMMIT
+    /* p081-bootload: the tag files are read through tc_rd (tmp_read()),
+     * TC_RD_SIZE at a time, into the allocation's last TC_RD_SIZE bytes,
+     * which the load never reaches: the allocation counts the filename
+     * tag file's data, never stored here, and TAGCACHE_RESERVE + 256
+     * (more than TC_RD_SIZE; entries are 8-byte padded, so a tag file's
+     * RAM copy is the file's size, with no alignment gap). They are taken
+     * out of bytesleft all the same: the load never writes there. Not
+     * while the reader is in use (a commit's): reads go straight through
+     * then, as before. */
+    bool rd_mine = !tc_rd.buf && bytesleft >= TC_RD_SIZE;
+    if (rd_mine)
+    {
+        bytesleft -= TC_RD_SIZE;
+        tc_rd.buf = (char *)tcramcache.hdr + tc_stat.ramcache_allocated
+                    - TC_RD_SIZE;
+        tc_rd.size = TC_RD_SIZE;
+    }
+#endif
 
 #ifdef HAVE_DIRCACHE
     /* Wait for any in-progress dircache build to complete */
@@ -8781,6 +9857,32 @@ static bool load_tagcache(void)
     current_tcmh = tcmh;
 
     /* Load the master index table. */
+#ifdef UI_COMMIT
+    /* p081-bootload: straight into the table, TC_RD_SIZE at a time (a
+     * 96-byte read an entry cost a storage command a sector) */
+    for (int i = 0; i < tcmh.tch.entry_count; )
+    {
+        int n = MIN(tcmh.tch.entry_count - i,
+                    (int)(TC_RD_SIZE / sizeof(struct index_entry)));
+
+        bytesleft -= n * sizeof(struct index_entry);
+        if (bytesleft < 0)
+        {
+            logf("too big tagcache.");
+            goto failure;
+        }
+
+        ssize_t rc = read_index_entries(TC_CTX_ARG(ui_build) fd,
+                                        &tcramcache.hdr->indices[i], n);
+        if (rc != (ssize_t)(n * sizeof(struct index_entry)))
+        {
+            logf("read error #10");
+            goto failure;
+        }
+        i += n;
+        do_timed_yield();   /* #172 */
+    }
+#else
     for (int i = 0; i < tcmh.tch.entry_count; i++)
     {
         bytesleft -= sizeof(struct index_entry);
@@ -8800,6 +9902,7 @@ static bool load_tagcache(void)
         do_timed_yield();   /* #172: 50k reads in one run otherwise */
 #endif
     }
+#endif /* UI_COMMIT */
 
     close(fd);
     fd = -1;
@@ -8844,6 +9947,10 @@ static bool load_tagcache(void)
         if (rc < 0)
             goto failure;
 #endif
+#ifdef UI_COMMIT
+        if (rd_mine)
+            TMP_BIND(fd);       /* p081-bootload: read in chunks */
+#endif
 
         /* Load the entries for this tag */
         for (tcramcache.hdr->entry_count[tag] = 0;
@@ -8863,7 +9970,7 @@ static bool load_tagcache(void)
             }
 
             struct tagfile_entry *fe = (struct tagfile_entry *)p;
-            off_t pos = lseek(fd, 0, SEEK_CUR);
+            off_t pos = TMP_LSEEK(fd, 0, SEEK_CUR);
 
             /* Load the header for the tag itself */
             if (read_tagfile_entry(TC_CTX_ARG(ui_build) fd, fe) != sizeof(struct tagfile_entry))
@@ -8934,7 +10041,7 @@ static bool load_tagcache(void)
                 char filename[TAGCACHE_BUFSZ];
                 if (fe->tag_length >= (long)sizeof(filename)-1)
                 {
-                    read(fd, filename, 10);
+                    TMP_READ(fd, filename, 10);
                     str_setlen(filename, 10);
                     logf("TAG:%s", filename);
                     logf("too long filename");
@@ -8950,7 +10057,7 @@ static bool load_tagcache(void)
                     IFN_DIRCACHE( || !global_settings.tagcache_autoupdate ))
                 {
                     /* seek over tag data instead of reading */
-                    if (lseek(fd, fe->tag_length, SEEK_CUR) < 0)
+                    if (TMP_LSEEK(fd, fe->tag_length, SEEK_CUR) < 0)
                     {
                         logf("read error #11.5");
                         goto failure;
@@ -8959,7 +10066,7 @@ static bool load_tagcache(void)
                     continue;
                 }
 
-                if (read(fd, filename, fe->tag_length) != fe->tag_length)
+                if (TMP_READ(fd, filename, fe->tag_length) != fe->tag_length)
                 {
                     logf("read error #12");
                     goto failure;
@@ -8981,7 +10088,7 @@ static bool load_tagcache(void)
             }
 
             p = fe->tag_data;
-            rc = read(fd, p, fe->tag_length);
+            rc = TMP_READ(fd, p, fe->tag_length);
             p += rc;
 
             if (rc != fe->tag_length)
@@ -8989,7 +10096,7 @@ static bool load_tagcache(void)
                 logf("read error #13");
                 logf("rc=0x%04x", (unsigned int)rc); // 0x431
                 logf("len=0x%04" PRIx32, fe->tag_length); // 0x4000
-                logf("pos=0x%04lx", (unsigned long) lseek(fd, 0, SEEK_CUR)); // 0x433
+                logf("pos=0x%04lx", (unsigned long) TMP_LSEEK(fd, 0, SEEK_CUR)); // 0x433
                 logf("tag=0x%02x", tag); // 0x00
                 goto failure;
             }
@@ -9000,12 +10107,20 @@ static bool load_tagcache(void)
             p = (char *)&tcrc_dcfrefs[tcmh.tch.entry_count];
     #endif /* HAVE_DIRCACHE */
 
+#ifdef UI_COMMIT
+        if (rd_mine)
+            TMP_BIND(-1);
+#endif
         close(fd);
 #ifdef UI_COMMIT
         fd = -1;
 #endif
     }
 
+#ifdef UI_COMMIT
+    if (rd_mine)
+        bytesleft += TC_RD_SIZE;    /* the reader's part was never used */
+#endif
     tc_stat.ramcache_used = tc_stat.ramcache_allocated - bytesleft;
     logf("tagcache loaded into ram!");
     logf("utilization: %d%%", 100*tc_stat.ramcache_used / tc_stat.ramcache_allocated);
@@ -9013,6 +10128,14 @@ static bool load_tagcache(void)
     ok = true;
 
 failure:
+#ifdef UI_COMMIT
+    if (rd_mine)
+    {
+        TMP_BIND(-1);
+        tc_rd.buf = NULL;
+        tc_rd.size = 0;
+    }
+#endif
     if (fd >= 0)
         close(fd);
 
@@ -9021,7 +10144,23 @@ failure:
 }
 #endif /* HAVE_TC_RAMCACHE */
 
+#if defined(HAVE_IPOD_UI) && !defined(__PCTOOL__)
+static bool check_file_refs_walk(bool auto_update);
+
+/* #243: every live entry's file_exists() resolves its folders through the
+ * walk cache too (63 M -> 3.5 M directory entries decoded at 50k) */
 static bool check_file_refs(bool auto_update)
+{
+    file_walk_cache(true);
+    bool ret = check_file_refs_walk(auto_update);
+    file_walk_cache(false);
+    return ret;
+}
+#else
+#define check_file_refs_walk check_file_refs
+#endif
+
+static bool check_file_refs_walk(bool auto_update)
 {
 #ifdef UI_COMMIT
     /* Reverse scans edit flags and precomputes. Defer active-snapshot
@@ -9390,19 +10529,19 @@ static int free_search_roots(struct search_roots_ll * start)
 /* 16-0 scan trace (devmode only, log lines, no UI): where a scan's time
  * and storage commands go, per stage of the walk. A stage is the span
  * from the previous mark to this one. Commands are the tagcache thread's
- * own count (devstats, as power.csv's disk_cmds); the sim has none (0). */
+ * own count (devstats, as power.csv's disk_cmds; the simulator counts
+ * each file open, read and write as one, filesystem-sim.c). */
 #define SCAN_TRACE
 #ifdef SIMULATOR
 extern unsigned long sim_scan_us(void);
 #define ST_US()   sim_scan_us()
-#define ST_CMDS() 0UL
 #else
-#include "devstats.h"
 #define ST_US()   ((unsigned long)USEC_TIMER)
-/* the slot is the low byte of the thread id (thread-internal.h) */
-#define ST_CMDS() ((unsigned long)devstats.t[(unsigned)thread_self() \
-                                              % DEVSTATS_SLOTS].cmds)
 #endif
+/* p081: the slot devstats_io() counts in; "thread_self() % DEVSTATS_SLOTS"
+ * read a neighbour's slot (ids carry a version above bit 8 and the 5G has
+ * 17 slots), so every device scantrace said cmds=0 */
+#define ST_CMDS() ((unsigned long)devstats_self_cmds())
 enum { ST_TABLE, ST_OPEN, ST_IGNORE, ST_READDIR, ST_INFO, ST_ADD, ST_N };
 static struct { unsigned long us, cmds; } st_b[ST_N];
 static unsigned long st_t0, st_c0, st_tstart;
@@ -9491,6 +10630,13 @@ static bool tc_scan_descend_ok(const struct dirent *entry)
     return true;
 }
 
+#if defined(HAVE_IPOD_UI) && !defined(__PCTOOL__)
+/* p081: the folder check_dir() opens next is this entry of this open
+ * folder (opendir_child(): no path walk from the root per folder) */
+static DIR *tc_child_parent;
+static const struct dirent *tc_child_entry;
+#endif
+
 static bool check_dir(const char *dirname, int add_files)
 {
     int success = false;
@@ -9498,7 +10644,14 @@ static bool check_dir(const char *dirname, int add_files)
     if (tc_scan_depth == 0)
         tc_scan_logged = false;
 
+#if defined(HAVE_IPOD_UI) && !defined(__PCTOOL__)
+    DIR *dir = tc_child_parent
+               ? opendir_child(tc_child_parent, tc_child_entry, dirname)
+               : opendir(dirname);
+    tc_child_parent = NULL;
+#else
     DIR *dir = opendir(dirname);
+#endif
     ST_MARK(ST_OPEN);
     if (!dir)
     {
@@ -9592,9 +10745,12 @@ static bool check_dir(const char *dirname, int add_files)
 #endif
 #if defined(SIMULATOR) && defined(HAVE_IPOD_UI)
         {
-            extern int sim_scan_slow_ticks; /* tests: "scan_slow" */
-            if (sim_scan_slow_ticks > 0 && (info.attribute & ATTR_DIRECTORY))
-                sleep(sim_scan_slow_ticks);
+            /* tests: "scan_slow", "SIM_SCAN_SLOW_MS" (sim_cmd_scan.c) */
+            extern int sim_scan_slow_now(void);
+            int t = (info.attribute & ATTR_DIRECTORY) ? sim_scan_slow_now()
+                                                      : 0;
+            if (t > 0)
+                sleep(t);
         }
 #endif
         if (cut)
@@ -9613,6 +10769,10 @@ static bool check_dir(const char *dirname, int add_files)
             if (tc_scan_descend_ok(entry))
             {
                 tc_scan_depth++;
+#if defined(HAVE_IPOD_UI) && !defined(__PCTOOL__)
+                tc_child_parent = dir;
+                tc_child_entry = entry;
+#endif
                 check_dir(curpath, add_files);
                 tc_scan_depth--;
             }
@@ -9651,6 +10811,56 @@ static bool check_dir(const char *dirname, int add_files)
     return success;
 }
 
+static void do_tagcache_scan(const char *path[]);
+
+#if defined(HAVE_IPOD_UI) && !defined(__PCTOOL__)
+/* p081: why this build is one someone waits on, or NULL: a background
+ * update (the boot walk, an automatic check), boosted too (a rare, fast
+ * burst) but on the short slice (do_tagcache_build()) */
+static const char *tc_build_why(void)
+{
+    if (!tc_stat.ready)
+        return "first";
+    if (ui_maintenance_rebuild)
+        return "maint";
+    if (ui_rescan)
+        return "usb";                   /* the scan after USB */
+#ifdef UI_COMMIT
+    if (ui_build != ui_active)
+        return "cand";                  /* a library change found */
+#endif
+    return NULL;
+}
+#endif
+
+#ifndef __PCTOOL__
+/* this is called by the database tool to not pull in global_settings */
+static
+#endif
+void do_tagcache_build(const char *path[])
+{
+#if defined(HAVE_IPOD_UI) && !defined(__PCTOOL__)
+    /* one hold for the whole build, released on every way out of it (a
+     * cut walk, USB, a power-off, a failed commit) */
+    const char *why = tc_build_why();
+
+    /* p081 bootwalk: a background walk boosted too (28 s at 24 MHz on
+     * the emulator), on the short slice that keeps the UI and playback
+     * served */
+    if (why)
+        tc_dedicated(true, why);
+    else
+        tc_boost_hold(true, "walk");
+    do_tagcache_scan(path);
+    if (why)
+        tc_dedicated(false, why);
+    else
+        tc_boost_hold(false, "walk");
+#else
+    do_tagcache_scan(path);
+#endif
+}
+
 void tagcache_screensync_event(void)
 {
     tc_stat.curentry = NULL;
@@ -9661,18 +10871,15 @@ void tagcache_screensync_enable(bool state)
     tc_stat.syncscreen = state;
 }
 
-#ifndef __PCTOOL__
-/* this is called by the database tool to not pull in global_settings */
-static
-#endif
-void do_tagcache_build(const char *path[])
+static void do_tagcache_scan(const char *path[])
 {
     struct tagcache_header header;
     bool ret;
+#ifdef UI_COMMIT
+    off_t temp_bytes = -1;      /* the temp file's size at its close */
+#endif
 #if defined(HAVE_IPOD_UI) && !defined(__PCTOOL__)
-    /* Updates run unboosted in the background; the first build and an
-     * explicit Music maintenance rebuild get the full scan budget. */
-    const bool boost = !tc_stat.ready || ui_maintenance_rebuild;
+    const bool boost = false;   /* do_tagcache_build() holds it (p081) */
 #else
     const bool boost = true;
 #endif
@@ -9826,6 +11033,9 @@ void do_tagcache_build(const char *path[])
     }
     mutex_unlock(&ui_stamp_mtx);
 #endif
+#if defined(HAVE_IPOD_UI) && !defined(__PCTOOL__)
+    file_walk_cache(true);      /* #243: folder lookups, for the walk */
+#endif
     struct search_roots_ll * this;
     /* check_dir might add new roots */
     for(this = &roots_ll[0]; this; this = this->next)
@@ -9842,6 +11052,9 @@ void do_tagcache_build(const char *path[])
         }
     }
     free_search_roots(&roots_ll[0]);
+#if defined(HAVE_IPOD_UI) && !defined(__PCTOOL__)
+    file_walk_cache(false);
+#endif
 #ifdef UI_COMMIT
     /* read to the end, every folder opened: the library is about to
      * match this tree (a probe found no change, or the scan's commit
@@ -9852,6 +11065,9 @@ void do_tagcache_build(const char *path[])
     {
         ui_walk_digest = ui_walk_dg.crc;
         ui_walk_read = true;
+        /* #157: the bar's scale, counted as the digest counts (not the
+         * hidden folder, not the "._" sidecars) */
+        ui_walk_total = ui_walk_dg.entries;
     }
     if (ui_walk_broken)
         UI_BS_LOG("walk %s", "opendir failed: no stamp");
@@ -9882,6 +11098,9 @@ void do_tagcache_build(const char *path[])
     header.entry_count = total_entry_count;
     lseek(cachefd, 0, SEEK_SET);
     write(cachefd, &header, sizeof(struct tagcache_header));
+#ifdef UI_COMMIT
+    temp_bytes = lseek(cachefd, 0, SEEK_END);
+#endif
     close(cachefd);
     }
 #ifdef UI_TIMING
@@ -9916,6 +11135,33 @@ void do_tagcache_build(const char *path[])
             cpu_boost(false);
         }
         return;
+    }
+#endif
+
+#ifdef UI_COMMIT
+    /* p081-fatdb: the temp file read back by name from the medium before
+     * the commit trusts it (the device's commit once found it gone). A
+     * mismatch: nothing removed or committed, the candidate dropped, its
+     * folder kept as it is and set aside by the next prepare */
+    if (ret && ui_build != ui_active && temp_bytes >= 0)
+    {
+        struct dbgen_ops ops = ui_generation_ops(NULL);
+        char path[MAX_PATH];
+        snprintf(path, sizeof(path), "%s/%s", tc_stat.db_path,
+                 TAGCACHE_FILE_TEMP);
+        if (dbgen_readback_size(ui_db_root, path, temp_bytes, &ops)
+            != DBGEN_OK)
+        {
+            bool rebuild = ui_db_fresh;
+            ui_candidate_abandon(DBGEN_READBACK);
+            if (rebuild)
+                ui_rebuild_again = 2 | ui_rebuild_maint;
+            if (boost)
+            {
+                cpu_boost(false);
+            }
+            return;
+        }
     }
 #endif
 
@@ -9961,6 +11207,10 @@ void do_tagcache_build(const char *path[])
 }
 
 #ifndef __PCTOOL__
+#ifdef UI_COMMIT
+static void ui_first_count(const char *const roots[]);
+static bool ui_build_power_low(void);
+#endif
 void tagcache_build(void)
 {
     char *vect[MAX_STATIC_ROOTS + 1]; /* +1 to ensure NULL sentinel */
@@ -9997,6 +11247,12 @@ again:
         && !UI_SCAN_LEGACY();
     if (probe)
         ui_probe_hits = 0;
+    /* #237 (owner 2026-11-09): no library yet, on battery below
+     * TAGCACHE_UI_BUILD_MIN_PCT or under a cut: the build stays owed
+     * (ui_scan_pending) and starts with power */
+    else if (!ui_active->stat.ready
+             && (ui_sleep_cut || ui_build_power_low()))
+        return;
     /* retried each second while audio holds the memory: not logged (the
      * log is written to the disk) */
     else if (!ui_candidate_begin())
@@ -10013,10 +11269,26 @@ again:
     ui_sidecars_run = 0;
     ui_scan_active = true;
 #endif
+#ifdef UI_COMMIT
+    /* #237: a library built from nothing counts its tree first (a walk
+     * of the folders only, a small part of the build): the scale of the
+     * library page's bar */
+    if (!probe && !ui_active->stat.ready && ui_walk_total <= 0
+        && ui_boot_entries <= 0)
+        ui_first_count((const char *const *)vect);
+    const bool from_nothing = !probe && !ui_active->stat.ready;
+#endif
     do_tagcache_build((const char**)vect);
 #ifdef UI_COMMIT
     ui_probe = false;
     ui_scan_pending = ui_commit_cancel || tagcache_usb_quiescing;
+    if (from_nothing && !ui_scan_pending && !ui_sleep_cut)
+    {
+        /* #237: every folder walked after the cut or the unplug that
+         * owed a check: the page's library is current without it */
+        ui_fresh_walked = true;
+        ui_sleep_rescan = false;
+    }
     if (probe && ui_probe_found)
     {
         ui_probe_found = false;     /* (it stops a walk) */
@@ -10045,6 +11317,7 @@ again:
     if (!ui_scan_pending)
         ui_sidecars_done = ui_sidecars_run;
     ui_scan_active = false;
+    ui_scans_ended++;           /* #157 */
 #endif
 }
 #endif /* __PCTOOL__ */
@@ -10173,7 +11446,10 @@ static void load_ramcache(void)
     cpu_boost(true);
 
     /* At first we should load the cache (if exists). */
+    BT_MARK("preload");
     tc_stat.ramcache = load_tagcache();
+    BT_MARK("load");
+    BT_RAMIMG();
 #ifdef UI_COMMIT
     if (tc_stat.ramcache)
         ui_win_ready = current_tick;    /* lib window: lists readable */
@@ -10244,6 +11520,7 @@ static void load_ramcache(void)
     if (tc_stat.ramcache && ui_build == ui_active)
         ui_precompute_run();
 #endif
+    BT_END();
 }
 
 #ifdef HAVE_IPOD_UI
@@ -10397,6 +11674,7 @@ static void ui_precompute_run(void)
             ui_pre_pending = true;
             return;
         }
+        BT_MARK("replay");
     }
     if (ui_candidate_maybe_published)
     {
@@ -10449,6 +11727,7 @@ static void ui_precompute_run(void)
     int rc;
     UI_UPD_RUN(rc = lib_precompute_ctx(ui_build, force,
                                        ui_precompute_event));
+    BT_MARK("libpre");
     /* its transient block is freed by now: its tenancy ends (P16) */
     maint_done(MAINT_LISTS, rc == LIB_PRE_DONE);
     ui_publish_busy = false;
@@ -10756,9 +12035,64 @@ static void ui_load_missing(void)
 #endif
 
 #ifdef UI_COMMIT
+/* p081: a power-off or a reboot heads this thread's queue (the UI's
+ * tagcache_prepare_shutdown() may not have run yet) */
+static bool ui_poweroff_queued(void)
+{
+    struct queue_event ev;
+
+    return queue_peek(&tagcache_queue, &ev)
+           && (ev.id == SYS_POWEROFF || ev.id == SYS_REBOOT);
+}
+
+static long ui_digest_t0;                /* p081: the boot digest's start */
+static bool ui_digest_bg;               /* it went on past the boot window */
+
+/* the digest's per-entry check: a stop (USB, a power-off, a sleep entry)
+ * ends it (FAIL: walk). p081: past BOOT_DIGEST_CAP_MS the boot window
+ * hands over (ui_boot_state 1, as for a walk) and the digest finishes in
+ * the background, boosted, yielding on the scan's slice like the walk */
 static bool ui_boot_stop(void)
 {
+    do_timed_yield();
+    if (!ui_digest_bg && boot_digest_pace((current_tick - ui_digest_t0)
+                                          * (1000 / HZ)) != BOOT_PACE_HOLD)
+    {
+        ui_digest_bg = true;
+        if (!ui_boot_state)
+            ui_boot_state = 1;
+    }
     return STOP_REQUESTED();
+}
+
+/* #237: on battery below TAGCACHE_UI_BUILD_MIN_PCT (the library page's
+ * rule too) */
+static bool ui_build_power_low(void)
+{
+    int pct = battery_level();
+
+    return !charger_inserted() && pct >= 0
+           && pct < TAGCACHE_UI_BUILD_MIN_PCT;
+}
+
+/* #237: the first build's count (tagcache_build()): the digest's walk,
+ * its entries the walk's scale; capped, stopped by USB or a power-off */
+#define UI_COUNT_CAP_MS 120000
+static void ui_first_count(const char *const roots[])
+{
+    struct boot_digest d;
+    const long t0 = current_tick;
+    enum boot_digest_state ds;
+
+    ui_count_dg = &d;
+    ds = boot_stamp_digest(&d, roots, curpath, sizeof(curpath),
+                           t0 + UI_COUNT_CAP_MS * HZ / 1000, ui_boot_stop);
+    ui_count_dg = NULL;
+    str_setlen(curpath, 0);
+    if (ds == BOOT_DIGEST_MATCH && d.entries > 0)
+        ui_boot_entries = d.entries;
+    ui_log("db", "first count ms=%ld ent=%ld st=%d",
+           (current_tick - t0) * (1000 / HZ), d.entries, (int)ds);
 }
 
 /* #89 (docs/phase16-brief.md 4.2): whether this boot's walk can be
@@ -10806,21 +12140,48 @@ static bool ui_boot_skip_walk(bool rescan)
 
         strmemccpy(str, global_settings.tagcache_scan_paths, sizeof(str));
         vect[split_string(str, ':', vect, MAX_STATIC_ROOTS)] = NULL;
-        cpu_boost(true);
+        ui_digest_t0 = t0;
+        ui_digest_bg = false;
+        /* one boost, released on every way out (the call returns on a
+         * match, a difference, a stop and the backstop alike) */
+        tc_boost_hold(true, "digest");
         ds = boot_stamp_digest(&d, (const char *const *)vect, curpath,
                                sizeof(curpath),
-                               t0 + BOOT_DIGEST_CAP_MS * HZ / 1000,
+                               t0 + BOOT_DIGEST_MAX_MS * HZ / 1000,
                                ui_boot_stop);
-        cpu_boost(false);
+        tc_boost_hold(false, "digest");
         str_setlen(curpath, 0);
         if (ds == BOOT_DIGEST_MATCH && d.crc != st.dir_digest)
             ds = BOOT_DIGEST_DIFF;
         if (ds == BOOT_DIGEST_MATCH || ds == BOOT_DIGEST_DIFF)
             ui_boot_entries = d.entries;
         why = boot_stamp_verdict(ds);
-        UI_BS_LOG("digest ms=%ld dirs=%ld ent=%ld st=%d",
+        UI_BS_LOG("digest ms=%ld dirs=%ld ent=%ld st=%d bg=%d",
                   (current_tick - t0) * (1000 / HZ), d.dirs, d.entries,
-                  (int)ds);
+                  (int)ds, (int)ui_digest_bg);
+        /* p081: a power-off stopped the digest (in the background it can
+         * run for seconds): this boot proved nothing either way. (Should
+         * the power-off not happen after all, this session keeps the old
+         * vouch; the next boot still digests against that walk's tree.) The
+         * stamp it found vouches as before (the crash rule: no walk and
+         * no USB session since it was written), so the shutdown writes it
+         * back, this boot counted as a skip (the 10th-boot walk still
+         * comes), and the next boot digests again; no walk now (the
+         * power-off would only cut it) */
+        if (ds == BOOT_DIGEST_FAIL && !ui_usb_seq && !tagcache_usb_quiescing
+            && (ui_shutdown_intent || ui_poweroff_queued()))
+        {
+            boot_stamp_decided(why);
+            ui_walk_digest = st.dir_digest;
+            ui_walk_ok = true;
+            ui_walk_skipped = st.boots_skipped + 1u;
+            ui_walk_rtc = st.last_walk_rtc;
+            ui_walk_usb_seq = ui_usb_seq;
+            ui_boot_state = 2;
+            UI_BS_LOG("stamp walk=0 why=%s skipped=%u off=1",
+                      boot_why_name(why), (unsigned)st.boots_skipped);
+            return true;
+        }
     }
     trusted = boot_why_trusted(why);
     boot_stamp_decided(why);
@@ -10865,7 +12226,11 @@ static void ui_boot_deleted_pass(void)
     if (ui_scan_pending)
         ui_deleted_owed = true;
     else
+    {
+        tc_boost_hold(true, "deleted");     /* p081: boosted */
         check_deleted_files();
+        tc_boost_hold(false, "deleted");
+    }
 }
 
 /* why the stamp may not be written now (NULL: it may) */
@@ -11072,17 +12437,58 @@ static void tagcache_thread(void)
     bool check_done = false;
 #ifdef HAVE_IPOD_UI
     bool ui_built = false;
-    bool ui_rescan = false;     /* check for deleted files (after USB) */
 #endif
     cpu_boost(true);
+    BT_BEGIN();
 #ifdef UI_COMMIT
     /* Safe-replace recovery (#91) before anything opens the journal or
      * selects a generation: a cut replace is put back or its temp goes */
     dbjournal_recover(ui_db_root);
     dbgen_recover(ui_db_root);
-    /* Ambiguous manifest I/O never authorizes rebuilding the legacy root.
-     * Retry without mutating any generation until selection is trustworthy. */
-    ui_generation_unresolved = !ui_generation_select();
+    BT_MARK("recover");
+    {
+        /* p081-bootload: main.c waits for 'initialized' behind the boot
+         * logo, and the full selection CRCs every file of the library
+         * (12.7 MB at 50k, seconds). A tentative choice from the
+         * manifests and sizes alone lets main go on now; the full one
+         * runs at once, here, boosted, before this thread does anything
+         * else: no load, scan, commit, import or statistics drain reads
+         * or builds on the library before it, and nothing else may
+         * (readyvalid and ready stay false meanwhile, as for an
+         * unresolved selection). Its verdict is final, exactly as before:
+         * another generation, a fresh build or a retry. */
+        struct ui_generation_io bio;
+        int bh = ui_generation_boot_buffer(&bio);
+        char quick[DBGEN_PATH_MAX] = "";
+        if (bh > 0 && ui_generation_quick(&bio))
+        {
+            strmemccpy(quick, tc_stat.db_path, sizeof(quick));
+            BT_MARK("quick");
+            tc_stat.initialized = true;     /* main.c goes on */
+        }
+        /* Ambiguous manifest I/O never authorizes rebuilding the legacy
+         * root. Retry without mutating any generation until selection is
+         * trustworthy. */
+        ui_generation_unresolved = !ui_generation_select_io(bh > 0 ? &bio
+                                                                  : NULL);
+        if (quick[0] && (ui_generation_unresolved || !tc_stat.ready
+                         || strcmp(quick, tc_stat.db_path)))
+        {
+            /* loud: the tentative library was not the one the full check
+             * kept (damage the sizes could not show, or I/O) */
+            const char *q = strrchr(quick, '/');
+            const char *f = strrchr(tc_stat.db_path, '/');
+            ui_log("db", "gen quick overruled %s -> %s u=%d r=%d",
+                   q ? q + 1 : quick, f ? f + 1 : tc_stat.db_path,
+                   (int)ui_generation_unresolved, (int)tc_stat.ready);
+        }
+        if (bh > 0)
+        {
+            core_free(bh);
+            audio_buffer_regrow();
+        }
+    }
+    BT_MARK("select");
 #endif
     /* If the previous cache build/update was interrupted, commit
      * the changes first in foreground. */
@@ -11134,6 +12540,7 @@ static void tagcache_thread(void)
 #endif /* HAVE_TC_RAMCACHE */
 
     cpu_boost(false);
+    BT_MARK("init");
     tc_stat.initialized = true;
 
     /* Don't delay bootup with the header check but do it on background. */
@@ -11393,7 +12800,11 @@ static void tagcache_thread(void)
                  * cannot run now keeps the active library and retries. A
                  * fresh rebuild (no readable master) imports the last
                  * changelog there is. */
-                if (!ui_generation_fresh)
+                /* #237: no library on the disk (a cut first build) has
+                 * no statistics to export: the last changelog stays, as
+                 * for a fresh one (its export failed, and every built
+                 * candidate was dropped and built again) */
+                if (!ui_generation_fresh && ui_active->stat.ready)
                 {
                     remove_db_file(ui_build, TAGCACHE_FILE_CHANGELOG);
                     remove_db_file(ui_build, TAGCACHE_FILE_CHANGELOG ".new");
@@ -11466,6 +12877,7 @@ static void tagcache_thread(void)
             case SYS_TIMEOUT:
 #ifdef UI_COMMIT
                 maint_poll();
+                ui_retired_ram_release();   /* p081-floor */
                 ui_rebuild_run();
                 if (ui_rebuild_again && ui_retry_due(UI_RETRY_BEGIN))
                     queue_post(&tagcache_queue, Q_REBUILD, ui_rebuild_again);
@@ -11534,7 +12946,9 @@ static void tagcache_thread(void)
                     /* #109: whatever commit() returns -- a torn temp
                      * header clears the pending commit and returns false,
                      * and the candidate still needs its RAM to publish */
+                    tc_dedicated(true, "delayed");      /* p081 */
                     commit();
+                    tc_dedicated(false, "delayed");
                     ui_load_missing();
                 }
                 /* a reload that waited for room (load_ramcache()); #109:
@@ -11572,7 +12986,15 @@ static void tagcache_thread(void)
                     maint_done(MAINT_COMMIT, false);
                 }
 #endif
-                if (!check_done && !tc_stat.ready && !ui_built)
+                if (!check_done && !tc_stat.ready && !ui_built
+#ifdef UI_COMMIT
+                    /* #237 (owner 2026-11-09): on battery below
+                     * TAGCACHE_UI_BUILD_MIN_PCT a first build waits for
+                     * power (the library page says so), as it waits for
+                     * a sleep's cut to end */
+                    && !ui_sleep_cut && !ui_build_power_low()
+#endif
+                   )
                 {
 #ifdef UI_COMMIT
                     if (!ui_initial_build_begin())
@@ -11601,6 +13023,21 @@ static void tagcache_thread(void)
 #endif
                     break ;
                 }
+#ifdef UI_COMMIT
+                /* #237: the post-USB check of a library a first build has
+                 * walked whole since the unplug finds nothing (it would
+                 * hold the library page for a second walk) */
+                if (ui_fresh_walked && !built)
+                {
+                    ui_fresh_walked = false;
+                    ui_rescan = false;
+                    ui_load_missing();
+                    check_done = true;
+                    ui_boot_state = 2;
+                    ui_log("db", "check skipped: first build walked it all");
+                    break;
+                }
+#endif
 #else
                 if (check_done || !tc_stat.ready)
                     break ;
@@ -11633,7 +13070,15 @@ static void tagcache_thread(void)
                         && ui_rescan
 #endif
                        )
+                    {
+#ifdef HAVE_IPOD_UI
+                        tc_dedicated(true, "usb-refs");     /* p081 */
+#endif
                         check_file_refs(global_settings.tagcache_autoupdate);
+#ifdef HAVE_IPOD_UI
+                        tc_dedicated(false, "usb-refs");
+#endif
+                    }
                     if (tc_stat.ramcache && global_settings.tagcache_autoupdate
 #ifdef UI_COMMIT
                         && !ui_boot_skip_walk(ui_rescan)    /* #89 */
@@ -11664,8 +13109,14 @@ static void tagcache_thread(void)
                        consistency. */
 #ifdef HAVE_IPOD_UI
                     if (ui_rescan)
-#endif
+                    {
+                        tc_dedicated(true, "usb-del");      /* p081 */
+                        check_deleted_files();
+                        tc_dedicated(false, "usb-del");
+                    }
+#else
                     check_deleted_files();
+#endif
 #ifdef UI_COMMIT
                     else
                         ui_boot_deleted_pass();     /* #89 H2 */
@@ -11701,6 +13152,8 @@ static void tagcache_thread(void)
                  * jobs again after disconnect. A stale flush event is inert. */
                 ui_shutdown_intent = false;
                 memset(ui_retry, 0, sizeof(ui_retry));
+                ui_fresh_walked = false;    /* #237: the host may write */
+                ui_master_dirty = false;
                 /* A candidate still being built (a cut commit or scan:
                  * not ready) is dropped, RAM only, so the host waits for
                  * nothing; after USB the post-USB scan (or the sticky
@@ -11708,7 +13161,10 @@ static void tagcache_thread(void)
                 if (ui_build != ui_active && !tc_stat.ready
                     && !ui_candidate_maybe_published)
                 {
-                    bool rebuild = ui_db_fresh;
+                    /* #237: with no library on the disk the first build's
+                     * own restart (ui_built, below) builds it again; a
+                     * sticky rebuild too was a second full build */
+                    bool rebuild = ui_db_fresh && ui_active->stat.ready;
                     ui_candidate_abandon(-2);
                     if (rebuild)
                         ui_rebuild_again = 2 | ui_rebuild_maint;
@@ -12227,6 +13683,65 @@ bool tagcache_ui_scan_owed(void)
 #else
     return false;
 #endif
+}
+
+unsigned tagcache_ui_scans_ended(void)
+{
+    return ui_scans_ended;
+}
+
+int tagcache_ui_progress(int *permille)
+{
+#ifdef UI_COMMIT
+    struct boot_digest *dg = ui_count_dg;
+    long n, k;
+
+    *permille = -1;
+    if (dg)
+    {
+        /* no scale for the count itself: it slows towards the end */
+        k = dg->entries;
+        *permille = (int)(k * 1000L / (k + 4000L));
+        return TC_UI_PROG_COUNT;
+    }
+    if (ui_in_commit)
+    {
+        n = tagcache_get_max_commit_step();
+        k = tc_stat.commit_step;
+        if (n > 0)
+            *permille = (int)MIN(999L, k * 1000L / n);
+        return TC_UI_PROG_COMMIT;
+    }
+    if (ui_scan_active)
+    {
+        n = ui_walk_total > 0 ? ui_walk_total : ui_boot_entries;
+        k = ui_walk_dg.entries;     /* as the digest counts (#237) */
+        if (n > 0)
+            *permille = (int)MIN(999L, k * 1000L / n);
+        return ui_probe ? TC_UI_PROG_PROBE : TC_UI_PROG_WALK;
+    }
+    if (ui_upd_jobs)
+        return TC_UI_PROG_JOBS;
+    return TC_UI_PROG_NONE;
+#else
+    *permille = -1;
+    return tagcache_ui_updating() ? TC_UI_PROG_JOBS : TC_UI_PROG_NONE;
+#endif
+}
+
+int tagcache_ui_no_library(void)
+{
+#ifdef UI_COMMIT
+    const struct tagcache_stat *st = &ui_active->stat;
+#else
+    const struct tagcache_stat *st = &tc_stat;
+#endif
+
+    if (!st->readyvalid)
+        return -1;
+    /* a dirty library is still a library: its rebuild runs silently, the
+     * menus saying "Updating Library..." (docs/hardware.md, commit row) */
+    return !st->ready && !ui_master_dirty;
 }
 #endif
 

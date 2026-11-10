@@ -86,6 +86,8 @@
 #define BL_RUN(t, i) ((t) > 0 && (t) == bl_snap[i])
 static bool bl_through_hold;    /* one lit period through Hold (the Sleep
                                    lab, backlight_on_through_hold()) */
+static bool bl_hold_lit;        /* #184: Hold leaves the light alone (a
+                                   video session, backlight_hold_lit()) */
 #else
 #define BL_STEP BACKLIGHT_THREAD_TIMEOUT
 #define BL_RUN(t, i) ((t) > 0)
@@ -124,6 +126,7 @@ enum {
     BACKLIGHT_TIMER_SET, /* P18 18-A: a timer was started where no event
                             would tell the (blocked) thread; handled by
                             falling out of the switch */
+    BACKLIGHT_HOLD_LIT,  /* #184: backlight_hold_lit() */
 #endif
 };
 
@@ -741,6 +744,11 @@ void backlight_thread(void)
                 usb_acknowledge(SYS_USB_CONNECTED_ACK, ev.data);
                 break;
 
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+            case BACKLIGHT_HOLD_LIT:    /* the rule, even while locked */
+                bl_hold_lit = ev.data != 0;
+                break;
+#endif
 #ifdef BACKLIGHT_DRIVER_CLOSE
             /* Get out of here */
             case BACKLIGHT_QUIT:
@@ -766,6 +774,9 @@ void backlight_thread(void)
 
             case BACKLIGHT_TMO_CHANGED:
             case BACKLIGHT_ON:
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+            case BACKLIGHT_HOLD_LIT:
+#endif
                 backlight_update_state();
                 break;
 
@@ -967,6 +978,16 @@ void backlight_on_through_hold(void)
     queue_remove_from_head(&backlight_queue, BACKLIGHT_ON);
     queue_post(&backlight_queue, BACKLIGHT_ON, 0);
 }
+
+/* #184 (owner, 2026-11-07): while a video plays, Hold locks the keys
+ * but never darkens the screen. Set for the whole video session: the
+ * timeouts in force (the player's "always on" while it plays, the normal
+ * one paused) apply whatever the Hold switch and the hidden "backlight on
+ * button hold" setting say. Posted, so the thread sets it and relights. */
+void backlight_hold_lit(bool on)
+{
+    queue_post(&backlight_queue, BACKLIGHT_HOLD_LIT, on ? 1 : 0);
+}
 #endif
 
 void backlight_on_ignore(bool value, int timeout)
@@ -1005,7 +1026,7 @@ int backlight_get_current_timeout(void)
 {
     if ((backlight_on_button_hold != 0)
 #if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
-        && !bl_through_hold
+        && !bl_through_hold && !bl_hold_lit
 #endif
 #if (defined(HAVE_REMOTE_LCD_AS_MAIN) && defined(HAS_REMOTE_BUTTON_HOLD))
         && remote_button_hold()

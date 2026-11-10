@@ -7,7 +7,7 @@ Milestone summary: Library & maintenance. Updates land while paused, the boot wa
 ## Merged on p16
 
 ### #105 audio-buffer floor gate
-- **Shipped:** `tests/perf/floor_gate.sh` in `validate.sh`, `floor-50k.script` for 32 and 64 MB, named worst cases, `_end` 1.5 MB and `rockbox.ipod` 1.25 MB backstops. Minimums at close: 11,614,800 B (32 MB), 45,169,232 B (64 MB).
+- **Shipped:** `tests/perf/floor_gate.sh` in `validate.sh`, `floor-65k.script` for 32 and 64 MB, named worst cases, `_end` 1.5 MB and `rockbox.ipod` 1.25 MB backstops. Minimums at close: 11,614,800 B (32 MB), 45,169,232 B (64 MB).
 - **Device checks owed:** the floor on the developer buffer view (M1 / #111) after a boot, after a commit and restart, and with a full-library queue, on a 32 MB unit if one is available (the test unit is 64 MB).
 
 ### #107 burst directory reads (R1)

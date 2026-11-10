@@ -837,7 +837,7 @@ def check_p8a(lines, script, script_lines, ok, bad):
                    holdoff the first `update` is `update full`;
                    `# unlit-digits: N [M]` = exactly N (or N..M) digits pushes
                    (one per minute step); skip (`unlit skip <sleep|usb|
-                   devmode>` or `unlit skip-expired`) and swallow-end
+                   devmode|video>` or `unlit skip-expired`) and swallow-end
                    values are checked
       p8a-devmode  `devmode arm` / `enter` / `exit` in order (an enter
                    needs a preceding arm, unless the script has a
@@ -1002,9 +1002,9 @@ def check_p8a(lines, script, script_lines, ok, bad):
             continue
         m = RE_P8A_UNLIT_SKIP.search(l)
         if m and not m.group(2) and m.group(1) not in ('sleep', 'usb',
-                                                       'devmode'):
-            problems.append('unlit skip %s (want sleep|usb|devmode, or '
-                            'unlit skip-expired)' % m.group(1))
+                                                       'devmode', 'video'):
+            problems.append('unlit skip %s (want sleep|usb|devmode|video, '
+                            'or unlit skip-expired)' % m.group(1))
         if m:
             skips += 1
         m = RE_P8A_SWALLOW_END.search(l)

@@ -1,7 +1,8 @@
 # Phase 5 (#27): Shuffle Songs from the main menu plays a 50-entry window of
 # the library; it refills in the background while the queue is walked (NEXT
 # 45 times: the window passes the low-water mark of 10 left and grows).
-# The counter shows the queue ("n of 50", then "n of 100" after the refill).
+# The counter reads library-wide (0.8.1): "1 of 302", not the window's
+# "1 of 50" ("n of 100" after a refill); ipodui-shuf-counter checks it.
 #   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p5-shuffle-songs.script
 # needs: library
 # trace: shuf
@@ -17,7 +18,7 @@ wheel +4            # "Shuffle Songs"
 wait 500
 key SELECT          # plays; Now Playing is pushed
 wait 1500
-shot start          # "1 of 50"
+shot start          # "1 of 302"
 key NEXT
 wait 200
 key NEXT
@@ -109,6 +110,6 @@ wait 200
 key NEXT
 wait 200
 wait 3000
-shot walked         # "46 of 100"
+shot walked         # "46 of 302"
 audio_stop
 quit

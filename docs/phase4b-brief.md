@@ -58,7 +58,7 @@ Each agent keeps **TEMP stubs** of the contract parts it doesn't own (B's artcac
 ## Agent notes
 - **A, precompute (#37):**
   - At commit, after the sort, write compact per-category group lists to the database directory: album groups and their row ranges, artist → albums, genre → artists, and child counts. Use bounded memory from the commit buffer.
-  - `lib_open` maps them instead of scanning. **Target: Albums and Songs at 50k open in ≤ 300 ms on the device estimate.** Measure with `tests/perf/lib50k.sh`.
+  - `lib_open` maps them instead of scanning. **Target: Albums and Songs at 50k open in ≤ 300 ms on the device estimate.** Measure with `tests/perf/lib65k.sh`.
   - Unplayed state for podcasts: playcount 0 and no `lastelapsed`.
   - `lib_committed()` hook: a single guarded call in `tagcache.c` after a successful commit and reload.
   - Old precompute files stay valid across rebuilds through the database version.

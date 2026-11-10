@@ -373,6 +373,7 @@ void core_unpin(int h)
 
 long current_tick = 1000;
 int fake_yields;
+long fake_ticks_per_yield = 1;          /* #230: a slow open */
 
 void yield(void)
 {
@@ -380,7 +381,7 @@ void yield(void)
     int32_t (*n)[TAG_COUNT] = malloc(size);
 
     fake_yields++;
-    current_tick++;
+    current_tick += fake_ticks_per_yield;
     move_all();
     /* the RAM cache moves too (seek pointers held across a yield break) */
     memcpy(n, seeks, size);
@@ -517,6 +518,24 @@ struct mp3entry *audio_current_track(void)
 
 int fake_trace_rows;
 char fake_last_open[256], fake_last_pre[256], fake_last_pin[256];
+int fake_uilog_lines;                   /* #230: ui_log("lib", ...) lines */
+char fake_last_uilog[128];
+
+void ui_log(const char *tag, const char *fmt, ...)
+{
+    va_list ap;
+    int n;
+
+    if (strcmp(tag, "lib"))
+        return;
+    n = snprintf(fake_last_uilog, sizeof(fake_last_uilog), "%s ", tag);
+    va_start(ap, fmt);
+    vsnprintf(fake_last_uilog + n, sizeof(fake_last_uilog) - n, fmt, ap);
+    va_end(ap);
+    fake_uilog_lines++;
+    if (getenv("TEST_LIBRARY_TRACE"))
+        printf("ui_log: %s\n", fake_last_uilog);
+}
 
 void stub_trace(const char *fmt, ...)
 {

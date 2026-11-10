@@ -24,7 +24,7 @@
 
 
 # P16 gate fix: PLAY between a stopped commit and its candidate's
-# publication (tests/perf/resort-play-50k.script), on a 50k disk without
+# publication (tests/perf/resort-play.script), on the unit's stress disk (#229: 32 MB 50k, 64 MB 65k) without
 # the #47 marker (no settle boot), for each memory size:
 #
 #   tests/perf/resort_play_check.sh [32|64 ...]     (default: 32 64)
@@ -44,10 +44,14 @@
 # left owed), published at the stop, the floor kept.
 set -u
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
-SOURCE=${FLOOR_SOURCE:-$ROOT/build/sim-50k/simdisk}
+. "$ROOT/tests/perf/stress_size.sh"
 RC=0
-"$ROOT/tests/perf/ensure50k.sh" "$SOURCE" || exit 1
 for RAM in ${*:-32 64}; do
+    # each unit at its stress ceiling (#229: 32 MB 50k, 64 MB 65k);
+    # FLOOR_SOURCE overrides the disk
+    SOURCE=${FLOOR_SOURCE:-$(stress_disk "$RAM")} \
+        || { echo "resort play: RAM must be 32 or 64" >&2; exit 2; }
+    "$ROOT/tests/perf/ensure65k.sh" "$SOURCE" || exit 1
     case "$RAM" in
         32) BUILD=$ROOT/build/sim-ui32 ;;
         64) BUILD=$ROOT/build/sim-ui ;;
@@ -59,7 +63,7 @@ for RAM in ${*:-32 64}; do
     rm -f "$RUN/simdisk/.rockbox/database_order.dat"
     OUT=$ROOT/out/shots/resort-play-$RAM
     SIM_BUILD=$BUILD SIMDISK=$RUN/simdisk SHOTS_TIMEOUT=${SHOTS_TIMEOUT:-600} \
-        "$ROOT/scripts/shots.sh" "$ROOT/tests/perf/resort-play-50k.script" "$OUT" \
+        "$ROOT/scripts/shots.sh" "$ROOT/tests/perf/resort-play.script" "$OUT" \
         >"$RUN/shots.out" 2>&1
     ST=$?
     L=$OUT/sim.log

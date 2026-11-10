@@ -100,6 +100,13 @@ enum boot_why boot_stamp_verdict(enum boot_digest_state st)
     }
 }
 
+enum boot_digest_pace boot_digest_pace(long el_ms)
+{
+    if (el_ms < BOOT_DIGEST_CAP_MS)
+        return BOOT_PACE_HOLD;
+    return el_ms < BOOT_DIGEST_MAX_MS ? BOOT_PACE_BACKGROUND : BOOT_PACE_STOP;
+}
+
 const char *boot_why_name(enum boot_why w)
 {
     static const char *const names[BOOT_WHY__N] = {

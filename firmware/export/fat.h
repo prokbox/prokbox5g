@@ -236,10 +236,30 @@ unsigned long fat_slot_fault_get(struct fat_slot_fault *out);
 /** Misc. **/
 void fat_empty_fat_direntry(struct fat_direntry *entry);
 
-#if defined(HAVE_IPOD_UI_DEVMODE) && !defined(BOOTLOADER)
-/* ProkBox (#137): Apple-fallback links (fat.c; never frees a cluster) */
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+/* ProkBox (#137, p081-fatdb): read-only; 1 healthy, 0 not, -1 unreadable */
 int fat_link_chain(IF_MV(int volume,) long fst, uint32_t size,
                    uint32_t *runs, int maxruns, int *nruns);
+enum fat_chain_stop {
+    FAT_CHAIN_OK = 0,
+    FAT_CHAIN_FREE,         /* links to a free (or reserved) cluster */
+    FAT_CHAIN_SHORT,        /* the end mark before the size */
+    FAT_CHAIN_PAST,         /* runs on past the size: into another's */
+    FAT_CHAIN_RANGE,        /* out of range, a bad mark, or no chain */
+    FAT_CHAIN_UNREADABLE,
+};
+struct fat_chain_why {
+    uint32_t walked, want;  /* clusters walked; ceil(size / cluster) */
+    uint32_t last, next;    /* where it stopped, and the entry there */
+    uint8_t stop;           /* enum fat_chain_stop */
+};
+int fat_link_chain_why(IF_MV(int volume,) long fst, uint32_t size,
+                       uint32_t *runs, int maxruns, int *nruns,
+                       struct fat_chain_why *why);
+void fat_cache_drop(IF_MV_NONVOID(int volume));
+#endif
+#if defined(HAVE_IPOD_UI_DEVMODE) && !defined(BOOTLOADER)
+/* ProkBox (#137): Apple-fallback links (fat.c; never frees a cluster) */
 int fat_link_runs_free(IF_MV(int volume,) const uint32_t *runs, int nruns);
 int fat_link_rechain(IF_MV(int volume,) const uint32_t *runs, int nruns);
 int fat_link_set(struct fat_file *file, long fst, uint32_t size);

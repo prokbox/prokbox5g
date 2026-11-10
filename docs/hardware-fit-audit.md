@@ -44,7 +44,7 @@ Fields: **Now** (file:line), **Fact**, **Proposal**, **Gain**, **Risk**, **Cost*
 - **Proposal:**
   - Per-thread CPU µs and idle µs, written to `power.csv` (`idle_pct`) and the developer screen.
   - A tap-to-first-PCM log line.
-  - One `lib50k` scan and commit on the device, to calibrate the simulator factor.
+  - One `lib65k` scan and commit on the device, to calibrate the simulator factor.
   - One owner session with an inline USB-C meter, covering: screen on/off, 30/80 MHz, BCM on/off, disk active/standby.
 - **Gain:** turns every estimate below into a number.
 - **Risk:** low (about 20 cycles per switch).

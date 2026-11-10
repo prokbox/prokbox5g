@@ -30,6 +30,7 @@
 #include "usb.h"
 #include "mv.h"
 #include "ata_idle_notify.h"
+#include "storage.h"           /* storage_last_disk_activity() (#230) */
 #include "sim_tasks.h"
 
 #ifdef WIN32
@@ -100,7 +101,25 @@ void sim_thread(void)
                 if (!storage_powered())
                     break;
 #endif
+#if defined(SIMULATOR) && defined(HAVE_IPOD_UI)
+                /* #230: as the device's storage thread, only when the
+                 * drive goes idle after real I/O (storage.c: a driver's
+                 * sleep trigger), not every 30 s: the notice's own writes
+                 * (the shell's log flush) are not new activity, else the
+                 * simulator's idle power-off never comes
+                 * (powermgmt.c waits for storage to be quiet) */
+                {
+                    static long notified_upto = -1;
+                    long last = storage_last_disk_activity();
+
+                    if (last == notified_upto)
+                        break;
+                    if (call_storage_idle_notifys(false))
+                        notified_upto = storage_last_disk_activity();
+                }
+#else
                 call_storage_idle_notifys(false);
+#endif
                 break;
 
             case SIM_SCREENDUMP:

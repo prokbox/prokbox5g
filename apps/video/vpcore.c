@@ -773,17 +773,26 @@ static int push_body(struct vpc *v, uint32_t i, bool params)
         uint32_t m = s.size - pos < VPC_PIECE ? s.size - pos : VPC_PIECE;
 
         rc = src->read(src->ctx, s.offset + pos, v->piece, m);
-        if (rc == VPC_NOT_BUFFERED)
+        if (rc == VPC_NOT_BUFFERED && !v->read_direct)
         {
             /* the probe found the last byte buffered, and this piece
                isn't: the audio's buffer was reset under us (its seek's
                rebuffer, as at a resume far into the file: session 35's
-               plays at 18:15).  The packet goes, the push waits */
+               plays at 18:15), or the probe was read from the file and
+               the audio took the file since (#218: every start, about
+               a second in, on the owner's rc.6 and rc.7 logs).  The
+               piece is read from the file: dropping the packet waited
+               for the audio's buffering to reach it (a late thread and
+               a stall at the start) */
             if (!v->stats.piece_waits++)
-                say(v, "video: sample's bytes left the buffer (sample, at)",
-                    i, pos);
-            return VP_AGAIN;
+                say(v, "video: piece from file (sample, at)", i, pos);
+            v->read_direct = true;
+            rc = src->read(src->ctx, s.offset + pos, v->piece, m);
+            v->read_direct = false;
+            v->stats.piece_direct++;
         }
+        if (rc == VPC_NOT_BUFFERED)
+            return VP_AGAIN;
         if (rc != (long)m)
             return src_failed(v, VPC_SRC_PIECE, i, s.size, rc, m, pos);
         annexb_piece(v, v->piece, m);
@@ -1627,7 +1636,7 @@ static int status(struct vpc *v)
                     v->start_us = 0;
                 }
                 if (v->read_direct && !v->direct_left && !v->shown_seen)
-                    say(v, "video: the refused stream plays from the file "
+                    say(v, "video: refused stream plays from file "
                         "(NAL type, check)", v->refused_nal, v->refused_at);
                 if (n >= 16 && r[15] != v->mhz_said)
                 {
@@ -2190,6 +2199,70 @@ int vpc_audio_block(struct vpc *v, uint32_t in, uint32_t out, uint32_t off,
     return 0;
 }
 
+/* ---- the clock the video follows (#218) --------------------------------- */
+
+void vpc_follow_reset(struct vpc_follow *f, int64_t a, bool keep_pcm_seen)
+{
+    bool seen = keep_pcm_seen && f->pcm_seen;
+    uint32_t jumps = f->jumps, held = f->held;
+
+    memset(f, 0, sizeof(*f));
+    f->last = a;
+    f->pcm_seen = seen;
+    if (keep_pcm_seen)
+    {
+        f->jumps = jumps;
+        f->held = held;
+    }
+}
+
+int64_t vpc_follow(struct vpc_follow *f, int64_t a, bool pcm_on,
+                   uint32_t now_us, bool *jump)
+{
+    bool far;
+
+    *jump = false;
+    if (!pcm_on)
+    {
+        /* before the first PCM play, a pause, a stall: hold */
+        f->pend = false;
+        if (a != f->last)
+            f->held++;
+        return f->last;
+    }
+    f->pcm_seen = true;
+    far = a + VPC_JUMP_BACK_US < f->last || a > f->last + VPC_JUMP_ON_US;
+    if (!far)
+    {
+        f->pend = false;
+        f->last = a;
+        return a;
+    }
+    if (f->pend && now_us - f->pend_t >= VPC_JUMP_CONFIRM_US)
+    {
+        int64_t want = f->pend_a + (int64_t)(now_us - f->pend_t);
+
+        if (a + VPC_JUMP_AGREE_US >= want && a <= want + VPC_JUMP_AGREE_US)
+        {
+            f->pend = false;
+            f->last = a;
+            f->jumps++;
+            *jump = true;
+            return a;
+        }
+    }
+    if (!f->pend || now_us - f->pend_t >= VPC_JUMP_CONFIRM_US)
+    {
+        /* a first reading out there (or one that disagreed): wait for
+           a second */
+        f->pend = true;
+        f->pend_a = a;
+        f->pend_t = now_us;
+    }
+    f->held++;
+    return f->last;
+}
+
 void vpc_stop(struct vpc *v)
 {
     idx_settle(v);              /* the reader's slots are in this memory */
@@ -2214,6 +2287,11 @@ void vpc_stop(struct vpc *v)
            merged image measures them at its first OPEN; read here while
            this session's image still runs (a later probe may restart it).
            ns x 10 a load: bytes, then words */
+        /* only while the image runs: dark (VPC_ASLEEP) and failed
+           (VPC_FAILED) sessions have cut the chip, and a port read of a
+           cut chip is unmeasured on silicon (the laptop's emulator,
+           2026-11-08: dark, hibernate, then the stop at power-off) */
+        if (v->state == VPC_PLAYING || v->state == VPC_DONE)
         {
             uint32_t blk, sd, sr, mhz;
 

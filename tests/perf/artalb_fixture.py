@@ -42,6 +42,17 @@ first four: a run of four rows on one key):
   Север      (Север, СЕВЕР)            Cyrillic
 plus "Various Artists" compilations whose track artists are the above (no
 Artists row of their own: albums with no row, legitimately).
+
+#230: composers and genres on the same tracks, for the composers' and
+genres' album ranges (tests/perf/grpalb_check.sh): case and accent
+variants of one name (one row: Dvořák, DVOŘÁK, dvořák; Rock, ROCK, rock),
+names that share a sort key but group apart (Dvorak, The Dvořák), untagged
+tracks (no row), and tracks of one album under different composers and
+genres (a composer's album row then starts at its own first track, not
+the album's). Composers cycle per track, genres per album. Then FILLER
+albums of Elan's without a composer or a genre: the precompute builds the
+ranges in its block's free room, about 20 B per track, which a library
+of 30 tracks in 25 albums does not leave (it scans: cheap at that size).
 """
 import os
 import sys
@@ -79,24 +90,46 @@ ALBUMS = [
 ]
 
 
+COMPOSERS = ['Dvořák', 'DVOŘÁK', 'dvořák', 'Dvorak', 'The Dvořák', '',
+             'Straße', 'STRASSE', 'Ωmega', 'ωMEGA', '']
+GENRES = ['Rock', 'ROCK', 'rock', 'Röck', 'Jazz', 'The Rock', '']
+
+
+FILLER = 10            # albums of 12 tracks
+
+
 def main():
     if len(sys.argv) < 2:
         sys.exit(__doc__)
     top = os.path.join(sys.argv[1], 'ArtFix')
     audio = audio_frames()
+    k = 0
     for n, (aa, ta, album, tracks) in enumerate(ALBUMS):
         folder = os.path.join(top, '%02d' % n)
         os.makedirs(folder, exist_ok=True)
         for t in range(1, tracks + 1):
             tags = [('TIT2', '%s %d' % (album, t)), ('TPE1', ta),
-                    ('TALB', album), ('TPE2', aa), ('TCON', 'Rock'),
+                    ('TALB', album), ('TPE2', aa),
+                    ('TCON', GENRES[n % len(GENRES)]),
+                    ('TCOM', COMPOSERS[k % len(COMPOSERS)]),
                     ('TRCK', str(t)), ('TPOS', '1')]
+            k += 1
             if aa == 'Various Artists':
                 tags.append(('TCMP', '1'))
             with open(os.path.join(folder, '%02d.mp3' % t), 'wb') as f:
                 f.write(id3(tags))
                 f.write(audio)
-    print('artalb fixture: %d albums in %s' % (len(ALBUMS), top))
+    for n in range(FILLER):
+        folder = os.path.join(top, 'f%02d' % n)
+        os.makedirs(folder, exist_ok=True)
+        for t in range(1, 13):
+            tags = [('TIT2', 'Filler %d %d' % (n, t)), ('TPE1', 'Elan'),
+                    ('TALB', 'Filler %d' % n), ('TPE2', 'Elan'),
+                    ('TRCK', str(t)), ('TPOS', '1')]
+            with open(os.path.join(folder, '%02d.mp3' % t), 'wb') as f:
+                f.write(id3(tags))
+                f.write(audio)
+    print('artalb fixture: %d albums in %s' % (len(ALBUMS) + FILLER, top))
 
 
 if __name__ == '__main__':

@@ -1,0 +1,36 @@
+# Shuffle Songs start time on the synthetic 50k library: run through
+# tests/perf/shuf_start50k.sh (a clone of build/sim-50k's settled disk).
+# Starts Shuffle Songs from the main menu five times; each start traces
+# "shuf: start songs ok queued=50 us=<wall> cpu=<UI thread CPU>" from
+# lib_shuffle_start() entry to the first track queued and started.
+# trace: shuf
+
+wait 3000
+wait_db 1500000
+wait 15000
+charger off
+repeat off
+
+wheel +4            # "Shuffle Songs"
+wait 500
+key SELECT          # start 1; Now Playing is pushed
+wait 3000
+key MENU            # back to the main menu (cursor on Shuffle Songs)
+wait 1000
+key SELECT          # start 2
+wait 3000
+key MENU
+wait 1000
+key SELECT          # start 3
+wait 3000
+key MENU
+wait 1000
+key SELECT          # start 4
+wait 3000
+key MENU
+wait 1000
+key SELECT          # start 5
+wait 3000
+audio_stop
+wait 1000
+quit

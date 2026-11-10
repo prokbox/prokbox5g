@@ -49,10 +49,15 @@
 static bool jd_ready XCORE_BSS, jd_allowed XCORE_BSS;
 static struct bjc_slot *jd_slots XCORE_BSS; /* the job client's allocation */
 static void (*jd_trace)(const char *line) XCORE_BSS;
-/* the lock's depth and whether the mutex was taken: written by the lock's
- * holder only, on either core (P19 S0: uncached) */
-static int bcm_port_depth XCORE_BSS;
-static bool bcm_port_mtx XCORE_BSS;
+/* the lock's depth, whether the mutex was taken and the tick block it
+ * found: written by the lock's holder only, on either core (P19 S0:
+ * uncached) */
+static bool bpl_mutex(void);
+static void bpl_mutex_give(bool m);
+static bool bpl_block(void);
+static void bpl_restore(bool was);
+#include "bcm-port-lock.h"
+static struct bpl_state bcm_port_st XCORE_BSS;
 /* P19 S0 (MF-2): the request record, its acknowledgement and the owner */
 static struct bjc_req jd_req XCORE_BSS;
 static struct semaphore jd_ack XCORE_BSS;
@@ -61,32 +66,48 @@ static unsigned int jd_owner XCORE_BSS;     /* the owner's thread id */
 static unsigned int jd_owner_core XCORE_BSS; /* ... and its core (S10) */
 
 /* ---- the one port lock (gap G3): lcd-video.c's mutex and the tick's
- * corelock, recursive per thread, never a second lock ------------------- */
+ * corelock, recursive per thread, never a second lock (bcm-port-lock.h) */
+static bool bpl_mutex(void)
+{
+    return lcd_port_lock();
+}
+
+static void bpl_mutex_give(bool m)
+{
+    lcd_port_unlock(m);
+}
+
+static bool bpl_block(void)
+{
+    int oldlevel = disable_irq_save();
+    bool was;
+
+    corelock_lock(&lcd_state.cl);
+    was = lcd_state.blocked;
+    lcd_state.blocked = true;
+    corelock_unlock(&lcd_state.cl);
+    restore_irq(oldlevel);
+    return was;
+}
+
+static void bpl_restore(bool was)
+{
+    int oldlevel = disable_irq_save();
+
+    corelock_lock(&lcd_state.cl);
+    lcd_state.blocked = was;
+    corelock_unlock(&lcd_state.cl);
+    restore_irq(oldlevel);
+}
+
 void bcm_port_lock(void)
 {
-    bool m = lcd_port_lock();   /* recursive for its owner; other threads wait */
-
-    if (bcm_port_depth++ == 0)
-    {
-        bcm_port_mtx = m;
-        lcd_block_tick();       /* the tick's reads of the command word */
-    }
+    bpl_lock(&bcm_port_st);
 }
 
 void bcm_port_unlock(void)
 {
-    bool m = bcm_port_mtx;
-
-    if (--bcm_port_depth == 0)
-    {
-        int oldlevel = disable_irq_save();
-
-        corelock_lock(&lcd_state.cl);
-        lcd_state.blocked = false;  /* a pending update goes at the next tick */
-        corelock_unlock(&lcd_state.cl);
-        restore_irq(oldlevel);
-    }
-    lcd_port_unlock(m);
+    bpl_unlock(&bcm_port_st);
 }
 
 /* ---- the port ------------------------------------------------------------ */

@@ -76,6 +76,26 @@ static int last_why = -1;
 static uint32_t sim_alarm_in;           /* alarm_in: s after entry, 0 none */
 static long pll_hold_until;             /* pll_hold: a tick, 0 none */               /* -1: no wake since the expect */
 
+/* p081-pageboost: the boost count, as firmware/system.c keeps it on the
+ * device (cpu_boost() and get_cpu_boost_counter() in the shell's
+ * simulator, firmware/export/system.h); power_sleep() refuses while it
+ * is not zero (power_sleep-pp502x.c), and so does sim_sleep_refusal().
+ * The sim's threads run one at a time: a plain counter */
+static int sim_boost_count;
+
+void sim_cpu_boost(bool on_off)
+{
+    if (on_off)
+        sim_boost_count++;
+    else if (--sim_boost_count < 0)
+        sim_boost_count = 0;            /* system.c's safety measure */
+}
+
+int sim_cpu_boost_counter(void)
+{
+    return sim_boost_count;
+}
+
 static void post(struct sev e)
 {
     if (ring_wr - ring_rd < RING)
@@ -254,6 +274,8 @@ static enum sleep_wake on_warp(struct sleep_core_state *st,
 
 int sim_sleep_refusal(void)
 {
+    if (sim_boost_count != 0)
+        return SLEEP_REFUSE_BOOST;      /* as power_sleep(): any holder */
     if (pll_hold_until && TIME_BEFORE(current_tick, pll_hold_until))
         return SLEEP_REFUSE_BOOST;
     pll_hold_until = 0;
@@ -457,7 +479,8 @@ bool sim_cmd_sleep(const char *cmd, char *argv[], int argc, int lineno)
         && strcmp(cmd, "wheel_touch") && strcmp(cmd, "expect_sleep")
         && strcmp(cmd, "sleep_expect") && strcmp(cmd, "alarm_in")
         && strcmp(cmd, "idle_poweroff") && strcmp(cmd, "sleep_mode")
-        && strcmp(cmd, "power_cut") && strcmp(cmd, "pll_hold"))
+        && strcmp(cmd, "power_cut") && strcmp(cmd, "pll_hold")
+        && strcmp(cmd, "expect_boost"))
         return false;
 #ifndef HAVE_IPOD_UI
     (void)argv; (void)argc;
@@ -525,6 +548,30 @@ bool sim_cmd_sleep(const char *cmd, char *argv[], int argc, int lineno)
         sim_sleep_mode = !strcmp(argv[1], "soft") ? 1
                        : !strcmp(argv[1], "off") ? 0 : -1;
         fprintf(stderr, "sim_script: sleep_mode %s\n", argv[1]);
+    }
+    else if (!strcmp(cmd, "expect_boost"))
+    {
+        /* p081-pageboost: "expect_boost N[+] [ms]": the boost count
+         * (every holder, as the device's) is N (N+: at least N) within
+         * ms (default 0: now) */
+        int want = atoi(argv[1]);
+        bool least = argv[1][0] && argv[1][strlen(argv[1]) - 1] == '+';
+        long wait_ms = argc > 2 ? atol(argv[2]) : 0, waited = 0;
+        bool ok;
+
+        while (!(ok = least ? sim_boost_count >= want
+                            : sim_boost_count == want)
+               && waited < wait_ms)
+        {
+            sleep(HZ / 20);
+            waited += 50;
+        }
+        if (ok)
+            fprintf(stderr, "sim_script: expect_boost ok: %s count %d "
+                    "after %ld ms\n", argv[1], sim_boost_count, waited);
+        else
+            fprintf(stderr, "sim_script:%d: expect_boost failed: want %s, "
+                    "count %d\n", lineno, argv[1], sim_boost_count);
     }
     else if (!strcmp(cmd, "pll_hold"))
     {

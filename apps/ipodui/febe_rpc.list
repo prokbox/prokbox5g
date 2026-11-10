@@ -145,6 +145,7 @@ lcd_awake
 lcd_sleep
 lib_shuffle_active
 lib_shuffle_idle
+lib_shuffle_lap_pos
 lib_shuffle_mode
 lib_shuffle_note_book
 lib_shuffle_resumed_book
@@ -207,6 +208,7 @@ rbfs_lseek
 rbfs_mkdir
 rbfs_open
 rbfs_opendir
+rbfs_opendir_child
 rbfs_read
 rbfs_readdir
 rbfs_remove
@@ -233,6 +235,7 @@ tagcache_context_active
 tagcache_context_published
 tagcache_context_release
 tagcache_context_release_passive
+tagcache_dedicated_build
 tagcache_get_commit_step
 tagcache_get_stat
 tagcache_is_initialized
@@ -254,10 +257,13 @@ tagcache_ui_db_path_ctx
 tagcache_ui_disk_entries
 tagcache_ui_generation
 tagcache_ui_generation_ctx
+tagcache_ui_no_library
 tagcache_ui_numeric
 tagcache_ui_precompute_request
+tagcache_ui_progress
 tagcache_ui_save_spot
 tagcache_ui_scan_owed
+tagcache_ui_scans_ended
 tagcache_ui_seeks
 tagcache_ui_seeks_ctx
 tagcache_ui_sidecars

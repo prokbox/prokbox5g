@@ -64,6 +64,15 @@
         root + 'Music' + 'Artist' + 'Album' + 'Disc N' + filename */
 #define STATIC_PATHCOMP_NUM 6
 
+/* ProkBox (#243): file_internal.c caches folder lookups while a directory
+   walk runs (file_walk_cache()), the work dircache did before the shell
+   compiled it out. Native shell firmware only; build with
+   -DFILE_NO_WALK_CACHE to compare with upstream's lookups */
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER) && !defined(HAVE_DIRCACHE) \
+    && (CONFIG_PLATFORM & PLATFORM_NATIVE) && !defined(FILE_NO_WALK_CACHE)
+#define FILE_WALK_CACHE
+#endif
+
 /* unsigned value that will also hold the off_t range we need without
    overflow */
 #define file_size_t uint32_t

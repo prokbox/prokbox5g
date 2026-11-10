@@ -23,12 +23,17 @@
  *
  ****************************************************************************/
 #include <errno.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
+#ifdef DBGEN_HOST
+#include <strings.h>
+#endif
 #include <stdint.h>
 #ifdef DBGEN_HOST
 #include <fcntl.h>
 #include <unistd.h>
+#include <dirent.h>
 #include <sys/stat.h>
 #else
 #include "config.h"
@@ -36,9 +41,14 @@
 #include "dir.h"
 #endif
 #include "dbgen.h"
+#include "crcfast.h"
+#include "chaincheck.h"
 #ifndef DBGEN_HOST
 #include "safefile.h"
 #include "crc32.h"
+#endif
+#ifndef POWERCUT_POINT                  /* the host tests: no points */
+#define POWERCUT_POINT(point, path) do { } while (0)
 #endif
 
 #ifdef DBGEN_HOST
@@ -145,6 +155,22 @@ static uint32_t crc_add(uint32_t crc, const void *data, size_t bytes)
 
 static uint32_t crc(const void *p, size_t bytes)
 { return ~crc_add(~0u, p, bytes); }
+
+/* p081-bootload: a file's bytes, through the caller's tables if given */
+static uint32_t crc_bulk(const struct dbgen_ops *ops, uint32_t crc,
+                         const void *p, size_t bytes)
+{
+    return ops->crc ? crcfast_r(ops->crc, p, bytes, crc)
+                    : crc_add(crc, p, bytes);
+}
+
+/* p081-bootload: whole sectors a read (the scratch after the workspace is
+ * not a multiple of 512: a partial sector at each end cost an extra
+ * command per read through the file's sector cache) */
+static size_t io_chunk(size_t bytes)
+{
+    return bytes >= 1024 ? bytes & ~(size_t)511 : bytes;
+}
 
 static bool join(char *out, const char *dir, const char *name)
 {
@@ -279,12 +305,13 @@ static enum dbgen_result stamp_file(const char *path, bool immutable,
         rc = DBGEN_IO;
     uint32_t sum = ~0u;
     off_t pos = 0;
+    bytes = io_chunk(bytes);
     while (rc == DBGEN_OK && immutable && pos < end)
     {
         if (cancelled(ops)) { rc = DBGEN_CANCELLED; break; }
         size_t n = (uint64_t)(end - pos) < bytes ? (size_t)(end - pos) : bytes;
         if (read(fd, scratch, n) != (ssize_t)n) { rc = DBGEN_IO; break; }
-        sum = crc_add(sum, scratch, n);
+        sum = crc_bulk(ops, sum, scratch, n);
         pos += n;
     }
     if (rc == DBGEN_OK && flush && fsync(fd) < 0) rc = DBGEN_IO;
@@ -387,6 +414,38 @@ enum dbgen_result dbgen_select(const char *root, char out[DBGEN_PATH_MAX],
     return best >= 0 ? DBGEN_SALVAGED : result;
 }
 
+enum dbgen_result dbgen_select_quick(const char *root,
+    char out[DBGEN_PATH_MAX], void *scratch, size_t bytes,
+    const struct dbgen_ops *ops)
+{
+    if (out) out[0] = 0;
+    if (!out || !args_ok(root, scratch, bytes, ops)) return DBGEN_INVALID;
+    struct workspace *w = work_setup(&scratch, &bytes);
+    read_manifests(w, root, ops);
+    /* dbgen_select()'s first try: the newest intact manifest */
+    unsigned first = w->manifest[1].seq > w->manifest[0].seq ? 1 : 0, i;
+    if (w->status[first] == DBGEN_OK) i = first;
+    else if (w->status[first ^ 1] == DBGEN_OK) i = first ^ 1;
+    else return w->status[0] == DBGEN_MISSING && w->status[1] == DBGEN_MISSING
+                ? DBGEN_LEGACY : DBGEN_CORRUPT;
+    const struct manifest *m = &w->manifest[i];
+    char path[DBGEN_PATH_MAX];
+    if (!gen_path(path, root, m->gen)) return DBGEN_INVALID;
+    for (unsigned f = 0; f < ops->count; f++)
+    {
+        char file[DBGEN_PATH_MAX];
+        struct file_stamp stamp;
+        if (!join(file, path, ops->files[f].name)) return DBGEN_INVALID;
+        /* the size only: no content read */
+        enum dbgen_result rc = stamp_file(file, false, &stamp, scratch,
+                                          bytes, ops, false);
+        if (rc != DBGEN_OK) return rc;
+        if (stamp.bytes != m->file[f].bytes) return DBGEN_CORRUPT;
+    }
+    strcpy(out, path);
+    return DBGEN_OK;
+}
+
 static enum dbgen_result copy_file(const char *source, const char *dest,
     void *scratch, size_t bytes, const struct dbgen_ops *ops)
 {
@@ -404,7 +463,7 @@ static enum dbgen_result copy_file(const char *source, const char *dest,
         size_t n = (uint64_t)(end - pos) < bytes ? (size_t)(end - pos) : bytes;
         if (read(in, scratch, n) != (ssize_t)n
             || write(out, scratch, n) != (ssize_t)n) { rc = DBGEN_IO; break; }
-        source_sum = crc_add(source_sum, scratch, n);
+        source_sum = crc_bulk(ops, source_sum, scratch, n);
         pos += n;
     }
     if (rc == DBGEN_OK && fsync(out) < 0) rc = DBGEN_IO;
@@ -416,7 +475,7 @@ static enum dbgen_result copy_file(const char *source, const char *dest,
         if (cancelled(ops)) { rc = DBGEN_CANCELLED; break; }
         size_t n = (uint64_t)(end - pos) < bytes ? (size_t)(end - pos) : bytes;
         if (read(out, scratch, n) != (ssize_t)n) { rc = DBGEN_IO; break; }
-        dest_sum = crc_add(dest_sum, scratch, n);
+        dest_sum = crc_bulk(ops, dest_sum, scratch, n);
         pos += n;
     }
     if (rc == DBGEN_OK && source_sum != dest_sum) rc = DBGEN_CORRUPT;
@@ -496,6 +555,233 @@ static enum dbgen_result prepare_directory(const char *root, const char *active,
     return DBGEN_OK;
 }
 
+/* p081-fatdb: generations whose directory writes did not read back
+ * (bit per generation; RAM: a reboot re-checks the chains instead) */
+static uint8_t suspect;
+
+static void note(const struct dbgen_ops *ops, const char *fmt, ...)
+    __attribute__((format(printf, 2, 3)));
+static void note(const struct dbgen_ops *ops, const char *fmt, ...)
+{
+    char line[64];
+    va_list ap;
+    if (!ops->note) return;
+    va_start(ap, fmt);
+    vsnprintf(line, sizeof(line), fmt, ap);
+    va_end(ap);
+    ops->note(line);
+}
+
+static const char *base(const char *path)
+{
+    const char *b = strrchr(path, '/');
+    return b ? b + 1 : path;
+}
+
+static void mark_suspect(const char *root, const char *dir)
+{
+    char g[DBGEN_PATH_MAX];
+    for (unsigned gen = 0; gen <= DBGEN_RECOVERY; gen++)
+        if (gen_path(g, root, gen) && !strcmp(g, dir))
+            suspect |= 1u << gen;
+}
+
+/* the size path has by name, read from the medium; -1 absent, -2 error */
+static long size_by_name(const char *path)
+{
+    int fd = open(path, O_RDONLY);
+    if (fd < 0) return errno == ENOENT ? -1 : -2;
+    off_t end = lseek(fd, 0, SEEK_END);
+    close(fd);
+    return end < 0 ? -2 : (long)end;
+}
+
+enum dbgen_result dbgen_readback_size(const char *root, const char *path,
+    long expected, const struct dbgen_ops *ops)
+{
+    if (!root || !path || !ops || !ops->drop) return DBGEN_OK;
+    ops->drop();
+    return dbgen_readback_check(root, path, expected, size_by_name(path),
+                                ops);
+}
+
+enum dbgen_result dbgen_readback_check(const char *root, const char *path,
+    long expected, long got, const struct dbgen_ops *ops)
+{
+    if (got == expected || !root || !path || !ops) return DBGEN_OK;
+    char dir[DBGEN_PATH_MAX];
+    snprintf(dir, sizeof(dir), "%s", path);
+    char *slash = strrchr(dir, '/');
+    if (slash) *slash = 0;
+    note(ops, "dir readback e%ld g%ld %s", expected, got, base(path));
+    mark_suspect(root, dir);
+    return DBGEN_READBACK;
+}
+
+/* after prepare's removes: every declared name gone, read from the medium
+ * (one listing). A name still there is logged, the directory kept as it
+ * is and marked (the next prepare sets it aside) */
+static enum dbgen_result readback_removed(const char *root, const char *dir,
+    const struct dbgen_ops *ops)
+{
+    if (!ops->drop) return DBGEN_OK;
+    ops->drop();
+    DIR *d = opendir(dir);
+    if (!d) return errno == ENOENT ? DBGEN_OK : DBGEN_IO;
+    bool bad = false;
+    struct dirent *e;
+    while ((e = readdir(d)) != NULL)
+        for (unsigned i = 0; i < ops->count; i++)
+            if (!strcasecmp(e->d_name, ops->files[i].name))
+            {
+                char path[DBGEN_PATH_MAX];
+                long got = join(path, dir, e->d_name)
+                         ? size_by_name(path) : -2;
+                note(ops, "dir readback e-1 g%ld %s", got, e->d_name);
+                bad = true;
+            }
+    closedir(d);
+    if (!bad) return DBGEN_OK;
+    mark_suspect(root, dir);
+    return DBGEN_READBACK;
+}
+
+/* dbgen_prepare()'s clone, read back after one drop: each copied file
+ * by name at its source's size, each uncopied declared name gone */
+static enum dbgen_result readback_removed_uncopied(const char *root,
+    const char *active, const char *dir, const struct dbgen_ops *ops)
+{
+    bool bad = false;
+    ops->drop();
+    for (unsigned i = 0; i < ops->count; i++)
+    {
+        char src[DBGEN_PATH_MAX], dst[DBGEN_PATH_MAX];
+        if (!join(dst, dir, ops->files[i].name)
+            || !join(src, active, ops->files[i].name)) return DBGEN_INVALID;
+        long want = ops->files[i].copy ? size_by_name(src) : -1;
+        long got = size_by_name(dst);
+        if (want == -2 || got == -2) return DBGEN_IO;
+        if (got != want)
+        {
+            note(ops, "dir readback e%ld g%ld %s", want, got,
+                 ops->files[i].name);
+            bad = true;
+        }
+    }
+    if (!bad) return DBGEN_OK;
+    mark_suspect(root, dir);
+    return DBGEN_READBACK;
+}
+
+#define GUARD_RUNS 4             /* per file: the runs compared */
+#define GUARD_ASIDE 10           /* database_aside0..9 */
+
+/* a rename moves the entry only (no cluster freed); then, with remake,
+ * dir afresh. The set-aside directory keeps every file as it was, for an
+ * image later */
+static enum dbgen_result set_aside(const char *root, const char *dir,
+    bool remake, const struct dbgen_ops *ops)
+{
+    for (unsigned i = 0; i < GUARD_ASIDE; i++)
+    {
+        char aside[DBGEN_PATH_MAX], name[24];
+        snprintf(name, sizeof(name), "database_aside%u", i);
+        if (!join(aside, root, name)) return DBGEN_INVALID;
+        if (rename(dir, aside) == 0)
+        {
+            note(ops, "gen aside%u %s", i, base(dir));
+            if (!remake) return DBGEN_OK;
+#ifdef DBGEN_HOST
+            int rc = mkdir(dir, 0777);
+#else
+            int rc = mkdir(dir);
+#endif
+            return rc < 0 && errno != EEXIST ? DBGEN_IO : DBGEN_OK;
+        }
+        if (errno != EEXIST) return errno == ENOENT ? DBGEN_OK : DBGEN_IO;
+    }
+    return DBGEN_BUSY;          /* ten set aside already: never clear one */
+}
+
+/* the next prepare after a read-back mismatch: each marked generation
+ * (never the active one) is set aside before anything else runs */
+static enum dbgen_result aside_suspects(const char *root, const char *active,
+    const struct dbgen_ops *ops)
+{
+    for (unsigned gen = 0; gen <= DBGEN_RECOVERY; gen++)
+    {
+        char dir[DBGEN_PATH_MAX];
+        if (!(suspect & (1u << gen)) || !gen_path(dir, root, gen)) continue;
+        if (!strcmp(dir, active)) { suspect &= ~(1u << gen); continue; }
+        enum dbgen_result rc = set_aside(root, dir, false, ops);
+        if (rc != DBGEN_OK) return rc;
+        suspect &= ~(1u << gen);
+    }
+    return DBGEN_OK;
+}
+
+static bool runs_overlap(const uint32_t *a, int na, const uint32_t *b, int nb)
+{
+    for (int i = 0; i < na; i++)
+        for (int j = 0; j < nb; j++)
+            if (a[2 * i] < b[2 * j] + b[2 * j + 1]
+                && b[2 * j] < a[2 * i] + a[2 * i + 1])
+                return true;
+    return false;
+}
+
+/* p081-fatdb (dbgen.h, ops->chain): before anything in dir is removed or
+ * truncated. Every file in it (declared or not: the tagcache's temp and
+ * import files are removed there too) must have a chain that reads
+ * cleanly, and none may share a cluster with another. A damaged
+ * directory is renamed aside under the root and dir made afresh: nothing
+ * in it is ever removed through (a remove frees whatever the chain links
+ * into, another file's data or a directory's entries). Files whose runs
+ * do not fit the scratch, or that have more than GUARD_RUNS runs, are
+ * still checked one by one but not compared. */
+static enum dbgen_result guard_directory(const char *root, const char *dir,
+    void *scratch, size_t bytes, const struct dbgen_ops *ops)
+{
+    if (!ops->chain) return DBGEN_OK;
+    uintptr_t p = ((uintptr_t)scratch + 3) & ~(uintptr_t)3;
+    size_t room = bytes > (p - (uintptr_t)scratch)
+                ? bytes - (p - (uintptr_t)scratch) : 0;
+    const size_t per = (2 * GUARD_RUNS + 1) * sizeof(uint32_t);
+    uint32_t *store = (uint32_t *)p;    /* [nruns, runs...] per file */
+    unsigned kept = 0, cap = room / per;
+    bool damaged = false;
+    DIR *d = opendir(dir);
+    if (!d) return errno == ENOENT ? DBGEN_OK : DBGEN_IO;
+    struct dirent *e;
+    while (!damaged && (e = readdir(d)) != NULL)
+    {
+        char path[DBGEN_PATH_MAX];
+        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
+        if (!join(path, dir, e->d_name)) { closedir(d); return DBGEN_INVALID; }
+        uint32_t *slot = kept < cap ? store + kept * (2 * GUARD_RUNS + 1)
+                                    : NULL;
+        uint32_t spare[2 * GUARD_RUNS];
+        int n = 0;
+        int rc = ops->chain(path, slot ? slot + 1 : spare, GUARD_RUNS, &n);
+        if (rc == CHAIN_UNREADABLE) { closedir(d); return DBGEN_IO; }
+        if (rc == CHAIN_DAMAGED) { damaged = true; break; }
+        if (rc != CHAIN_OK || !slot || n <= 0) continue;
+        for (unsigned i = 0; i < kept && !damaged; i++)
+        {
+            uint32_t *o = store + i * (2 * GUARD_RUNS + 1);
+            damaged = runs_overlap(slot + 1, n, o + 1, (int)o[0]);
+        }
+        if (damaged)
+            note(ops, "gen chain shared c%lx %s", (unsigned long)slot[1],
+                 e->d_name);
+        slot[0] = (uint32_t)n;
+        kept++;
+    }
+    if (closedir(d) < 0) return DBGEN_IO;
+    if (!damaged) return DBGEN_OK;
+    return set_aside(root, dir, true, ops);
+}
+
 int32_t dbgen_newest_commit(const char *root, void *scratch, size_t bytes,
                             const struct dbgen_ops *ops)
 {
@@ -519,11 +805,15 @@ enum dbgen_result dbgen_prepare_empty(const char *root, const char *active,
     read_manifests(w, root, ops);
     if (w->status[0] == DBGEN_IO || w->status[1] == DBGEN_IO) return DBGEN_IO;
     if (cancelled(ops)) return DBGEN_CANCELLED;
+    enum dbgen_result kept = aside_suspects(root, active, ops);
+    if (kept != DBGEN_OK) return kept;
     /* A torn manifest may still name a retained directory. Its unknown
      * ownership is NOT permission to recycle a directory with content. */
     enum dbgen_result result = prepare_directory(root, active, out, w,
         w->status[0] == DBGEN_CORRUPT || w->status[1] == DBGEN_CORRUPT, ops);
     if (result != DBGEN_OK) return result;
+    result = guard_directory(root, out, scratch, bytes, ops);
+    if (result != DBGEN_OK) { out[0] = 0; return result; }
     for (unsigned i = 0; i < ops->count; i++)
     {
         char dest[DBGEN_PATH_MAX];
@@ -533,7 +823,9 @@ enum dbgen_result dbgen_prepare_empty(const char *root, const char *active,
         if (remove(dest) < 0 && errno != ENOENT)
         { out[0] = 0; return DBGEN_IO; }
     }
-    return DBGEN_OK;
+    result = readback_removed(root, out, ops);
+    if (result != DBGEN_OK) out[0] = 0;
+    return result;
 }
 
 enum dbgen_result dbgen_prepare(const char *root, const char *active,
@@ -544,6 +836,8 @@ enum dbgen_result dbgen_prepare(const char *root, const char *active,
     if (!out || !active || !args_ok(root, scratch, bytes, ops)) return DBGEN_INVALID;
     struct workspace *w = work_setup(&scratch, &bytes);
     read_manifests(w, root, ops);
+    enum dbgen_result kept = aside_suspects(root, active, ops);
+    if (kept != DBGEN_OK) return kept;
     /* A torn manifest and no intact one (a salvaged library running): the
      * torn one may reference any directory, so only an empty one is
      * scratch. An intact manifest's generation is the protected one; a
@@ -575,6 +869,9 @@ enum dbgen_result dbgen_prepare(const char *root, const char *active,
     if (missing && (missing != copied || strcmp(active, root)
         || w->status[0] != DBGEN_MISSING || w->status[1] != DBGEN_MISSING))
     { out[0] = 0; return DBGEN_MISSING; }
+    /* before the first remove or O_TRUNC in out (copy_file) */
+    prepared = guard_directory(root, out, scratch, bytes, ops);
+    if (prepared != DBGEN_OK) { out[0] = 0; return prepared; }
     for (unsigned i = 0; i < ops->count; i++)
     {
         char source[DBGEN_PATH_MAX], dest[DBGEN_PATH_MAX];
@@ -597,7 +894,16 @@ enum dbgen_result dbgen_prepare(const char *root, const char *active,
             return result;
         }
     }
-    return DBGEN_OK;
+    if (missing == copied)
+        prepared = readback_removed(root, out, ops);
+    else if (ops->drop)
+    {
+        /* the clone: every copy by name at its source's size, from the
+         * medium; the removed (uncopied) names gone */
+        prepared = readback_removed_uncopied(root, active, out, ops);
+    }
+    if (prepared != DBGEN_OK) out[0] = 0;
+    return prepared;
 }
 
 enum dbgen_result dbgen_stage_publish(const char *root, const char *candidate,
@@ -692,10 +998,14 @@ enum dbgen_result dbgen_finish_publish(struct dbgen_publication *publication)
      * rename-over leaves two entries). The OTHER manifest and its
      * complete generation stay untouched and are the recovery: a cut
      * between the two leaves only them, and select picks them. */
+    POWERCUT_POINT("db.written", publication->destination);
     if (remove(publication->destination) < 0 && errno != ENOENT)
         return DBGEN_IO;
-    return rename(publication->temporary, publication->destination) == 0
-           ? DBGEN_OK : DBGEN_IO;
+    POWERCUT_POINT("db.removed", publication->destination);
+    if (rename(publication->temporary, publication->destination) != 0)
+        return DBGEN_IO;
+    POWERCUT_POINT("db.renamed", publication->destination);
+    return DBGEN_OK;
 }
 
 void dbgen_recover(const char *root)

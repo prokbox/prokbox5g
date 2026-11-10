@@ -158,6 +158,21 @@ static inline long ui_usb_io_wake(const struct ui_usb_io *s, long now)
     return next > 0 ? next : 1;
 }
 
+/* #157: the disc with the ejected pictogram (connector and down arrow)
+ * at its usual place, straight into the framebuffer (no push): the
+ * "OK to Disconnect" page after the unplug (updscreen.c) */
+void ui_usb_eject_disc(void);
+/* #237: the same disc with the sync arrows standing still: the library
+ * page of a first build (updscreen.c). UI thread. */
+void ui_usb_sync_disc(void);
+/* #157: the last USB session saw a WRITE from the host (the session's
+ * counters; the simulator: always). A session without one leaves no
+ * library work worth the page. */
+bool ui_usb_host_wrote(void);
+/* Bold title baseline and second line baseline under the disc */
+#define UI_USB_TEXT1_BASE   187
+#define UI_USB_TEXT2_BASE   205
+
 /* The arrows' state now (the screen's own detector, stepped) */
 bool ui_usb_io_active(void);
 /* true only while ui_usb_screen_loop() runs: the unlit "skip usb" test

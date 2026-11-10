@@ -1,0 +1,59 @@
+# #237: a first boot with no library shows the full-screen library page
+# ("Preparing Your Library", the disc with the sync arrows standing
+# still, the bar filling with the build, the step in plain words) until
+# the library is built and loaded, then the main menu with the music.
+# Keys, the wheel and hold MENU do nothing meanwhile. A second boot, with
+# the library there, shows no page.
+# Red on 0.8.0's code: no page (no "upd push"), the main menu during the
+# build and an empty Music menu in "during".
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-firstbuild-page.script
+# needs: library
+# fresh-db
+# timeout: 240
+# golden: skip
+# nolog: upd bar back
+# nolog: upd stuck
+# logbetween: b0 b1 library page at boot: no library
+# logbetween: b0 b1 upd push mode=boot
+# logbetween: b0 b1 upd draw bar=([1-9]\d\d) step=2
+# logbetween: b0 b1 upd key ignored
+# logbetween: b0 b1 no upd done
+# logbetween: b0 b1 no hold MENU: to the main menu
+# logbetween: b1 b2 upd draw bar=1000
+# logbetween: b1 b2 upd done ms=
+# logbetween: b1 b2 upd dedicated depth=0
+# logbetween: n0 n1 library page at boot: library
+# logbetween: n0 n1 no upd push
+
+ab_mark b0
+scan_slow 3         # every folder 30 ms: the build lasts seconds
+wait 2500
+shot page_early     # the page, the bar part-way, "Adding your songs..."
+key SELECT          # all ignored while the library is made
+wheel +3
+key MENU
+hold MENU 1500
+key PLAY
+wait 1000
+shot during         # still the page, the bar further on
+ab_mark b1
+wait_db 60000
+wait 3000
+shot menu_after     # the main menu
+ab_mark b2
+scan_slow 0
+key SELECT          # Music
+wait 600
+wheel +1            # Artists
+wait 300
+key SELECT
+wait 800
+shot artists        # the freshly built library
+reboot
+# A boot with the library there: no page
+ab_mark n0
+wait 4000
+wait_db 30000
+shot normal_boot    # the main menu straight away
+ab_mark n1
+quit

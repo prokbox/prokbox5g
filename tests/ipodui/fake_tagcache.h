@@ -52,6 +52,9 @@ extern int fake_alloc_fail;             /* the next N core_alloc()s fail */
 extern int fake_regrows;                /* audio_buffer_regrow() calls */
 
 extern char fake_last_open[256], fake_last_pre[256], fake_last_pin[256];
+extern int fake_uilog_lines;            /* #230 */
+extern char fake_last_uilog[128];
+extern long fake_ticks_per_yield;
 extern int fake_numeric_calls, fake_yields, fake_boost, fake_trace_rows;
 extern int fake_pl_n, fake_pl[], fake_pl_start, fake_pl_shuffled;
 extern unsigned long fake_pl_elapsed;

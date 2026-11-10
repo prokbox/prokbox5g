@@ -1,0 +1,12 @@
+# #225: a synced library's first run (tests/perf/ipodctl_sim.sh): the
+# first build (scan + commit), the art builder's first pass, then one
+# track added (the post-change pass re-checks every album's sources).
+# golden: skip done
+# timeout: 7200
+wait 4000
+wait_db 3000000
+art_wait 3000000
+copy ../ui/fixtures/refresh.mp3 /iPod_Control/Music/F00/ZZZZ.mp3
+update_db_wait_change 3000000
+art_wait 3000000
+shot done

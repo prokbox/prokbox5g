@@ -105,6 +105,37 @@ for fixture in $FIXTURES; do
     fi
 done
 
+# p081: the chapter count comes from the first metadata parse, which stops
+# at the media data that follows a 'moov' it has read. Every m4b fixture
+# keeps 'moov' at the end; the same files with 'moov' first
+# (tests/audiobook/faststart.py moves it and shifts the chunk offsets) must
+# give the same chapter lines.
+fs_n=0
+for fixture in $FIXTURES; do
+    case "$fixture" in *.m4b) ;; *) continue ;; esac
+    name=${fixture%.*}
+    if ! python3 tests/audiobook/faststart.py "tests/fixtures/$fixture" \
+            "$TMP/fs.m4b" 2>"$TMP/err.txt" \
+       || ! "$WARBLE" -m "$TMP/fs.m4b" >"$TMP/raw.txt" 2>>"$TMP/err.txt"; then
+        echo "FAIL $fixture (moov first): could not rewrite or parse" >&2
+        cat "$TMP/err.txt" >&2
+        fail=1
+        continue
+    fi
+    sed -n '/^Audiobook:/,$p' "$TMP/raw.txt" >"$TMP/fs.txt"
+    if diff -u "$GOLDEN/$name.txt" "$TMP/fs.txt"; then
+        echo "PASS $fixture (moov first)"
+        fs_n=$((fs_n + 1))
+    else
+        echo "FAIL $fixture (moov first)" >&2
+        fail=1
+    fi
+done
+if [ "$fs_n" -eq 0 ]; then
+    echo "FAIL moov-first: no m4b fixture checked" >&2
+    fail=1
+fi
+
 # Now Playing's "N of M" and snap scrub (apps/ipodui/np_scrub.c) on the
 # real 648-chapter parse, in a chapter table of the shell's size.
 if [ -z "${HOSTCC:-}" ]; then

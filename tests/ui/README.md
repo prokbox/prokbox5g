@@ -429,6 +429,30 @@ books.idx|books.pak.tmp`.
     expect_ab_pak_same <ms>
     expect_ab_pak_changed <ms>
 
+`powercut now` (#237) kills the simulator at that line, whatever runs (a
+library build mid-walk), with no close, flush or shutdown, and logs
+`powercut hit now`; follow it with `reboot` (`ipodui-firstbuild-powercut`).
+The library page's scripts (`ipodui-firstbuild-*`, `ipodui-upd-unplug`)
+assert its trace (`upd push mode=`, `upd draw bar= step=`, `upd done`,
+`upd dedicated depth=0`) with `# logbetween:`.
+
+`powercut at <point> [file]` (#177, sim-fidelity S2; `sim_cmd_sys.c`,
+`filesystem-sim.c`) kills the simulator the first time the code passes that
+named write point (no close, no flush, no shutdown) and logs `powercut hit
+<point> <file>`; a part that ends without it logs `powercut <point> not
+reached`. With `IPODUI_FSTRACE` set, every point passed is a `point` line in
+the trace and the cut a `powercut` line; `tests/fatcrash/powercut.sh` runs
+the cases and `tests/fatcrash/fsreplay cut` checks the FAT image a cut after
+every storage write of the window leaves. Points (`POWERCUT_POINT()`,
+`apps/ipodui/safefile.h`; file = the destination's name):
+`art.written`, `art.prev_gone`, `art.moved`, `art.renamed` (artfmt.c
+`artfile_publish()`), `art.panels.begin`, `.staged`, `.sealed`, `.slot`,
+`.commit` (artcache.c, panels.pak), `save.written`, `.prev_gone`, `.moved`,
+`.renamed`, `.done` (safefile.c: books.dat, panelpool.idx, the database
+journal, OTG, playlists), `cfg.written`, `.moved`, `.renamed` (cfgsafe.c:
+config.cfg, .resume.cfg), `db.written`, `db.removed`, `db.renamed`
+(dbgen.c, the database manifest).
+
 `ab_power_cut` damages a file the way a power cut leaves it. `exit` applies
 the damage **after** the clean shutdown's own flush (at process exit, so a
 `reboot` boots on it); `now` applies it at once. Kinds: `store_tmp`
@@ -693,6 +717,8 @@ simulator (so `validate.sh` gets it too). Sim-only knobs of the shell:
 | `IPODUI_NO_STRIP=1` | the offscreen strip allocation fails (apps/ipodui/anim.c), so lists snap and push/pop redraw in full, as on a device out of memory |
 | `IPODUI_SIM_BATT_MV=<mV>` | pins the battery at that raw voltage from power-on (uisimulator/common/powermgmt-sim.c), until a `battery` command: the boot battery guard's scripts (`ipodui-p16-bootbatt-*`) |
 | `IPODUI_SIM_CHARGER=1` | boots with the charger plugged (powermgmt-sim.c) |
+| `SIM_DIGEST_SLOW_MS=<ms>` | that much sleep spread over the boot digest's first folders, at most 400 ms each (apps/ipodui/bootstamp.c), the device's directory reads, so it outlasts the boot window whatever the library's size: `ipodui-p081-bootwalk-bg` |
+| `SIM_SCAN_SLOW_MS=<ms>` | that much sleep spread over each boot's first walked folders, at most 200 ms each (uisimulator/common/sim_cmd_scan.c), so a boot's own walk lasts a while: `ipodui-p081-bootwalk-bg` |
 | `IPODUI_SIM_CHARGER_AT_MS=<ms>` | the charger goes in that many ms after the boot guard's first reading (powermgmt-sim.c): `ipodui-p16-bootbatt-plug` |
 | `IPODUI_SIM_DRAINED=0\|1\|missing\|empty` | the boot guard's drained latch record (or none, or a 0-byte one), written at boot before the guard reads it (apps/ipodui/bootbatt.c); unset, the sim has no latch (a record one script leaves never decides another's boot): `ipodui-p16-bootbatt-*` |
 | `IPODUI_SIM_DRAIN_AT_MS=<ms>` | the cell reads 1,000 mV (or `IPODUI_SIM_DRAIN_MV=<mV>`) that many ms after power-on: the low-battery shutdown within seconds, or a slow fall to 0 % (powermgmt-sim.c): `ipodui-p16-bootbatt-latch-{set,shutdown}` |
@@ -1317,11 +1343,19 @@ partial legacy root, damaged journal, bounded retries) across 12 boots.
 ## Audio-buffer floor and measurement commands (Phase 16-A / 16-0)
 
 Defined in `uisimulator/common/sim_cmd_floor.{c,h}`; used by
-`tests/perf/floor-50k.script` through `tests/perf/floor_gate.sh [32|64]`
-(also run by `scripts/validate.sh`, step "audio buffer floor"; `FLOOR_GATE=0`
-skips it). The floor is 7,500,000 B (32 MB unit, `build/sim-ui32`) and
-39,000,000 B (64 MB unit, `build/sim-ui`) for `audio_buffer_size()` at 50k
-tracks (`docs/hardware.md`, budget rules).
+`tests/perf/floor-50k.script` (32 MB) and `tests/perf/floor-65k.script`
+(64 MB) through `tests/perf/floor_gate.sh [32|64]` (also run by
+`scripts/validate.sh`, step "audio buffer floor"; `FLOOR_GATE=0` skips it).
+Each unit runs at its stress ceiling (owner, #229; `tests/perf/stress_size.sh`):
+the 32 MB unit (`build/sim-ui32`) at 50k tracks against 7,500,000 B, the
+64 MB unit (`build/sim-ui`) at 65k against 39,000,000 B, for
+`audio_buffer_size()` (`docs/hardware.md`, budget rules). Measured
+2026-11-09: minimum over all cases 11,299,712 B (32 MB, 50k) and
+40,143,144 B (64 MB, 65k). At 65k on 64 MB the paused window does not fit
+the update's commit (need 10,921,920 B): floor-65k.script expects it to
+wait (`expect_db_same` while paused) and commit at the stop
+(`expect_db_grew` after `audio_stop`). `FLOOR_K_32=65` runs the 32 MB unit
+at 65k, a red run (#229).
 
     floor <label>                  log the buffer now, fail below the floor
     floor_watch begin [timeline]   a host thread keeps the minimum buffer
@@ -1343,7 +1377,7 @@ ring is not measured (it is taken only while audio is idle).
 Report scripts (not gates): `tests/perf/scan_trace.sh` (where a no-change
 scan goes; needs the devmode `scantrace` lines, `docs/research/p16-measure-0.md`),
 `tests/perf/commit_peak.sh` (free heap per commit phase) and the resume
-stand-in `tests/perf/resume-shrink-50k.script` (run by `floor_gate.sh`).
+stand-in `tests/perf/resume-shrink.script` (run by `floor_gate.sh`).
 
 ## The paused maintenance window (Phase 16-1, #88)
 
@@ -1387,9 +1421,9 @@ statistics event (tagtree.c); the window's silent restart sends none.
 | `ipodui-p16-take-boundary` | `maint_try` B then `core_alloc(B)`: no second shrink; the buffer grows back after the jobs (`take job=regrow ok=1`) |
 | `ipodui-p16-window-lit` | charging, lit, no key: closed; dark: open |
 | `ipodui-p16-tenant-ends` | a queue's transient (`dbq`) and a commit take one window; the commit ends unfit: no regrow while the queue holds; after it, the regrow gives every byte back (`expect_audio_back ok`) |
-| `tests/perf/resort-play-50k.script` | 50k, both units (`resort_play_check.sh`): PLAY right after a stopped commit, and during its publication (`commit_hold 100`): the candidate yields its RAM (and its prepared lookup, `stats=1`), publishes at the stop |
+| `tests/perf/resort-play.script` | both units at their ceilings (32 MB 50k, 64 MB 65k) (`resort_play_check.sh`): PLAY right after a stopped commit, and during its publication (`commit_hold 100`): the candidate yields its RAM (and its prepared lookup, `stats=1`), publishes at the stop |
 | `tests/perf/resort-pause-50k.script` | 32 MB, 50k: a yielded candidate whose reload does not fit in a paused window: no master index open (`expect_db_opens 1`), no take, the regrow not held off; published at the stop |
-| `tests/perf/floor-50k.script` (hook) | 50k, both units: the window's commit lands paused; `floor after_shrink` / `after_shrink_play` and the watch stay >= the floor |
+| `tests/perf/floor-50k.script` (hook) | 32 MB, 50k: the window's commit lands paused (at 65k on 64 MB, `floor-65k.script`, it waits for the stop); `floor after_shrink` / `after_shrink_play` and the watch stay >= the floor |
 | `tests/perf/paused-floor-wait-50k.script` | 32 MB, 50k, buffer 6 MB smaller: the window refuses (`wait floor`), takes nothing; the update commits at the stop (`floor_gate.sh` checks it) |
 
 Phase 16-2 (#89/#87, `sim_cmd_maint.c`): the no-change boot.
@@ -1425,6 +1459,8 @@ decision (`boot stamp walk=<0|1> why=<reason>`; reasons in `bootstamp_core.c`
 | `ipodui-p16-boot-rebuild` | Rebuild Cache in a trusted boot walks and restarts the count |
 | `ipodui-boot-settle` | npfix: the stamp is written once a completed walk settles (`boot stamp settle=1 skipped=0`); a crash after it (`boot_crash`) trusts it at the next boot |
 | `ipodui-p16-boot-dirty-held` | `-dirty-playing`'s cut commit with the boot hold: the boot walks, the window ends in ≤ 1.5 s (never the 3 s cap), music resumes after |
+| `ipodui-p081-bootwalk-first` | p081: the session that builds a fresh library leaves a stamp (`settle=1`), so a crash after it trusts it at the next boot (was `nowalk`, then "nostamp") |
+| `ipodui-p081-bootwalk-bg` | p081: a digest slower than the window (`SIM_DIGEST_SLOW_MS`) finishes behind it and trusts (`bg=1`, never "slow"); a power-off during it writes the stamp back (`off=1`) and the next boot trusts; a track added during it is in the library within two boots; a removal walks ("digest"); tracks started under the boosted walk and the background digest play without an underrun; every `db boost` hold ends |
 
 ## Phase 12: the PMU alarm stub, the piezo trace and the Extras rules (`docs/phase12-brief.md` 3.6, 9)
 
@@ -1518,7 +1554,7 @@ counters, `alarm_boot` across a `reboot` part.
 **Floor gate.** `tests/perf/floor_gate.sh` counts the module arena at the
 real `MOD_ARENA_SIZE` (largest value in `apps/ipodui/modload.h`, read by
 `tests/perf/arena_size.py`; override `FLOOR_ARENA`) instead of the 64 KB
-placeholder, and `floor-50k.script` gains `p12_arena_tenant`,
+placeholder, and both floor scripts (`floor-50k`, `floor-65k`) gain `p12_arena_tenant`,
 `p12_arena_extra_open` (plus the resident build's Extra-open transient,
 `FLOOR_EXTRA_WORK`, default 32768 B) and `worst_stack_p12` (all the
 reservations at once). Receipts: `floor p12_...` lines in

@@ -4,7 +4,7 @@
 # keeps its buffer (a paused shrink refuses this thread), so the old
 # track stops first (reserve=stop) and the new queue holds every row;
 # no paused-shrink refusal, no window, nothing shown.
-# (The 50k cases are in tests/perf/floor-50k.script: snapshot_play is
+# (The 65k cases are in tests/perf/floor-65k.script: snapshot_play is
 # lib_play() of Songs row 0.)
 #   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-dbq-playall.script
 # needs: library

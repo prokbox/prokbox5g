@@ -737,7 +737,7 @@ static void test_precompute(void)
  * books and shows: every category the same from the file as scanned */
 #define MID_N 3000
 static struct fake_entry mid[MID_N];
-static char mid_s[MID_N][4][40];
+static char mid_s[MID_N][5][40];
 
 static void test_precompute_mid(void)
 {
@@ -755,6 +755,8 @@ static void test_precompute_mid(void)
         snprintf(mid_s[i][1], 40, ar % 3 ? "Artist %d" : "ARTIST %d", ar);
         snprintf(mid_s[i][2], 40, al % 5 ? "Album %d" : "album %d", al);
         snprintf(mid_s[i][3], 40, "/Music/d%d/f%d.mp3", al, i);
+        /* #230: composers vary within an album, with case variants */
+        snprintf(mid_s[i][4], 40, i % 7 ? "Comp %d" : "COMP %d", i % 13);
         if (i % 97 == 0)
             g = genres[5];
         else if (i % 89 == 0)
@@ -762,7 +764,7 @@ static void test_precompute_mid(void)
         mid[i] = (struct fake_entry){ mid_s[i][0], mid_s[i][1],
             al % 23 == 0 ? NULL : mid_s[i][2],
             al % 11 == 0 ? "Various Artists" : (al % 4 ? NULL : mid_s[i][1]),
-            g, i % 3 ? "Comp" : NULL, mid_s[i][3], 1 + i % 2, i % 13,
+            g, i % 3 ? mid_s[i][4] : NULL, mid_s[i][3], 1 + i % 2, i % 13,
             1000 + i, i, 0, 0, i % 211 == 0, 0 };
     }
     fake_db_load(mid, MID_N);
@@ -780,6 +782,169 @@ static void test_precompute_mid(void)
     for (i = 0; i < lib_count(v); i++)
         CHECK(lib_art_key(v, i) != 0, "album row %d without a key", i);
     lib_close(v);
+}
+
+/* #230: every composer's and every genre's albums from the precomputed
+ * ranges (the group's list open) equal the scan's (the list closed): rows,
+ * counts and keys; the mid library (composers that change within an
+ * album, case variants, untagged tracks). Returns the groups compared. */
+#define GS_GROUPS 64
+#define GS_ROWS 256
+static int gs_rows[GS_GROUPS][GS_ROWS], gs_cnt[GS_GROUPS][GS_ROWS];
+static uint64_t gs_key[GS_GROUPS][GS_ROWS];
+static int gs_n[GS_GROUPS], gs_id[GS_GROUPS];
+
+static int group_slices(int cat, const char *what)
+{
+    int lv = lib_open(cat, &any), g, i, ng, slices = 0, scans = 0, rows = 0;
+    int split = 0;
+
+    CHECK(opened_from_file(), "%s: the list not from the file", what);
+    ng = lib_count(lv);
+    for (g = 0; g < ng && g < GS_GROUPS; g++)
+    {
+        struct lib_filter f = any;
+        int a;
+
+        gs_id[g] = lib_id(lv, g);
+        if (cat == LIB_COMPOSERS)
+            f.composer = gs_id[g];
+        else
+            f.genre = gs_id[g];
+        a = lib_open(LIB_ALBUMS, &f);
+        slices += strstr(fake_last_open, "src=slice") != NULL;
+        gs_n[g] = lib_count(a);
+        for (i = 0; i < gs_n[g] && i < GS_ROWS; i++)
+        {
+            gs_rows[g][i] = lib_id(a, i);
+            gs_cnt[g][i] = lib_child_count(a, i);
+            gs_key[g][i] = lib_art_key(a, i);
+            /* a row starting at a track other than its album's own
+             * representative: no count (as the scan's table lookup) */
+            split += gs_cnt[g][i] == -1;
+        }
+        lib_close(a);
+    }
+    lib_close(lv);              /* the list closed: the scan */
+    for (g = 0; g < ng && g < GS_GROUPS; g++)
+    {
+        struct lib_filter f = any;
+        int a, bad = 0;
+
+        if (cat == LIB_COMPOSERS)
+            f.composer = gs_id[g];
+        else
+            f.genre = gs_id[g];
+        a = lib_open(LIB_ALBUMS, &f);
+        scans += strstr(fake_last_open, "src=scan") != NULL;
+        rows += lib_count(a);
+        bad = lib_count(a) != gs_n[g];
+        for (i = 0; !bad && i < gs_n[g] && i < GS_ROWS; i++)
+            bad = gs_rows[g][i] != lib_id(a, i)
+                  || gs_cnt[g][i] != lib_child_count(a, i)
+                  || gs_key[g][i] != lib_art_key(a, i);
+        CHECK(!bad, "%s: group %d (id %d): slice and scan differ at row %d",
+              what, g, gs_id[g], i - 1);
+        lib_close(a);
+    }
+    CHECK(ng > 0 && ng <= GS_GROUPS && slices == ng && scans == ng,
+          "%s: %d groups, %d from the slice, %d scanned", what, ng, slices,
+          scans);
+    /* the fixture does what it should: albums split between groups */
+    CHECK(split > 0, "%s: no album split between groups", what);
+    printf("   %s: %d groups, %d album rows (%d split), slice == scan\n",
+           what, ng, rows, split);
+    return ng;
+}
+
+static bool strip_sections(int cat, unsigned want);
+
+/* lib_id() of row 0 of the composers, and its albums' src= */
+static const char *first_composer_albums(void)
+{
+    struct lib_filter f = any;
+    int lv = lib_open(LIB_COMPOSERS, &any), a;
+
+    CHECK(opened_from_file(), "composers not from the file: %s",
+          fake_last_open);
+    f.composer = lib_id(lv, 0);
+    a = lib_open(LIB_ALBUMS, &f);
+    lib_close(a);
+    lib_close(lv);
+    return strstr(fake_last_open, "src=slice") ? "slice"
+         : strstr(fake_last_open, "src=scan") ? "scan" : "?";
+}
+
+static void test_group_slices(void)
+{
+    int n = 0;
+
+    /* the mid library and its file (test_precompute_mid()) */
+    CHECK(lib_precompute(false, NULL) == LIB_PRE_DONE && pre_exists(),
+          "no file for the group slices");
+    n += group_slices(LIB_COMPOSERS, "composers' albums");
+    n += group_slices(LIB_GENRES, "genres' albums");
+    CHECK(n > 0, "no group compared");
+
+    /* an upgrade from 0.8.0: a current file without the section. Its
+     * lists stay readable (the scan for a group's albums) until the next
+     * precompute rewrites it, once */
+    CHECK(strip_sections(LIBFILE_CAT_GRPALB, 1), "no group section");
+    fake_db_bump();
+    CHECK(!strcmp(first_composer_albums(), "scan"),
+          "old file: a composer's albums not scanned (%s)", fake_last_open);
+    CHECK(lib_precompute(false, NULL) == LIB_PRE_DONE
+          && strstr(fake_last_pre, "done"),
+          "old file not rewritten: %s", fake_last_pre);
+    fake_db_bump();
+    CHECK(!strcmp(first_composer_albums(), "slice"),
+          "rewritten file: a composer's albums not from the slice (%s)",
+          fake_last_open);
+    CHECK(lib_precompute(false, NULL) == LIB_PRE_DONE
+          && strstr(fake_last_pre, "current"),
+          "rewritten again: %s", fake_last_pre);
+    printf("   upgrade: a file without the section is read (scan), "
+           "rewritten once, then sliced\n");
+}
+
+/* #230: the open timing line (lib_openlog.h): many quick opens log only
+ * the first of their kind, a slow one (>= 50 ms) always */
+static void test_openlog(void)
+{
+    struct lib_filter f = any;
+    int i, n0, lv, id;
+    unsigned long ms;
+    char cat[32], src[16];
+
+    lv = lib_open(LIB_COMPOSERS, &any);
+    id = lib_id(lv, 0);
+    lib_close(lv);
+    f.composer = id;
+    fake_ticks_per_yield = 0;   /* quick */
+    lib_close(lib_open(LIB_SONGS, &any));
+    lib_close(lib_open(LIB_ALBUMS, &f));
+    n0 = fake_uilog_lines;
+    for (i = 0; i < 50; i++)
+    {
+        lib_close(lib_open(LIB_SONGS, &any));
+        lib_close(lib_open(LIB_ALBUMS, &f));
+    }
+    CHECK(fake_uilog_lines == n0, "100 quick opens logged %d lines",
+          fake_uilog_lines - n0);
+    /* a slow one: every yield 10 ticks (100 ms) */
+    fake_ticks_per_yield = 10;
+    lib_close(lib_open(LIB_ALBUMS, &f));        /* the list is closed: scan */
+    lib_close(lib_open(LIB_ALBUMS, &f));
+    fake_ticks_per_yield = 1;
+    CHECK(fake_uilog_lines == n0 + 2, "2 slow opens logged %d lines",
+          fake_uilog_lines - n0);
+    CHECK(sscanf(fake_last_uilog, "lib %lums n=%*d %31s %15s", &ms, cat,
+                 src) == 3
+          && ms >= 50 && !strcmp(cat, "albums/cmp") && !strcmp(src, "scan")
+          && strlen(fake_last_uilog) <= 54,
+          "slow open line: '%s'", fake_last_uilog);
+    printf("   open timing line: '%s' (%d chars)\n", fake_last_uilog,
+           (int)strlen(fake_last_uilog));
 }
 
 /* The album table as the art builder reads it (artfmt.c's artalb_check()
@@ -1269,6 +1434,37 @@ static bool strip_author_slice(void)
     return ok;
 }
 
+/* A file as written before #230 (or any added section): the header
+ * without category 'cat' (want sections of it), resealed. */
+static bool strip_sections(int cat, unsigned want)
+{
+    struct libfile_hdr h;
+    struct libfile_sum_state st;
+    FILE *f = fopen(db_file, "r+b");
+    unsigned i, j;
+    bool ok;
+
+    if (!f)
+        return false;
+    ok = fread(&h, sizeof(h), 1, f) == 1;
+    for (i = 0, j = 0; ok && i < h.nsec; i++)
+        if (h.sec[i].cat != cat)
+            h.sec[j++] = h.sec[i];
+    ok = ok && j + want == h.nsec;
+    if (ok)
+    {
+        memset(&h.sec[j], 0, (h.nsec - j) * sizeof(h.sec[0]));
+        h.nsec = j;
+        h.sum = 0;
+        libfile_sum_init(&st);
+        libfile_sum_add(&st, &h, sizeof(h));
+        h.sum = libfile_sum_end(&st);
+        ok = fseek(f, 0, SEEK_SET) == 0 && fwrite(&h, sizeof(h), 1, f) == 1;
+    }
+    fclose(f);
+    return ok;
+}
+
 static void test_book_order(void)
 {
     static const char *const by_title[] = {
@@ -1572,6 +1768,8 @@ int main(int argc, char **argv)
     test_cap();
     test_precompute();
     test_precompute_mid();
+    test_group_slices();
+    test_openlog();
     test_albumtab_keys();
     test_reserve();
     test_panels();

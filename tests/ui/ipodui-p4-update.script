@@ -1,7 +1,10 @@
-# Phase 4: "Updating Library…" on the first boot of a fresh library
-# (docs/phase4-brief.md, Agent B loading feedback, Agent A lib_state()).
-# "# fresh-db" makes shots.sh delete simdisk/.rockbox/database_*.tcd
-# before boot, so the shell has to build the database by itself, silently.
+# Phase 4: the first boot of a fresh library builds the database by
+# itself (docs/phase4-brief.md, Agent A lib_state()). "# fresh-db" makes
+# shots.sh delete simdisk/.rockbox/database_*.tcd before boot. Since #237
+# (0.8.1) the build runs behind the full-screen library page, whose keys
+# do nothing, and the main menu comes only with the library loaded
+# (docs/design/spec/system-screens.md): so this script goes to Music
+# after the build, not during it (ipodui-firstbuild-page covers the page).
 #   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p4-update.script
 # needs: library
 # fresh-db
@@ -21,13 +24,15 @@
 
 wait 1000           # boot; the build starts ~1 s after boot and the
 shot updating       # scan of ~300 files takes well under a second in the
-key SELECT          # sim, so go to Music at once: main menu while
-wait 300            # updating (no splash, no prompt), then Music
-shot music_updating # inline "Updating Library…" row (timing-sensitive)
+wait 300            # sim (timing-sensitive: the boot or the page)
+shot music_updating
 
 wait_db 45000       # the build finishes in the same boot
+wait 3000           # the page gives way to the main menu (a quiet
+                    # second, the full bar for 1/3 s, then the slide)
+key SELECT          # Music
 wait 1500
-shot music_ready    # "Updating Library…" gone, normal Music menu
+shot music_ready    # the normal Music menu, the library there
 
 wheel +1            # "Artists"
 wait 400

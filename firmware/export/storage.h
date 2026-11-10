@@ -174,7 +174,15 @@ static inline void storage_sleep(void) {};
         #ifdef HAVE_STORAGE_FLUSH
             #define storage_flush() hostfs_flush()
         #endif
-        #define storage_last_disk_activity() (-1)
+        #if defined(SIMULATOR) && defined(HAVE_IPOD_UI)
+            /* the shell's sim: its file layer keeps it (filesystem-sim.c,
+             * #230); a stock build keeps upstream's -1 */
+            long sim_storage_last_disk_activity(void);
+            #define storage_last_disk_activity() \
+                sim_storage_last_disk_activity()
+        #else
+            #define storage_last_disk_activity() (-1)
+        #endif
         #define storage_spinup_time() 0
         #define storage_get_identify() (NULL) /* not actually called anywher */
 

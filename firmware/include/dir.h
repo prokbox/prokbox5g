@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2007 by Kévin Ferrare
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -70,6 +71,16 @@
 #endif
 #ifndef root_realpath
 #define root_realpath      FS_PREFIX(root_realpath)
+#endif
+/* ProkBox (p081): a subfolder of an open folder, by its entry (native FAT
+ * only: rbfs_opendir_child()); elsewhere by its path */
+#ifndef opendir_child
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER) \
+    && defined(_FILESYSTEM_NATIVE__DIR_H_) && !defined(DIRFUNCTIONS_DECLARED)
+#define opendir_child   rbfs_opendir_child
+#else
+#define opendir_child(parent, entry, path) opendir(path)
+#endif
 #endif
 #endif /* !DIRFUNCTIONS_DEFINED */
 

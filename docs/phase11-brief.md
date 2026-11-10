@@ -649,7 +649,7 @@ Agents iterate with `make -j2` in their own `build/sim-ui` and single `scripts/s
 
 | Agent (tier) | Owns | Must not edit |
 |---|---|---|
-| **L** library and data (opus) | `apps/ipodui/library.{c,h}` (LIB_SEARCH, LIB_OTG, `lib_stats`, podcast dot semantics, the stats section), `libfile.h`, new `search_core.c`, `otg.c`, `tests/search/*`, `tests/otg/*`, `tests/perf/search50k.sh`; deletes p11_stub §L | screens, menu.c, artcache.c, contract headers |
+| **L** library and data (opus) | `apps/ipodui/library.{c,h}` (LIB_SEARCH, LIB_OTG, `lib_stats`, podcast dot semantics, the stats section), `libfile.h`, new `search_core.c`, `otg.c`, `tests/search/*`, `tests/otg/*`, `tests/perf/search65k.sh`; deletes p11_stub §L | screens, menu.c, artcache.c, contract headers |
 | **U1** lists and popups (opus) | new `screens/search.c`, `screens/holdmenu.c`, `screens/otglist.c`; `screens/playlists.c` (arena, OTG row → `ui_otg_screen`, `ui_otg_add` removed or forwarded to `otg_add_track`); `screens/browse.c` (hold → menu, arena, podcast rows); `screens/audiobooks.c` (podcast arg, hint removal, book-page arena); `art/rowglyphs.py` + `rowglyphs.h` (magnifier tile, 6 type icons); deletes p11_stub §U1 | library.c, settings.c, menu.c, nowplaying.c |
 | **U2a** Settings tree (sonnet) | `screens/settings.c` (row wiring, Sort By setting, EQ caption, choice → arena), new `screens/checklist.c`, `menucfg.c`, `vlimit.c`, `roller.c`, `art/check/check.py` + `checkglyph.h`; `apps/ipodui/menu.c` (main/music items, `visible()`, Search target); settings **default values** only in `settings_list.c` if a contract default proves wrong (via the orchestrator); deletes p11_stub §U2a | header.c, about/datetime/sys files, nowplaying.c |
 | **U2b** info and system screens (opus) | new `screens/about.c` (and removes `ui_about_screen` from `stub.c`; owns `stub.c`), `legal.c`, `reset.c`, `language.c`, `datetime.c`, `brightness.c`, `eq.c`, `sysscreen.c`, `sysscreen_data.h`, `art/sys/*`, `art/tz/tzcities.py` + `tzcities.h`; `apps/ipodui/header.c` (Time in Title setting); **`apps/ipodui/ui_main.c`** after the contract commit (the Charging push and release change in `global_hold()`, the Time in Title apply at shell start; Rev 1 H-1, M-7); `apps/ipodui/usbscreen.c` (OK to Disconnect); `apps/misc.c` (the two low/empty calls only) and `firmware/usbstack/usb_storage.c` (the getter only), guarded, §4.6; deletes p11_stub §U2b | settings.c, menu.c, library.c, NP files, `np_playback.c` |
@@ -702,7 +702,7 @@ Agents iterate with `make -j2` in their own `build/sim-ui` and single `scripts/s
      - **≈ 0.11 s** at 80 MHz, **≤ 0.25 s** with DRAM stalls, for the first character;
      - a refining character is O(previous results), < 20 ms at ≤ 5k rows;
      - boosted while searching only, with ≥ 12 yields per full pass, cancelled by a new key.
-     - L measures `tests/perf/search50k.sh` in the sim (thread CPU µs) and reports the device estimate.
+     - L measures `tests/perf/search65k.sh` in the sim (thread CPU µs) and reports the device estimate.
    - **OTG resolve** (rare, after a database commit): **one pass** over ≈ 3 MB of filename tag file, hashed ≈ 15 M instructions ≈ 0.2 s, plus ≈ 96 reads of 32 KB.
    - **OTG play:** ≤ 180 KB read in 32 KB chunks + ≤ 2,000 `playlist_insert_context_add()` calls, as a 2,000-row library play.
    - **Search** is the lean-rule-11 exception (browse-time work, strings already in RAM, 0 reads per keystroke; §3.1).
@@ -745,7 +745,7 @@ Agents iterate with `make -j2` in their own `build/sim-ui` and single `scripts/s
    - The volume code survives Reset (⚠️ C3).
    - An NP bundle torn mid-write is caught by the existing bundle CRC and rebuilt; legacy bundles stay usable.
    - A database rebuild keeps OTG through its paths.
-9. **Scale.** Search and OTG resolve as in item 3, measured with `tests/perf/lib50k.sh` + `search50k.sh`. About stats are O(1). QW2 at 5k albums: disk unchanged at 32 KB clusters (§6 item 2); the builder's upgrade pass of existing bundles is ≈ 5k × (decode + 281k render) ≈ the original thumb-pass order of time, in windows; T reports the sim time per bundle.
+9. **Scale.** Search and OTG resolve as in item 3, measured with `tests/perf/lib65k.sh` + `search65k.sh`. About stats are O(1). QW2 at 5k albums: disk unchanged at 32 KB clusters (§6 item 2); the builder's upgrade pass of existing bundles is ≈ 5k × (decode + 281k render) ≈ the original thumb-pass order of time, in windows; T reports the sim time per bundle.
 10. **Deferred or retried work, per database state:**
     - Search while *fresh/rebuilding*: no RAM cache, so "Updating Library..." with no rows, retried on `LIB_READY` (`ipodui-p11-search-updating`). *Dirty*: the RAM cache of the old database, so it searches normally (`-search-dirty`).
     - OTG resolve: *ready* (`-otg-rebuild`: rebuild, then open), *fresh* (open during the rebuild: rows show file names; resolves after), *dirty* (`-otg-dirty`).

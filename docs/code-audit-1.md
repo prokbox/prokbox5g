@@ -190,7 +190,7 @@ Resident DRAM shrinks by the same amount, which goes back to the audio buffer. I
 
 **Recommendations:**
 - **-O2:** no, not for the shell. Its pixel work is in the IRAM driver.
-- **Thumb (P9, after the removal list):** per-directory Thumb for cold code (settings, menus, gui, metadata parsers run at sync, USB, debug, the shell's UI files). Keep ARM for `firmware/` drivers, playback, buffering, tagcache, `library.c` and `sortkey.c`. Measure boost ratio and `lib50k` on the device first.
+- **Thumb (P9, after the removal list):** per-directory Thumb for cold code (settings, menus, gui, metadata parsers run at sync, USB, debug, the shell's UI files). Keep ARM for `firmware/` drivers, playback, buffering, tagcache, `library.c` and `sortkey.c`. Measure boost ratio and `lib65k` on the device first.
 - **`-ffunction-sections`/`--gc-sections`:** already P9(a).
 - **LTO:** not before P9 lands. Its interaction with `ICODE_ATTR`/`INIT_ATTR` section placement and the `.init`-in-codec-slot trick is untested; a scratch experiment only.
 
@@ -344,5 +344,5 @@ Measurement drivers used: `measure.py` (§1 table), `marq.py` (marquee), `prof.p
 - Marquee CPU% and push time (debug-menu boost ratio and CPU load with a long label selected, before and after F2).
 - Glide frame time with the qscroll overlay on a 3k-album list.
 - Slide first-frame latency.
-- The `--thumb` speed cost on `lib50k`-equivalent opens and on the art builder.
+- The `--thumb` speed cost on `lib65k`-equivalent opens and on the art builder.
 - Whether the F1 veneer and `ICODE_ATTR` change matter with the real cache.

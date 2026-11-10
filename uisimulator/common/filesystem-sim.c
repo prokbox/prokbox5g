@@ -33,6 +33,7 @@
 #ifdef HAVE_IPOD_UI
 #include "thread.h"
 #endif
+#include "kernel.h"          /* current_tick (sim_disk_last, #230) */
 #include "file_internal.h"
 #include "pathfuncs.h"
 #include "string-extra.h"
@@ -729,7 +730,24 @@ const struct stor_pwr *storage_power_state(void)
 #else
 #define SIM_MODCLASS(w, n)  do { } while (0)
 #endif
-#define SIM_IO(w, n)    do { SIM_SPW(); SIM_IO0(w, n); SIM_MODCLASS(w, n); } while (0)
+/* #230: the tick of the last data read or write, as the device's driver
+ * keeps it (firmware/drivers/ata.c last_disk_activity): powermgmt.c's
+ * idle power-off waits for storage to have been quiet too, so a long
+ * background job (the art builder's first pass at 50k songs) no longer
+ * powers the simulator off mid-build where a device stays on.  Every
+ * call counts (no sector cache is modelled): an upper bound */
+#ifdef HAVE_IPOD_UI       /* the shell's sim only (storage.h) */
+static long sim_disk_last = -1;
+long sim_storage_last_disk_activity(void)
+{
+    return sim_disk_last;
+}
+#define SIM_LAST()      (sim_disk_last = current_tick)
+#else
+#define SIM_LAST()      do { } while (0)
+#endif
+#define SIM_IO(w, n)    do { SIM_SPW(); SIM_IO0(w, n); SIM_MODCLASS(w, n); \
+                             SIM_LAST(); } while (0)
 
 /** File functions **/
 
@@ -789,13 +807,57 @@ int sim_open_audio_db_count(void)
 #include <unistd.h>
 static FILE *fstrace_f;
 static int fstrace_on = -1;
+
+/* the hidden folder as the trace starts: "seed <path> <size>" for each
+ * file, "seed <path> -1" for each folder (parents first), so a replay
+ * starts from the same tree (a primed library, an earlier boot) */
+static void fstrace_seed(const char *dir, int depth)
+{
+    char os[SIM_TMPBUF_MAX_PATH], sub[MAX_PATH];
+    struct stat st;
+    OS_DIR_T *d;
+    OS_DIRENT_T *e;
+
+    if (depth > 4 || sim_get_os_path(os, dir, sizeof(os)) < 0
+        || stat(os, &st) < 0 || !S_ISDIR(st.st_mode))
+        return;
+    fprintf(fstrace_f, "seed\t%s\t-1\n", dir);
+    d = os_opendir(os);
+    if (!d)
+        return;
+    while ((e = os_readdir(d)))
+    {
+        char osf[SIM_TMPBUF_MAX_PATH];
+
+        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")
+            || snprintf(sub, sizeof(sub), "%s/%s", dir, e->d_name)
+               >= (int)sizeof(sub)
+            || sim_get_os_path(osf, sub, sizeof(osf)) < 0
+            || stat(osf, &st) < 0)
+            continue;
+        if (S_ISDIR(st.st_mode))
+            fstrace_seed(sub, depth + 1);
+        else
+            fprintf(fstrace_f, "seed\t%s\t%ld\n", sub, (long)st.st_size);
+    }
+    os_closedir(d);
+}
 static void fstrace(const char *fmt, ...)
 {
     if (fstrace_on < 0)
     {
         const char *e = getenv("IPODUI_FSTRACE");
-        fstrace_f = e ? fopen(e, "w") : NULL;
+        /* IPODUI_FSTRACE_APPEND: every boot of a script with "reboot"
+         * parts in one trace, each starting with a "boot" line */
+        fstrace_f = e ? fopen(e, getenv("IPODUI_FSTRACE_APPEND") ? "a"
+                                                                 : "w")
+                      : NULL;
         fstrace_on = fstrace_f != NULL;
+        if (fstrace_on)
+        {
+            fprintf(fstrace_f, "boot\t0\t%x\n", (unsigned)thread_self());
+            fstrace_seed(ROCKBOX_DIR, 0);
+        }
     }
     if (!fstrace_on)
         return;
@@ -807,9 +869,93 @@ static void fstrace(const char *fmt, ...)
     fflush(fstrace_f);
 }
 #define FSTRACE(...) fstrace(__VA_ARGS__)
+/* #245: reads go into the trace only with IPODUI_FSTRACE_READS set (the
+ * powercut traces stay as they were), for fsreplay "count" */
+static int fstrace_reads = -1;
+#define FSTRACE_READ(fd, n) do { \
+        if (fstrace_reads < 0) \
+            fstrace_reads = getenv("IPODUI_FSTRACE_READS") != NULL; \
+        if (fstrace_reads) \
+            fstrace("read\t%d\t%ld", (fd), (long)(n)); \
+    } while (0)
+
+/* #245: a named mark in the trace (the commit trace's stages); fsreplay
+ * "count" sums the span before it under that name */
+void sim_fstrace_mark(const char *what)
+{
+    fstrace("mark\t0\t%s", what);
+}
 #else
 #define FSTRACE(...) do { } while (0)
+#define FSTRACE_READ(fd, n) do { } while (0)
 #endif
+
+/* p081-bootload: bytes appended to a host file (not the sim disk), for
+ * a test's dump (tests/perf/boot_trace.sh's RAM image); p NULL closes
+ * it. One file open at a time; false on any error. */
+bool sim_host_append(const char *path, const void *p, size_t n)
+{
+    static FILE *f;
+    static char open_path[MAX_PATH];
+    bool ok = true;
+
+    if (f && (!p || strcmp(path, open_path)))
+    {
+        ok = fclose(f) == 0;
+        f = NULL;
+    }
+    if (!p)
+        return ok;
+    if (!f)
+    {
+        f = fopen(path, "ab");
+        if (!f)
+            return false;
+        strlcpy(open_path, path, sizeof(open_path));
+    }
+    return ok && fwrite(p, 1, n, f) == n;
+}
+
+/* #177 power-cut injection (sim-fidelity S2). Every named write point the
+ * code passes (sim_powercut_point(), apps/ipodui/safefile.h) goes into
+ * the file trace as "point"; "powercut at <point> [file]" (sim_cmd_sys.c)
+ * kills the simulator the first time it passes that point: the trace
+ * ends with a "powercut" line, no file is closed, nothing flushed.
+ * tests/fatcrash/fsreplay "cut" replays the trace on the firmware's FAT
+ * code and cuts after every sector write since the previous point. */
+#include <unistd.h>
+static char pc_point[64], pc_file[64];
+static bool pc_armed;
+
+void sim_powercut_arm(const char *point, const char *file)
+{
+    snprintf(pc_point, sizeof(pc_point), "%s", point);
+    snprintf(pc_file, sizeof(pc_file), "%s", file ? file : "");
+    pc_armed = true;
+}
+
+void sim_powercut_unreached(void)
+{
+    if (pc_armed)
+        fprintf(stderr, "sim_script: powercut %s %s not reached\n",
+                pc_point, pc_file);
+}
+
+void sim_powercut_point(const char *point, const char *path)
+{
+    const char *base = path ? strrchr(path, '/') : NULL;
+
+    base = base ? base + 1 : path ? path : "";
+    FSTRACE("point\t0\t%s\t%s", point, base);
+    if (!pc_armed || strcmp(point, pc_point)
+        || (pc_file[0] && strcmp(base, pc_file)))
+        return;
+    FSTRACE("powercut\t0\t%s\t%s", point, base);
+    fprintf(stderr, "sim_script: powercut hit %s %s\n", point, base);
+    fflush(stderr);
+    fflush(stdout);
+    _exit(0);
+}
 
 int sim_open(const char *path, int oflag, ...)
 {
@@ -975,12 +1121,22 @@ int sim_read_count_end(void)
 static unsigned int read_count2_thread = ~0u;
 static int read_count2;
 static unsigned long read_bytes2;
+static int exists_count2;           /* #225: file_exists() lookups */
 
 void sim_read_count2_begin(void)
 {
     read_count2_thread = thread_self();
     read_count2 = 0;
     read_bytes2 = 0;
+    exists_count2 = 0;
+}
+
+/* #225: the counted thread's file_exists() calls since the begin outside
+ * the art cache's own folder (the art builder's image-file probes; read
+ * before sim_read_count2_end()) */
+int sim_exists_count2(void)
+{
+    return exists_count2;
 }
 
 int sim_read_count2_end(unsigned long *bytes)
@@ -1013,6 +1169,7 @@ ssize_t sim_read(int fildes, void *buf, size_t nbyte)
     }
 #endif
     SIM_IO(false, nbyte);
+    FSTRACE_READ(fildes, nbyte);
     {
         ssize_t n = cut_span(filestr, nbyte, false);
 
@@ -1142,6 +1299,14 @@ bool sim_file_exists(const char *path)
         return false;
 
     SIM_IO(false, 0);
+#ifdef HAVE_IPOD_UI
+    /* the art cache's own publication probes (bundle, index, pool
+     * temporaries: one per album with art) are not image-file lookups */
+    if (thread_self() == read_count2_thread
+        && strncmp(path, ROCKBOX_DIR "/artcache/",
+                   sizeof(ROCKBOX_DIR "/artcache/") - 1))
+        exists_count2++;
+#endif
     return os_file_exists(ospath);
 }
 
@@ -1230,6 +1395,7 @@ int sim_mkdir(const char *path)
         return -1;
 
     int rc = os_mkdir(ospath __MKDIR_MODE_ARG);
+    FSTRACE("mkdir\t%d\t%s", rc, path);
 
 #ifdef HAVE_DIRCACHE
     if (rc >= 0)
@@ -1247,6 +1413,7 @@ int sim_rmdir(const char *path)
         return -1;
 
     int rc = os_rmdir(ospath);
+    FSTRACE("rmdir\t%d\t%s", rc, path);
 
 #ifdef HAVE_DIRCACHE
     if (rc >= 0)

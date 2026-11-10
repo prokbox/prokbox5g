@@ -1,0 +1,104 @@
+# Leaving a video never shows "Preparing Video..." (#168, docs/design/spec/videos.md 2)
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p19-video-exit.script
+# needs: video
+# env: SIM_VCHECK=1
+# timeout: 150
+#
+# The owner's report: MENU on a playing video briefly showed the
+# "Preparing Video..." frame before the list came back. While the picture
+# plays the video chip owns the panel and the video screen never repaints
+# the shell's framebuffer, so after a first-use check (SIM_VCHECK, as
+# ipodui-p19-vcheck) the framebuffer still held that frame, and the pop's
+# slide reads its outgoing rect from the framebuffer. The 7G slides from
+# the video's black straight to the list.
+#
+# Each way out is taken after a play that checked first (the token is
+# dropped before each), so "Preparing Video..." was drawn every time:
+#   menu: MENU while playing        -> back to Movies
+#   hold: hold MENU while playing   -> the main menu
+#   end:  Short Film plays to its end (13 s) -> back to Movies
+# On each the sim counts the preparing text's pixels in the framebuffer as
+# the screen leaves (video.c prep_px_on_fb): 0, or the slide shows it.
+# The frames after each exit key are recorded (exit_menu_*, exit_hold_*,
+# exit_end_*). The video's sound stops on each (#154: audio=0).
+#
+# Movies: Audio First, High Profile, Late Chapter, Short Film.
+
+# trace: video
+# logbetween: menu menu_out video preparing due=1
+# logbetween: menu menu_out video exit frame prep_px=0
+# logbetween: menu menu_out video leave audio=0
+# logbetween: menu_out hold no video preparing due
+# logbetween: hold hold_out video preparing due=1
+# logbetween: hold hold_out hold MENU: to the main menu from video
+# logbetween: hold hold_out video exit frame prep_px=0
+# logbetween: hold hold_out video leave audio=0
+# logbetween: hold_out fin no video preparing due
+# logbetween: fin fin_out video preparing due=1
+# logbetween: fin fin_out video exit frame prep_px=0
+# logbetween: fin fin_out video leave audio=0
+# logbetween: fin_out done no video preparing due
+# nolog: splash
+wait 4000
+wait_db 45000
+art_wait 60000
+repeat off
+copy ../../bcmfw/video/vcheck.bin /.rockbox/vcheck.bin
+rm_file /.rockbox/.sim_vcheck_band
+rm_file /.rockbox/.sim_vcheck_bad
+wheel +1 300
+wait 600
+key SELECT          # Videos
+wait 900
+key SELECT          # Movies
+wait 1200
+
+# -- MENU -----------------------------------------------------------------
+rm_file /.rockbox/vcheck.tok
+ab_mark menu
+key SELECT          # Audio First: the check first
+wait 400
+shot menu_preparing
+wait 4000
+expect_video 10 playing
+key MENU
+record 600 30 exit_menu
+ab_mark menu_out
+wait 900
+shot menu_list
+expect_video 0 none
+
+# -- hold MENU ------------------------------------------------------------
+rm_file /.rockbox/vcheck.tok
+ab_mark hold
+key SELECT          # Audio First again, checked again
+wait 4400
+expect_video 10 playing
+hold MENU 1200
+record 600 30 exit_hold
+ab_mark hold_out
+wait 900
+shot hold_main
+expect_video 0 none
+key SELECT          # back to Videos (the main menu kept its row)
+wait 900
+key SELECT
+wait 1200
+
+# -- the end of the video -------------------------------------------------
+rm_file /.rockbox/vcheck.tok
+wheel +3 300        # Short Film (13 s)
+wait 400
+ab_mark fin
+key SELECT
+wait_pos 12000 40000 Film.m4v
+record 2500 30 exit_end
+ab_mark fin_out
+wait 900
+shot end_list
+# no expect_video here: under a loaded host the sim's audio clock can jump
+# in the last second and the player's catch-up seek near the end of the
+# stream has logged decode errors (seen once, 2026-11-06, before the exit);
+# the stop itself is proven by "video leave audio=0" above
+ab_mark done
+rm_file /.rockbox/vcheck.tok

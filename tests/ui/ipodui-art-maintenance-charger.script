@@ -1,0 +1,39 @@
+# #225 (owner, 2026-11-08): a Build Artwork pass on the charger keeps the
+# unit awake: no idle power-off while the pass runs, however long it
+# outlasts the idle timer (1 minute here; the pass is held 150 s at a
+# panel block, with no disk I/O meanwhile, so only the charger rule can
+# hold the timer). The screen still goes dark as usual; only the
+# power-off waits. The battery case is
+# ipodui-art-maintenance-battery-off.script. ("quit" logs its own
+# power-off, so the checks are between the marks.)
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-art-maintenance-charger.script
+# needs: library
+# golden: skip
+# timeout: 420
+# logbetween: s0 s1 art panel build held
+# logbetween: s0 s1 no power off batt=
+# logbetween: s0 s1 art build done
+wait 1000
+wait_db 30000
+art_wait 120000
+sleep_mode off          # the idle timer's own power-off (the default)
+rm_file /.rockbox/artcache/index.dat
+rm_file /.rockbox/artcache/index.prev
+rm_file /.rockbox/artcache/index.tmp
+rm_file /.rockbox/artcache/thumbs.pak
+rm_file /.rockbox/artcache/panels.pak
+charger on
+idle_poweroff 1         # 1 min, the setting's least
+art_panel_hold 150000   # the pass holds 150 s at its next panel (no I/O)
+ab_mark s0
+hold SELECT 1500        # the Music row's hold menu
+wait 300
+wheel +1 200            # "Build Artwork"
+key SELECT
+wait 2000
+shot building
+art_wait 300000         # the whole pass, past the idle timer
+ab_mark s1
+wait 2000
+shot done
+quit

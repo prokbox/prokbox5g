@@ -40,7 +40,7 @@ extern size_t audio_buffer_size(void);
 extern size_t audio_get_filebuflen(void);
 
 /* docs/hardware.md budget rule (owner, 2026-10-20): the playing/paused
- * audio file buffer, measured at 50k tracks. */
+ * audio file buffer, measured at 65k tracks. */
 #if MEMORYSIZE <= 32
 #define FLOOR_BYTES 7500000UL
 #else

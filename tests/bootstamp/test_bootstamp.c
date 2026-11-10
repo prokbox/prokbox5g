@@ -227,8 +227,27 @@ static void test_digest(void)
     CHECK(digest(t, NULL) == d0, "dir size ignored");
 }
 
+/* p081-bootwalk: a digest over the boot window's 1 s goes on in the
+ * background instead of turning into a walk; only the 30 s backstop
+ * stops it (SLOW: walk). Literal numbers, not the header's constants */
+static void test_pace(void)
+{
+    CHECK(boot_digest_pace(0) == BOOT_PACE_HOLD, "0 ms holds");
+    CHECK(boot_digest_pace(999) == BOOT_PACE_HOLD, "999 ms holds");
+    CHECK(boot_digest_pace(1000) == BOOT_PACE_BACKGROUND,
+          "1000 ms: background, not a walk");
+    CHECK(boot_digest_pace(2100) == BOOT_PACE_BACKGROUND,
+          "the emulator's ~2.1 s full digest finishes");
+    CHECK(boot_digest_pace(29999) == BOOT_PACE_BACKGROUND, "29999 ms");
+    CHECK(boot_digest_pace(30000) == BOOT_PACE_STOP, "30000 ms stops");
+    /* the backstop still walks; the pace never decides trust */
+    CHECK(boot_stamp_verdict(BOOT_DIGEST_SLOW) == BOOT_WHY_SLOW
+          && !boot_why_trusted(BOOT_WHY_SLOW), "slow walks");
+}
+
 int main(void)
 {
+    test_pace();
     test_crc();
     test_roundtrip_torn();
     test_decision();

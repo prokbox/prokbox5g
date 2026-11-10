@@ -355,10 +355,16 @@ struct fatlong_parse_state
 #include "core_alloc.h"
 /* Sized by tests/fatcrash/dirburst (50k-track volume, 16 KiB clusters):
  * commands fall with the slot size up to a cluster (a burst never crosses
- * one); more slots barely help a walk (folders outgrow any small LRU) but
- * a second keeps a scan and a track open from refilling each other's */
+ * one); more slots barely help a walk (folders outgrow any small LRU).
+ * #225: an open crosses 4 directories (/, iPod_Control, Music, Fnn; or
+ * /, Music, Artist, Album), 5-6 clusters once a folder outgrows one, and
+ * the art probes add 2 more. tests/perf/ipodctl_fat.sh, opens of every
+ * track: synced 5.4k 21,600 -> 50 commands, 65k 393,487 -> 11,632 (12
+ * slots: 289); tree 65k 588,451 -> 418,547 (16 slots: 13,055; a lookup
+ * cache, not more slots, is the fix there). +96 KiB pinned at the first
+ * mount (docs/hardware.md, "Directory burst slots") */
 #ifndef FAT_DIR_BURST_SLOTS
-#define FAT_DIR_BURST_SLOTS  2
+#define FAT_DIR_BURST_SLOTS  8
 #endif
 #ifndef FAT_DIR_BURST_BYTES
 #define FAT_DIR_BURST_BYTES  16384   /* per slot: one 16 KiB cluster */
@@ -423,6 +429,28 @@ static void dir_burst_init(void)
                                              core_get_data(handle));
 }
 #endif /* FAT_DIR_BURST */
+
+#ifdef FILE_WALK_CACHE
+/* ProkBox (#243): file_internal.c's walk lookup cache holds what a folder
+ * scan found, and drops it all once this has moved. Every change to a
+ * directory entry that could make a found folder's entry differ, or a
+ * name resolve elsewhere, moves it first: an entry added (create, mkdir,
+ * rename's new name), entries freed (remove, rmdir, rename's old name),
+ * a mount and an unmount (USB). update_short_entry() and fat_modtime()
+ * do not: they rewrite a file's size, cluster and times (fat_closewrite(),
+ * fat_link_set(); a folder is never opened for writing), fields of no
+ * folder. tests/walkcache/walkcache.c's negative controls build with
+ * WALKCACHE_BREAK, a mask of the bumps to leave out */
+unsigned int fat_dirent_gen;
+#ifdef WALKCACHE_BREAK
+#define DIRENT_CHANGED(site) \
+    do { if (!((WALKCACHE_BREAK) & (site))) fat_dirent_gen++; } while (0)
+#else
+#define DIRENT_CHANGED(site) (fat_dirent_gen++)
+#endif
+#else
+#define DIRENT_CHANGED(site) do {} while (0)
+#endif
 
 static void cache_commit(struct bpb *fat_bpb)
 {
@@ -2044,6 +2072,8 @@ static int add_dir_entry(struct bpb *fat_bpb, struct fat_filestr *parentstr,
     int n = -1;
     unsigned long ucslen = 0;
 
+    DIRENT_CHANGED(1);
+
     if (is_dotdir_name(name) && (attr & ATTR_DIRECTORY))
     {
         /* The "." and ".." directory entries must not be long names */
@@ -2298,6 +2328,8 @@ fat_error:
 
 static int free_direntries(struct bpb *fat_bpb, struct fat_file *file)
 {
+    DIRENT_CHANGED(2);
+
     /* open the parent directory */
     struct fat_file parent;
     fat_open_internal(IF_MV(file->volume,) file->dircluster, &parent);
@@ -3544,6 +3576,8 @@ int fat_mount(IF_MV(int volume,) IF_MD(int drive,) unsigned long startsector)
     if (fat_bpb->mounted)
         FAT_ERROR(-1); /* double mount */
 
+    DIRENT_CHANGED(4);  /* the volume as the host may have left it */
+
     /* fill-in basic info first */
     fat_bpb->startsector = startsector;
 #ifdef HAVE_MULTIVOLUME
@@ -3593,6 +3627,7 @@ int fat_unmount(IF_MV_NONVOID(int volume))
 
     /* free the entries for this volume */
     cache_discard(IF_MV(fat_bpb));
+    DIRENT_CHANGED(4);
 #ifdef FAT_DIR_BURST
     dc_lock_cache();
     dir_burst_drop_all();
@@ -3737,8 +3772,9 @@ void fat_empty_fat_direntry(struct fat_direntry *entry)
     entry->firstcluster = 0;
 }
 
-#if defined(HAVE_IPOD_UI_DEVMODE) && !defined(BOOTLOADER)
-/* ProkBox (#137, the Apple fallback; developer builds only): the few
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+/* ProkBox (#137, the Apple fallback; the links are developer builds only,
+ * the read-only chain walk below is every shell build's): the few
  * steps on the volume a "link" needs that the file layer has no word
  * for. A link is a second directory entry naming an original's chain;
  * nothing here ever frees a cluster (docs/research/apple-fallback-links.md,
@@ -3773,31 +3809,44 @@ static struct bpb *link_bpb(IF_MV_NONVOID(int volume))
 }
 
 /* fst's chain is healthy for size: every cluster allocated, the end mark
- * exactly at ceil(size / cluster). 1 healthy (runs: start,count pairs;
- * *nruns -1 when more than maxruns), 0 not, -1 unreadable */
-int fat_link_chain(IF_MV(int volume,) long fst, uint32_t size,
-                   uint32_t *runs, int maxruns, int *nruns)
+ * exactly at ceil(size / cluster). Read-only; also every shell build's
+ * guard before a remove or truncate walks a chain (p081-fatdb,
+ * apps/chaincheck.c: a damaged chain frees what it links into).
+ * 1 healthy (runs: start,count pairs; *nruns -1 when more than maxruns),
+ * 0 not, -1 unreadable. why (may be NULL): where the walk stopped, for
+ * the guard's log */
+int fat_link_chain_why(IF_MV(int volume,) long fst, uint32_t size,
+                       uint32_t *runs, int maxruns, int *nruns,
+                       struct fat_chain_why *why)
 {
     struct bpb *fat_bpb = link_bpb(IF_MV(volume));
     unsigned long bpc, want, n = 0, c = fst;
-    int r = 0;
+    struct fat_chain_why w = { 0, 0, (uint32_t)fst, 0, FAT_CHAIN_UNREADABLE };
+    int r = 0, rc = 0;
     bool over = false;
 
     *nruns = 0;
     if (!fat_bpb)
-        return -1;
+        goto out_io;
     bpc = fat_bpb->bpb_secperclus * LOG_SECTOR_SIZE(fat_bpb);
     want = (size + bpc - 1) / bpc;
+    w.want = want;
+    w.stop = FAT_CHAIN_RANGE;
     if (!want || fst < 2)
-        return 0;                       /* nothing a link could name */
+        goto out;                       /* nothing a link could name */
     while (1)
     {
         long v = link_fat_entry(fat_bpb, c);
 
+        w.last = c;
         if (v < 0)
-            return -1;
+            goto out_io;
+        w.next = v;
         if (v < 2)
-            return 0;                   /* free or reserved: broken */
+        {
+            w.stop = FAT_CHAIN_FREE;    /* free or reserved: broken */
+            goto out;
+        }
         if (r && runs[2 * (r - 1)] + runs[2 * (r - 1) + 1] == c)
             runs[2 * (r - 1) + 1]++;
         else if (r < maxruns)
@@ -3808,18 +3857,60 @@ int fat_link_chain(IF_MV(int volume,) long fst, uint32_t size,
         }
         else
             over = true;                /* too fragmented to record */
-        if (++n > want)
-            return 0;                   /* longer than its size */
+        w.walked = ++n;
+        if (n > want)
+        {
+            w.stop = FAT_CHAIN_PAST;    /* longer than its size */
+            goto out;
+        }
         if (v >= FAT_EOF_MARK)
             break;
         if ((unsigned long)v > fat_bpb->dataclusters + 1)
-            return 0;
+            goto out;                   /* out of range, or a bad mark */
         c = v;
     }
     *nruns = over ? -1 : r;
-    return n == want;
+    rc = n == want;
+    w.stop = rc ? FAT_CHAIN_OK : FAT_CHAIN_SHORT;
+out:
+    if (why)
+        *why = w;
+    return rc;
+out_io:
+    if (why)
+        *why = w;
+    return -1;
 }
 
+int fat_link_chain(IF_MV(int volume,) long fst, uint32_t size,
+                   uint32_t *runs, int maxruns, int *nruns)
+{
+    return fat_link_chain_why(IF_MV(volume,) fst, size, runs, maxruns,
+                              nruns, NULL);
+}
+
+/* p081-fatdb: every cached sector of the volume written back, then
+ * dropped (the disk cache and the directory bursts), so the next reads
+ * come from the medium: a read-back that sees what the drive kept, not
+ * the cache's copy. Callers hold the file layer's writer lock. */
+void fat_cache_drop(IF_MV_NONVOID(int volume))
+{
+    struct bpb *fat_bpb = FAT_BPB(volume);
+    if (!fat_bpb)
+        return;
+    cache_commit(fat_bpb);
+    fat_barrier(IF_MV(volume));
+    cache_discard(IF_MV(fat_bpb));
+#ifdef FAT_DIR_BURST
+    dc_lock_cache();
+    dir_burst_drop_all();
+    dc_unlock_cache();
+#endif
+}
+
+#endif /* HAVE_IPOD_UI && !BOOTLOADER */
+
+#if defined(HAVE_IPOD_UI_DEVMODE) && !defined(BOOTLOADER)
 /* 1: every cluster of the runs is free, 0 not, -1 error */
 int fat_link_runs_free(IF_MV(int volume,) const uint32_t *runs, int nruns)
 {

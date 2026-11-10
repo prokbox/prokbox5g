@@ -197,7 +197,7 @@ Branch `fit1-a` from `s12`. Read list: `docs/hardware-fit-audit.md` (M0, C1, C4,
 2. **Stopped, dark, 10 min:** stop playback, lock Hold, screen off. Expect `disk_pct` mostly 0 and `m0 disk wake` lines naming nothing or the expected writer (power log flush at most every 5 min).
 3. **Dark playback, 10 min** of one album: expect `boost_pct` ≈ 0 during fills, `disk_cmds`/`disk_kb` giving about 4 commands per MB (was ~32), no `pio` and no soft resets in `m0 disk` lines.
 4. **Tap to PCM:** from the Songs list, start 5 tracks, skip 5 times, seek twice, pause/resume twice; read the `m0 tap2pcm` lines.
-5. **Calibration (M0):** with a 50k library copied over (`tests/perf/lib50k.sh` output), Settings › Reset Library; the `db scan ms=` and `db commit ms=` lines over the sim's numbers give the factor.
+5. **Calibration (M0):** with a 50k library copied over (`tests/perf/lib65k.sh` output), Settings › Reset Library; the `db scan ms=` and `db commit ms=` lines over the sim's numbers give the factor.
 6. **USB-C meter (optional):** an inline USB-C meter on a charged unit (charger draw included, so read the delta between states): 2 min each of screen on/off, 30/80 MHz (Developer › boost), disk active (copy) and standby, BCM on/off; note the mA per state next to `power.csv`'s marks.
 7. **C4b:** after any playback, an `m0 disk sleeps=… irq=I` line with I > 0 and no `polling` means the interrupt works; compare `idle_pct` during a fill and a USB copy with a build before (expect the CPU core idle through DMA).
 8. **C7 (optional, after a backup of anything not on the computer):** Developer › UDMA4 test (SELECT twice). On `pass`, try the switch on for a USB copy each way and a day of use; on any `FAIL` or `udma fell back` line, leave it off and send the log.

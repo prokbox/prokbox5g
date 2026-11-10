@@ -126,7 +126,12 @@ NUMERIC_TABLES = {
 # "z += 719468" loads, is 0x000afa6c, which came to equal the ARM entry of
 # filestr_discard_cache in fw-ui-mod and made ui_sw_split "reach" the file
 # layer
+# rc-0.8.1 (2026-11-09): 0xfffc, the DMA0 length mask of "(cmd & 0xfffc)"
+# in pcm-pp.c's stop path, came to equal draw_band's ARM entry in fw-ship
+# once #225 grew the .text, and made the PCM FIQ "reach" the font and
+# storage code (fiq gate: 46 statics, 51 calls, all via draw_band)
 NUMERIC_LITERALS = {
+    'sink_dma_stop': {0xfffc: 'pcm-pp.c: DMA0 length mask (cmd & 0xfffc)'},
     'ui_sw_split': {719468: 'stopwatch.c: civil-from-days epoch shift'},
     'civil_from_days': {719468: 'datetime.c: civil-from-days epoch shift'},
 }

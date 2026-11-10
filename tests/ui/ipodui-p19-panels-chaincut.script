@@ -20,6 +20,11 @@
 # nolog: fs_chaincut /.rockbox/artcache/panels.pak cut
 # nolog: expect_panels_valid failed
 # nolog: art retain panels
+# #177: the rebuild publishes over the cut file, which the rotation turns
+# into panels.pak.prev: it must be healed (cut back to its chain) first,
+# never kept cut as the prev (sitting 4gh's unreadable panels.pak.prev)
+# logbetween: c0 end art healed cut chain panels.pak
+# nolog: fs_chaincut /.rockbox/artcache/panels.pak.prev cut
 wait 1000
 wait_db 30000
 art_wait 120000
@@ -30,6 +35,7 @@ art_request         # the next pass loads the set
 wait 1000
 art_wait 120000
 fs_chaincut /.rockbox/artcache/panels.pak check
+fs_chaincut /.rockbox/artcache/panels.pak.prev check
 expect_panels_valid
 shot end            # one shot so shots.sh counts the run (golden: skip)
 quit

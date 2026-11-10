@@ -40,6 +40,9 @@
 #include "uilog.h"
 #include "safefile.h"
 #endif
+#ifndef POWERCUT_POINT                  /* the host tests: no points */
+#define POWERCUT_POINT(point, path) do { } while (0)
+#endif
 
 /* p19-art-yield: the art builder's pace point (artcache.c, art_pace_at())
  * between the steps of a walk over a whole file: a page read, a table
@@ -815,6 +818,7 @@ enum artfile_publish_result artfile_publish(const char *path, const char *tmp,
     int exists;
 
     ARTFMT_PACE();
+    POWERCUT_POINT("art.written", path);    /* tmp written, closed */
     exists = artfile_exists(path);
     if (exists < 0)
     {
@@ -838,14 +842,19 @@ enum artfile_publish_result artfile_publish(const char *path, const char *tmp,
     if (exists && !art_remove(prev, path))  /* only its name when it is a */
         return pub_fail(path, 1, ARTFILE_RETAINED); /* second name on path's
                                     chain; prev only goes while path stands */
+    POWERCUT_POINT("art.prev_gone", path);
     ARTFMT_PACE();                  /* (path stands; none between the two
                                        renames: readers find path again at
                                        once, as before) */
     moved = rename(path, prev) == 0;
     if (!moved && errno != ENOENT)
         return pub_fail(path, 2, ARTFILE_RETAINED);
+    POWERCUT_POINT("art.moved", path);
     if (rename(tmp, path) == 0)
+    {
+        POWERCUT_POINT("art.renamed", path);
         return ARTFILE_PUBLISHED;
+    }
     if (moved && rename(prev, path) != 0)
         return pub_fail(path, 4, ARTFILE_RECOVER_PREV);
     return pub_fail(path, 3, ARTFILE_RETAINED);

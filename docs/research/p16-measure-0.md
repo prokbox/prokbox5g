@@ -74,7 +74,7 @@ backup per the deploy skill).**
 
 ## 2. Resume latency after a partial shrink
 
-Sim stand-in `tests/perf/resume-shrink-50k.script` (run by `floor_gate.sh`):
+Sim stand-in `tests/perf/resume-shrink.script` (run by `floor_gate.sh`):
 pause, a real 7,000,000 B `core_alloc` beside the paused audio, then PLAY.
 [sim] 32 MB, 50k: buffer before the window 20,977,328 B, after it
 14,585,552 B (the 7 MB is taken from the buffer), and after PLAY it stays

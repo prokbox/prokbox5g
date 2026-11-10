@@ -45,14 +45,21 @@
 static struct {
     bool on;
     bool seen;                      /* the scan was seen running */
+    unsigned scans;                 /* tagcache_ui_scans_ended() at begin */
     long t0, quiet, next;
     unsigned char phase;
 } ub;
+
+bool ui_usbbusy_moment(void)
+{
+    return ub.on;
+}
 
 void ui_usbbusy_begin(void)
 {
     ub.on = true;
     ub.seen = false;
+    ub.scans = tagcache_ui_scans_ended();
     ub.t0 = ub.quiet = ub.next = current_tick;
     ub.phase = 1;
     tagcache_ui_sidecars_reset();   /* the count logged is this scan's */
@@ -232,6 +239,10 @@ static bool usb_poll(long now)
         ub.seen = true;
         ub.quiet = now;
     }
+    /* #157: a scan that started and ended between two looks (a short
+     * probe) still counts as seen: the gap, not the grace, ends us */
+    else if (!ub.seen && tagcache_ui_scans_ended() != ub.scans)
+        ub.seen = true;
     if ((!busy && TIME_AFTER(now, ub.quiet + (ub.seen ? GAP_TICKS
                                                        : GRACE_TICKS)))
         || TIME_AFTER(now, ub.t0 + MAX_TICKS))

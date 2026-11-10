@@ -1,0 +1,38 @@
+# #225: the main menu's Now Playing cover (npcover) of a synced album
+# with embedded art, through its SECOND track (the cover database's map
+# holds album representatives only): the embedded art (owner,
+# 2026-11-08: as the panels). "0 Both" track 2 of
+# tests/perf/ipodctl_library.py 300 --front (its seeded layout). The
+# render as tests/ui/ipodui-np-sharp-render: the row queues it, it runs
+# on the charger with the screen dark.
+#   IPODCTL_SCRIPT=ipodctl-np-both.script NP_KINDS=2 S1_PASSES=1 \
+#       tests/perf/ipodctl_sim.sh 300 --front
+# ipodctl_sim.sh checks the "art npcover src" trace's kind.
+# env: IPODUI_NP_NO_PANEL=built
+# trace: panelset
+# golden: skip
+# timeout: 1800
+wait 4000
+wait_db 3000000
+art_wait 3000000
+battery 100
+charger off
+repeat one          # the fixture's tracks last about a second
+play_files /iPod_Control/Music/F10/GUJZ.mp3
+wait 1000
+expect_playing 300
+key SELECT          # Music (the menu re-reads "Now Playing")
+wait 700
+key MENU
+wait 700
+wheel +10 100       # the Now Playing row: queues the render
+disk_active 3000
+wait 2000
+charger on
+wait 1500
+disk_active 6000
+backlight_expire    # idle on the charger: the render runs
+wait 6000
+key MENU            # wakes the screen
+wait 2000
+shot sharp_row

@@ -257,6 +257,7 @@
 #include "sim_tasks.h"
 #include "sim_db.h"
 #include "sim_cmd_ab.h"
+extern void sim_powercut_unreached(void);
 #include "sim_cmd_art.h"
 #include "sim_cmd_audio.h"
 #include "sim_cmd_clock.h"
@@ -295,6 +296,7 @@ int sim_get_os_path(char *buffer, const char *path, size_t bufsize);
 #define DB_POLL_MS          100
 #define DB_WAIT_DEFAULT_MS  30000
 #define DB_BOOT_CHECK_MS    10000
+#define DB_OWN_BUILD_MS     3000    /* build_db: the shell's own first build */
 #define UPDATE_NOCHANGE_MS  3000
 
 static long script_stack[DEFAULT_STACK_SIZE/sizeof(long)];
@@ -543,7 +545,7 @@ static void wait_db(long timeout_ms, int lineno)
 
 /* wait_commit [ms]: until a commit runs, then until it ends; the command
  * after it lands between the commit and its candidate's publication
- * (tests/perf/resort-play-50k.script) */
+ * (tests/perf/resort-play.script) */
 static long commits_seen;       /* the count the last wait_commit saw */
 
 static void wait_commit(long timeout_ms, int lineno)
@@ -655,6 +657,22 @@ static void build_db(int lineno)
         waited += DB_POLL_MS;
     }
 
+    /* #237: a shell boot with no library builds it by itself (its first
+     * count and the boot stamp come before the walk, and look like
+     * "missing" meanwhile): a rebuild posted then made a second whole
+     * build, so the primed disk's commit (2) differed from the one a
+     * fresh-db script's own build makes (1). Give that build a moment. */
+    for (long own = 0; st == SIM_DB_MISSING && own < DB_OWN_BUILD_MS;
+         own += DB_POLL_MS)
+    {
+        sleep_ms(DB_POLL_MS);
+        st = sim_db_state();
+    }
+    if (st == SIM_DB_BUSY)
+    {
+        fprintf(stderr, "sim_script: build_db: the shell's own build runs\n");
+        return;
+    }
     if (st == SIM_DB_MISSING)
     {
         fprintf(stderr, "sim_script: build_db: building\n");
@@ -957,9 +975,13 @@ static bool run_line(char *line, int lineno)
     const char *cmd = argv[0];
 
     if (!strcmp(cmd, "quit"))
+    {
+        sim_powercut_unreached();
         return false;
+    }
     else if (!strcmp(cmd, "reboot"))
     {
+        sim_powercut_unreached();
         fprintf(stderr, "sim_script: reboot\n");
         return false;   /* scripts/shots.sh boots again for the rest */
     }

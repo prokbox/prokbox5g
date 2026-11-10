@@ -26,39 +26,71 @@
 #
 #   tests/perf/floor_gate.sh [32|64 ...]      (default: 32 64)
 #
-# Runs tests/perf/floor-50k.script at 50,000 tracks on the 32 MB
-# (build/sim-ui32, --ram=32) and 64 MB (build/sim-ui, the default) shell
-# simulators and fails when the audio file buffer is under the floor
-# (7,500,000 B / 39,000,000 B, docs/hardware.md budget rules) at any
-# worst case. It never touches build/sim-50k/simdisk: each run uses a
-# disposable clone of it (cp -p: the database compares file times) (made by tests/perf/lib50k.sh when missing: the
-# first run builds the database, minutes). Exit 0 = every floor held.
+# Each unit at its own stress ceiling (owner, 2026-11-09, #229): the 32 MB
+# unit (build/sim-ui32, --ram=32) runs tests/perf/floor-50k.script at
+# 50,000 tracks, the 64 MB unit (build/sim-ui, the default) runs
+# tests/perf/floor-65k.script at 65,000 (tests/perf/stress_size.sh). It
+# fails when the audio file buffer is under the floor (7,500,000 B /
+# 39,000,000 B, docs/hardware.md budget rules) at any worst case. It never
+# touches build/sim-50k or build/sim-65k's simdisk: each run uses a
+# disposable clone (cp -p: the database compares file times); a missing
+# disk is made by tests/perf/lib50k.sh / lib65k.sh (the first run builds
+# the database, minutes). Exit 0 = every floor held.
+#
+# FLOOR_K_32 / FLOOR_K_64 (50 or 65) run a unit at the other size, for a
+# red run: at 65k the 32 MB unit is under its floor (#229). FLOOR_SOURCE_32
+# / FLOOR_SOURCE_64 point a unit at another disk (it needs a db.key).
+#
+# Two cases per unit (p081-fixture): the STEADY case on a disk this
+# firmware primed (tests/perf/ensure65k.sh proves it: key, file formats,
+# and a probe boot that changes no database file), and the UPGRADE case,
+# "0.8.0 library, first boot": the same floor script (and on the 32 MB
+# unit the paused window's wait) on the 0.8.0 release's first build of
+# the same library (tests/perf/upgrade080.sh), the current installed files
+# copied over it. FLOOR_UPGRADE=0 skips the upgrade case.
 set -u
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
-SOURCE=${FLOOR_SOURCE:-$ROOT/build/sim-50k/simdisk}
+. "$ROOT/tests/perf/stress_size.sh"
 RC=0
-if [ ! -f "$SOURCE/Synth/.synthetic" ] || [ "$(cat "$SOURCE/Synth/.synthetic")" != 50000 ]; then
-    echo "floor gate: building the 50k library (tests/perf/lib50k.sh)" >&2
-    "$ROOT/tests/perf/lib50k.sh" >/dev/null 2>&1 || {
-        echo "floor gate: FAIL lib50k.sh could not build the 50k library" >&2
+TMPS=
+trap 'for t in $TMPS; do rm -rf "$t"; done' EXIT
+# the size of each unit's run: its ceiling, or FLOOR_K_<RAM>
+k_for() { eval "_o=\${FLOOR_K_$1:-}"; if [ -n "$_o" ]; then echo "$_o"; else stress_k "$1"; fi; }
+for RAM_ in ${*:-32 64}; do
+    K=$(k_for "$RAM_") || { echo "floor gate: RAM must be 32 or 64" >&2; exit 2; }
+    [ -f "$ROOT/tests/perf/floor-${K}k.script" ] && [ -x "$ROOT/tests/perf/lib${K}k.sh" ] || {
+        echo "floor gate: FAIL no floor-${K}k.script / lib${K}k.sh for the ${RAM_} MB unit" >&2; exit 2; }
+    eval "SRC=\${FLOOR_SOURCE_$RAM_:-$ROOT/build/sim-${K}k/simdisk}"
+    if [ ! -f "$SRC/Synth/.synthetic" ] || [ "$(cat "$SRC/Synth/.synthetic")" != "${K}000" ]; then
+        echo "floor gate: building the ${K}k library (tests/perf/lib${K}k.sh)" >&2
+        "$ROOT/tests/perf/lib${K}k.sh" >/dev/null 2>&1 || {
+            echo "floor gate: FAIL lib${K}k.sh could not build the ${K}k library" >&2
+            exit 1; }
+    fi
+    # the database must be the one this firmware reads (SORTKEY_VERSION and
+    # the format defines; tests/perf/ensure65k.sh re-primes a stale one)
+    "$ROOT/tests/perf/ensure65k.sh" "$SRC" || {
+        echo "floor gate: FAIL the ${K}k database is stale (tests/perf/ensure65k.sh)" >&2
         exit 1; }
-fi
-# the database must be the one this firmware reads (SORTKEY_VERSION and the
-# format defines; tests/perf/ensure50k.sh re-primes a stale one)
-"$ROOT/tests/perf/ensure50k.sh" "$SOURCE" || {
-    echo "floor gate: FAIL the 50k database is stale (tests/perf/ensure50k.sh)" >&2
-    exit 1; }
-# #47: a disk sorted by older grouping rules is re-sorted once at its next
-# boot. The measured scripts start from a library in the current order, as
-# on a device after its first boot (tests/perf/settle50k.sh); the re-sort
-# racing PLAY is tests/perf/resort_play_check.sh (run first, below).
-# P16: the re-sort (and a post-USB commit) racing PLAY, unsettled
-FLOOR_SOURCE=$SOURCE "$ROOT/tests/perf/resort_play_check.sh" ${*:-32 64} || RC=1
-SETTLED=$("$ROOT/tests/perf/settle50k.sh" "$SOURCE") || exit 1
-if [ "$SETTLED" != "$SOURCE" ]; then
-    trap 'rm -rf "$(dirname "$SETTLED")"' EXIT
-    SOURCE=$SETTLED
-fi
+    # P16: the re-sort (and a post-USB commit) racing PLAY, unsettled
+    FLOOR_SOURCE=$SRC "$ROOT/tests/perf/resort_play_check.sh" "$RAM_" || RC=1
+    # #47: a disk sorted by older grouping rules is re-sorted once at its
+    # next boot. The measured scripts start from a library in the current
+    # order, as on a device after its first boot (tests/perf/settle65k.sh)
+    SET=$("$ROOT/tests/perf/settle65k.sh" "$SRC") || exit 1
+    [ "$SET" != "$SRC" ] && TMPS="$TMPS $(dirname "$SET")"
+    eval "K_$RAM_=$K; SOURCE_$RAM_=\$SET"
+    echo "floor gate: ${RAM_} MB unit at ${K}k tracks ($SRC)"
+    # p081-fixture: the upgrade case's disk, the 0.8.0 release's first
+    # build of the same library (tests/perf/upgrade080.sh; made once)
+    if [ "${FLOOR_UPGRADE:-1}" = 1 ]; then
+        UP=$("$ROOT/tests/perf/upgrade080.sh" "$K") || {
+            echo "floor gate: FAIL no 0.8.0 ${K}k disk for the upgrade case (tests/perf/upgrade080.sh)" >&2
+            exit 1; }
+        eval "UPSRC_$RAM_=\$UP"
+        echo "floor gate: ${RAM_} MB unit upgrade case: 0.8.0 library at ${K}k ($UP)"
+    fi
+done
 # P12: the module arena at its real size (the largest MOD_ARENA_SIZE in
 # apps/ipodui/modload.h across the release and developer builds, which
 # tools/modpak.py prints and enforces) replaces the 64 KB placeholder; the
@@ -96,6 +128,7 @@ run_ram() { # RAM -> stdout/stderr as before; exit status = this half's RC
         64) BUILD=$ROOT/build/sim-ui;   FLOOR=39000000 ;;
         *) echo "floor gate: RAM must be 32 or 64" >&2; return 2 ;;
     esac
+    eval "K=\$K_$RAM; SOURCE=\$SOURCE_$RAM"
     if [ ! -x "$BUILD/rockboxui" ]; then
         echo "floor gate: FAIL $BUILD/rockboxui missing (build it: --ipodui --ram=$RAM)" >&2
         RC=1; break
@@ -106,21 +139,21 @@ run_ram() { # RAM -> stdout/stderr as before; exit status = this half's RC
     OUT=$ROOT/out/shots/floor-$RAM
     sed -e "s/^\(floor_reserve [0-3]\) 65536\$/\1 $ARENA/" \
         -e "s/^\(floor_reserve 3\) 32768\$/\1 $EXTRA_WORK/" \
-        "$ROOT/tests/perf/floor-50k.script" >"$RUN/floor-50k.script"
+        "$ROOT/tests/perf/floor-${K}k.script" >"$RUN/floor-${K}k.script"
     if [ "$BCM_RES" -gt 0 ]; then
         # before the first wait: the shell is up, nothing has played yet
         awk -v r="$BCM_RES" '!done && /^wait / {print "floor_reserve 4 " r; done=1} {print}' \
-            "$RUN/floor-50k.script" >"$RUN/floor-50k.script.t" \
-            && mv "$RUN/floor-50k.script.t" "$RUN/floor-50k.script"
-        grep -q "^floor_reserve 4 $BCM_RES\$" "$RUN/floor-50k.script" || {
+            "$RUN/floor-${K}k.script" >"$RUN/floor-${K}k.script.t" \
+            && mv "$RUN/floor-${K}k.script.t" "$RUN/floor-${K}k.script"
+        grep -q "^floor_reserve 4 $BCM_RES\$" "$RUN/floor-${K}k.script" || {
             echo "floor gate: FAIL could not put the resident BCM image into the script" >&2
             RC=1; break; }
     fi
-    grep -q "^floor_reserve 0 $ARENA\$" "$RUN/floor-50k.script" || {
+    grep -q "^floor_reserve 0 $ARENA\$" "$RUN/floor-${K}k.script" || {
         echo "floor gate: FAIL could not put the arena size $ARENA into the script" >&2
         RC=1; break; }
     SIM_BUILD=$BUILD SIMDISK=$RUN/simdisk SHOTS_TIMEOUT=${SHOTS_TIMEOUT:-600} \
-        "$ROOT/scripts/shots.sh" "$RUN/floor-50k.script" "$OUT" \
+        "$ROOT/scripts/shots.sh" "$RUN/floor-${K}k.script" "$OUT" \
         >"$RUN/shots.out" 2>&1
     ST=$?
     LOG=$OUT/sim.log
@@ -133,7 +166,7 @@ run_ram() { # RAM -> stdout/stderr as before; exit status = this half's RC
     rm -rf "$RUN/simdisk2"; mkdir -p "$RUN/simdisk2"
     cp -cpR "$SOURCE/." "$RUN/simdisk2/" 2>/dev/null || cp -pR "$SOURCE/." "$RUN/simdisk2/"
     SIM_BUILD=$BUILD SIMDISK=$RUN/simdisk2 SHOTS_TIMEOUT=${SHOTS_TIMEOUT:-600} \
-        "$ROOT/scripts/shots.sh" "$ROOT/tests/perf/resume-shrink-50k.script" "$RUN2" \
+        "$ROOT/scripts/shots.sh" "$ROOT/tests/perf/resume-shrink.script" "$RUN2" \
         >"$RUN/shots2.out" 2>&1 || true
     grep -E "tap2pcm|sim_script: floor (before|after)" "$RUN2/sim.log" 2>/dev/null \
         | sed 's/^sim_script: //; s/^ipodui: /resume: /'
@@ -158,16 +191,115 @@ run_ram() { # RAM -> stdout/stderr as before; exit status = this half's RC
         echo "floor gate: FAIL ${RAM} MB unit: paused window floor rule: $WAITBAD" >&2
         RC=1
     elif [ $ST -ne 0 ] || [ -z "$MINLINE" ]; then
-        echo "floor gate: FAIL ${RAM} MB unit: the floor script failed (exit $ST; $LOG, $RUN/shots.out)" >&2
+        echo "floor gate: FAIL ${RAM} MB unit at ${K}k: the floor script failed (exit $ST; $LOG, $RUN/shots.out)" >&2
         tail -5 "$RUN/shots.out" >&2
         RC=1
     else
-        echo "floor gate: ok ${RAM} MB unit, all worst cases >= $FLOOR B"
-        rm -rf "$RUN"
+        echo "floor gate: ok ${RAM} MB unit at ${K}k, all worst cases >= $FLOOR B"
     fi
+    # p081-fixture: the upgrade case, "0.8.0 library, first boot of this
+    # firmware" (every user's first 0.8.1 boot): the same worst cases (and
+    # on the 32 MB unit the paused window's wait) on a clone of the 0.8.0
+    # disk, whose first boot here rewrites the library file, publishes a
+    # new generation and writes the first boot stamp while they run. The
+    # current installed files go over the clone's (an upgrade replaces them
+    # and keeps the database).
+    if [ "${FLOOR_UPGRADE:-1}" = 1 ]; then
+        eval "UPSRC=\$UPSRC_$RAM"
+        if ! upgrade_case "$UPSRC"; then
+            RC=1
+        else
+            echo "floor gate: ok ${RAM} MB unit upgrade case (0.8.0 library, first boot) at ${K}k, all worst cases >= $FLOOR B"
+        fi
+    fi
+    [ $RC -eq 0 ] && rm -rf "$RUN"
     break
   done
   return $RC
+}
+# a clone of the 0.8.0 disk with this build's installed files
+upgrade_clone() { # SOURCE DEST
+    rm -rf "$2"; mkdir -p "$2"
+    cp -cpR "$1/." "$2/" 2>/dev/null || cp -pR "$1/." "$2/"
+    for it in codecs rocks fonts langs themes wps icons backdrops eqs codepages docs \
+              viewers.config tagnavi.config rockbox-info.txt; do
+        [ -e "$BUILD/simdisk/.rockbox/$it" ] || continue
+        rm -rf "$2/.rockbox/$it"
+        cp -cpR "$BUILD/simdisk/.rockbox/$it" "$2/.rockbox/$it" 2>/dev/null \
+            || cp -pR "$BUILD/simdisk/.rockbox/$it" "$2/.rockbox/$it"
+    done
+    [ -d "$2/.rockbox/codecs" ] && [ -f "$2/.rockbox/rockbox-info.txt" ]
+}
+upgrade_case() { # SOURCE; uses RAM K BUILD RUN FLOOR; 0 = the floor held
+    local UB ST4 OUT4 LOG4 MIN4
+    UB=
+    upgrade_clone "$1" "$RUN/simdisk-up" \
+        || { echo "floor gate: FAIL ${RAM} MB upgrade case: could not install this build on the 0.8.0 clone" >&2; return 1; }
+    [ ! -f "$RUN/simdisk-up/.rockbox/boot_stamp.dat" ] \
+        || { echo "floor gate: FAIL ${RAM} MB upgrade case: the 0.8.0 disk has a boot stamp (not 0.8.0's first build?)" >&2; return 1; }
+    OUT4=$ROOT/out/shots/floor-upgrade-$RAM
+    SIM_BUILD=$BUILD SIMDISK=$RUN/simdisk-up SHOTS_TIMEOUT=${SHOTS_TIMEOUT:-600} \
+        "$ROOT/scripts/shots.sh" "$RUN/floor-${K}k.script" "$OUT4" \
+        >"$RUN/shots-up.out" 2>&1
+    ST4=$?
+    LOG4=$OUT4/sim.log
+    grep -E "sim_script: (floor |floor_watch end|floor_reserve )|expect_floor|ipodui: maint (take|job)" "$LOG4" 2>/dev/null \
+        | sed 's/^sim_script: /upgrade: /'
+    MIN4=$(grep -E "floor_watch all_cases" "$LOG4" | tail -1)
+    # the case must really be an upgrade: this firmware published over
+    # 0.8.0's library in the run
+    [ -f "$RUN/simdisk-up/.rockbox/boot_stamp.dat" ] \
+        || UB="no boot stamp after the first boot (not an upgrade run?)"
+    if [ "$RAM" = 32 ]; then
+        upgrade_clone "$1" "$RUN/simdisk-up3" \
+            || UB="${UB:-could not install this build on the second 0.8.0 clone}"
+        SIM_BUILD=$BUILD SIMDISK=$RUN/simdisk-up3 SHOTS_TIMEOUT=${SHOTS_TIMEOUT:-600} \
+            "$ROOT/scripts/shots.sh" "$ROOT/tests/perf/paused-floor-wait-50k.script" \
+            "$ROOT/out/shots/paused-floor-wait-upgrade-$RAM" >"$RUN/shots-up3.out" 2>&1 \
+            || UB="${UB:-the wait script failed ($RUN/shots-up3.out)}"
+        L5=$ROOT/out/shots/paused-floor-wait-upgrade-$RAM/sim.log
+        grep -E "maint (job=commit wait|take)|sim_script: floor (shrunk|window)" "$L5" 2>/dev/null \
+            | sed 's/^sim_script: //; s/^ipodui: /upgrade wait: /'
+        grep -q "maint job=commit wait floor" "$L5" 2>/dev/null \
+            || UB="${UB:-no 'maint job=commit wait floor' line}"
+        ! grep -q "maint take job=commit" "$L5" 2>/dev/null \
+            || UB="${UB:-the window took memory below the floor}"
+    fi
+    if [ $ST4 -ne 0 ] || [ -z "$MIN4" ]; then
+        echo "floor gate: FAIL ${RAM} MB unit upgrade case (0.8.0 library, first boot) at ${K}k: the floor script failed (exit $ST4; $LOG4, $RUN/shots-up.out)" >&2
+        tail -5 "$RUN/shots-up.out" >&2
+        return 1
+    fi
+    # an upgrade costs the session no audio buffer against the steady case
+    # (p081-floor: a library published at boot kept the retired
+    # generation's RAM cache, 6.9 MB at 50k, all session; 7.9 MB at the
+    # 32 MB paused window, still above the floor, so the floor alone does
+    # not see it). UPGRADE_SLACK B of noise allowed (default 256 KiB).
+    SL=${UPGRADE_SLACK:-262144}
+    num() { sed -n "s/.* $1=\([0-9][0-9]*\).*/\1/p" | tail -1; }
+    S_MIN=$(grep -E "floor_watch all_cases" "$LOG" | num min)
+    U_MIN=$(printf '%s\n' "$MIN4" | num min)
+    if [ -z "$S_MIN" ] || [ -z "$U_MIN" ]; then
+        UB="${UB:-no all_cases minimum to compare (steady $S_MIN, upgrade $U_MIN)}"
+    elif [ "$U_MIN" -lt $((S_MIN - SL)) ]; then
+        UB="${UB:-all_cases minimum $U_MIN B, $((S_MIN - U_MIN)) B under the steady case $S_MIN B}"
+    fi
+    echo "floor gate: ${RAM} MB upgrade vs steady: all_cases min $U_MIN / $S_MIN B"
+    if [ "$RAM" = 32 ]; then
+        S_W=$(grep "maint job=commit wait floor" "$ROOT/out/shots/paused-floor-wait-$RAM/sim.log" 2>/dev/null | num audio)
+        U_W=$(grep "maint job=commit wait floor" "$L5" 2>/dev/null | num audio)
+        if [ -z "$S_W" ] || [ -z "$U_W" ]; then
+            UB="${UB:-no paused-window audio to compare (steady $S_W, upgrade $U_W)}"
+        elif [ "$U_W" -lt $((S_W - SL)) ]; then
+            UB="${UB:-paused window audio $U_W B, $((S_W - U_W)) B under the steady case $S_W B}"
+        fi
+        echo "floor gate: ${RAM} MB upgrade vs steady: paused window audio $U_W / $S_W B"
+    fi
+    if [ -n "$UB" ]; then
+        echo "floor gate: FAIL ${RAM} MB unit upgrade case (0.8.0 library, first boot): $UB" >&2
+        return 1
+    fi
+    return 0
 }
 if [ "${FLOOR_PARALLEL:-0}" = 1 ]; then
     FT=$(mktemp -d "$ROOT/build/floor-par.XXXXXX")

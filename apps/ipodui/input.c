@@ -43,6 +43,7 @@
 #include "ipodui/batcal.h"
 #include "ipodui/unlit.h"
 #include "ipodui/usbbusy.h"
+#include "ipodui/updscreen.h"
 #include "ipodui/artcache.h"
 #include "ipodui/lock.h"
 #include "ipodui/clockpol.h"        /* np-lag: the input boost */
@@ -52,6 +53,7 @@
 #include "ipodui/sdk/sdk_int.h"     /* sdk_poweroff() */
 #include "bcmjob_pp.h"              /* P19: bcmjob_owner_event() */
 #include "ipodui/art_bcm.h"         /* art_bcm_pass_note() */
+#include "ipodui/screens/video.h"   /* ui_video_hold_changed() (#184) */
 
 #define LONG_PRESS_TICKS (HZ/2)
 
@@ -206,7 +208,10 @@ bool ui_input_get(struct ui_input *in, int timeout)
             {
                 /* Phase 8a: the shell's own events (firmware/backlight.c) */
                 if (btn == SYS_IPODUI_HOLD_CHANGED)
+                {
                     UPDATE_TRACE("hold %s", button_get_data() ? "on" : "off");
+                    ui_video_hold_changed(button_get_data() != 0);
+                }
                 ui_unlit_sysevent(btn, button_get_data());
                 if (btn == SYS_IPODUI_BACKLIGHT_OFF)
                 {
@@ -247,13 +252,21 @@ bool ui_input_get(struct ui_input *in, int timeout)
                 ui_lock_usb_host();
                 powerlog_mark("usb");       /* #10: out before the ack */
                 ui_sleep_window_close();    /* P18: no boost into it */
+                ui_upd_yield(UPD_YIELD_USB, true);  /* nor the library
+                                                     * page's (no I/O) */
                 ui_unlit_sysevent(btn, 0);  /* leave the face first */
             }
             if (default_event_handler(btn) == SYS_USB_CONNECTED)
             {
                 ui_invalidate(UI_DIRTY_ALL);  /* the USB screen drew over us */
                 ui_unlit_foreign_draw();
+                /* #157/#237: the library page while the work the session
+                 * left runs (none if short), or again with no library */
+                ui_upd_yield(UPD_YIELD_USB, false); /* no session: back */
+                ui_upd_after_usb();
             }
+            else if (btn == SYS_USB_CONNECTED)
+                ui_upd_yield(UPD_YIELD_USB, false); /* the page's hold back */
             lcd_set_viewport(NULL);   /* don't keep a handler's viewport */
             return false;
         }

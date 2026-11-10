@@ -96,4 +96,23 @@ void safefile_recover(const char *dest, const char *tmp, const char *prev);
 void safefile_recover_dir(const char *dir, const char *suffix,
                           const char *marker);
 
+/* #177: a file whose cluster chain ends before its size (a write cut by a
+ * power loss; the host reads it as an I/O error) is cut back to the bytes
+ * its chain holds, so it reads end to end again and a later remove or
+ * rename never follows its dangling link into a cluster that someone has
+ * reused since. Run it before such a file is renamed (above all into a
+ * prev) or removed. 1 healed, 0 whole, -1 missing or an error. */
+int safefile_heal_cut(const char *path);
+
+/* #177: a named write point of a crash-safe save (path: the file it
+ * concerns). In the simulator it is logged into the file trace and is
+ * where "powercut at <point> [file]" kills it (filesystem-sim.c,
+ * tests/ui/README.md lists the points); nothing on the device. */
+#if defined(SIMULATOR) && !defined(ARTFMT_HOST)
+void sim_powercut_point(const char *point, const char *path);
+#define POWERCUT_POINT(point, path) sim_powercut_point((point), (path))
+#else
+#define POWERCUT_POINT(point, path) do { } while (0)
+#endif
+
 #endif /* IPODUI_SAFEFILE_H */

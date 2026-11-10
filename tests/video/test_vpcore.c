@@ -201,6 +201,12 @@ struct world
        failing (bad_from: every sample from there; bad_left reads, < 0
        for ever) */
     int race_sample, bad_from, bad_left;
+    /* #218: after the race, the buffered path stays short of the
+       sample's bytes this long (audio time; the audio's buffering
+       catching up), while the file reads at once */
+    int64_t race_hold_us, race_until;
+    int race_held;
+    uint32_t race_refusals;
     /* day 4c: the audio's buffer never holds the bytes from this sample
        on (its fill stopped short), < 0 none; the file still reads */
     int hole_from;
@@ -304,7 +310,7 @@ static long src_read(void *ctx, uint64_t off, void *buf, uint32_t n)
     long hi, lo;
 
     (void)ctx;
-    if (W.race_sample >= 0)
+    if (W.race_sample >= 0 && !V.read_direct)
     {
         uint64_t o = F.off[W.race_sample];
 
@@ -313,8 +319,22 @@ static long src_read(void *ctx, uint64_t off, void *buf, uint32_t n)
         else if (W.race_armed && off >= o && off < o + F.raw[W.race_sample])
         {
             W.race_armed = false;
+            W.race_held = W.race_sample;
+            W.race_until = a + W.race_hold_us;
             W.race_sample = -1;
             W.races++;
+            return VPC_NOT_BUFFERED;
+        }
+    }
+    /* the buffered path short of the raced sample until race_until (a
+       direct read is the file's: it always reads) */
+    if (W.race_held >= 0 && !V.read_direct)
+    {
+        if (a >= W.race_until)
+            W.race_held = -1;
+        else if (off + n > F.off[W.race_held])
+        {
+            W.race_refusals++;
             return VPC_NOT_BUFFERED;
         }
     }
@@ -450,7 +470,17 @@ static long idx_read(void *ctx, uint64_t off, void *buf, uint32_t n)
     return n;
 }
 
-static int p_rd(uint32_t a, uint32_t *v) { now += 2; return vbm_rd(&M, a, v); }
+/* port reads, and those made while the model's chip is cut (vpc_stop()'s
+   J_LAT read after the dark path, the laptop's emulator, 2026-11-08) */
+static uint32_t rd_count, rd_unpowered;
+static int p_rd(uint32_t a, uint32_t *v)
+{
+    now += 2;
+    rd_count++;
+    if (!M.powered)
+        rd_unpowered++;
+    return vbm_rd(&M, a, v);
+}
 static int p_wr(uint32_t a, uint32_t v) { now += 2; return vbm_wr(&M, a, v); }
 static int p_wrb(uint32_t a, const uint16_t *s, uint32_t n)
 {
@@ -620,7 +650,9 @@ static int setup(void)
     W.keep_us = 3000000;
     W.last_pts = -1;
     W.t_base = now;
-    W.race_sample = W.bad_from = W.hole_from = -1;
+    W.race_sample = W.bad_from = W.hole_from = W.race_held = -1;
+    W.race_hold_us = W.race_until = 0;
+    W.race_refusals = 0;
     W.verbose = getenv("VERBOSE") != NULL;
     vbm_init(&M, sram, sdram, mscratch, now_fn);
     M.present = present;
@@ -820,6 +852,17 @@ static void h_dark(int64_t t)
     }
 }
 
+/* the display goes dark and stays dark: the session stops while the
+   BCM is cut */
+static void h_dark_stay(int64_t t)
+{
+    if (step == 0 && t >= 3000)
+    {
+        step++;
+        W.display_on = false;
+    }
+}
+
 /* paused, the display times out, wakes still paused, then plays on */
 static int64_t paused_at, shown_on_wake;
 static uint32_t shown_before_wake;
@@ -950,11 +993,109 @@ static void trace_pacing(void)
     }
 }
 
+
+/* #218: the clock the video follows (vpc_follow).  A scenario is a list
+   of readings every 50 ms: the audio's position and whether the PCM
+   plays; it counts the seeks and the largest step back given out */
+struct fstep { int64_t a; bool on; };
+
+static uint32_t follow_run(const char *what, int64_t start,
+                           const struct fstep *st, int n, int64_t *back)
+{
+    struct vpc_follow f;
+    uint32_t seeks = 0, t = 1000;
+    int64_t prev = start;
+    int i;
+
+    memset(&f, 0, sizeof(f));
+    vpc_follow_reset(&f, start, false);
+    *back = 0;
+    for (i = 0; i < n; i++, t += 50000)
+    {
+        bool jump;
+        int64_t a = vpc_follow(&f, st[i].a, st[i].on, t, &jump);
+
+        if (jump)
+        {
+            seeks++;
+            prev = a;
+            continue;
+        }
+        if (prev - a > *back)
+            *back = prev - a;
+        prev = a;
+    }
+    printf("     follow %s: %u seeks, held %u, step back %lld us\n", what,
+           seeks, f.held, (long long)*back);
+    return seeks;
+}
+
+/* n readings from a0 on, advancing 50 ms each while on */
+static int fill(struct fstep *s, int k, int n, int64_t a0, bool on,
+                bool moving)
+{
+    int i;
+
+    for (i = 0; i < n; i++)
+        s[k + i] = (struct fstep){ a0 + (moving ? i * 50000 : 0), on };
+    return k + n;
+}
+
+static void t_follow(void)
+{
+    static struct fstep s[400];
+    int64_t back;
+    int k;
+
+    /* the logs' start (rc.7: 2939 -> 0 -> 3250): the video at 0, the
+       position reading 2.9 s for 1 s before the PCM plays, then the PCM
+       from 0, one reading of 3.25 s on the way */
+    k = fill(s, 0, 20, 2939000, false, false);
+    k = fill(s, k, 20, 0, true, true);
+    s[k++] = (struct fstep){ 3250000, true };
+    k = fill(s, k, 40, 1050000, true, true);
+    check(follow_run("start", 0, s, k, &back) == 0 && back <= 50000,
+          "follow: the start's passing positions seek nothing (#218)");
+    /* a stall: the PCM stops for 0.5 s while the position reads 2.9 s
+       ahead, then plays on where it was */
+    k = fill(s, 0, 40, 0, true, true);
+    k = fill(s, k, 10, 2000000 + 2900000, false, false);
+    k = fill(s, k, 40, 2000000, true, true);
+    check(follow_run("stall", 0, s, k, &back) == 0 && back <= 50000,
+          "follow: a stall's ahead position seeks nothing");
+    /* a resume at 30 s: the video at 30 s, the position 0 then 30 s
+       before the PCM plays */
+    k = fill(s, 0, 5, 0, false, false);
+    k = fill(s, k, 10, 30000000, false, false);
+    k = fill(s, k, 40, 30000000, true, true);
+    check(follow_run("resume", 30000000, s, k, &back) == 0,
+          "follow: a resume where the video started seeks nothing");
+    /* the shell's seek on to 60 s, and its seek back to 0 (a repeat): one
+       seek each, within two readings */
+    k = fill(s, 0, 40, 0, true, true);
+    k = fill(s, k, 40, 60000000, true, true);
+    k = fill(s, k, 40, 0, true, true);
+    check(follow_run("seeks", 0, s, k, &back) == 2,
+          "follow: a seek on and a seek back are followed, once each");
+    /* the video started at 0, the sound truly plays from 30 s: one seek
+       once the PCM plays */
+    k = fill(s, 0, 10, 0, false, false);
+    k = fill(s, k, 40, 30000000, true, true);
+    check(follow_run("align", 0, s, k, &back) == 1,
+          "follow: a start the sound doesn't share is followed once");
+    /* nothing: a position that never moves while on seeks nothing, and
+       an always-off one holds the start */
+    k = fill(s, 0, 40, 5000000, false, false);
+    check(follow_run("off", 0, s, k, &back) == 0,
+          "follow: the PCM never playing holds the start");
+}
+
 int main(int argc, char **argv)
 {
     enum vpc_state st;
     int i;
 
+    t_follow();
     sram = calloc(1, VBM_SRAM_SIZE);
     sdram = calloc(1, VBM_SDRAM_SIZE);
     mscratch = calloc(1, VBM_SCRATCH);
@@ -1514,6 +1655,29 @@ int main(int argc, char **argv)
           "dark: BCM off while dark, back in sync with the audio on waking");
     vpc_stop(&V);
 
+    /* 6d. stopped while dark: vpc_stop() reads nothing through the port
+       of a cut chip (its J_LAT load timings are read only while the image
+       runs), and a lit stop still reads them (the check can see reads) */
+    setup();
+    st = run(6000, h_dark_stay);
+    rd_count = rd_unpowered = 0;
+    {
+        bool cut = !M.powered;
+
+        vpc_stop(&V);
+        printf("     dark stop: %u port reads, %u of them of the cut chip\n",
+               rd_count, rd_unpowered);
+        check(st == VPC_ASLEEP && cut && rd_unpowered == 0,
+              "dark stop: no port read of the cut chip");
+    }
+    setup();
+    st = run(3000, NULL);
+    rd_count = rd_unpowered = 0;
+    vpc_stop(&V);
+    printf("     lit stop: %u port reads\n", rd_count);
+    check(st == VPC_PLAYING && rd_count > 0 && rd_unpowered == 0,
+          "lit stop: the load timings are still read");
+
     /* 6a. session 22: the image's boot takes 500 ms.  With the pre-roll
        (the audio starts after vpc_start) nothing at the start is late;
        on waking from dark the seek allows for the boot */
@@ -1746,8 +1910,55 @@ int main(int argc, char **argv)
     check(st == VPC_DONE && W.races == 1 && V.stats.piece_waits == 1 &&
           V.stats.src_skips == 0 && W.shown == F.n && W.bad_bytes == 0 &&
           M.fifo_errors == 0,
-          "source: a piece not buffered after its probe waits, nothing lost");
+          "source: a piece not buffered after its probe: nothing lost");
+    /* #218: the piece is read from the file; the packet is kept */
+    check(V.stats.piece_direct == 1 && V.stats.aborts == 0,
+          "source: a piece not buffered after its probe reads the file, "
+          "the packet kept");
     vpc_stop(&V);
+    /* #218 (owner's rc.6/rc.7 logs: every start, about a second in): the
+       audio takes the file after a probe read from it, and its buffering
+       reaches the sample only 800 ms later.  Dropping the packet waited
+       those 800 ms (a late thread, the pictures behind); the file read
+       keeps the pictures in step */
+    setup();
+    W.race_sample = 30;
+    W.race_hold_us = 800000;
+    st = run(30000, NULL);
+    report("buffer reached late after the race");
+    check(st == VPC_DONE && W.races == 1 && W.shown == F.n &&
+          W.bad_bytes == 0 && M.fifo_errors == 0 && V.stats.aborts == 0 &&
+          V.stats.stills == 0 && W.err_max <= 2 * frame(),
+          "source: the audio taking the file mid-packet costs no wait "
+          "(no drop, no still, in step)");
+    vpc_stop(&V);
+    /* #218 sim (ipodui-p19-video-hold, 1 run in 5 with the follow rule):
+       the last picture up, then the audio steps back 1 s and the player
+       seeks: the session must restart at a key (no P picture without its
+       predecessor) and show the last second again */
+    {
+        uint32_t t0, wait = 0;
+
+        setup();
+        st = run(30000, NULL);
+        check(st == VPC_DONE, "seek after the end: the first play ends");
+        W.a_base = audio_now() - 1000000;
+        W.t_base = now;
+        W.settle_until = now + 300000;
+        vpc_seek(&V, audio_now());
+        t0 = now;
+        while (st != VPC_FAILED && now - t0 < 5000000)
+        {
+            now += tick_us;
+            vbm_run(&M);
+            st = vpc_tick(&V, audio_now(), W.playing, W.display_on, &wait);
+        }
+        report("seek back after the end");
+        check(W.order_bad == 0 && W.bad_bytes == 0 && M.fifo_errors == 0 &&
+              st != VPC_FAILED,
+              "seek after the end: back 1 s restarts at a key, in order");
+        vpc_stop(&V);
+    }
     /* (b) one failed read: why is kept, on from the next key */
     setup();
     W.bad_from = (int)(F.n / 2);

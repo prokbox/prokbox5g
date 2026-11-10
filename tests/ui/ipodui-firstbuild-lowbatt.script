@@ -1,0 +1,38 @@
+# #237, owner 2026-11-09: below 15 % on battery a first build waits for
+# power. (1) Boot below 15 % with no charger: the library page says to
+# connect to power and nothing is built; the charger plugged in: the
+# build runs and the page ends at the menu. The charger pulled mid-build:
+# ipodui-firstbuild-chargeroff.script.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-firstbuild-lowbatt.script
+# needs: library
+# fresh-db
+# timeout: 300
+# golden: skip
+# env: IPODUI_SIM_BATT_MV=3420
+# env: IPODUI_SIM_DRAINED=0
+# nolog: upd bar back
+# nolog: upd stuck
+# logbetween: a0 a1 upd push mode=boot
+# logbetween: a0 a1 library page: waits for power batt=1[0-4]
+# logbetween: a0 a1 upd draw bar=\d+ step=-2
+# logbetween: a0 a1 no db scan ms=
+# logbetween: a0 a1 no upd done
+# logbetween: a0 a1 upd dedicated depth=0
+# logbetween: a1 a2 library page: power back
+# logbetween: a1 a2 db scan ms=
+# logbetween: a1 a2 upd done ms=
+# logbetween: a1 a2 upd dedicated depth=0
+
+# below 15 % (3,420 mV: 12 % on the sim's line, above the boot guard's
+# 3,400 floor), no charger, from the power-on
+ab_mark a0
+scan_slow 3         # every folder 30 ms: the build lasts seconds
+wait 6000
+shot wait_power     # "Connect to power to finish your library."
+ab_mark a1
+charger on
+wait_db 60000
+wait 6000
+shot menu_after     # the main menu
+ab_mark a2
+quit

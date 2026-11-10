@@ -124,6 +124,43 @@ static void test_counter(void)
     CHECK_EQ(c.n, 5);
 }
 
+/* 0.8.1: a library shuffle counts the whole library ("1 of 5432"), not
+ * the refill window ("1 of 50") */
+static void test_counter_lib(void)
+{
+    struct np_counter c;
+
+    /* no library source (lib_pos 0): the queue, as before */
+    c = np_counter_lib(np_counter_pick(false, false, 0, 50, -1, 0), false,
+                       0, 5432);
+    CHECK_EQ(c.src, NP_COUNT_QUEUE); CHECK_EQ(c.n, 1); CHECK_EQ(c.m, 50);
+    /* the first song of Shuffle Songs */
+    c = np_counter_lib(np_counter_pick(false, false, 0, 50, -1, 0), false,
+                       1, 5432);
+    CHECK_EQ(c.src, NP_COUNT_QUEUE); CHECK_EQ(c.n, 1); CHECK_EQ(c.m, 5432);
+    /* past the first refill: the window would say 61 of 150 */
+    c = np_counter_lib(np_counter_pick(false, false, 60, 150, -1, 0), false,
+                       161, 5432);
+    CHECK_EQ(c.n, 161); CHECK_EQ(c.m, 5432);
+    /* no song count yet (no precompute): the queue */
+    c = np_counter_lib(np_counter_pick(false, false, 3, 50, -1, 0), false,
+                       4, 0);
+    CHECK_EQ(c.n, 4); CHECK_EQ(c.m, 50);
+    /* the library grew since the count: never "n of m" with n > m */
+    c = np_counter_lib(np_counter_pick(false, false, 3, 50, -1, 0), false,
+                       5500, 5432);
+    CHECK_EQ(c.n, 5500); CHECK_EQ(c.m, 5500);
+    /* a book keeps its chapters (a shuffle never queues one, but the
+     * playing file decides) */
+    c = np_counter_lib(np_counter_pick(true, false, 0, 50, 72, 648), true,
+                       9, 5432);
+    CHECK_EQ(c.src, NP_COUNT_CHAPTER); CHECK_EQ(c.n, 73); CHECK_EQ(c.m, 648);
+    /* nothing to show stays nothing */
+    c = np_counter_lib(np_counter_pick(false, false, -1, 0, -1, 0), false,
+                       3, 5432);
+    CHECK_EQ(c.src, NP_COUNT_NONE);
+}
+
 static void test_seqlock(void)
 {
     CHECK(np_seq_stable(0));
@@ -210,6 +247,7 @@ int main(void)
     test_rating_target();
     test_rating_override();
     test_counter();
+    test_counter_lib();
     test_seqlock();
     test_chapter_step();
     test_set_lyrics();

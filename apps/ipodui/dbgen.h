@@ -29,6 +29,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+struct crcfast;                 /* crcfast.h */
+
 #define DBGEN_PATH_MAX 260
 #define DBGEN_GENERATIONS 4     /* database_gen0..3 under the root */
 #define DBGEN_MAX_FILES 32
@@ -45,8 +47,11 @@ enum dbgen_result {
     DBGEN_BUSY,              /* No unreferenced directory is available. */
     DBGEN_FOREIGN,           /* CRC-good manifest of another version/schema:
                               * never selected, but reserves its directory. */
-    DBGEN_SALVAGED           /* select only: no usable manifest; out names a
+    DBGEN_SALVAGED,          /* select only: no usable manifest; out names a
                               * structurally validated directory instead. */
+    DBGEN_READBACK           /* p081-fatdb: a directory write did not read
+                              * back; the directory is kept as it is and
+                              * set aside by the next prepare. */
 };
 
 struct dbgen_file {
@@ -76,6 +81,22 @@ struct dbgen_ops {
     /* Called between bounded I/O chunks: may yield; true cancels. */
     bool (*cancel)(void *opaque);
     void *opaque;
+    /* p081-fatdb: optional (NULL: no check). A file's chain, read only:
+     * chaincheck.h's CHAIN_* result and runs. Before prepare removes or
+     * truncates anything in a scratch directory, every file in it must be
+     * CHAIN_OK or CHAIN_ABSENT and no two may share a cluster; else the
+     * directory is renamed aside (a rename frees no cluster) to
+     * database_asideN under the root and made afresh, empty. */
+    int (*chain)(const char *path, uint32_t *runs, int maxruns, int *nruns);
+    /* p081-fatdb: optional. note: one log line (under 60 characters,
+     * numbers first). drop: the file layer's caches written back and
+     * dropped, so a read-back sees the medium; with drop set, prepare
+     * reads its removes back and dbgen_readback_size() works. */
+    void (*note)(const char *line);
+    void (*drop)(void);
+    /* p081-bootload: optional (NULL: firmware's crc_32r()). Tables for the
+     * files' CRCs four bytes a step: the same values, about twice as fast. */
+    const struct crcfast *crc;
 };
 
 /* Paths are native filesystem paths. scratch belongs to this worker and is
@@ -89,6 +110,17 @@ struct dbgen_ops {
  * A directory unreadable (IO) during salvage defers it: IO returns. */
 enum dbgen_result dbgen_select(const char *root, char out[DBGEN_PATH_MAX],
     void *scratch, size_t bytes, const struct dbgen_ops *ops);
+
+/* p081-bootload: the boot's tentative choice, with no file content read:
+ * the directory dbgen_select() would try first (the newest intact
+ * manifest's), if every declared file is there at the size that manifest
+ * stamped. DBGEN_OK puts it in out; anything else (no intact manifest, a
+ * file missing or another size, I/O) leaves out empty: select in full at
+ * once. Never a verdict: nothing may use the directory's content, nor
+ * build on it, before dbgen_select() has validated it (CRCs and all). */
+enum dbgen_result dbgen_select_quick(const char *root,
+    char out[DBGEN_PATH_MAX], void *scratch, size_t bytes,
+    const struct dbgen_ops *ops);
 
 /* active is root for first migration, or the path returned by select.
  * Without an intact manifest (torn, or a salvaged library), only a
@@ -141,6 +173,19 @@ enum dbgen_result dbgen_stage_publish(const char *root, const char *candidate,
     int32_t commitid, int32_t entries, void *scratch, size_t bytes,
     const struct dbgen_ops *ops, struct dbgen_publication *publication);
 enum dbgen_result dbgen_finish_publish(struct dbgen_publication *publication);
+
+/* p081-fatdb: path (a file in a generation under root) must read back,
+ * by name and from the medium (ops->drop), at expected bytes; -1: must
+ * be gone. A mismatch is logged (ops->note: "dir readback e<expected> g<found> name",
+ * g-1 absent), the directory marked (RAM) and DBGEN_READBACK returned:
+ * the caller must then change nothing in it; the next prepare sets it
+ * aside. Without ops->drop: DBGEN_OK, nothing checked. */
+enum dbgen_result dbgen_readback_size(const char *root, const char *path,
+    long expected, const struct dbgen_ops *ops);
+/* The same for a size the caller read itself (after one ops->drop() for
+ * several files): no I/O; got -1 absent */
+enum dbgen_result dbgen_readback_check(const char *root, const char *path,
+    long expected, long got, const struct dbgen_ops *ops);
 
 /* Boot recovery (#91, before the tagcache thread selects): removes the
  * manifest temporaries a cut between stage and finish left. A cut inside

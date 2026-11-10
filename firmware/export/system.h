@@ -95,10 +95,21 @@ void pll_lock_get_stats(unsigned long *count, unsigned int *last_us,
 #define FREQ CPU_FREQ
 #endif
 #define set_cpu_frequency(frequency)
+#if defined(SIMULATOR) && defined(HAVE_IPOD_UI) && !defined(PLUGIN) \
+        && !defined(CODEC) && !defined(__PCTOOL__)
+/* ProkBox (p081-pageboost): the shell's simulator counts boosts as the
+ * device does (no clock to change: the count only), so its sleep entry
+ * refuses a held boost as power_sleep() does (sim_cmd_sleep.c) */
+void sim_cpu_boost(bool on_off);
+int sim_cpu_boost_counter(void);
+#define cpu_boost(on_off) sim_cpu_boost(on_off)
+#define get_cpu_boost_counter() sim_cpu_boost_counter()
+#else
 #define cpu_boost(on_off)
+#define get_cpu_boost_counter()
+#endif
 #define cpu_boost_id(on_off, id)
 #define cpu_idle_mode(on_off)
-#define get_cpu_boost_counter()
 #define get_cpu_boost_tracker()
 #endif /* HAVE_ADJUSTABLE_CPU_FREQ */
 

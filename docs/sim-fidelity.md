@@ -78,7 +78,7 @@ Rank = (how likely the divergence bites) x (how silent the failure is) x (how ex
 ### 5. Timing and CPU speed
 - **Sim.** Host CPU is ~50-100x faster than the PP5022 at 30 MHz; `HZ` is 100 on both (`firmware/kernel/include/tick.h`); the sim tick comes from an SDL timer with `SDL_Delay` granularity (~1-10 ms); `sleep(HZ/10)` style waits are exact in wall time.
 - **Device.** 30 MHz unboosted, 80 MHz boosted; instruction cost, cache misses, host-port copies (27 ms per full frame at 30 MHz, quirks #17), IDE wake times. [silicon] S8, [rockbox].
-- **Risk.** Anything CPU-bound passes: frame budgets, marquee cadence, boost durations, sort times at 50k, race windows that only open when slow.
+- **Risk.** Anything CPU-bound passes: frame budgets, marquee cadence, boost durations, sort times at 65k, race windows that only open when slow.
 - **Guard.** `qemu-harness` instruction counts (`scripts/risk/arm_insn_count.sh`), budget "300k instructions per 33 fps frame" (process rule 8), the perf floor gate, `sim_clock_cpu_us()` for the UI thread's CPU figure.
 - **Proposed.**
   1. *(M)* A sim `--slow N` mode: a per-thread CPU-time governor (spin or `nanosleep` after each tick-quantum proportional to measured CPU) so races and frame overruns open up. Pairs with #8.
@@ -155,7 +155,7 @@ The sitting 4b first-use check is the case study: a host-side model that was mor
 - **Sim.** `--ram` (`MEMORYSIZE`) sets the audio buffer; the process itself uses host RAM for everything else: no 32 MB ceiling, no fragmentation of `core_alloc` caused by a smaller heap, resident usage unmeasured.
 - **Device.** 32 or 64 MB shared by code, `.bss` (~1.1 MB), audio buffer; floor 7.5 MB / 39 MB [ours].
 - **Risk.** A transient allocation that fits the sim's heap but not the device's fragmented one.
-- **Guard.** Floor gate at 50k tracks on `sim-ui32`/`sim-ui`, the budget table in `hardware.md`, `core_alloc` receipts.
+- **Guard.** Floor gate at each unit's ceiling (50k tracks on `sim-ui32`, 65k on `sim-ui`; #229), the budget table in `hardware.md`, `core_alloc` receipts.
 - **Proposed.** (S) Run the floor scripts with the `core_alloc` heap the exact device size (the buffer is already sized by `MEMORYSIZE`; confirm host allocations outside `core_alloc` are listed in a gate receipt) and `RLIMIT_AS` set generously above the model so a stray `malloc` growth shows up.
 
 ### 14. USB
@@ -239,6 +239,7 @@ Every behaviour the device showed in these sittings that the simulator or a host
 - *Fix.* `apps/ipodui/artcache.c` `panel_load()` reads the file's last byte (one seek and one read): a cut chain is recovered from `panels.pak.prev` (itself checked the same way) or the set starts over in a new file published over the cut one (`panel_fresh`: the private copy starts empty, never copied from the cut file, never written in place).
 - *Test.* `tests/ui/ipodui-p19-panels-chaincut.script`: panels built, the chain cut at 32 KB, a pass: "chain cut: tail unreadable", then "set rebuilt", the published file whole, the panels valid, no `art retain panels`. Fails on the old builder (no detection: the cut file stays published).
 - *For developers.* A file's size is not proof its data is on disk. Check the tail of any cache file you write in place, and publish rebuilt files through a temporary and a rename.
+- *Second incident (#177, 2026-11-06: `panels.pak.prev` unreadable over USB).* The "set rebuilt" path published over the cut file, and the rotation kept it as `panels.pak.prev`, still cut; the script now checks the prev and fails on that code. Fix: `safefile_heal_cut()` cuts a cut file back to its chain before any rename or remove, and once per boot over the art files (`docs/data-paths.md` R11 item 7). The power-cut injection (S2: `powercut at <point>`, `tests/fatcrash/powercut.sh`, `fsreplay cut`) found no write order in the art, database or settings saves that leaves a chain shorter than its size when the drive keeps the barriers' order; how the first cut chain arose stays open: a flash adapter that ignores FLUSH CACHE (PP open question #32) is the remaining candidate [hypothesis].
 
 **7. The warm swap's flush: bit 0 still set, and a CPU upload's words not landing** (sittings 3 and 4c, B13; `quirks.md` #41).
 - *Sim against silicon.* The host model has no warm swap (`PARK`, the cache control word at `0x1000_0C00`, the upload over a parked image); the simulator's `bcm_video_flush()` returns 0. On silicon the cold-start form of the flush took bit 0, still set by the park's own flush, as "done", and one swap in ten into the display-only image never became ready (the instruction side still held the parked image's lines).
