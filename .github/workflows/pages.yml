@@ -12,13 +12,17 @@ name: pages
 on:
   push:
     branches: [main]
-    paths: ["docs/user/**", "docs/manual/**", "docs/changelog/**", "site/**", "scripts/docs_build.sh",
+    paths: ["docs/user/**", "docs/manual/**", "docs/changelog/**", "site/**", "README.md", "scripts/docs_build.sh",
             "scripts/docs_versions.py", "scripts/release_docs.py", ".github/workflows/pages.yml"]
   workflow_dispatch:
   # Publishing a release (the owner's last step) adds its folder to the site.
-  # The build checks out the default branch (the tags give the releases),
-  # but GitHub checks the environment against the run's own ref: a release
-  # run's ref is the tag, so the github-pages environment needs a v* tag rule.
+  # A release run does NOT build or deploy itself: its ref is the tag, so its
+  # deploy would be judged against the github-pages environment's branch rule
+  # as a tag run, and its place in the deploy order is not the default
+  # branch's.  It only starts a workflow_dispatch run on the default branch
+  # (job "redeploy"), so every deploy comes from main, the last one is
+  # always the newest, and the environment needs no v* tag rule.  The
+  # dispatched build lists the published releases itself, so the new tag is in.
   release:
     types: [published]
 
@@ -27,6 +31,7 @@ permissions:
   packages: read
   pages: write
   id-token: write
+  actions: write   # the release run's "redeploy" job dispatches this workflow on main
 
 env:
   DOCS_IMAGE: ghcr.io/prokbox/prokbox5g-docs@sha256:261c0936fc83e235b10a9ddbb0b59cc3d48489474a7b2902396a018a51a2e44a
@@ -36,8 +41,23 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build:
+  redeploy:
+    if: github.event_name == 'release'
     runs-on: ubuntu-24.04
+    steps:
+      - name: start the main-branch run that puts the published release on the site
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          gh workflow run pages.yml -R "${{ github.repository }}" --ref "${{ github.event.repository.default_branch }}"
+          echo "dispatched pages.yml on ${{ github.event.repository.default_branch }} for ${{ github.event.release.tag_name }}"
+
+  build:
+    if: github.event_name != 'release'
+    runs-on: ubuntu-24.04
+    outputs:
+      versions_sha: ${{ steps.vsha.outputs.sha }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -53,8 +73,6 @@ jobs:
           set -eu
           gh api --paginate "repos/${{ github.repository }}/releases" \
             --jq '.[] | select(.draft == false) | .tag_name' > published.txt
-          # the release that started this run is published, whatever the API returns yet
-          if [ -n "${{ github.event.release.tag_name }}" ]; then echo "${{ github.event.release.tag_name }}" >> published.txt; fi
           sort -u -o published.txt published.txt
           echo "published releases:"; cat published.txt
           [ -s published.txt ] || { echo "no published release: nothing to put on the site" >&2; exit 1; }
@@ -67,12 +85,16 @@ jobs:
           docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD":/w -w /w "$DOCS_IMAGE" \
             sh -c 'git config --global --add safe.directory /w &&
                    python3 scripts/docs_versions.py --pdf --search --releases published.txt --out /w/_site'
+      - id: vsha
+        name: fingerprint of this build (versions.json names the releases and the commit the living pages came from)
+        run: echo "sha=$(sha256sum _site/versions.json | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
 
   deploy:
     needs: build
+    if: github.event_name != 'release'
     runs-on: ubuntu-24.04
     environment:
       name: github-pages
@@ -80,3 +102,16 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+      - name: the live site must now serve this build (fails loudly instead of "success, but stale")
+        run: |
+          set -u
+          want="${{ needs.build.outputs.versions_sha }}"
+          url="${{ steps.deployment.outputs.page_url }}"
+          got=none
+          for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+            got=$(curl -fsS -H 'Cache-Control: no-cache' "${url}versions.json?run=${GITHUB_RUN_ID}.${i}" | sha256sum | cut -d' ' -f1) || got=fetch-failed
+            [ "$got" = "$want" ] && { echo "live versions.json matches this build ($want)"; exit 0; }
+            echo "try $i: live versions.json is $got, this build is $want"; sleep 20
+          done
+          echo "the deploy reported success but ${url}versions.json is not this build's: re-run this workflow on main" >&2
+          exit 1

@@ -25,7 +25,9 @@
 
 usage: scripts/roadmap.py generate VER [--offline ISSUES.json] [--out FILE] [--data-out FILE]
        scripts/roadmap.py check VER [--tree DIR]     (the page and its data file exist, were made for VER, agree, are clean)
-       scripts/roadmap.py verify VER                 (needs the tracker: the committed page and data file equal a fresh run)
+       scripts/roadmap.py verify VER [--offline ISSUES.json]
+                                                     (needs the tracker: the committed page and data file equal a fresh run;
+                                                      exit 0 current, 1 stale, 3 tracker unreachable)
 
 generate writes two files from one run, so they can never disagree:
   docs/user/roadmap.md       the "What's coming" page
@@ -115,6 +117,11 @@ JARGON = re.compile(r'\b(COP|CPU|BCM\d*|VC|PP5022|IRAM|FIQ|ABAB|DMA|FIFO|PLL|b1\
 
 
 class Fail(Exception):
+    pass
+
+
+class Unreachable(Fail):
+    """The tracker could not be read (not the same as the page being stale: verify exits 3, not 1)."""
     pass
 
 
@@ -260,7 +267,7 @@ def load_issues(offline):
     try:
         return {i['number']: i for i in forge.issues('all')}
     except forge.Unavailable as e:
-        raise Fail('tracker unreachable (%s): run this where the forge is reachable and commit the page' % e)
+        raise Unreachable('tracker unreachable (%s): run this where the forge is reachable and commit the page' % e)
 
 
 def upcoming(ver, issues, themes):
@@ -597,6 +604,9 @@ def main(argv=None):
         open(dout, 'w').write(data)
         print('roadmap: wrote %d entries for %s (%s and %s)' % (n, a.version, a.out or PAGE, a.data_out or DATA))
         return 0
+    except Unreachable as e:
+        print('roadmap: ' + str(e), file=sys.stderr)
+        return 3
     except Fail as e:
         print('roadmap: ' + str(e), file=sys.stderr)
         return 1

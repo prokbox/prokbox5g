@@ -12,11 +12,11 @@ This page lists what we plan for each coming release of ProkBox5g, and where eac
 | Release | What it brings | Where it stands | Items under way |
 |---|---|---|---|
 | [0.8.3](#release-083) | A new playback engine, one download for every player, and fixes. | _Under way_ | 15 of 17 |
-| [0.9.0](#release-090) | Sound and languages: better audio, menus in more languages, better song details, and fixes. | _Under way_ | 11 of 19 |
+| [0.9.0](#release-090) | Sound and languages: better audio, menus in more languages, better song details, and fixes. | _Under way_ | 11 of 20 |
 | [0.9.1](#release-091) | Album art, Album Flow and other screen improvements. | _Under way_ | 4 of 7 |
 | [0.9.2](#release-092) | Sleep and battery life, and the first kit for making your own games, with a Sudoku game. | _Under way_ | 3 of 6 |
 | [0.9.3](#release-093) | Video: more formats, a better video player, and fixes. | _Under way_ | 5 of 13 |
-| [0.9.4](#release-094) | Your library and USB, and the second game kit, with a short role-playing game. | _Under way_ | 1 of 12 |
+| [0.9.4](#release-094) | Your library and USB, and the second game kit, with a short role-playing game. | _Under way_ | 1 of 13 |
 | [0.9.5](#release-095) | Docks, cars and connections. | _Under way_ | 1 of 5 |
 | [0.9.6](#release-096) | Extras, games and more ways to shape your sound, and the third game kit, with an arcade racing game. | _Under way_ | 1 of 6 |
 | [0.9.7](#release-097) | Polish: a careful clean-up of the whole player, making everything as lean and refined as we can, with no new features. | _Planned_ | - |
@@ -81,7 +81,8 @@ Sound and languages: better audio, menus in more languages, better song details,
 - _Planned:_ 32-bit FLAC files play, instead of being skipped. [](#item-32-bit-flac-files-play)
 - _Planned:_ A new guide page on putting audiobooks on the player: which formats play, chapters, resume and speed, and why copy-protected books cannot play. [](#item-guide-page-on-adding-audiobooks)
 - _Planned:_ Opening some screens while music plays no longer stops the music. [](#item-music-keeps-playing-when-opening-screens)
-- _Considering:_ We are looking at letting you make up to three equaliser settings of your own, with a picture of each curve. [](#item-your-own-equaliser-settings)
+- _Planned:_ Make up to three equaliser settings of your own, with a picture of each curve, alongside the built-in ones. [](#item-your-own-equaliser-settings)
+- _Considering:_ We are looking at letting the sound chip mute itself during silent stretches, to cut faint hiss in quiet passages and while paused. [](#item-quieter-silence)
 
 ## Release 0.9.1
 
@@ -138,6 +139,7 @@ Your library and USB, and the second game kit, with a short role-playing game.
 - _Planned:_ We are checking whether songs waiting in your computer's Bin or Trash still show in the library. If they do, we will fix it. [](#item-songs-in-the-bin-or-trash)
 - _Planned:_ The second game kit, for bigger games. It comes with an original short role-playing game built with the kit. [](#item-second-game-kit-with-a-role-playing-game)
 - _Planned:_ Long files such as DJ mixes and podcasts show their sections: the current section is named on Now Playing, and next and previous move between sections. [](#item-sections-in-dj-mixes-and-podcasts)
+- _Planned:_ Spoken menus: the player can read out menu items and song, artist and album names. [](#item-spoken-menus)
 - _Considering:_ We are looking at automatic Top 25 Most Played and Recently Played playlists. [](#item-top-25-and-recently-played-playlists)
 - _Considering:_ We are looking at showing lyrics from a .lrc file next to a song, as plain text on Now Playing. [](#item-lyrics-from-lrc-files)
 

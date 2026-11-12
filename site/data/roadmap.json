@@ -51,7 +51,7 @@
    "theme": "Sound and languages: better audio, menus in more languages, better song details, and fixes.",
    "later": false,
    "stands": "Under way",
-   "under_way": "11 of 19",
+   "under_way": "11 of 20",
    "aimed": ""
   },
   {
@@ -91,7 +91,7 @@
    "theme": "Your library and USB, and the second game kit, with a short role-playing game.",
    "later": false,
    "stands": "Under way",
-   "under_way": "1 of 12",
+   "under_way": "1 of 13",
    "aimed": ""
   },
   {
@@ -474,11 +474,20 @@
   {
    "issue": 82,
    "release": "0.9.0",
+   "status": "Planned",
+   "key": "planned",
+   "short": "Your own equaliser settings",
+   "text": "Make up to three equaliser settings of your own, with a picture of each curve, alongside the built-in ones.",
+   "anchor": "item-your-own-equaliser-settings"
+  },
+  {
+   "issue": 327,
+   "release": "0.9.0",
    "status": "Considering",
    "key": "considering",
-   "short": "Your own equaliser settings",
-   "text": "We are looking at letting you make up to three equaliser settings of your own, with a picture of each curve.",
-   "anchor": "item-your-own-equaliser-settings"
+   "short": "Quieter silence",
+   "text": "We are looking at letting the sound chip mute itself during silent stretches, to cut faint hiss in quiet passages and while paused.",
+   "anchor": "item-quieter-silence"
   },
   {
    "issue": 182,
@@ -803,6 +812,15 @@
    "short": "Sections in DJ mixes and podcasts",
    "text": "Long files such as DJ mixes and podcasts show their sections: the current section is named on Now Playing, and next and previous move between sections.",
    "anchor": "item-sections-in-dj-mixes-and-podcasts"
+  },
+  {
+   "issue": 330,
+   "release": "0.9.4",
+   "status": "Planned",
+   "key": "planned",
+   "short": "Spoken menus",
+   "text": "Spoken menus: the player can read out menu items and song, artist and album names.",
+   "anchor": "item-spoken-menus"
   },
   {
    "issue": 139,

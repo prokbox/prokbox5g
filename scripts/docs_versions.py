@@ -51,7 +51,10 @@ Layout of OUT (what GitHub Pages serves at the base URL):
                never rebuilt to learn about newer releases
 "What's coming" and the changelog are living pages: they exist once, at the
 root, taken from HEAD when HEAD contains the newest release (else from that
-release).  In every version folder and in dev/ they are replaced by a page
+release), together with the roadmap data file the home page's lanes read.
+Everything else at the root, and every version folder, is the tag's own tree:
+a docs-only update to main (release-plan 3.3a) changes the living pages, dev/
+and the picker, never a released version's pages.  In every version folder and in dev/ they are replaced by a page
 that sends the reader to the root copy, so no snapshot shows an old plan.
 Search: Pagefind indexes each folder (and the root) separately (--search), and
 each version's own search box loads its own index.
@@ -74,6 +77,9 @@ EXPORT = ['site', 'docs', 'README.md']
 # the living pages: (path under the site root, its source in a tree, title)
 LIVING = [('roadmap/', 'docs/user/roadmap.md', "What's coming"),
           ('changelog/', 'docs/user/changelog.md', 'Changelog')]
+# data the living pages are drawn from (the home page's release lanes read it): taken from HEAD with them,
+# or the root's roadmap page would move on while its home page kept the tag's plan
+LIVING_DATA = ['site/data/roadmap.json']
 PDF = 'downloads/ProkBox5g-User-Guide.pdf'
 MARK_PICKER = 'data-pbv-picker'
 MARK_DEV = 'data-pbv-dev'
@@ -287,6 +293,9 @@ def build(a):
         if os.path.isfile(os.path.join(lsrc, src)):
             shutil.copyfile(os.path.join(lsrc, src), os.path.join(rtree, src))
             living.append(rel)
+    for src in LIVING_DATA:
+        if os.path.isfile(os.path.join(lsrc, src)) and os.path.isdir(os.path.dirname(os.path.join(rtree, src))):
+            shutil.copyfile(os.path.join(lsrc, src), os.path.join(rtree, src))
     rstage = os.path.join(work, 'out-root')
     rc, log = docs_build(rtree, latest['id'], base_url, rstage, False)
     if rc != 0:
