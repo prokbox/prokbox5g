@@ -100,8 +100,71 @@ void sim_shuf_expect_settled(int lineno)
     fprintf(stderr, "sim_script: shuf_expect_settled unavailable\n");
 }
 
+/* #281: the library shuffle's record writes since boot (lib_shuffle.c)
+ * and every sim disk write since boot (filesystem-sim.c); weak for the
+ * stock sim */
+int sim_shuf_rec_writes(void) __attribute__((weak));
+int sim_shuf_rec_writes(void)
+{
+    return -1;
+}
+int sim_write_count(void) __attribute__((weak));
+int sim_write_count(void)
+{
+    return -1;
+}
+static int writes_mark0, shuf_writes_mark0;
+
+/* expect_writes_max / expect_shuf_writes_max: the count since the last
+ * writes_mark against 'max'; a build without the counter fails */
+static void expect_count_max(const char *cmd, int now, int mark, int max,
+                             int lineno)
+{
+    if (now < 0)
+        fprintf(stderr, "sim_script:%d: %s failed: no counter in this "
+                "build\n", lineno, cmd);
+    else if (now - mark > max)
+        fprintf(stderr, "sim_script:%d: %s failed: %d > %d\n", lineno, cmd,
+                now - mark, max);
+    else
+        fprintf(stderr, "sim_script: %s ok: %d <= %d\n", cmd, now - mark,
+                max);
+}
+
 bool sim_cmd_np(const char *cmd, char *argv[], int argc, int lineno)
 {
+    if (!strcmp(cmd, "writes_mark"))
+    {
+        writes_mark0 = sim_write_count();
+        shuf_writes_mark0 = sim_shuf_rec_writes();
+        fprintf(stderr, "sim_script: writes_mark disk=%d shuf=%d\n",
+                writes_mark0, shuf_writes_mark0);
+        return true;
+    }
+    if (!strcmp(cmd, "expect_writes_max") && argc >= 2)
+    {
+        expect_count_max(cmd, sim_write_count(), writes_mark0,
+                         atoi(argv[1]), lineno);
+        return true;
+    }
+    if (!strcmp(cmd, "expect_shuf_writes_max") && argc >= 2)
+    {
+        expect_count_max(cmd, sim_shuf_rec_writes(), shuf_writes_mark0,
+                         atoi(argv[1]), lineno);
+        return true;
+    }
+    if (!strcmp(cmd, "expect_stopped"))
+    {
+        /* #281: playback is stopped now (audio_status() 0) */
+        int st = audio_status();
+
+        if (st)
+            fprintf(stderr, "sim_script:%d: expect_stopped failed: "
+                    "status=%d\n", lineno, st);
+        else
+            fprintf(stderr, "sim_script: expect_stopped ok\n");
+        return true;
+    }
     if (!strcmp(cmd, "np_seq_bump"))
     {
         /* a seqlock write with no track change, as a rewrite of the

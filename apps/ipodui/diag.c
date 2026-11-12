@@ -51,6 +51,7 @@
 #include "power.h"
 #include "timefuncs.h"
 #include "version.h"
+#include "ipodui/prodver.h"
 #include "lang.h"
 #include "settings.h"
 #include "ipodui/diag.h"
@@ -189,12 +190,12 @@ static void put_system(struct diag_ctx *c)
     sector_t size = 0, freek = 0;
     unsigned long up = current_tick / HZ;
     struct lib_stats st;
-    char cal[48];
+    char cal[48], vers[96];
 
     diag_printf(b, "saved: %04d-%02d-%02d %02d:%02d:%02d\n",
                 tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
                 tm->tm_hour, tm->tm_min, tm->tm_sec);
-    diag_printf(b, "version: %s\n", str(LANG_IPODUI_VERSION_STRING));
+    diag_printf(b, "version: %s\n", ipodui_version_string(vers, sizeof(vers), true));
     diag_printf(b, "build: %s (%s)\n", rbversion,
 #ifdef HAVE_IPOD_UI_DEVMODE
                 "developer"

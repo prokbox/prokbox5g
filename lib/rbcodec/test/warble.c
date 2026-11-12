@@ -442,7 +442,12 @@ static void perform_config(void)
 static void *ci_codec_get_buffer(size_t *size)
 {
     static char buffer[64 * 1024 * 1024] MEM_ALIGN_ATTR;
-    *size = sizeof(buffer);
+    /* ProkBox #281: WARBLE_CODEC_BUF=<bytes> gives the codec only that
+       much (the free part of a device's codec slot), so a test can show a
+       stream fits the device's codec memory, or is refused for it */
+    const char *env = getenv("WARBLE_CODEC_BUF");
+    size_t cap = env ? (size_t)strtoul(env, NULL, 0) : 0;
+    *size = cap && cap < sizeof(buffer) ? cap : sizeof(buffer);
     return buffer;
 }
 

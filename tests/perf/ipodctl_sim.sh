@@ -71,6 +71,18 @@ SIM_BUILD=$B SHOTS_TIMEOUT=${SHOTS_TIMEOUT:-7200} \
 echo "== ipodctl first run, $N tracks (shots rc=$rc; log $OUT/sim.log)"
 grep -E "tagcache: (scan|probe) (done|stopped)|scantrace ms=|db scan ms|commit|art build (start|done)|art pass done|wait_db|art_wait|syncdb" "$OUT/sim.log" \
     | sed 's/^ipodui: //'
+# #279: a script with log rules (logbetween, nolog) is held to them
+# (scripts/check_trace.py, as the gate holds tests/ui's)
+SCR=$ROOT/tests/perf/${IPODCTL_SCRIPT:-ipodctl-first.script}
+if grep -qE '^#[[:space:]]*(logbetween|nolog|log):' "$SCR"; then
+    if python3 "$ROOT/scripts/check_trace.py" "$OUT/sim.log" "$SCR" \
+            >"$B/check_trace.out" 2>&1; then
+        echo "== log rules: ok ($(grep -c '^ok' "$B/check_trace.out") checks)"
+    else
+        echo "FAIL log rules:"; grep '^FAIL' "$B/check_trace.out"
+        [ $rc -ne 0 ] || rc=1
+    fi
+fi
 # #225 S1: tracks under iPod_Control/Music never search for image files;
 # every art pass that built albums stays at the pass's other lookups
 # (EXISTS_MAX, default 40; image-file lookups only, the art cache's own

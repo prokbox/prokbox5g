@@ -2223,6 +2223,21 @@ if python3 tests/release_tree/test_import.py >"$GATE_TMP/import-self.log" 2>&1; 
 else
     grep -v '^ok' "$GATE_TMP/import-self.log" | head; bad "import self-test (tests/release_tree/test_import.py)"
 fi
+if python3 tests/release_tree/test_docsrel.py >"$GATE_TMP/docsrel-self.log" 2>&1; then
+    echo "ok   release docs self-test (tests/release_tree/test_docsrel.py)"
+else
+    grep -v '^ok' "$GATE_TMP/docsrel-self.log" | head; bad "release docs self-test (tests/release_tree/test_docsrel.py)"
+fi
+if sh tests/version/run.sh >"$GATE_TMP/version-self.log" 2>&1; then
+    echo "ok   version self-test ($(grep -c '^ *ok' "$GATE_TMP/version-self.log") checks)"
+else
+    grep -v '^ *ok' "$GATE_TMP/version-self.log" | head; bad "version self-test (tests/version/run.sh)"
+fi
+if tests/version/target_pin.sh build/fw-ui --sim build/sim-ui >"$GATE_TMP/target-pin.log" 2>&1; then
+    echo "ok   simulator version pin stays out of the target build"
+else
+    cat "$GATE_TMP/target-pin.log"; bad "simulator pin in a target build (tests/version/target_pin.sh)"
+fi
 # Every gate: notices intact, headers, Apple marks in LANG strings, asset
 # provenance (scripts/legal_audit.py, ~2 s). --release adds the 2(a)
 # change lines, the audit's self-test and the public-tree export proof.

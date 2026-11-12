@@ -1,0 +1,18 @@
+{{- /* {{< plan ISSUE [ANCHOR] >}}: where a planned item stands, for the Features page, read
+       from site/data/roadmap.json (scripts/roadmap.py), e.g. "Planned (0.9.1)", linked to its
+       entry on What's coming.  ANCHOR (item-...) picks one entry when an issue has several.
+       An item that is not on What's coming (it shipped, moved to Changed plans, or was hidden)
+       fails the build: the cell then has to say what is true now, never a stale plan. */ -}}
+{{- $n := int (.Get 0) -}}
+{{- $all := where hugo.Data.roadmap.items "issue" $n -}}
+{{- $want := "" -}}
+{{- if gt (len .Params) 1 }}{{ $want = .Get 1 }}{{ $all = where $all "anchor" $want }}{{ end -}}
+{{- if ne (len $all) 1 -}}
+  {{- errorf "%s: {{< plan %d %s >}} matches %d entries on What's coming, not 1. If it shipped, update the cell to say what is true now; if the issue has several entries, name the entry's anchor (item-...)." .Page.File.Path $n $want (len $all) -}}
+{{- end -}}
+{{- $e := index $all 0 -}}
+{{- $rel := cond (eq $e.release "Later") "later" $e.release -}}
+{{- $word := cond (eq $e.key "done") (printf "Done, arrives in %s" $rel) (printf "%s (%s)" $e.status $rel) -}}
+{{- with site.GetPage "/roadmap" -}}
+<a class="plan-tag s-{{ $e.key }}" href="{{ .RelPermalink }}#{{ $e.anchor }}" title="{{ $e.text }}">{{ $word }}</a>
+{{- end -}}

@@ -406,6 +406,8 @@
 -Wl,--undefined=tagcache_search_finish
 -Wl,--wrap=tagcache_ui_busy
 -Wl,--undefined=tagcache_ui_busy
+-Wl,--wrap=tagcache_ui_library_busy
+-Wl,--undefined=tagcache_ui_library_busy
 -Wl,--wrap=tagcache_ui_commitid
 -Wl,--undefined=tagcache_ui_commitid
 -Wl,--wrap=tagcache_ui_commitid_ctx

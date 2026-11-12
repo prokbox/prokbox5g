@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2005 Dave Chapman
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -25,14 +26,27 @@ CODEC_HEADER
 
 static FLACContext fc IBSS_ATTR_FLAC;
 
-/* The output buffers containing the decoded samples (channels 0 and 1) */
+/* The output buffers containing the decoded samples (channels 0 and 1).
+   Streams whose blocks fit MAX_BLOCKSIZE (the reference encoder's 4096,
+   and every block size below it) decode channels 0-3 here, in IRAM where
+   the target has room. Channels 4-6, and every channel of a stream with
+   larger blocks (up to 65535 samples, the format's limit: ffmpeg writes
+   16384 at 176.4/192 kHz), get a buffer of max_blocksize samples from the
+   codec buffer's free memory (codec_malloc()) instead, sized per stream. */
 static int32_t decoded0[MAX_BLOCKSIZE] IBSS_ATTR_FLAC;
 static int32_t decoded1[MAX_BLOCKSIZE] IBSS_ATTR_FLAC;
 static int32_t decoded2[MAX_BLOCKSIZE] IBSS_ATTR_FLAC_LARGE_IRAM;
 static int32_t decoded3[MAX_BLOCKSIZE] IBSS_ATTR_FLAC_LARGE_IRAM;
-static int32_t decoded4[MAX_BLOCKSIZE] IBSS_ATTR_FLAC_XLARGE_IRAM;
-static int32_t decoded5[MAX_BLOCKSIZE] IBSS_ATTR_FLAC_XLARGE_IRAM;
-static int32_t decoded6[MAX_BLOCKSIZE] IBSS_ATTR_FLAC_XXLARGE_IRAM;
+#define FLAC_STATIC_CHANNELS 4
+
+/* A stream the decoder cannot take: logged in plain words */
+#ifdef HAVE_IPOD_UI
+#define FLAC_REJECT(n, why) \
+    ci->ui_log("flac", "rejected blocksize=%d why=%s", (n), (why))
+#else
+#define FLAC_REJECT(n, why) \
+    DEBUGF("flac rejected blocksize=%d why=%s\n", (n), (why))
+#endif
 
 #define MAX_SUPPORTED_SEEKTABLE_SIZE 5000
 
@@ -71,26 +85,70 @@ struct FLACseekpoints {
     uint16_t blocksize;
 };
 
-static struct FLACseekpoints seekpoints[MAX_SUPPORTED_SEEKTABLE_SIZE];
+/* From codec_malloc(), sized to the stream's SEEKTABLE (5000 points at
+   most, 60000 B; a typical table is a few dozen) */
+static struct FLACseekpoints *seekpoints;
 static int nseekpoints;
 
 static int8_t *bit_buffer;
 /* Frame copy buffer for flac_request_frame(). Targets with 2MB of RAM or
    less (e.g. the Clip v1) cannot spare it and rely on the overrun check in
-   codec_run() alone. */
+   codec_run() alone. Elsewhere it comes from codec_malloc(), frame_bound
+   bytes for the stream. */
 #if MEMORYSIZE > 2
 #define FLAC_FRAME_COPY
-#if MAX_BLOCKSIZE > 4608
-#define FRAME_COPY_SIZE MAX_FRAMESIZE
-#else
-/* Blocks are capped at 4608 samples here (see bitstream.h): size for the
-   largest stereo frame, 24 bit with verbatim subframes, plus headers. */
-#define FRAME_COPY_SIZE (MAX_BLOCKSIZE * 2 * 3 + 64)
-#endif
 /* Largest frame the current stream can contain */
 static size_t frame_bound;
-static uint8_t frame_copy[FRAME_COPY_SIZE];
+static uint8_t *frame_copy;
 #endif
+
+/* The largest frame a stream can hold: every subframe verbatim at one bit
+   more than the sample size (a side channel), plus the frame and subframe
+   headers and the footer */
+static size_t flac_frame_worst(const FLACContext *fc)
+{
+    return ((size_t)fc->max_blocksize * fc->channels * (fc->bps + 1) + 7) / 8
+           + 64;
+}
+
+/* The stream's sample (and frame copy) buffers, once STREAMINFO is read.
+   False when the codec buffer cannot hold them. */
+static bool flac_alloc(FLACContext *fc)
+{
+    static int32_t * const fixed[FLAC_STATIC_CHANNELS] = {
+        decoded0, decoded1, decoded2, decoded3
+    };
+    bool large = fc->max_blocksize > MAX_BLOCKSIZE;
+    int ch;
+
+    for (ch = 0; ch < fc->channels; ch++)
+    {
+        if (!large && ch < FLAC_STATIC_CHANNELS)
+        {
+            ci->memset(fixed[ch], 0, sizeof(decoded0));
+            fc->decoded[ch] = fixed[ch];
+        }
+        else
+        {
+            fc->decoded[ch] = codec_calloc(fc->max_blocksize,
+                                           sizeof(int32_t));
+            if (!fc->decoded[ch])
+                return false;
+        }
+    }
+    if (fc->channels == 1)
+        fc->decoded[1] = fc->decoded[0];    /* pcmbuf_insert()'s 2nd source */
+#ifdef FLAC_FRAME_COPY
+    frame_bound = flac_frame_worst(fc);
+    /* the stream's own bound when it has one (it can only be smaller) */
+    if (fc->max_framesize > 0 && (size_t)fc->max_framesize < frame_bound)
+        frame_bound = fc->max_framesize;
+    frame_copy = codec_malloc(frame_bound);
+    if (!frame_copy)
+        return false;
+#endif
+    return true;
+}
 static size_t buff_size;
 
 static bool flac_init(FLACContext* fc, int first_frame_offset)
@@ -105,26 +163,11 @@ static bool flac_init(FLACContext* fc, int first_frame_offset)
 
     ci->memset(fc,0,sizeof(FLACContext));
     nseekpoints=0;
+    seekpoints=NULL;
 
     fc->sample_skip = 0;
 
-    /* Reset sample buffers */
-    ci->memset(decoded0, 0, sizeof(decoded0));
-    ci->memset(decoded1, 0, sizeof(decoded1));
-    ci->memset(decoded2, 0, sizeof(decoded2));
-    ci->memset(decoded3, 0, sizeof(decoded3));
-    ci->memset(decoded4, 0, sizeof(decoded4));
-    ci->memset(decoded5, 0, sizeof(decoded5));
-    ci->memset(decoded6, 0, sizeof(decoded5));
-
-    /* Set sample buffers in decoder structure */
-    fc->decoded[0] = decoded0;
-    fc->decoded[1] = decoded1;
-    fc->decoded[2] = decoded2;
-    fc->decoded[3] = decoded3;
-    fc->decoded[4] = decoded4;
-    fc->decoded[5] = decoded5;
-    fc->decoded[6] = decoded6;
+    /* The sample buffers are set up once STREAMINFO is read (flac_alloc) */
 
     /* Skip any foreign tags at start of file */
     ci->seek_buffer(first_frame_offset);
@@ -158,14 +201,8 @@ static bool flac_init(FLACContext* fc, int first_frame_offset)
 
             fc->filesize = ci->filesize;
             fc->min_blocksize = (buf[0] << 8) | buf[1];
-            int max_blocksize = (buf[2] << 8) | buf[3];
-            if (max_blocksize > MAX_BLOCKSIZE)
-            {
-                LOGF("FLAC: Maximum blocksize is too large (%d > %d)\n",
-                     max_blocksize, MAX_BLOCKSIZE);
-                return false;
-            }
-            fc->max_blocksize = max_blocksize;
+            /* any size the format allows (16 bits: up to 65535) */
+            fc->max_blocksize = (buf[2] << 8) | buf[3];
             fc->min_framesize = (buf[4] << 16) | (buf[5] << 8) | buf[6];
             fc->max_framesize = (buf[7] << 16) | (buf[8] << 8) | buf[9];
             fc->samplerate = (buf[10] << 12) | (buf[11] << 4)
@@ -176,6 +213,14 @@ static bool flac_init(FLACContext* fc, int first_frame_offset)
             if (fc->channels > MAX_CHANNELS) {
                     LOGF("FLAC: Too many channels (%d > %d)\n",
                          fc->channels, MAX_CHANNELS);
+                    FLAC_REJECT(fc->max_blocksize, "channels");
+                    return false;
+            }
+
+            if (!flac_alloc(fc)) {
+                    LOGF("FLAC: No memory for blocks of %d samples x %d\n",
+                         fc->max_blocksize, fc->channels);
+                    FLAC_REJECT(fc->max_blocksize, "memory");
                     return false;
             }
 
@@ -189,8 +234,13 @@ static bool flac_init(FLACContext* fc, int first_frame_offset)
             fc->length = ((int64_t) fc->totalsamples * 1000) / fc->samplerate;
 
             found_streaminfo=true;
-        } else if ((buf[0] & 0x7f) == 3) { /* 3 is the SEEKTABLE block */
-            while ((nseekpoints < MAX_SUPPORTED_SEEKTABLE_SIZE) &&
+        } else if ((buf[0] & 0x7f) == 3 && found_streaminfo
+                   && !seekpoints) { /* 3 is the SEEKTABLE block */
+            int npoints = MIN(blocklength / 18, MAX_SUPPORTED_SEEKTABLE_SIZE);
+
+            /* none (no room): seeks bisect the file instead */
+            seekpoints = codec_malloc(npoints * sizeof(*seekpoints));
+            while (seekpoints && (nseekpoints < npoints) &&
                    (blocklength >= 18)) {
                 if (ci->read_filebuf(buf,18) < 18) return false;
                 blocklength-=18;
@@ -225,17 +275,6 @@ static bool flac_init(FLACContext* fc, int first_frame_offset)
     }
 
    if (found_streaminfo) {
-#ifdef FLAC_FRAME_COPY
-       frame_bound = fc->max_framesize;
-       if (frame_bound == 0) {
-           /* stream did not encode max frame size, assume worst case of
-              verbatim subframes plus headers */
-           frame_bound = ((size_t)fc->max_blocksize * fc->channels * fc->bps
-                          + 7) / 8 + 64;
-       }
-       if (frame_bound > FRAME_COPY_SIZE)
-           frame_bound = FRAME_COPY_SIZE;
-#endif
        /* length is 0 when STREAMINFO has no total sample count */
        fc->bitrate = fc->length ? ((int64_t) (fc->filesize-fc->metadatalength) * 8)
                      / fc->length : 0;
@@ -253,7 +292,8 @@ static bool flac_init(FLACContext* fc, int first_frame_offset)
 #ifdef FLAC_FRAME_COPY
 static void *flac_request_frame(size_t *len, size_t reqsize)
 {
-    void *buf = ci->request_buffer(len, reqsize);
+    /* a stream with frames over MAX_FRAMESIZE asks for a whole one */
+    void *buf = ci->request_buffer(len, MAX(reqsize, frame_bound));
 
     if (*len >= frame_bound || *len >= (size_t)(ci->filesize - ci->curpos))
         return buf;

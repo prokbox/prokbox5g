@@ -1,0 +1,35 @@
+# Every image the docs and the site ship, and what makes it (release_docs.py R11).
+# scripts/docs_shots.sh reads this file and remakes the images from the simulator;
+# `scripts/docs_shots.sh --check` (and release_docs.py check) refuses an image with
+# no row here, a row whose image or generator is missing, or a shot its script
+# never takes.  Synthetic or open media only (docs/legal.md L13a, section 5).
+#
+# Tab-separated columns:
+#   image       path from the repo root
+#   generator   a simulator script (tests/ui/...script) or a script that writes the image itself
+#   shot        for a sim script: the name of its "shot NAME" line; "-" otherwise
+#   scale       for a sim script: 1 (320x240) or 2 (640x480, nearest-neighbour); "-" otherwise
+#   sim         the simulator build the script runs on (see scripts/validate.sh script_sim)
+# Every row runs on build/sim-rel-video (--ipodui --ipodui-release --bcmfw-video
+# --bcmfw-merged) and so shows the menus a release shows. The first-start notice shows the
+# release's version: docs_shots.sh sets IPODUI_SIM_VERSION (simulator builds only) from
+# scripts/version.sh, or from DOCS_SHOTS_VERSION when given.
+docs/user/images/getting-started-main-menu.png	tests/ui/readme/readme-stills.script	main_menu	1	build/sim-rel-video
+docs/user/images/getting-started-legal-notice.png	tests/ui/docs/docs-notice.script	notice	1	build/sim-rel-video
+docs/user/images/music-music-menu.png	tests/ui/readme/readme-stills.script	music_menu	1	build/sim-rel-video
+docs/user/images/music-now-playing.png	tests/ui/readme/readme-stills.script	now_playing	1	build/sim-rel-video
+docs/user/images/music-visualiser.png	tests/ui/docs/docs-visualiser.script	bars	1	build/sim-rel-video
+docs/user/images/audiobooks-audiobook-chapters.png	tests/ui/docs/docs-audiobooks.script	chapters	1	build/sim-rel-video
+docs/user/images/audiobooks-audiobook-now-playing.png	tests/ui/docs/docs-audiobooks.script	now_playing	1	build/sim-rel-video
+docs/user/images/settings-settings.png	tests/ui/readme/readme-stills.script	settings	1	build/sim-rel-video
+docs/user/images/usb-and-syncing-usb-connected.png	tests/ui/readme/readme-stills.script	usb	1	build/sim-rel-video
+docs/user/images/troubleshooting-save-diagnostics.png	tests/ui/docs/docs-diagnostics.script	diagnostics_saved	1	build/sim-rel-video
+docs/user/images/video-videos-menu.png	tests/ui/readme/readme-stills.script	videos	1	build/sim-rel-video
+docs/user/images/video-video-play.png	tests/ui/docs/docs-video.script	video_playing	1	build/sim-rel-video
+docs/user/images/readme/main-menu.png	tests/ui/readme/readme-stills.script	main_menu	2	build/sim-rel-video
+docs/user/images/readme/albums.png	tests/ui/readme/readme-stills.script	albums	2	build/sim-rel-video
+docs/user/images/readme/now-playing.png	tests/ui/readme/readme-stills.script	now_playing	2	build/sim-rel-video
+docs/user/images/readme/videos.png	tests/ui/readme/readme-stills.script	videos	2	build/sim-rel-video
+docs/user/images/readme/settings.png	tests/ui/readme/readme-stills.script	settings	2	build/sim-rel-video
+docs/user/images/readme/usb.png	tests/ui/readme/readme-stills.script	usb	2	build/sim-rel-video
+docs/user/images/readme/navigation.gif	scripts/readme_visuals.sh	-	-	build/sim-rel-video

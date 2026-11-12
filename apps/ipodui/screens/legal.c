@@ -63,6 +63,7 @@
 #include "lcd.h"
 #include "font.h"
 #include "lang.h"
+#include "ipodui/prodver.h"
 #include "ipodui/anim.h"
 #include "ipodui/theme.h"
 #include "ipodui/header.h"
@@ -141,9 +142,10 @@ static int text_w(const char *s, int len, int font)
 static void set_paras(struct legal *g)
 {
     int i, n = 0;
+    char vers[64];
 
     snprintf(g->lead, sizeof(g->lead), str(LANG_IPODUI_NOTICE_1),
-             str(LANG_IPODUI_VERSION_STRING));
+             ipodui_version_string(vers, sizeof(vers), false));
     g->para[n++] = str(LANG_IPODUI_NOTICE_HEAD);
     g->para[n++] = g->lead;
     if (g->notice)

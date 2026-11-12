@@ -8131,6 +8131,8 @@ static int lib_book_seed_begin_held(size_t bytes, void **buf)
 
     if (!seed_owed || audio_status())
         return -1;                      /* playing: the stop's pass */
+    if (tagcache_ui_library_busy())
+        return -1;                      /* #276: owed, after the library */
     if (lib_state() != LIB_READY || tagcache_ui_count() <= 0)
     {
         seed_owed = false;              /* the next load owes it again */

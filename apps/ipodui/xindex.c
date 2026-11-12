@@ -43,6 +43,7 @@
 #include "audio.h"
 #include "core_alloc.h"
 #include "storage.h"
+#include "tagcache.h"
 #ifdef HAVE_STORAGE_POWEROFF
 #include "stor_pwr.h"
 #endif
@@ -250,6 +251,13 @@ static void start(const char *why)
         owe("playing");
         return;
     }
+    /* #276: library building takes utter priority: owed, the poll
+     * starts it once the library is ready (xindex_poll()) */
+    if (tagcache_ui_library_busy())
+    {
+        owe("library");
+        return;
+    }
     ops = module_ops();                 /* may wait: before the take */
     if (!ops)
     {
@@ -417,6 +425,8 @@ void xindex_poll(void)
         return;
     if (audio_status() != 0 && !maint_window_open())
         return;                         /* playing, or a pause too young */
+    if (tagcache_ui_library_busy())
+        return;                         /* #276: after the library */
     /* L2: not under a screen that reads an index, a game or Clocks, and
      * not unless the arena can place the indexer without evicting a held
      * tenant (else start() would fail and log each RETRY_TICKS): skipped

@@ -100,12 +100,17 @@ endif
 # the VERSION environement variable
 SVNVERSION:=$(shell VERSION='$(VERSION)' $(TOOLSDIR)/version.sh $(ROOTDIR))
 OLDSVNVERSION:=$(shell grep 'RBVERSION' $(BUILDDIR)/rbversion.h 2>/dev/null|cut -d '"' -f 2 || echo "NOREVISION")
+# ProkBox5g: the release version from git tags (scripts/version.sh); PROKBOX_VERSION
+# (release_build.sh) overrides it; VERSION stays the build-id override only. It changes with a tag alone, so it is
+# compared on its own.
+PROKVERSION:=$(shell if [ -n '$(PROKBOX_VERSION)' ]; then echo '$(PROKBOX_VERSION)'; elif [ -x $(ROOTDIR)/scripts/version.sh ]; then $(ROOTDIR)/scripts/version.sh $(ROOTDIR) || echo unknown; else echo unknown; fi)
+OLDPROKVERSION:=$(shell grep 'PROKVERSION' $(BUILDDIR)/rbversion.h 2>/dev/null|cut -d '"' -f 2)
 
 CORE_LIBS:=$(FIRMLIB)
 
-ifneq ($(SVNVERSION),$(OLDSVNVERSION))
+ifneq ($(SVNVERSION)|$(PROKVERSION),$(OLDSVNVERSION)|$(OLDPROKVERSION))
 .PHONY: $(BUILDDIR)/rbversion.h
 endif
 
 $(BUILDDIR)/rbversion.h:
-	$(call PRINTS,GEN $(@F))$(TOOLSDIR)/genversion.sh $(BUILDDIR) $(SVNVERSION)
+	$(call PRINTS,GEN $(@F))$(TOOLSDIR)/genversion.sh $(BUILDDIR) $(SVNVERSION) '$(PROKVERSION)'

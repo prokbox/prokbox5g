@@ -34,8 +34,10 @@
  * real library work (the count of a first build's tree, the walk's
  * entries, the commit's index steps, the load and the lists; never
  * back, full only when the work is over) and the step in plain words
- * under it, then the menu (a plain slide). It redraws only its band, at
- * most UPD_FPS times a second; no allocation beyond its 48 B of the
+ * under it, then the menu (a plain slide). A soft light travels along
+ * the bar while work runs (#276: no step looks frozen). It redraws only
+ * its band (between steps only the bar's rows), at most UPD_FPS times a
+ * second; no allocation beyond its 48 B of the
  * screen arena, no storage access of its own.
  *
  * ui_upd_boot(): ui_main.c, once, at shell start. With no library on the
@@ -65,7 +67,7 @@
  * Trace: "upd push mode=", "upd show ms=", "upd skip ms=", "upd draw
  * bar= step=", "upd done ms=", "upd stuck ms=", "upd usb ms=", "upd key
  * ignored", "upd hold take|give why="; never "upd bar back". */
-#define UPD_FPS 4
+#define UPD_FPS 8
 
 /* p081-pageboost: the page's build hold (a boost) given back before a
  * sleep's entry (sleep.c) and before the USB handler runs (input.c), and

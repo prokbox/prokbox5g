@@ -35,7 +35,8 @@
  * The playlist mutex is taken per insert/delete by playlist.c and never
  * held across a file-name read (tagcache_retrieve) or a yield.
  *
- * Static RAM: the 92 B record plus 16 B of flags and stamps. Nothing is
+ * Static RAM: the 92 B record, its 92 B copy as on disk (#281: an
+ * unchanged record is not written again) plus 16 B of flags and stamps. Nothing is
  * allocated: file names go through library.c's play scratch, stacked on
  * its existing pool (as lib_path() does).
  *
@@ -65,6 +66,7 @@
 #include "kernel.h"
 #include "file.h"
 #include "audio.h"
+#include "playback.h"               /* audio_unplayable_end() (#281) */
 #include "playlist.h"
 #include "settings.h"
 #include "storage.h"
@@ -116,21 +118,48 @@ static void on_buffer(unsigned short id, void *data)
 
 /* ---- record I/O --------------------------------------------------------- */
 
+#ifdef SIMULATOR
+static int sim_rec_writes;      /* #281: expect_shuf_writes_max */
+int sim_shuf_rec_writes(void)
+{
+    return sim_rec_writes;
+}
+#endif
+
+/* #281: the record as the file holds it (last written, or read at boot):
+ * a write that would put the same bytes there again is skipped (a refill
+ * that added and trimmed nothing, a mode set to what it was). Each write
+ * is the file plus its FAT, directory entry and FSInfo on the device. */
+static struct lib_shuffle_rec rec_disk;
+static bool rec_disk_ok;
+
 static void rec_write(void)
 {
     int fd;
+    bool ok;
 
     rec.repeat = (uint8_t)global_settings.repeat_mode;
     lib_shuf_rec_seal(&rec);
+    if (rec_disk_ok && !memcmp(&rec, &rec_disk, sizeof(rec)))
+        return;
+#ifdef SIMULATOR
+    sim_rec_writes++;
+#endif
+    rec_disk_ok = false;
     fd = open(SHUF_PATH, O_WRONLY | O_CREAT | O_TRUNC, 0666);
     if (fd < 0)
     {
         UPDATE_TRACE("shuf: record write %s", "failed");
         return;
     }
-    if (write(fd, &rec, sizeof(rec)) != (ssize_t)sizeof(rec))
+    ok = write(fd, &rec, sizeof(rec)) == (ssize_t)sizeof(rec);
+    if (!ok)
         UPDATE_TRACE("shuf: record write %s", "short");
-    close(fd);
+    if (close(fd) == 0 && ok)
+    {
+        rec_disk = rec;
+        rec_disk_ok = true;
+    }
 }
 
 /* Boot: one 92 B read, once (lib_shuffle_resume() or the first idle). A
@@ -171,6 +200,11 @@ static void rec_load(void)
         return;
     }
     rec = r;
+    if (!upgraded)              /* an upgraded record differs on disk */
+    {
+        rec_disk = r;
+        rec_disk_ok = true;
+    }
     boot_check = rec.source != LIB_SHUF_SRC_NONE;
 }
 
@@ -369,9 +403,13 @@ static int refill_finish(void)
     return ses.added;
 }
 
-/* Up to 'max' more entries. Returns 1 while the refill goes on, else
- * what refill_finish() returns (entries added), or -1 (not ready: the
- * next event retries). */
+/* Up to 'max' more entries. Returns REFILL_MORE while the refill goes
+ * on, else what refill_finish() returns (entries added, 0 or more), or -1
+ * (not ready: the next event retries). #281: "goes on" was 1, the same
+ * value as a finished refill that added one entry (a one-track library,
+ * or the last entry of a lap): every loop below then ran refill_finish()
+ * forever, one record write each, the UI thread never returning. */
+#define REFILL_MORE (-2)
 static int refill_step(int max)
 {
     struct lib_tracks lt;
@@ -432,7 +470,7 @@ static int refill_step(int max)
         UPDATE_TRACE("shuf: chunk +%d total=%d", n, ses.added);
     if (done || ses.added >= LIB_SHUF_WINDOW)
         return refill_finish();
-    return 1;
+    return REFILL_MORE;
 }
 
 /* review L2: a chunked refill open on a queue that has since been
@@ -456,11 +494,11 @@ static int refill(void)
 
     ses_check();
     if (ses.on)
-        while (refill_step(LIB_SHUF_WINDOW) == 1)
+        while (refill_step(LIB_SHUF_WINDOW) == REFILL_MORE)
             ;
     if (refill_begin() < 0)
         return -1;
-    while ((rc = refill_step(LIB_SHUF_WINDOW)) == 1)
+    while ((rc = refill_step(LIB_SHUF_WINDOW)) == REFILL_MORE)
         ;
     return rc;
 }
@@ -732,6 +770,15 @@ int lib_shuffle_idle(void)
     rec_load();
     disk_ran = false;
     ses_check();                /* the queue was replaced under it */
+    if (ses.on && (audio_unplayable_end() || !audio_status()))
+    {
+        /* #281: playback ended the queue (nothing in it plays) or
+         * stopped: the refill ends at the entries it has, its record
+         * written once, as lib_shuffle_settle() does */
+        UPDATE_TRACE("shuf: refill ended (%s)", "stopped");
+        refill_finish();
+        return TIMEOUT_BLOCK;
+    }
     if (ses.on)
     {
         long t0 = current_tick, dt;
@@ -750,7 +797,7 @@ int lib_shuffle_idle(void)
         ses.ms += dt;
         if (dt > ses.max_ms)
             ses.max_ms = dt;
-        if (rc == 1)
+        if (rc == REFILL_MORE)
             return HZ / 20;     /* the next chunk: the UI runs between */
         if (rc < 0)
             want_refill = true; /* not ready: the next event retries */
@@ -760,6 +807,11 @@ int lib_shuffle_idle(void)
         return TIMEOUT_BLOCK;
     }
     if (!want_refill || !lib_shuffle_active())
+        return TIMEOUT_BLOCK;
+    /* #281: a stopped queue, or one playback is ending because nothing
+     * in it plays, needs no more entries; the next start's track change
+     * asks again. Paused still refills. */
+    if (!audio_status() || audio_unplayable_end())
         return TIMEOUT_BLOCK;
     if (boot_check)
     {
@@ -908,7 +960,7 @@ int lib_shuffle_set_mode(enum np_shuffle mode)
     rec_load();
     ses_check();                /* review L2 */
     if (ses.on)                 /* a chunked refill: its record first */
-        while (refill_step(LIB_SHUF_WINDOW) == 1)
+        while (refill_step(LIB_SHUF_WINDOW) == REFILL_MORE)
             ;
     if (lib_shuffle_active() && boot_check)
         boot_resume_check();

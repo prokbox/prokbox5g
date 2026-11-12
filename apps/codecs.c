@@ -51,8 +51,11 @@
 #include "general.h"
 #include "rbpaths.h"
 #include "panic.h"
+#ifdef HAVE_IPOD_UI
+#include "ipodui/uilog.h"   /* #281: the codecs' ui_log */
+#endif
 #ifdef HAVE_COP_CODEC
-#include "codec_cop.h"      /* Fit-2: the worker's stack at the slot's top */
+#include "codec_cop.h"     /* Fit-2: the worker's stack at the slot's top */
 #define COP_RESERVE codec_cop_reserve()
 #else
 #define COP_RESERVE 0
@@ -161,6 +164,7 @@ struct codec_api ci = {
 #ifdef HAVE_IPOD_UI
     false, /* cop_assist (P19 19-1c: false off the COP; codec_cop.c sets
               it per run, true for a run on the COP, the default) */
+    ui_log,
 #endif
 
 };

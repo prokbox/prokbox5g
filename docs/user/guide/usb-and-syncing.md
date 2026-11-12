@@ -15,7 +15,7 @@ You don't need a sync program. The player shows up on your computer as an ordina
 5. Unplug the cable.
 
 ![USB connected](../images/usb-and-syncing-usb-connected.png)
-<!-- screenshot: scripts/shots.sh tests/ui/ipodui-p8a-usb.script -->
+<!-- screenshot: scripts/docs_shots.sh; generator in tests/ui/docs/images.tsv -->
 
 While files are being copied, the symbol on the screen turns into two spinning arrows. When it settles, the copy is finished.
 

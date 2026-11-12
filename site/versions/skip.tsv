@@ -1,0 +1,4 @@
+# Release tags the versioned site leaves out (scripts/docs_versions.py).
+# One line per tag: tag<TAB>reason.  Any other tag that fails to build fails
+# the whole site build, so a broken release can never drop out quietly.
+v0.8.0	its guide still holds writers' notes ("[check on device]") that the docs build refuses to publish

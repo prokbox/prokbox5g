@@ -1,0 +1,34 @@
+# #281: Shuffle Songs with Repeat All on a library of three tracks, none of
+# which plays. 0.8.1 skipped on for ever (each failure ~25 ms on the
+# device) and every refill (50 entries: a lap of 3 again and again)
+# rewrote the playlist control file and npshuf.dat: 20 refills and 2,833
+# sim disk writes in 20 s. Now playback ends the queue after 50 failures in
+# a row (fewer for a shorter queue, apps/playback.c SILENT_FAIL_MAX) and the
+# ending queue asks for no more refills (a chunked refill already under
+# way when playback gives up ends at the entries it has: one more record
+# write, so 2 at most).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-shuf-unplayable-3.script
+# disk: bare
+# needs: unplayable
+# disk-file: build/unplayable-fixtures/bad1.flac Music/bad1.flac
+# disk-file: build/unplayable-fixtures/bad2.flac Music/bad2.flac
+# disk-file: build/unplayable-fixtures/bad3.flac Music/bad3.flac
+# log: audio unplayable run=50 queue=
+# golden: skip menu
+# timeout: 90
+
+wait 1000
+wait_db 30000
+repeat all
+wheel +4            # "Shuffle Songs"
+wait 500
+writes_mark
+key SELECT
+wait 8000
+expect_stopped
+expect_shuf_writes_max 2    # the start's, and one cut-short refill at most
+shot menu
+writes_mark
+wait 5000
+expect_writes_max 0
+quit

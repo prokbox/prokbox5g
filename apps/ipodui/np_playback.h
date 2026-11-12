@@ -294,6 +294,13 @@ void     np_pb_ab_write_begin(int slot);
 void     np_pb_ab_write_end(int slot);
 uint32_t np_pb_ab_seq(int slot);
 
+/* #278 stopgap: one counted boost while a track above 48 kHz plays
+ * (np_playback.c). UI thread only. np_hires_poll(): each UI pass;
+ * np_hires_yield(): given back before a sleep's entry or the USB
+ * handler, taken again after. */
+void np_hires_poll(void);
+void np_hires_yield(bool yield, const char *why);
+
 #ifdef SIMULATOR
 /* T's np_pin script command (sim_cmd_np.c): pins the elapsed time
  * (< 0: unpin) and the volume bar's percentage (< 0: unpin) for

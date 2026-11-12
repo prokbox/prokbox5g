@@ -300,6 +300,57 @@ static bool io_ok(void)
     return !playing() || user_idle();
 }
 
+/* #276 (owner, 2026-11-10): library building takes utter priority. Every
+ * unit of the builder's work asks this first (blocked() between units;
+ * art_gate() at the decoders' and composes' yield points and
+ * art_pace_at() at every pace point park the builder while true; io_go()
+ * refuses I/O), so work already started yields within a pace slice and
+ * resumes, with its state, after the library is ready. */
+static bool lib_busy(void)
+{
+    return tagcache_ui_library_busy();
+}
+
+#ifdef SIMULATOR
+/* tests (ipodui-libfirst-*): the builder did a unit of work while the
+ * library was being built: "art libwork <where>" (never, the scripts'
+ * nolog). The test's own view of a build, from the raw states, not
+ * lib_busy() (a check of the predicate by itself would pass both ways),
+ * and only once it has lasted past LIBWORK_GRACE (the slice the unit
+ * under way may finish before its next yield point) */
+#define LIBWORK_GRACE (HZ / 2)
+static void sim_libwork(const char *where)
+{
+    static long since;
+    static const char *last;
+    static long last_t;
+    bool truth = tagcache_scan_active() || tagcache_get_commit_step() > 0
+                 || tagcache_ui_updating() || tagcache_ui_busy()
+                 || tagcache_ui_count() < 0;
+
+    if (!truth)
+    {
+        since = 0;
+        return;
+    }
+    if (!since)
+        since = current_tick ? current_tick : 1;
+    if (TIME_BEFORE(current_tick, since + LIBWORK_GRACE))
+        return;
+    if (where == last && TIME_BEFORE(current_tick, last_t + HZ))
+        return;                     /* one line a second per place */
+    last = where;
+    last_t = current_tick;
+    UPDATE_TRACE("art libwork %s scan=%d commit=%d upd=%d busy=%d n=%d",
+                 where, (int)tagcache_scan_active(),
+                 tagcache_get_commit_step(), (int)tagcache_ui_updating(),
+                 (int)tagcache_ui_busy(), tagcache_ui_count());
+}
+#define SIM_LIBWORK(w) sim_libwork(w)
+#else
+#define SIM_LIBWORK(w) do { } while (0)
+#endif
+
 /* The chapter art and the books (owner, #58, 2026-10-19: the 7G is hardly
  * ever stopped, so nothing waits for a stop): they wait while audio plays,
  * and while paused with the user active (user_idle()) */
@@ -801,12 +852,13 @@ static bool io_go(struct bwork *w, const char *rw, artcache_key_t key)
     /* A ready RAM library does not mean the directory scanner is idle.
      * Let that single storage walk finish before starting another image
      * read/write; the caller retries once wait_ready observes its release. */
-    if (tagcache_scan_active() || (play && !idle))
+    if (lib_busy() || (play && !idle))
     {
         w->lit = true;
         return false;
     }
     io_trace(rw, key, play, idle);
+    SIM_LIBWORK("io");
     return true;
 }
 
@@ -1026,9 +1078,12 @@ int artcache_npcover_seq(void)
 
 static bool gate_hold(void)
 {
-    return playing() && gate_watched() && !stopped && !usb_owns_disk()
-           && !sleep_hold && !park_held
-           && !queue_peek_ex(&art_queue, NULL, 2, park_release);
+    if (stopped || usb_owns_disk() || sleep_hold || park_held
+        || queue_peek_ex(&art_queue, NULL, 2, park_release))
+        return false;
+    /* #276: a decode or compose under way while the library is built
+     * waits for it too, its state kept */
+    return (playing() && gate_watched()) || lib_busy();
 }
 
 static void art_gate(void)
@@ -1057,6 +1112,8 @@ static void art_gate(void)
         bool fb = FAST_BOOSTED();
         long t0 = now;
 
+        if (lib_busy())
+            UPDATE_TRACE("art yield lib at=%s", "gate");
         resize_boost_release();
         fast_boost(false);
 #ifdef SIMULATOR
@@ -1125,6 +1182,7 @@ static void art_gate(void)
                      (int)disk_active(), (int)np_watched(),
                      (int)TIME_AFTER(last_input, npr_t0));
     }
+    SIM_LIBWORK("gate");
     gate_last = current_tick ? current_tick : 1;
 }
 
@@ -1440,6 +1498,36 @@ static void pace_defer(void)
 #define ART_PACE()  art_pace_at()
 #endif
 
+/* #276: the library is being built: the builder waits here, unboosted,
+ * until it is ready (or USB, a power-off, a sleep entry or a stop wants
+ * the thread: those end the wait as a park's do), serving Now Playing's
+ * bundle read meanwhile. Polled each second (the library's end posts
+ * nothing here). Traces "art yield lib at=pace" and "art lib wait ms=" */
+static void lib_defer(void)
+{
+    bool fb = FAST_BOOSTED();
+    long t0 = current_tick;
+    int hw;
+
+    UPDATE_TRACE("art yield lib at=%s", "pace");
+    resize_boost_release();
+    fast_boost(false);              /* never boosted while it waits */
+    while (lib_busy() && !stopped && !usb_owns_disk() && !sleep_hold
+           && !usb_quiescing
+           && !queue_peek_ex(&art_queue, NULL, 2, park_release))
+    {
+        if (npf_req)
+            np_serve();
+        hw = hang_idle_begin();     /* waiting for the library: idle */
+        sleep(HZ / 4);
+        hang_idle_end(hw);
+    }
+    if (fb)
+        fast_boost(true);
+    UPDATE_TRACE("art lib wait ms=%ld", (current_tick - t0) * 1000 / HZ);
+    (void)t0;
+}
+
 static void art_pace_at(PACE_ARGS)
 {
     static bool busy;               /* np_serve() in a deferral: none */
@@ -1458,7 +1546,18 @@ static void art_pace_at(PACE_ARGS)
     ran = pace_now() - start;
     if (ran < ART_PACE_US / 4)
         return;                     /* the cheap test, most points */
+    SIM_LIBWORK("pace");
     input = pace_input();
+    /* #276: the library first (never with a block held, pace_nodefer:
+     * syn_pace() gives it back instead) */
+    if (!pace_nodefer && lib_busy())
+    {
+        busy = true;
+        lib_defer();
+        busy = false;
+        pace_t0 = pace_now();
+        return;
+    }
     if (!input && ran < ART_PACE_US)
         return;
     busy = true;
@@ -2626,7 +2725,7 @@ static void npr_poll(void)
 void artcache_rotate_poll(void)
 {
     static bool was;
-    bool now = art_thread_id && rot_place() && rot_due();
+    bool now = art_thread_id && rot_place() && rot_due() && !lib_busy();
 
     if (now && !was)
         art_post(ART_Q_IDLE);
@@ -2741,9 +2840,10 @@ static const char *blocked(void)
              && (TIME_BEFORE(current_tick, last_input + INPUT_QUIET)
                  || button_status()))
         return "input";
-    if (!tagcache_is_usable() || tagcache_ui_busy() || tagcache_scan_active()
-        || (maintenance && tagcache_maintenance_pending())
-        || tagcache_get_commit_step() > 0 || tagcache_ui_count() < 0)
+    /* #276: library building takes utter priority (the one predicate,
+     * tagcache_ui_library_busy(): a build, scan, commit, load or the
+     * lists' jobs, or one about to start) */
+    if (lib_busy() || (maintenance && tagcache_maintenance_pending()))
         return "db";
     batt = battery_level();
     if (!charger_inserted() && batt >= 0 && batt < LOW_BATTERY)
@@ -3224,8 +3324,11 @@ unavailable:
 static bool resolve(struct bwork *w, const struct artalb_rec *t);
 static bool syn_go(void)
 {
+    /* #276: a library build stops the map's build (its block back at
+     * once; owed, it runs again in a later pass) */
     return !stopped && !usb_owns_disk() && !audio_status()
-           && pause_count <= 0 && bw->db_gen == tagcache_ui_generation();
+           && pause_count <= 0 && bw->db_gen == tagcache_ui_generation()
+           && !lib_busy();
 }
 
 /* the build's pace point: a yield, then (the user on) a wait in short
@@ -6001,6 +6104,7 @@ static int panel_build(struct bwork *w, const struct artalb_rec *t,
     }
 #endif
     w->lit = false;
+    SIM_LIBWORK("panel");
     if (!io_go(w, "read", t->key))
         return PANEL_DEFERRED;
     /* #117: a published panels.pak takes the slot in place (the caller
@@ -6035,6 +6139,32 @@ static bool regroup_window(void)
         return true;                /* the paused window (#88) */
     /* stopped: idle, and not the boot's passes */
     return user_idle() && TIME_AFTER(current_tick, (long)REGROUP_BOOT_TICKS);
+}
+
+/* #279: the set panels.pak holds, as a regroup saw it: each entry's
+ * album, its cover's signature and its state (not the slots: those are
+ * what a regroup changes) */
+static uint32_t regroup_sig;
+static bool regroup_sig_ok;
+
+static uint32_t panel_set_sig(const struct artpanel_hdr *ph)
+{
+    uint32_t crc = ARTFMT_CRC_INIT;
+    int k;
+
+    for (k = 0; k < ARTPANEL_SLOTS; k++)
+    {
+        const struct artpanel_ent *e = &ph->ent[k];
+
+        if (!e->state)
+            continue;
+        crc = artfmt_crc(crc, &e->key, sizeof(e->key));
+        crc = artfmt_crc(crc, &e->src_crc, sizeof(e->src_crc));
+        crc = artfmt_crc(crc, &e->src_size, sizeof(e->src_size));
+        crc = artfmt_crc(crc, &e->state, sizeof(e->state));
+        crc = artfmt_crc(crc, &e->pad[0], 1);   /* its set */
+    }
+    return artfmt_crc_end(crc);
 }
 
 static bool panel_regroup(struct bwork *w)
@@ -6113,6 +6243,8 @@ static bool panel_regroup(struct bwork *w)
     if (!panel_save(w))
         return false;
     regroup_owed = false;
+    regroup_sig = panel_set_sig(ph);    /* #279 */
+    regroup_sig_ok = true;
     UPDATE_TRACE("art panel regroup v=%d->%d slots=%d ms=%ld", from,
                  ARTPANEL_VERSION, n, (current_tick - t0) * (1000 / HZ));
     ui_log("art", "panel regroup v=%d slots=%d", from, n);
@@ -6285,6 +6417,7 @@ static void pool_follow(struct bwork *w)
  * spin-up of its own; while playing only with the user idle (io_go()) */
 static void pool_rotate(struct bwork *w)
 {
+    SIM_LIBWORK("rotate");
     rot_no_pool = !panel_load(w);   /* the sleep window owes none */
     if (rot_no_pool)
         return;
@@ -6335,7 +6468,7 @@ static int pool_build(struct bwork *w, const struct artalb_rec *t, int k)
     struct artpool_hdr *p = &w->pidx.pool;
     struct artcache_rec r;
     struct artpanel_ent *e;
-    uint32_t s;
+    uint32_t s, sig_crc, sig_size;
     int st, j;
 
     if (!artidx_lookup(&w->rd, t->key, &r, NULL))
@@ -6392,6 +6525,8 @@ static int pool_build(struct bwork *w, const struct artalb_rec *t, int k)
     }
     panel_seq++;                    /* a reader of a stale index: its
                                        tag check and this tell */
+    sig_crc = r.src_crc;            /* #279: the index record's, as the */
+    sig_size = r.src_size;          /* test above compares (run_panels) */
     memset(&r, 0, sizeof(r));
     r.key = t->key;
     ART_PACE();
@@ -6419,8 +6554,8 @@ static int pool_build(struct bwork *w, const struct artalb_rec *t, int k)
     memset(e, 0, sizeof(*e));
     e->key = t->key;
     e->mtime = t->max_mtime;
-    e->src_crc = r.src_crc;
-    e->src_size = r.src_size;
+    e->src_crc = sig_crc;
+    e->src_size = sig_size;
     e->state = ARTREC_OK;
     e->slot = (uint8_t)s;
     PENT_SET(e) = PSET_OF(t);
@@ -6758,6 +6893,7 @@ static void npr_run_impl(struct bwork *w)
 
 static void npr_run(struct bwork *w)
 {
+    SIM_LIBWORK("npcover");
     npr_busy = true;
     npr_abort = false;
     npr_t0 = current_tick;
@@ -6990,7 +7126,7 @@ static int run_panels(struct bwork *w)
     struct artcache_rec r;
     long t0 = current_tick;
     int n, i, ev, built = 0;
-    uint32_t s;
+    uint32_t s, sig_crc, sig_size;
     bool dirty = false;
 
     (void)t0; (void)built;          /* trace only */
@@ -7108,6 +7244,15 @@ static int run_panels(struct bwork *w)
                     return 0;
             }
         }
+        /* #279: the entry keeps the album's index record's signature
+         * (artfmt.h: "as in its index record"), the one the test above
+         * compares. The panel's own source may differ from the
+         * thumbnail's (a synced track's embedded art, #225 Q1; a record
+         * from before the two-ended CRC): stored, it never matched, and
+         * the panel was built again every pass (the owner's endless
+         * passes, 16 panels twice a pass) */
+        sig_crc = r.src_crc;
+        sig_size = r.src_size;
         memset(&r, 0, sizeof(r));
         r.key = t->key;
         ART_PACE();
@@ -7132,8 +7277,8 @@ static int run_panels(struct bwork *w)
         }
         e->key = t->key;
         e->mtime = t->max_mtime;
-        e->src_crc = r.src_crc;
-        e->src_size = r.src_size;
+        e->src_crc = sig_crc;       /* #279: the index record's */
+        e->src_size = sig_size;
         e->state = st;
         e->slot = s;
         PENT_SET(e) = PSET_OF(t);
@@ -7152,8 +7297,17 @@ static int run_panels(struct bwork *w)
     }
     UPDATE_TRACE("art build panels set=%d built=%d ms=%ld", n, built,
                  (current_tick - t0) * (1000 / HZ));
-    /* #92: a set refresh is one read once each set is grouped */
+    /* #92: a set refresh is one read once each set is grouped. #279:
+     * owed again only for a set other than the one last regrouped (its
+     * albums, their covers' signatures and states): a set that comes
+     * out ungrouped again with nothing changed would otherwise owe a
+     * pass per maintenance window, for ever */
     regroup_owed = ph->n_slots && !artpanel_grouped(ph);
+    if (regroup_owed && regroup_sig_ok && panel_set_sig(ph) == regroup_sig)
+    {
+        regroup_owed = false;
+        UPDATE_TRACE("art panel regroup held %s", "set unchanged");
+    }
     ART_PACE();
     if ((regroup_owed || pool_owed) && regroup_window())
         panel_regroup(w);
@@ -9229,8 +9383,10 @@ static void art_thread(void)
          * user idle. rot_ready: what the sleep window may owe (Q8) */
         rot_ready = !want && !stopped;
         idle_seen = false;
+        /* #276: never while the library is built (the rotation reads
+         * and writes the pool's index): at the next wake after */
         if (!want && !stopped && (rot_due() || follow_owed)
-            && rot_place()
+            && rot_place() && !lib_busy()
             && !usb_owns_disk() && (!playing() || user_idle()))
             pool_rotate(bw);
         /* np-sharp: the Now Playing cover queued, storage already awake,
@@ -9527,6 +9683,7 @@ void sim_art_panels_ungroup(void)
     }
     panel_seq++;
     regroup_owed = ok && !artpanel_grouped(&h);
+    regroup_sig_ok = false;         /* #279: a set to group anew */
     fprintf(stderr, "sim_script: art_panels_ungroup %s\n",
             regroup_owed ? "ok" : "failed");
 }

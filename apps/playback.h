@@ -120,6 +120,10 @@ bool audio_quiet_restart(void);
 /* P6: the chapter-table slot (0..NP_AB_SLOTS-1) a table pointer (an
  * mp3entry's audiobook) refers to, or -1. RAM only, no lock, any thread. */
 int audio_ab_slot_of(const void *ab);
+/* #281: playback is ending the queue because nothing in it plays (set
+ * when the run of unplayable tracks reached its limit, until the next
+ * start). Any thread. */
+bool audio_unplayable_end(void);
 #endif
 
 unsigned int playback_status(void);

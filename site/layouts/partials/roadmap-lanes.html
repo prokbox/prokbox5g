@@ -1,0 +1,78 @@
+{{- /* The home page's release lanes: one lane per coming release up to 1.0, each item a
+       bubble coloured and labelled by its status, linking to its entry on What's coming.
+       Data: site/data/roadmap.json, written by scripts/roadmap.py generate in the same run
+       as docs/user/roadmap.md, so the two never disagree (roadmap.py verify checks both).
+       Plain HTML and CSS; the status is in text as well as colour. */ -}}
+{{- $d := hugo.Data.roadmap -}}
+{{- if not $d }}{{ errorf "roadmap-lanes: site/data/roadmap.json is missing: run scripts/roadmap.py generate VER" }}{{ end -}}
+{{- $rm := site.GetPage "/roadmap" -}}
+{{- if not $rm }}{{ errorf "roadmap-lanes: the What's coming page (docs/user/roadmap.md) is missing" }}{{ end -}}
+{{- $base := $rm.RelPermalink -}}
+{{- $later := where $d.releases "later" true -}}
+{{- $lanes := where $d.releases "later" false -}}
+{{- $latest := "" -}}
+{{- with site.GetPage "/releases" }}{{ range first 1 .RegularPages.ByDate.Reverse }}{{ $latest = . }}{{ end }}{{ end -}}
+<section class="lanes" aria-labelledby="lanes-title" data-pagefind-ignore>
+  <div class="lanes-top">
+    <div>
+      <h2 id="lanes-title">What's coming</h2>
+      <p class="lanes-intro">Each coming release, up to 1.0, and where its items stand. It is a plan, not a promise: <a href="{{ $base }}">What's coming</a> has every item in full.{{ with $d.not_planned }} There are also things we <a href="{{ $base }}#{{ .anchor }}">have decided not to do</a>.{{ end }}</p>
+    </div>
+    {{- with $latest }}
+    {{- $ver := .File.ContentBaseName }}
+    <div class="now">
+      <p class="now-label">Current release</p>
+      <p class="now-ver">ProkBox5g {{ $ver }}</p>
+      <p class="now-links">
+        <a href="{{ .RelPermalink }}">Release notes</a>
+        <a href="{{ site.Params.releases }}/tag/v{{ $ver }}">Download</a>
+        {{- with site.GetPage "/changelog" }}<a href="{{ .RelPermalink }}">Changelog</a>{{ end }}
+      </p>
+    </div>
+    {{- end }}
+  </div>
+  <ul class="legend" aria-label="What the colours mean">
+    {{- range $d.statuses }}
+    <li><span class="dot s-{{ .key }}" aria-hidden="true"></span><strong>{{ .name }}</strong> <span>{{ .meaning }}</span></li>
+    {{- end }}
+  </ul>
+  <ol class="lane-list">
+    {{- range $i, $r := $lanes }}
+    {{- $items := where $d.items "release" $r.name }}
+    <li class="lane{{ if eq $i 0 }} next{{ end }}" aria-labelledby="lane-{{ $r.anchor }}">
+      <div class="lane-head">
+        <h3 id="lane-{{ $r.anchor }}"><a href="{{ $base }}#{{ $r.anchor }}"><span class="vh">Release </span>{{ $r.name }}</a>{{ if eq $i 0 }} <span class="tag">Next</span>{{ end }}</h3>
+        <p class="lane-theme">{{ $r.theme }}</p>
+        <p class="lane-prog">{{ $r.stands }}{{ with $r.under_way }} · {{ . }} items started{{ end }}</p>
+      </div>
+      {{- if $items }}
+      <div class="lane-body">
+        {{- /* most finished first, as on What's coming; the legend reads the other way */}}
+        {{- range sort $d.statuses "order" }}
+        {{- $st := . }}
+        {{- $g := where $items "key" $st.key }}
+        {{- if $g }}
+        <div class="grp">
+          <span class="grp-label s-{{ $st.key }}" aria-hidden="true">{{ $st.name }}</span>
+          <ul class="bubbles" aria-label="{{ $st.name }}, release {{ $r.name }}">
+            {{- range $g }}
+            <li><a class="bubble s-{{ .key }}" href="{{ $base }}#{{ .anchor }}" title="{{ .text }}"><span class="vh">{{ .status }}: </span>{{ .short }}</a></li>
+            {{- end }}
+          </ul>
+        </div>
+        {{- end }}
+        {{- end }}
+      </div>
+      {{- else }}
+      <p class="lane-empty">Nothing is listed here yet.</p>
+      {{- end }}
+    </li>
+    {{- end }}
+  </ol>
+  {{- range $later }}
+  {{- $n := len (where $d.items "release" .name) }}
+  {{- if $n }}
+  <p class="lanes-later"><a href="{{ $base }}#{{ .anchor }}">{{ $n }} {{ if eq $n 1 }}idea{{ else }}ideas{{ end }} for later</a>, in no fixed order.</p>
+  {{- end }}
+  {{- end }}
+</section>

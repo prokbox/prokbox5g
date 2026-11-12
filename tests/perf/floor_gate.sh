@@ -230,6 +230,26 @@ upgrade_clone() { # SOURCE DEST
     done
     [ -d "$2/.rockbox/codecs" ] && [ -f "$2/.rockbox/rockbox-info.txt" ]
 }
+# the upgrade case's copy of a script (into $RUN, as deep as tests/perf/,
+# so its ../../ paths still resolve): its first wait_db becomes
+# wait_db_settled. On the 0.8.0 disk wait_db returns when the first boot's
+# commit ends, before its candidate publishes; a PLAY in that gap (a slow
+# or loaded host: the scan ends after the script's opening wait) makes the
+# candidate yield its RAM cache and leaves the session's buffer sized
+# with both caches held, a different case (gate run relauto, 2026-11-12).
+# The measured case starts after the boot's publication, every run.
+upgrade_script() { # SCRIPT DEST
+    sed '1,/^wait_db /s/^wait_db /wait_db_settled /' "$1" >"$2" \
+        && grep -q '^wait_db_settled ' "$2" && ! grep -q '^wait_db ' "$2" \
+        || { echo "floor gate: FAIL could not make $1 wait for the boot's publication (no single wait_db line?)" >&2; return 1; }
+}
+# 0 = the boot's publication freed the retired generation's RAM cache
+# before the first play (p081-floor); else the reason
+upgrade_order() { # LOG
+    awk '/ipodui: db retired ram free gen=/ { if (!play) { ok = 1; exit } }
+         /ipodui: lib play / { play = 1 }
+         END { exit ok ? 0 : 1 }' "$1"
+}
 upgrade_case() { # SOURCE; uses RAM K BUILD RUN FLOOR; 0 = the floor held
     local UB ST4 OUT4 LOG4 MIN4
     UB=
@@ -237,12 +257,15 @@ upgrade_case() { # SOURCE; uses RAM K BUILD RUN FLOOR; 0 = the floor held
         || { echo "floor gate: FAIL ${RAM} MB upgrade case: could not install this build on the 0.8.0 clone" >&2; return 1; }
     [ ! -f "$RUN/simdisk-up/.rockbox/boot_stamp.dat" ] \
         || { echo "floor gate: FAIL ${RAM} MB upgrade case: the 0.8.0 disk has a boot stamp (not 0.8.0's first build?)" >&2; return 1; }
+    upgrade_script "$RUN/floor-${K}k.script" "$RUN/floor-${K}k-up.script" || return 1
     OUT4=$ROOT/out/shots/floor-upgrade-$RAM
     SIM_BUILD=$BUILD SIMDISK=$RUN/simdisk-up SHOTS_TIMEOUT=${SHOTS_TIMEOUT:-600} \
-        "$ROOT/scripts/shots.sh" "$RUN/floor-${K}k.script" "$OUT4" \
+        "$ROOT/scripts/shots.sh" "$RUN/floor-${K}k-up.script" "$OUT4" \
         >"$RUN/shots-up.out" 2>&1
     ST4=$?
     LOG4=$OUT4/sim.log
+    upgrade_order "$LOG4" \
+        || UB="no 'db retired ram free' before the first 'lib play' in $LOG4 (the boot's publication did not free 0.8.0's RAM cache before playback)"
     grep -E "sim_script: (floor |floor_watch end|floor_reserve )|expect_floor|ipodui: maint (take|job)" "$LOG4" 2>/dev/null \
         | sed 's/^sim_script: /upgrade: /'
     MIN4=$(grep -E "floor_watch all_cases" "$LOG4" | tail -1)
@@ -253,11 +276,15 @@ upgrade_case() { # SOURCE; uses RAM K BUILD RUN FLOOR; 0 = the floor held
     if [ "$RAM" = 32 ]; then
         upgrade_clone "$1" "$RUN/simdisk-up3" \
             || UB="${UB:-could not install this build on the second 0.8.0 clone}"
+        upgrade_script "$ROOT/tests/perf/paused-floor-wait-50k.script" \
+            "$RUN/paused-floor-wait-50k-up.script" || return 1
         SIM_BUILD=$BUILD SIMDISK=$RUN/simdisk-up3 SHOTS_TIMEOUT=${SHOTS_TIMEOUT:-600} \
-            "$ROOT/scripts/shots.sh" "$ROOT/tests/perf/paused-floor-wait-50k.script" \
+            "$ROOT/scripts/shots.sh" "$RUN/paused-floor-wait-50k-up.script" \
             "$ROOT/out/shots/paused-floor-wait-upgrade-$RAM" >"$RUN/shots-up3.out" 2>&1 \
             || UB="${UB:-the wait script failed ($RUN/shots-up3.out)}"
         L5=$ROOT/out/shots/paused-floor-wait-upgrade-$RAM/sim.log
+        upgrade_order "$L5" \
+            || UB="${UB:-no 'db retired ram free' before the first 'lib play' in $L5}"
         grep -E "maint (job=commit wait|take)|sim_script: floor (shrunk|window)" "$L5" 2>/dev/null \
             | sed 's/^sim_script: //; s/^ipodui: /upgrade wait: /'
         grep -q "maint job=commit wait floor" "$L5" 2>/dev/null \

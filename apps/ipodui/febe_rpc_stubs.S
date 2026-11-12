@@ -301,6 +301,7 @@ febe_invoke:
     FEBE_STUB tagcache_search_ctx
     FEBE_STUB tagcache_search_finish
     FEBE_STUB tagcache_ui_busy
+    FEBE_STUB tagcache_ui_library_busy
     FEBE_STUB tagcache_ui_commitid
     FEBE_STUB tagcache_ui_commitid_ctx
     FEBE_STUB tagcache_ui_count

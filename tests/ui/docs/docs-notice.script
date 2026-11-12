@@ -1,0 +1,16 @@
+# User guide screenshot (scripts/docs_shots.sh; its row in tests/ui/docs/images.tsv):
+# the first-start notice, after its 3 s guard ("Press Select to continue"). Runs on the release-shaped sim with the video player, so the
+# menus are the ones a release shows (Videos on the main menu, no developer
+# items); in tests/ui/docs/, so the gate's tests/ui/*.script sweep leaves
+# it alone. Synthetic library and video fixtures only
+# (tests/ui/setup_library.py, tests/fixtures/videos/mkvideos.sh): no owner
+# media. Every docs script asks for both, so they share one primed disk.
+#   SIM_BUILD=build/sim-rel-video scripts/shots.sh tests/ui/docs/docs-notice.script
+# needs: library
+# needs: video
+# golden: skip
+# timeout: 180
+# env: IPODUI_SIM_NOTICE=clear
+wait 4500            # the notice is this boot's first frame (its ack is cleared)
+shot notice
+quit

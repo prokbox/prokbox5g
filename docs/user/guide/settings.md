@@ -7,7 +7,7 @@ description: "The main settings and what each one does."
 Choose **Settings** on the main menu. Turn the wheel to pick a row; the right side of the screen shows a short description or the current value.
 
 ![Settings](../images/settings-settings.png)
-<!-- screenshot: scripts/shots.sh tests/ui/ipodui-p8b-settings.script -->
+<!-- screenshot: scripts/docs_shots.sh; generator in tests/ui/docs/images.tsv -->
 
 | Setting | What it does |
 |---|---|

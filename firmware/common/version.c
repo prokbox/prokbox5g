@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2010 by Frank Gevaerts
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -20,3 +21,5 @@
 
 #include "rbversion.h"
 const char rbversion[] = RBVERSION;
+/* ProkBox5g: the release version from git tags (scripts/version.sh) */
+const char prokversion[] = PROKVERSION;

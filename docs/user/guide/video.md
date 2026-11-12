@@ -17,7 +17,7 @@ Choose **Videos** on the main menu. It has:
 Podcasts that are videos appear in the **Podcasts** list among the audio ones, marked with a small screen symbol.
 
 ![Videos menu](../images/video-videos-menu.png)
-<!-- screenshot: scripts/shots.sh tests/ui/ipodui-p14a-menu.script -->
+<!-- screenshot: scripts/docs_shots.sh; generator in tests/ui/docs/images.tsv -->
 
 Choose a title to start. Videos remember where you stopped, and by default start again from that spot.
 
@@ -34,7 +34,9 @@ Videos start and resume only from **Videos**, never from anywhere else.
 ## The controls
 
 ![Playing a video](../images/video-video-play.png)
-<!-- screenshot: scripts/shots.sh tests/ui/ipodui-p14a-play.script -->
+<!-- screenshot: scripts/docs_shots.sh; generator in tests/ui/docs/images.tsv -->
+
+*Picture: a frame from the* Sintel *trailer, © Blender Foundation, durian.blender.org, licensed CC BY 3.0.*
 
 - **Play/Pause:** pause and resume.
 - The wheel: volume.
@@ -61,7 +63,7 @@ A poster is the picture shown for a video in the lists. Today the player uses th
 3. a picture called `poster.jpg` in the same folder as the video.
 
 > [!NOTE]
-> Coming later: poster and art folders for whole TV shows and seasons, and one folder per film. They are planned and are not in 0.8.0, so for now give each video its own poster by one of the three ways above.
+> Coming later: poster and art folders for whole TV shows and seasons, and one folder per film. They are planned and are not in this version yet, so for now give each video its own poster by one of the three ways above.
 
 ## Subtitles
 

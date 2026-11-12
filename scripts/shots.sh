@@ -122,13 +122,47 @@ if [ "$SIMDISK" != "$SIM/simdisk" ] && [ ! -d "$SIMDISK/.rockbox/codecs" ]; then
     exit 2
 fi
 
+# "# disk: bare" (#281): the script runs on its own disk, $out/bare-disk,
+# made fresh each run from this disk's .rockbox (the installed build,
+# settings) without the database, the library folders or any queue state,
+# so a script can boot a library of just the files it names. Each
+# "# disk-file: <file under the repo root> <sim path>" line copies one file
+# in before boot. The library setups below are skipped for it.
+bare_disk=0
+if grep -qE '^#[[:space:]]*disk:[[:space:]]*bare([[:space:]]|$)' "$script"; then
+    bare_disk=1
+    bare="$out/bare-disk"
+    rm -rf "$bare"
+    mkdir -p "$bare"
+    if [ "$(uname)" = Darwin ] && /bin/cp -c -R "$SIMDISK/.rockbox" "$bare/.rockbox" 2>/dev/null; then
+        :
+    else
+        cp -pR "$SIMDISK/.rockbox" "$bare/.rockbox"
+    fi
+    rm -rf "$bare"/.rockbox/database_* "$bare"/.rockbox/database_gen[012] \
+           "$bare"/.rockbox/npshuf.dat "$bare"/.rockbox/.playlist_control* \
+           "$bare"/.rockbox/ipodui
+    SIMDISK=$bare
+    # "# needs: unplayable": the #281 unplayable FLACs, build/unplayable-fixtures
+    if grep -qE '^#[[:space:]]*needs:[[:space:]]*unplayable' "$script"; then
+        python3 "$ROOT/tests/fixtures/unplayable/make_unplayable.py" \
+            "$ROOT/build/unplayable-fixtures" >/dev/null \
+            || { echo "unplayable fixtures failed" >&2; exit 2; }
+    fi
+    grep -E '^#[[:space:]]*disk-file:' "$script" | while read -r _ _ src dst; do
+        [ -f "$ROOT/$src" ] || { echo "disk-file: no $src" >&2; exit 2; }
+        mkdir -p "$SIMDISK/$(dirname "$dst")"
+        cp "$ROOT/$src" "$SIMDISK/$dst"
+    done || exit 2
+fi
+
 # Mini music library (idempotent; instant when already set up)
 case "$name" in
     ipodui-*) needs_music=1 ;;
     *) grep -qE '^#[[:space:]]*needs:[[:space:]]*music' "$script" \
            && needs_music=1 || needs_music=0 ;;
 esac
-if [ $needs_music = 1 ]; then
+if [ $needs_music = 1 ] && [ $bare_disk = 0 ]; then
     "$ROOT/tests/ui/setup_music.sh" "$SIMDISK"
 fi
 # Phase 4 test library (idempotent, version-stamped)
@@ -146,7 +180,7 @@ grep -qE '^#[[:space:]]*stale-import([[:space:]]|$)' "$script" \
 # wrote it (no "## commit" line, the old database's commit IDs)
 grep -qE '^#[[:space:]]*stale-changelog:[[:space:]]*unstamped' "$script" \
     && stale_unstamped=1 || stale_unstamped=0
-if [ $needs_library = 1 ]; then
+if [ $needs_library = 1 ] && [ $bare_disk = 0 ]; then
     "$ROOT/tests/ui/setup_library.sh" "$SIMDISK"
 fi
 # Phase 5 Now Playing fixtures (lyrics, wide/tall/banner covers, a book
@@ -501,7 +535,7 @@ done <"$out/.shots"
 rm -f "$out/.shots"
 
 [ $found -eq 1 ] || { echo "no screenshots taken (log: $log)" >&2; exit 1; }
-if grep -qE "wait_db (timed out|commit delayed)|update_db_wait timed out|wait_commit timed out|wait_pos timed out|rebuild_db timed out|update_db_wait_change failed|dirty_db failed" "$log"; then
+if grep -qE "wait_db (timed out|commit delayed)|wait_db_settled timed out|update_db_wait timed out|wait_commit timed out|wait_pos timed out|rebuild_db timed out|update_db_wait_change failed|dirty_db failed" "$log"; then
     echo "wait_db/update_db_wait: database not usable (log: $log)" >&2; exit 1
 fi
 # "# expect-exists: <sim path>": after the run the sim file must exist

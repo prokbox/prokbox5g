@@ -47,6 +47,20 @@
  *                        commit delayed" (scanned, but the commit needs a
  *                        reboot), which scripts/shots.sh turns into a
  *                        failure. State comes from sim_db.c.
+ *   wait_db_settled [ms] wait_db, then until the library has settled: the
+ *                        active generation is one this firmware published
+ *                        and no RAM cache reload is pending (sim_db.c
+ *                        sim_db_settled()). On a disk another release
+ *                        built (the floor gate's upgrade case) wait_db
+ *                        returns when the first boot's commit ends, before
+ *                        its candidate publishes; a PLAY in that gap takes
+ *                        another path (the candidate yields its RAM cache).
+ *                        Settled: the boot check walked, a scan ended,
+ *                        nothing of the library runs or is owed, for 3 s
+ *                        in a row. Logs "wait_db_settled ready after N ms
+ *                        (quiet 3000 ms)", or "wait_db_settled timed out
+ *                        after N ms (...)",
+ *                        which scripts/shots.sh turns into a failure.
  *   wait_commit [ms]     block until a commit has run and ended since the
  *                        last wait_commit (or the boot): a latch on the
  *                        commit counter, so one that starts and ends
@@ -543,6 +557,41 @@ static void wait_db(long timeout_ms, int lineno)
                 lineno, waited);
 }
 
+/* wait_db_settled [ms]: wait_db's state, then the library idle after the
+ * boot's scan, commit and publication (sim_db_settled()) through
+ * SETTLE_QUIET_MS in a row: the steps follow each other on the tagcache
+ * thread, so a sample between two of them must not end the wait. One
+ * timeout covers it all. */
+#define SETTLE_QUIET_MS 3000
+static void wait_db_settled(long timeout_ms, int lineno)
+{
+    long waited = 0, quiet = 0;
+    enum sim_db_state st = sim_db_state();
+
+    while (st != SIM_DB_DELAYED && st != SIM_DB_NONE && waited < timeout_ms)
+    {
+        if (st == SIM_DB_READY && sim_db_settled())
+        {
+            if (quiet >= SETTLE_QUIET_MS)
+                break;
+            quiet += DB_POLL_MS;
+        }
+        else
+            quiet = 0;
+        sleep_ms(DB_POLL_MS);
+        waited += DB_POLL_MS;
+        st = sim_db_state();
+    }
+
+    if (quiet >= SETTLE_QUIET_MS)
+        fprintf(stderr, "sim_script: wait_db_settled ready after %ld ms "
+                "(quiet %d ms)\n", waited, SETTLE_QUIET_MS);
+    else
+        fprintf(stderr, "sim_script:%d: wait_db_settled timed out after "
+                "%ld ms (state=%d quiet=%ld ms)\n", lineno, waited, (int)st,
+                quiet);
+}
+
 /* wait_commit [ms]: until a commit runs, then until it ends; the command
  * after it lands between the commit and its candidate's publication
  * (tests/perf/resort-play.script) */
@@ -1010,6 +1059,9 @@ static bool run_line(char *line, int lineno)
         take_shot(argv[1]);
     else if (!strcmp(cmd, "wait_db"))
         wait_db(argc >= 2 ? atol(argv[1]) : DB_WAIT_DEFAULT_MS, lineno);
+    else if (!strcmp(cmd, "wait_db_settled"))
+        wait_db_settled(argc >= 2 ? atol(argv[1]) : DB_WAIT_DEFAULT_MS,
+                        lineno);
     else if (!strcmp(cmd, "wait_commit"))
         wait_commit(argc >= 2 ? atol(argv[1]) : DB_WAIT_DEFAULT_MS, lineno);
     else if (!strcmp(cmd, "build_db"))
@@ -1032,6 +1084,15 @@ static bool run_line(char *line, int lineno)
         extern int sim_scan_slow_ticks;     /* sim_cmd_scan.c */
         sim_scan_slow_ticks = atoi(argv[1]);
         fprintf(stderr, "sim_script: scan_slow %d\n", sim_scan_slow_ticks);
+    }
+    else if (!strcmp(cmd, "scan_begin_delay") && argc >= 2)
+    {
+        extern long sim_scan_begin_delay_ms;  /* sim_cmd_scan.c */
+        extern int sim_scan_begin_delay_n;
+        sim_scan_begin_delay_ms = atol(argv[1]);
+        sim_scan_begin_delay_n = argc >= 3 ? atoi(argv[2]) : 1;
+        fprintf(stderr, "sim_script: scan_begin_delay %ld x%d\n",
+                sim_scan_begin_delay_ms, sim_scan_begin_delay_n);
     }
     else if (!strcmp(cmd, "rebuild_db_start"))
     {

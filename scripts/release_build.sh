@@ -24,9 +24,13 @@
 
 # Build the public release zips (docs/release-plan.md section 3.3).
 #
-# usage: VERSION=0.8.0 scripts/release_build.sh RAM [OUTDIR]
+# usage: scripts/release_build.sh RAM [OUTDIR]
 #   RAM     64 or 32
 #   OUTDIR  where the zips go (default out/)
+# The version comes from git (scripts/version.sh: the tag at HEAD, or a
+# dev string off a tag). VERSION=x.y.z may override it (release_tree.py
+# does, for its export check), but at a release tag it must equal the tag,
+# and RELEASE_BUILD=1 (CI) refuses to build anywhere but a clean release tag.
 #
 # Builds ProkBox5g-$VERSION-{stock,modded}-{flash,hdd}-${RAM}MB.zip in
 # build/rel-<variant>-<storage>/. Run it inside the release toolchain
@@ -42,10 +46,25 @@
 # later roadmap item).
 set -eu
 
-RAM=${1:?usage: VERSION=x.y.z $0 RAM [OUTDIR]}
+RAM=${1:?usage: $0 RAM [OUTDIR]}
 OUT=${2:-out}
-: "${VERSION:?set VERSION (the tag without its v)}"
-export VERSION
+HERE=$(cd "$(dirname "$0")" && pwd)
+SRCV=$("$HERE/version.sh" "$HERE/..") || {
+    [ -n "${VERSION:-}" ] || { echo "release_build: cannot compute the version" >&2; exit 2; }
+    SRCV=$VERSION; }
+TAGV=$("$HERE/version.sh" --tag-only "$HERE/.." 2>/dev/null) || TAGV=
+if [ -n "$TAGV" ] && [ -n "${VERSION:-}" ] && [ "$VERSION" != "$TAGV" ]; then
+    echo "release_build: REFUSED: VERSION=$VERSION disagrees with the tag at HEAD (v$TAGV)" >&2; exit 2
+fi
+if [ "${RELEASE_BUILD:-0}" = 1 ] && [ -z "$TAGV" ]; then
+    echo "release_build: REFUSED: RELEASE_BUILD=1 but HEAD is not at a clean release tag ($SRCV)" >&2; exit 2
+fi
+VERSION=${VERSION:-$SRCV}
+# Only the shown version carries it. VERSION is the Rockbox build-id override
+# (tools/version.sh, rockbox-info "Build:"): never leave it set for make.
+PROKBOX_VERSION=$VERSION
+export PROKBOX_VERSION
+unset VERSION
 . "$(dirname "$0")/release_flags.sh"
 case " $RELEASE_RAMS " in *" $RAM "*) ;; *) echo "RAM must be one of: $RELEASE_RAMS" >&2; exit 2 ;; esac
 COMMON="$RELEASE_SHAPE --compiler-prefix=arm-none-eabi-"
@@ -81,7 +100,7 @@ for variant in $RELEASE_VARIANTS; do
             echo "$variant-$storage-$RAM: release image contains developer strings" >&2
             exit 1
         fi
-        zipout="$OUT/ProkBox5g-$VERSION-$variant-$storage-${RAM}MB.zip"
+        zipout="$OUT/ProkBox5g-$PROKBOX_VERSION-$variant-$storage-${RAM}MB.zip"
         cp "$dir/rockbox.zip" "$zipout"
         zip -q -X -j "$zipout" "$boot/bootloader-ipodvideo.ipod"
         # The shipping shape (scripts/release_flags.sh): every required file
@@ -107,4 +126,4 @@ for variant in $RELEASE_VARIANTS; do
         echo "$variant-$storage-$RAM: _end $end B (cap $RELEASE_END_MAX)"
     done
 done
-ls -l "$OUT"/ProkBox5g-"$VERSION"-*-"${RAM}"MB.zip
+ls -l "$OUT"/ProkBox5g-"$PROKBOX_VERSION"-*-"${RAM}"MB.zip

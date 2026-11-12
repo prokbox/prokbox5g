@@ -19359,19 +19359,19 @@
 </phrase>
 <phrase>
   id: LANG_IPODUI_VERSION_STRING
-  desc: iPod UI shell, About page 3 and the first-boot notice title: the product and version ("ProkBox5g <ver>", docs/legal.md; only About and this string say ProkBox5g) (P11)
+  desc: iPod UI shell, About page 3 and the first-boot notice title: the product line; %s is the version the build takes from git tags (scripts/version.sh), never typed here ("ProkBox5g <ver>", docs/legal.md; only About and this string say ProkBox5g) (P11)
   user: core
   <source>
     *: none
-    ipodui: "ProkBox5g 0.8.1"
+    ipodui: "ProkBox5g %s"
   </source>
   <dest>
     *: none
-    ipodui: "ProkBox5g 0.8.1"
+    ipodui: "ProkBox5g %s"
   </dest>
   <voice>
     *: none
-    ipodui: "ProkBox5g 0.8.1"
+    ipodui: "ProkBox5g %s"
   </voice>
 </phrase>
 <phrase>
@@ -27481,5 +27481,39 @@
   <voice>
     *: none
     ipodui: "Connect to power to finish your library."
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_UPD_STEP_CHECK
+  desc: iPod UI shell, library page step after the unplug: the music folders are looked through for what the computer changed (#276; our own words)
+  user: core
+  <source>
+    *: none
+    ipodui: "Checking for changes..."
+  </source>
+  <dest>
+    *: none
+    ipodui: "Checking for changes..."
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Checking for changes..."
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_UPD_STEP_SONGS
+  desc: iPod UI shell, library page step after the unplug: the new and changed songs are read and the removed ones taken out (#276; our own words)
+  user: core
+  <source>
+    *: none
+    ipodui: "Updating your songs..."
+  </source>
+  <dest>
+    *: none
+    ipodui: "Updating your songs..."
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Updating your songs..."
   </voice>
 </phrase>

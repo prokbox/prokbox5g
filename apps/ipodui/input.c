@@ -44,6 +44,7 @@
 #include "ipodui/unlit.h"
 #include "ipodui/usbbusy.h"
 #include "ipodui/updscreen.h"
+#include "ipodui/np_playback.h"     /* np_hires_yield() (#278) */
 #include "ipodui/artcache.h"
 #include "ipodui/lock.h"
 #include "ipodui/clockpol.h"        /* np-lag: the input boost */
@@ -254,6 +255,7 @@ bool ui_input_get(struct ui_input *in, int timeout)
                 ui_sleep_window_close();    /* P18: no boost into it */
                 ui_upd_yield(UPD_YIELD_USB, true);  /* nor the library
                                                      * page's (no I/O) */
+                np_hires_yield(true, "usb");        /* #278: nor hi-res */
                 ui_unlit_sysevent(btn, 0);  /* leave the face first */
             }
             if (default_event_handler(btn) == SYS_USB_CONNECTED)
@@ -263,10 +265,14 @@ bool ui_input_get(struct ui_input *in, int timeout)
                 /* #157/#237: the library page while the work the session
                  * left runs (none if short), or again with no library */
                 ui_upd_yield(UPD_YIELD_USB, false); /* no session: back */
+                np_hires_yield(false, "usb end");
                 ui_upd_after_usb();
             }
             else if (btn == SYS_USB_CONNECTED)
+            {
                 ui_upd_yield(UPD_YIELD_USB, false); /* the page's hold back */
+                np_hires_yield(false, "usb end");
+            }
             lcd_set_viewport(NULL);   /* don't keep a handler's viewport */
             return false;
         }

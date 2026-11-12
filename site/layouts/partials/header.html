@@ -6,9 +6,12 @@
       <span>ProkBox<b>5g</b></span>
     </a>
     <nav class="top-nav" aria-label="Main">
+      {{ with site.GetPage "/features" }}<a href="{{ .RelPermalink }}"{{ if eq $.RelPermalink .RelPermalink }} aria-current="true"{{ end }}>Features</a>{{ end }}
       {{ with $guide }}<a href="{{ .RelPermalink }}"{{ if or (eq $.Section "guide") }} aria-current="true"{{ end }}>Guide</a>{{ end }}
       {{ with site.GetPage "/developers" }}<a href="{{ .RelPermalink }}"{{ if eq $.Section "developers" }} aria-current="true"{{ end }}>Developers</a>{{ end }}
       {{ with site.GetPage "/releases" }}<a href="{{ .RelPermalink }}"{{ if eq $.Section "releases" }} aria-current="true"{{ end }}>Releases</a>{{ end }}
+      {{ with site.GetPage "/changelog" }}<a href="{{ .RelPermalink }}"{{ if eq $.RelPermalink .RelPermalink }} aria-current="true"{{ end }}>Changelog</a>{{ end }}
+      {{ with site.GetPage "/roadmap" }}<a href="{{ .RelPermalink }}"{{ if eq $.RelPermalink .RelPermalink }} aria-current="true"{{ end }}>What's coming</a>{{ end }}
       <a class="nav-source" href="{{ site.Params.repo }}">Source</a>
     </nav>
     <button class="search-open" type="button" aria-label="Search" data-search-open hidden>

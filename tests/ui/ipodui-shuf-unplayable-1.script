@@ -1,0 +1,33 @@
+# #281: Shuffle Songs on a library of ONE track that does not play. 0.8.1
+# looped in the UI thread: a refill that adds one entry returned 1, the
+# value that meant "more to come", so lib_shuffle_start() called
+# refill_finish() again and again, one npshuf.dat write each (~170 a second
+# on the device, 72,836 ATA writes in 70 s; the menu never came back).
+# Now: one record write for the start, the track fails, playback stops
+# and the menu answers. The disk then stays quiet.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-shuf-unplayable-1.script
+# disk: bare
+# needs: unplayable
+# disk-file: build/unplayable-fixtures/bad1.flac Music/bad1.flac
+# golden: skip menu moved
+# timeout: 60
+
+wait 1000
+wait_db 30000
+repeat off
+wheel +4            # "Shuffle Songs" (Music, Podcasts, Extras, Settings)
+wait 500
+writes_mark
+key SELECT
+wait 4000
+expect_stopped
+expect_shuf_writes_max 1    # the start's record; none per failure
+shot menu           # back at the menu: the UI thread answered
+writes_mark
+wait 5000
+expect_writes_max 0         # stopped: the disk stays quiet
+expect_shuf_writes_max 0
+wheel -1
+wait 300
+shot moved          # the wheel still moves the cursor ("Settings")
+quit

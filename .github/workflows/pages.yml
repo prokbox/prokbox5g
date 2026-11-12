@@ -1,16 +1,26 @@
 # The ProkBox5g site and user guide on GitHub Pages (docs/release-plan.md
-# section 3.4): docs/user/ and the developer reference docs/manual/ (Markdown) through Hugo with our own layouts in
-# site/, a Pagefind search index and the PDF guide, all built in the docs
-# image (ci/docs/Dockerfile, a private package pulled by digest) by
-# scripts/docs_build.sh, then deployed to
-# https://prokbox.github.io/prokbox5g/.
+# section 3.4), versioned: scripts/docs_versions.py rebuilds every published
+# release tag vX.Y.Z >= v0.8.0 from git, each with its own site/ layouts, its
+# own Pagefind index and its own PDF guide (X.Y.Z/); the newest release again
+# at the root with the living pages (What's coming, changelog); dev/ for
+# unreleased work on the default branch; and the version picker's list
+# (versions.json).  Built in the docs image (ci/docs/Dockerfile, a private
+# package pulled by digest), checked by release_docs.py R9, then deployed
+# whole to https://prokbox.github.io/prokbox5g/.
 name: pages
 
 on:
   push:
     branches: [main]
-    paths: ["docs/user/**", "docs/manual/**", "site/**", "scripts/docs_build.sh", ".github/workflows/pages.yml"]
+    paths: ["docs/user/**", "docs/manual/**", "docs/changelog/**", "site/**", "scripts/docs_build.sh",
+            "scripts/docs_versions.py", "scripts/release_docs.py", ".github/workflows/pages.yml"]
   workflow_dispatch:
+  # Publishing a release (the owner's last step) adds its folder to the site.
+  # The build checks out the default branch (the tags give the releases),
+  # but GitHub checks the environment against the run's own ref: a release
+  # run's ref is the tag, so the github-pages environment needs a v* tag rule.
+  release:
+    types: [published]
 
 permissions:
   contents: read
@@ -30,13 +40,33 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          # the build driver, the picker and the living pages come from the default
+          # branch; each release's own pages come from its tag
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+          fetch-tags: true
+      - name: the published releases (a tag whose release is still a draft is left out)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          gh api --paginate "repos/${{ github.repository }}/releases" \
+            --jq '.[] | select(.draft == false) | .tag_name' > published.txt
+          # the release that started this run is published, whatever the API returns yet
+          if [ -n "${{ github.event.release.tag_name }}" ]; then echo "${{ github.event.release.tag_name }}" >> published.txt; fi
+          sort -u -o published.txt published.txt
+          echo "published releases:"; cat published.txt
+          [ -s published.txt ] || { echo "no published release: nothing to put on the site" >&2; exit 1; }
       - name: the pinned docs image (private package, by digest; see release.yml)
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
           docker pull -q "$DOCS_IMAGE"
-      - run: |
+      - name: build every release, the root and dev (R9 refuses a site whose picker and folders miss a tag)
+        run: |
           docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD":/w -w /w "$DOCS_IMAGE" \
-            sh scripts/docs_build.sh --pdf --search --out /w/_site
+            sh -c 'git config --global --add safe.directory /w &&
+                   python3 scripts/docs_versions.py --pdf --search --releases published.txt --out /w/_site'
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site

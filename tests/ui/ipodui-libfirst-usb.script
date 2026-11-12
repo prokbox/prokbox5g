@@ -1,0 +1,90 @@
+# #276 (owner, 2026-11-10): library building takes utter priority. After
+# a USB session that added songs and changed a cover, the library page
+# ("OK to Disconnect", the bar, the step line) stays up while the library
+# takes the changes in; no art work runs meanwhile (the art pass, its
+# panels, the panel rotation, the Now Playing cover): the builder yields
+# before each unit of work and resumes once the library is ready, so the
+# changed cover is rebuilt only after the page. The art cache is made
+# cold during the session (every album a decode). The decodes are made slow
+# (art_decode_spin: the ARM's cost) and a panel rotation is due, so any
+# art work that slips in shows. "art libwork" is the sim's own check: the
+# builder did a unit of work while the library was being built, for
+# longer than half a second (the slice a unit under way may finish).
+# The scan begins 6 s after the unplug (scan_begin_delay), as on the
+# device, where the art pass began its panels in that moment (owner log
+# 2026-11-10: "art panel cpu ms=14120" before the scan, page 51 s).
+# Not a red test on 09791e053f: the sim's handover is quicker than the
+# device's, and the old gate held there; the red one is
+# ipodui-libfirst-scan.script. This one guards the page (its steps,
+# the light, the screenshots) and the art's order after an unplug.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-libfirst-usb.script
+# needs: library
+# golden: skip
+# timeout: 500
+# nolog: art libwork
+# nolog: art fail
+# nolog: upd bar back
+# logbetween: l0 l1 upd push mode=unplug
+# logbetween: l0 l1 upd show ms=
+# logbetween: l0 l1 upd draw bar=\d+ step=[12]
+# logbetween: l0 l1 no art build album key=bc0254065027d9b4
+# logbetween: l1 l2 upd done ms=
+# logbetween: l1 l2 upd dedicated depth=0
+# logbetween: l1 l3 art build album key=bc0254065027d9b4 state=1
+
+wait 3000
+wait_db 60000
+art_wait 120000
+wait 2500
+copy_file /Library/The%20Bellwethers/Wool%20&%20Wire/cover.jpg /lfcover.jpg
+copy_file /Library/The%20Bellwethers/Wool%20&%20Wire/01%20Idle%20Ferry.mp3 /lftrack.mp3
+remove /Music/FbUpd/a.mp3
+remove /Music/FbUpd/b.mp3
+update_db_wait 30000
+art_wait 120000
+
+art_decode_spin 3000    # 3 ms of decode between yield points
+panel_rotate_warp 10800 # a panel rotation due at the next wake
+usb_connect
+wait 2500
+mkdir /Music/FbUpd
+copy fixtures/refresh.mp3 /Music/FbUpd/a.mp3
+copy fixtures/refresh.mp3 /Music/FbUpd/b.mp3
+copy fixtures/sig-cover.jpg /Library/The%20Bellwethers/Wool%20&%20Wire/cover.jpg
+copy_file /lftrack.mp3 /Library/The%20Bellwethers/Wool%20&%20Wire/01%20Idle%20Ferry.mp3
+rm_file /.rockbox/artcache/index.dat    # the art made again from nothing
+rm_file /.rockbox/artcache/index.prev   # (a cold cache: every album a
+rm_file /.rockbox/artcache/index.tmp    # decode), so the art pass has
+rm_file /.rockbox/artcache/thumbs.pak   # work the moment USB ends
+scan_slow 3             # every folder 30 ms: the update lasts seconds
+scan_begin_delay 6000 2 # the probe and the scan it hands over to each
+                        # begin 6 s after they are owed (the device's
+                        # handover, a busy CPU): owed, not begun
+usb_disconnect
+ab_mark l0
+wait 2000
+shot page               # OK to Disconnect, the bar, "Updating your songs..."
+wait 700
+shot page_later         # the light has moved along the bar
+expect_in_db /Music/FbUpd/a.mp3 60000
+art_decode_spin 0       # (the sim's spin runs on the one host thread:
+                        # the menu's slide would count it as its own)
+ab_mark l1
+wait_db 60000
+wait 3000
+ab_mark l2
+scan_slow 0
+art_wait 180000         # the art after the library: the new cover
+ab_mark l3
+shot menu_after
+
+# the disk as it was
+copy_file /lfcover.jpg /Library/The%20Bellwethers/Wool%20&%20Wire/cover.jpg
+copy_file /lftrack.mp3 /Library/The%20Bellwethers/Wool%20&%20Wire/01%20Idle%20Ferry.mp3
+remove /lfcover.jpg
+remove /lftrack.mp3
+remove /Music/FbUpd/a.mp3
+remove /Music/FbUpd/b.mp3
+update_db_wait 30000
+art_wait 120000
+quit

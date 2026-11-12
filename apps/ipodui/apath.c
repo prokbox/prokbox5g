@@ -280,14 +280,24 @@ int ui_apath_test(void)
     while (ap_state != AP_DONE && TIME_BEFORE(current_tick, end))
     {
         long btn = button_get_w_tmo(HZ / 10);
-        if (bcmjob_owner_event(btn))
+        if (btn == BUTTON_NONE || bcmjob_owner_event(btn))
             continue;                       /* P19: the job owner's pass */
-        if (btn != BUTTON_NONE && !(btn & BUTTON_REL))
+        if (IS_SYSEVENT(btn))
         {
-            if (IS_SYSEVENT(btn))
-                default_event_handler(btn);
-            break;                          /* any key stops it */
+            /* Not a key: the shell's wakes (NP_PB_WAKE at the test's own
+             * track change, #278) and the like go on. A computer or a
+             * power-off stops the test and goes back to the main loop's
+             * handler (input.c), as the bench rows do. */
+            if (btn == SYS_USB_CONNECTED || btn == SYS_POWEROFF)
+            {
+                button_queue_post(btn, 0);
+                break;
+            }
+            default_event_handler(btn);
+            continue;
         }
+        if (!(btn & BUTTON_REL))
+            break;                          /* any key stops it */
     }
     mixer_set_tap(NULL);
     sleep(1);                               /* a callback in the tap ends */

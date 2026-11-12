@@ -16,6 +16,13 @@
 # 0.x tags are marked pre-release (owner, 2026-10-26: 0.8 is "the
 # pre-release"; "beta" is only for new features after 1.0).
 #
+# Docs ship with every release: the check job refuses a tag whose release
+# notes are missing or still draft, whose site version or changelog disagree
+# (scripts/release_docs.py); the guide job builds the site and the PDF for the
+# tag (docs_build.sh --release); the draft's body is the notes plus the
+# changelog fragment. Publishing the release triggers pages.yml (release:
+# published), which rebuilds and deploys the site from the tag.
+#
 # Toolchain: Linux runners inside the pinned release container
 # (ci/toolchain/Dockerfile: GCC 16.2.0 and binutils 2.47 from checksummed
 # GNU tarballs, host tools from a fixed Debian snapshot), pulled by digest
@@ -72,12 +79,29 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ steps.v.outputs.tag }}
+      - name: docs are part of the release (scripts/release_docs.py)
+        run: |
+          # notes published (not draft), no hand-typed site version, changelog and its
+          # fragment; an RC may still carry draft notes. The history-based freshness
+          # check ran privately before the export (release_tree.py --version).
+          rc=""; case "${{ steps.v.outputs.ver }}" in *-rc*) rc="--rc" ;; esac
+          python3 scripts/release_docs.py check "${{ steps.v.outputs.base }}" $rc
       - name: release text checks
         run: |
           ver="${{ steps.v.outputs.ver }}"
-          # About and the first-boot notice show "ProkBox5g <ver>" (docs/legal.md section 1).
-          grep -q ": \"ProkBox5g $ver\"" apps/lang/english.lang \
-            || { echo "::error::apps/lang/english.lang does not say \"ProkBox5g $ver\""; exit 1; }
+          # The version is derived from the tag (scripts/version.sh, docs/process.md
+          # "Versions"): the checked-out commit must be exactly at the tag the run
+          # was started for, and nothing may type a version by hand.
+          got=$(scripts/version.sh --tag-only) \
+            || { echo "::error::scripts/version.sh --tag-only fails: the checkout is not exactly at a release tag"; exit 1; }
+          [ "$got" = "$ver" ] \
+            || { echo "::error::tag says $ver but scripts/version.sh says $got"; exit 1; }
+          # About and the first-boot notice show "ProkBox5g <ver>" (docs/legal.md
+          # section 1); the language string is the template, never a literal version.
+          grep -q ': "ProkBox5g %s"' apps/lang/english.lang \
+            || { echo '::error::apps/lang/english.lang LANG_IPODUI_VERSION_STRING is not the template "ProkBox5g %s"'; exit 1; }
+          [ -f "docs/user/releases/${{ steps.v.outputs.base }}.md" ] \
+            || { echo "::error::no release notes docs/user/releases/${{ steps.v.outputs.base }}.md for tag $ver"; exit 1; }
           # GPL v2 section 2(c): the device must name the real source address (docs/legal.md L4).
           if grep -q 'prokbox\.example' apps/lang/english.lang; then
             echo "::error::LANG_IPODUI_NOTICE_URL still holds the placeholder address"; exit 1
@@ -101,7 +125,7 @@ jobs:
       - name: build the four zips
         run: |
           docker run --rm -u "$(id -u):$(id -g)" -v "$PWD":/w -w /w \
-            -e VERSION="${{ needs.check.outputs.ver }}" \
+            -e RELEASE_BUILD=1 \
             "$TOOLCHAIN_IMAGE" scripts/release_build.sh ${{ matrix.ram }} out
       - uses: actions/upload-artifact@v4
         with:
@@ -124,7 +148,7 @@ jobs:
         run: |
           ver="${{ needs.check.outputs.ver }}"
           docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD":/w -w /w "$DOCS_IMAGE" \
-            sh scripts/docs_build.sh --pdf --version "$ver" --out /w/_site
+            sh scripts/docs_build.sh --release --pdf --version "$ver" --out /w/_site
           mkdir -p out && cp _site/downloads/ProkBox5g-User-Guide.pdf "out/ProkBox5g-$ver-User-Guide.pdf"
       - uses: actions/upload-artifact@v4
         with:
@@ -192,7 +216,9 @@ jobs:
       - name: source tarball and checksums
         run: |
           ver="${{ needs.check.outputs.ver }}"
-          git archive --format=tar.gz --prefix="ProkBox5g-$ver/" \
+          # a VERSION file in the tarball: it has no .git for scripts/version.sh
+          mkdir -p ver && echo "$ver" > ver/VERSION
+          git archive --format=tar.gz --prefix="ProkBox5g-$ver/" --add-file=ver/VERSION \
             -o "out/ProkBox5g-$ver-source.tar.gz" "${{ needs.check.outputs.tag }}"
           chmod +x out/ProkBox5g-*-ipodpatcher-* # artifact transfer drops the mode
           cd out && sha256sum *.zip *.pdf *.tar.gz ProkBox5g-*-ipodpatcher-* > SHA256SUMS && cat SHA256SUMS
@@ -213,11 +239,15 @@ jobs:
           else
             echo "::error::no release notes: $src"; exit 1
           fi
-          cat >> "$notes" <<'NOTE'
+          # what changed, built from the project history (scripts/changelog.py)
+          frag="docs/changelog/${{ needs.check.outputs.base }}.md"
+          [ -s "$frag" ] || { echo "::error::no changelog fragment: $frag"; exit 1; }
+          { printf '\n'; cat "$frag"; cat <<'NOTE'
 
           ---
           ProkBox5g is not Apple software. It is an independent, community-driven fork of Rockbox, and Apple Inc. has not made, approved, endorsed or supported it in any way. It contains no Apple software. iPod is a trademark of Apple Inc.
           NOTE
+          } >> "$notes"
           # Binaries and source go up together, never binaries alone (GPL v2 section 3(a)).
           gh release create "$tag" out/* --draft $pre \
             --title "ProkBox5g $ver" --notes-file "$notes" --verify-tag

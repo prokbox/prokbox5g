@@ -204,6 +204,127 @@ h2:hover .anchor, h3:hover .anchor { opacity: 1; }
 .callout-warning .callout-title, .callout-important .callout-title { color: var(--warn); }
 .callout-caution { border-left-color: var(--danger); } .callout-caution .callout-title { color: var(--danger); }
 
+/* "What's coming" (docs/user/roadmap.md sets page_class "roadmap"; scripts/roadmap.py
+   writes each status word as the first emphasis of a list item or table cell) */
+.roadmap td > em:first-child, .roadmap li > em:first-child {
+  display: inline-block; font-style: normal; font-size: 12px; font-weight: 700; line-height: 20px;
+  padding: 0 9px; border-radius: 999px; white-space: nowrap;
+  background: var(--accent-soft); color: var(--accent);
+}
+.roadmap td:nth-child(3), .roadmap td:nth-child(4) { white-space: nowrap; }
+.roadmap ul { list-style: none; padding-left: 0; }
+.roadmap .callout ul { list-style: disc; padding-left: 20px; }
+.roadmap .callout ul > li { padding-left: 0; margin: 4px 0; }
+.roadmap ul > li { padding-left: 142px; margin: 8px 0; }
+.roadmap li > em:first-child { float: left; margin: 3px 0 0 -142px; width: 130px; text-align: center; box-sizing: border-box; }
+/* Not planned entries have a bold title and no status tag, so no tag column */
+.roadmap ul > li:not(:has(> em:first-child)) { padding-left: 0; }
+@media (max-width: 600px) {
+  .roadmap ul > li { padding-left: 0; }
+  .roadmap li > em:first-child { float: none; margin: 0 6px 0 0; width: auto; }
+}
+
+/* An entry's anchor on What's coming (an empty "[](#item-...)" link, render-link.html): it
+   sits at the top of its entry, and the entry lights up when a lane bubble links to it */
+.roadmap ul > li { position: relative; }
+.item-anchor { position: absolute; top: 0; left: 0; scroll-margin-top: 90px; }
+.roadmap li:has(> .item-anchor:target) { background: var(--accent-soft); border-radius: 8px; box-shadow: 0 0 0 6px var(--accent-soft); }
+
+/* Status colours, one per roadmap status (scripts/roadmap.py STATUS_KEY), from the site's
+   tokens.  Colour is never the only cue: every use also carries the status in words */
+.s-considering { --st: var(--muted); }
+.s-planned { --st: var(--accent); }
+.s-design { --st: var(--warn); }
+.s-development { --st: color-mix(in srgb, var(--accent) 55%, var(--danger)); }
+.s-testing { --st: var(--tip); }
+.s-done { --st: var(--tip); }
+.s-postponed, .s-cancelled { --st: var(--muted); }
+
+/* The home page's release lanes (partials/roadmap-lanes.html) */
+.vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+.lanes {
+  /* wider than the home page's text column, centred on it */
+  width: min(1040px, calc(100vw - 40px)); position: relative; left: 50%; transform: translateX(-50%);
+  margin: 44px 0 32px;
+}
+.lanes h2 { margin: 0 0 6px; padding: 0; }
+.lanes-top { display: flex; gap: 24px; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; margin-bottom: 14px; }
+.lanes-intro { color: var(--muted); margin: 0 !important; max-width: 36em; }
+.now { border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 16px; background: var(--bg-soft); }
+.now p { margin: 0 !important; }
+.now-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.now-ver { font-weight: 700; font-size: 18px; }
+.now-links { display: flex; gap: 14px; font-size: 15px; font-weight: 600; }
+.legend { list-style: none; padding: 0 !important; margin: 0 0 14px !important; display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 14px; color: var(--muted); }
+.legend li { margin: 0 !important; display: flex; align-items: center; gap: 6px; }
+.legend strong { color: var(--fg); }
+.dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: color-mix(in srgb, var(--st) 22%, var(--bg)); border: 2px solid var(--st); flex: none; }
+.dot.s-considering { border-style: dashed; background: transparent; }
+.dot.s-planned { background: transparent; }
+.dot.s-done { background: var(--st); }
+.lane-list { list-style: none; padding: 0 !important; margin: 0 !important; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+.lane { display: grid; grid-template-columns: 210px minmax(0, 1fr); margin: 0 !important; border-top: 1px solid var(--line); }
+.lane:first-child { border-top: 0; }
+.lane-head { padding: 14px 16px; background: var(--bg-soft); border-right: 1px solid var(--line); }
+.lane.next .lane-head { background: var(--accent-soft); }
+.lane-head h3 { margin: 0; font-size: 20px; letter-spacing: -0.01em; display: flex; align-items: center; gap: 8px; }
+.lane-head h3 a { color: var(--fg); }
+.lane-head .tag { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--accent-ink); background: var(--accent); border-radius: 999px; padding: 1px 8px; }
+.lane-theme { font-size: 14px; line-height: 1.45; margin: 4px 0 6px !important; }
+.lane-prog { font-size: 13px; font-weight: 600; color: var(--muted); margin: 0 !important; }
+.lane-body { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.lane-empty { padding: 14px; color: var(--muted); margin: 0 !important; }
+.grp { display: grid; grid-template-columns: 150px minmax(0, 1fr); align-items: start; gap: 6px 10px; }
+/* the group's status in words, in body text colour (some status colours are too light for
+   small text); the coloured bar beside it ties it to its bubbles */
+.grp-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--fg); line-height: 1.3; padding: 5px 0 5px 8px; border-left: 3px solid var(--st); }
+.bubbles { list-style: none; padding: 0 !important; margin: 0 !important; display: flex; flex-wrap: wrap; gap: 6px; }
+.bubbles li { margin: 0 !important; }
+.bubble {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 13.5px; line-height: 1.3; font-weight: 600; color: var(--fg);
+  padding: 4px 11px 4px 9px; border-radius: 999px;
+  border: 1.5px solid var(--st); background: color-mix(in srgb, var(--st) 13%, var(--bg));
+}
+.bubble::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--st); flex: none; }
+.bubble.s-considering { border-style: dashed; background: transparent; }
+.bubble.s-planned { background: var(--bg); }
+.bubble.s-cancelled { text-decoration: line-through; }
+.bubble:hover { text-decoration: none; background: color-mix(in srgb, var(--st) 26%, var(--bg)); }
+.bubble:focus-visible, .lanes a:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.lanes-later { margin: 12px 0 0 !important; font-size: 15px; font-weight: 600; }
+@media (max-width: 760px) {
+  .lane { grid-template-columns: 1fr; }
+  .lane-head { border-right: 0; border-bottom: 1px solid var(--line); }
+  .grp { grid-template-columns: 1fr; }
+  .grp-label { justify-self: start; padding-top: 2px; padding-bottom: 2px; }
+  .now { width: 100%; }
+}
+
+/* The Features page (docs/user/features.md sets page_class "compare") */
+.article.compare { max-width: 980px; }
+.compare table { display: table; table-layout: fixed; font-size: 15px; }
+.compare th:first-child, .compare td:first-child { width: 22%; font-weight: 600; }
+.compare thead th { position: sticky; top: 56px; z-index: 1; }
+.compare td { line-height: 1.45; }
+.compare td:last-child { background: color-mix(in srgb, var(--accent-soft) 55%, transparent); }
+.plan-tag {
+  display: inline-block; font-size: 13px; font-weight: 700; line-height: 20px; white-space: nowrap;
+  padding: 0 9px; border-radius: 999px; color: var(--fg);
+  border: 1.5px solid var(--st); background: color-mix(in srgb, var(--st) 13%, var(--bg));
+}
+.plan-tag.s-considering { border-style: dashed; background: transparent; }
+.plan-tag:hover { text-decoration: none; background: color-mix(in srgb, var(--st) 26%, var(--bg)); }
+.compare .footnotes { font-size: 14px; color: var(--muted); }
+@media (max-width: 760px) {
+  /* all four columns stay on screen (ProkBox5g is the last one): small type, no side scroll */
+  .compare table { font-size: 13px; line-height: 1.35; overflow-wrap: anywhere; }
+  .compare thead th { position: static; }
+  .compare th, .compare td { padding: 7px 5px; }
+  .compare th:first-child, .compare td:first-child { width: 28%; }
+  .compare .plan-tag { white-space: normal; font-size: 12px; line-height: 16px; padding: 1px 6px; border-radius: 8px; }
+}
+
 /* Section lists and prev/next */
 .cards { list-style: none; padding: 0; margin: 24px 0 0; display: grid; gap: 10px; }
 .cards a { display: block; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--radius); color: var(--fg); }

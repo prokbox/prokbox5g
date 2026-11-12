@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2005 Miika Pekkarinen
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -50,6 +51,13 @@ size_t codec_finish_stream(void);
 #endif
 void codec_unload(void);
 int codec_loaded(void);
+
+#ifdef HAVE_IPOD_UI
+/* #281: the status a codec run reports to playback when it ended in
+ * CODEC_ERROR without inserting any PCM (an unplayable track): playback
+ * counts these to end a queue in which nothing plays */
+#define CODEC_ERROR_SILENT  (-2)
+#endif
 
 /* */
 

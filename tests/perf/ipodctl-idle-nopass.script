@@ -1,0 +1,37 @@
+# #279: an art pass after which nothing changed owes no other. The
+# owner's 0.8.0 and 0.8.1 logs: after "art pass done", "art again owed
+# ... rg=1" started another full pass about every 100 s for as long as
+# the unit sat idle, each pass building the same panels again on the
+# CPU (16 of 32 there, twice a pass). Cause: a panel whose source differs
+# from its album's thumbnail record (a synced track with embedded art,
+# #225 Q1; or a record from before the two-ended signature) never
+# matched it, so it was built again each pass into a new slot, the set
+# was no longer grouped, and the regroup owed the next pass.
+# Here: a synced library with such albums ("0 Both"), its art made, then
+# the unit stopped and idle past the boot's 3 minutes (the regroup window
+# open) and four quiet minutes more: no further pass, no panel built
+# again. Red on 09791e053f: "art again owed ... rg=1", a pass that builds
+# the same 6 panels twice.
+#   IPODCTL_SCRIPT=ipodctl-idle-nopass.script tests/perf/ipodctl_sim.sh 300
+# golden: skip
+# timeout: 1200
+# logbetween: a0 q1 no art build start
+# logbetween: a0 q1 no art again owed
+# logbetween: a0 q1 no art build panel key=
+# logbetween: q0 q1 no art panel regroup
+wait 4000
+wait_db 3000000
+art_wait 3000000
+ab_mark a0          # the first pass done: nothing changes from here
+backlight_expire    # idle and stopped
+wait 200000         # past 3 minutes of uptime: the window opens
+art_wait 600000     # what the window owes (a regroup, a pool top-up)
+ab_mark w0
+art_wait 600000     # (a pass it owed in turn: none after the fix)
+ab_mark q0
+wait 240000         # four minutes idle: nothing more to do
+ab_mark q1
+key MENU
+wait 1500
+shot end
+quit

@@ -54,6 +54,7 @@ sends one click every `ms` (default 40, 25 clicks/s; minimum 10). Use
 change, `wheel +120 10` for a fast spin (quick-scroll letter).
 
     wait_db [timeout_ms]
+    wait_db_settled [timeout_ms]  (wait_db, then the boot's publication: see below)
     wait_commit [timeout_ms]   (a commit ran and ended since the last wait_commit or
                                 the boot: a latch on tagcache.c's commit counter, so
                                 none is missed; lands before its publication)
@@ -116,7 +117,19 @@ says "Updating Library..." (`lib_state()` is `LIB_UPDATING`) all through
 commit running; default timeout 30000 ms) and logs `wait_db ready after N
 ms`. A timeout, or a scan whose commit was delayed to the next boot, logs
 `wait_db timed out` / `wait_db commit delayed`, and `scripts/shots.sh`
-then fails the run. `build_db` starts a full build when there is no
+then fails the run. `wait_db_settled` waits for that state and for the library to
+settle as well (`sim_db_settled()`): the boot check walked, a scan ended,
+nothing of the library runs or is owed (`tagcache_ui_library_busy()`: a
+scan, the commit, a reload, a candidate's load and lists) and the active
+generation is published, all of it for 3 s in a row. On a disk another release
+built, `wait_db` returns when the first boot's commit ends, before its
+candidate publishes, and a PLAY in that gap takes another path (the
+candidate yields its RAM cache); `tests/perf/floor_gate.sh`'s upgrade case
+uses it so its measurements always start after the publication. It logs
+`wait_db_settled ready after N ms (quiet 3000 ms)`, or `wait_db_settled
+timed out after N ms (state=S quiet=Q ms)`, which fails the run. It waits
+for a scan to have ended, so it suits a boot that walks (no boot stamp, as
+on the upgrade disk). `build_db` starts a full build when there is no
 database (the stock "Initialize Now", without its prompt) and does nothing
 when one is usable or a build is running. Both read the state through the
 sim-only hook `uisimulator/common/sim_db.c` (in the stock and the shell
@@ -904,6 +917,33 @@ showing) must never get a golden. List them in the script:
 fine). `validate.sh` prints `skip golden ...` for them even if a golden
 file exists.
 
+## Doc screenshots (`tests/ui/docs/`, `scripts/docs_shots.sh`)
+
+Every image the user guide, the site and the README ship has one row in
+`tests/ui/docs/images.tsv`: the image, the sim script that draws it, the
+`shot` (or `video_shot`) name it takes, the scale (1 = 320x240, 2 =
+640x480 nearest-neighbour) and the sim build it runs on; or, for an image
+a script writes itself (the README clip), that script.
+`scripts/docs_shots.sh` remakes them: each script runs once through
+`shots.sh` on its row's `SIM_BUILD`, then each shot is copied to its image,
+written fresh with no metadata chunks (`--only RE` for some rows,
+`--clip` to also run `scripts/readme_visuals.sh`, `--dry-run`).
+`scripts/docs_shots.sh --check` is `release_docs.py images` (rule R11, also
+part of `release_docs.py check`): an image with no row, a row whose image or
+generator is missing, or a shot its script never takes fails, by row.
+
+The scripts in `tests/ui/docs/` (and `tests/ui/readme/`) sit in a
+subdirectory, so the gate's `tests/ui/*.script` sweep leaves them alone.
+They run on `build/sim-rel-video` (the release shape, Videos on the main
+menu, no developer items), each with `# needs: library` and
+`# needs: video` so they share one primed disk, and `# golden: skip`. A
+docs script must give the same picture on every run: shoot it twice and
+compare before adding its row. Not yet there (2026-11-12): the Audiobooks
+list's order (last book played first) outlives `# fresh-db`, the
+visualiser's Select count after Shuffle Songs is timing-dependent, and the
+first-start notice always says "ProkBox5g 0.0.0-sim" on the simulator;
+those rows keep their old generators, and the notice is not regenerated.
+
 ## Review videos (`record`, Revision 2 of `docs/phase-nav-brief.md`)
 
 For the owner round, a script can record a small H.264 MP4 instead of (or
@@ -1585,6 +1625,25 @@ check_trace.py `check_npstall()`: on every log, no `art slice ms= lit=1`
 `# trace: npstall`, no `np jump` and consecutive `np secdt <s>` lines step
 +1 (a track change, a full paint, an unlit exit or a seek starts a new run;
 it fails with no step at all).
+
+## Unplayable tracks and bare disks (#281)
+
+`ipodui-shuf-unplayable-1` (Shuffle Songs on a library of one unplayable
+FLAC), `ipodui-shuf-unplayable-3` (three, Repeat All) and
+`ipodui-unplayable-album` (an album and Songs of three, Repeat All) run on
+a disk of their own: the queue must stop, the record be written once (the
+start's), and the disk stay quiet afterwards. 0.8.1 hung the UI thread
+(one track) or skipped on for ever (three).
+
+| Line / command | Effect |
+|---|---|
+| `# disk: bare` | `scripts/shots.sh` runs the script on `<outdir>/bare-disk`, made fresh from the disk's `.rockbox` without the database, the library folders, `npshuf.dat`, the control file or `.rockbox/ipodui`; the music and library setups are skipped. The first boot builds a database of the script's files only |
+| `# disk-file: <file under the repo root> <sim path>` | copies one file onto the bare disk before boot |
+| `# needs: unplayable` | (with `disk: bare`) makes `build/unplayable-fixtures/bad{1,2,3}.flac` (`tests/fixtures/unplayable/make_unplayable.py`: a valid FLAC header and tags, no frames) |
+| `writes_mark` | remembers the sim disk's write count and the shuffle record's write count |
+| `expect_writes_max <n>` | at most n sim disk writes (opens for writing, writes, removes, renames, mkdir) since `writes_mark` |
+| `expect_shuf_writes_max <n>` | at most n `npshuf.dat` writes since `writes_mark` |
+| `expect_stopped` | playback is stopped now (`audio_status()` 0) |
 
 ## Gate machinery: timing, ledger, pool (docs/gate-speed-brief.md)
 

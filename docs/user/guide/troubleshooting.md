@@ -20,7 +20,7 @@ description: "Common fixes, and how to send us a diagnostics report."
 
 **A video starts from the wrong place, or Play won't start it.** Videos start only from **Videos**, at their own saved place. **Play** and **Now Playing** are for sound only.
 
-**A video stutters for a moment, or the screen flashes white when you wake it.** These are known issues in 0.8.0; see the release notes. Nothing is wrong with your files.
+**A video stutters for a moment, or the screen flashes white when you wake it.** These are known issues; see the release notes. Nothing is wrong with your files.
 
 **The battery runs down fast.** The visualiser and a backlight set to Always On use the most power. Shorten **Settings › Backlight**.
 
@@ -39,7 +39,7 @@ If something is wrong and the fixes above don't help, we want to know. The playe
 The report has the version, the hardware details (storage, memory, battery), how many songs, podcasts and audiobooks there are (counts only), and a short log. It never contains your music, file names or personal information. It only ever saves when you ask, and each save replaces the last.
 
 ![Save Diagnostics](../images/troubleshooting-save-diagnostics.png)
-<!-- screenshot: scripts/shots.sh tests/ui/ipodui-diag-report.script -->
+<!-- screenshot: scripts/docs_shots.sh; generator in tests/ui/docs/images.tsv -->
 
 ## Still stuck, or want Apple's software back
 

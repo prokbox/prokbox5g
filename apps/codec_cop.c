@@ -524,6 +524,31 @@ static void t_logf(const char *fmt, ...)
 }
 #endif
 
+/* #281: ui_log() drops a COP caller: the line is made here and logged on
+ * the CPU. io[0]: the tag (a string in the codec's image) */
+static intptr_t h_ui_log(intptr_t *io)
+{
+    ui_log((const char *)io[0], "%s", msg);
+    return 0;
+}
+
+static void t_ui_log(const char *tag, const char *fmt, ...)
+{
+    intptr_t io[COP_CALL_IO] = { 0 };
+    va_list ap;
+
+    va_start(ap, fmt);
+    vsnprintf(msg, sizeof(msg), fmt, ap);
+    va_end(ap);
+    if (!FROM_COP())
+        ui_log(tag, "%s", msg);
+    else
+    {
+        io[0] = (intptr_t)tag;
+        cop_job_call(&worker, h_ui_log, io, 0);
+    }
+}
+
 /** codec_thread.c's side **/
 
 static bool fresh;                  /* no run since the load */
@@ -576,6 +601,7 @@ struct codec_api *codec_cop_select(struct codec_api *api, bool encoder)
     ci_cop.loop_track       = t_loop_track;
     ci_cop.strip_filesize   = t_strip_filesize;
     ci_cop.panicf           = t_panicf;
+    ci_cop.ui_log           = t_ui_log;
 #ifdef ROCKBOX_HAS_LOGF
     ci_cop.logf             = t_logf;
 #endif

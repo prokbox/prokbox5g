@@ -12898,6 +12898,13 @@ static void tagcache_thread(void)
                 {
                     if (!ui_retry_due(UI_RETRY_BEGIN))
                         break;      /* a deferred scan waits its backoff */
+#ifdef SIMULATOR
+                    {   /* tests: "scan_begin_delay" (#276) */
+                        extern int sim_scan_begin_held(long now_ms);
+                        if (sim_scan_begin_held(current_tick * (1000 / HZ)))
+                            break;
+                    }
+#endif
                     tagcache_build();
                     if (ui_deleted_owed && !ui_scan_pending)
                         check_deleted_files();  /* owed by a deferred update */
@@ -13650,6 +13657,30 @@ bool tagcache_maintenance_pending(void)
 bool tagcache_scan_active(void)
 {
     return ui_scan_active;
+}
+
+/* #276 (owner, 2026-11-10: library building takes utter priority): the
+ * one test every background job (the art pass, its panels and their
+ * rotation, the Now Playing renders, the indexes, the books' seed) makes
+ * before each unit of its work, and yields while true. True for a first
+ * build (no library yet), a boot walk or post-USB scan (its read-only
+ * probe too: it reads the whole tree), a scan owed and able to run (the
+ * moment before it starts: no job may slip in), the commit, a reload or
+ * a commit waiting for playback to stop (tagcache_ui_busy()), and the
+ * load, the lists' precompute and the changelog import (ui_upd_jobs).
+ * The work of the tagcache thread itself never asks it. Any thread;
+ * volatile reads only, no I/O. */
+bool tagcache_ui_library_busy(void)
+{
+    if (!tagcache_is_usable() || tagcache_ui_busy() || ui_scan_active
+        || tc_stat.commit_step > 0)
+        return true;
+#ifdef UI_COMMIT
+    if (ui_in_commit || ui_upd_jobs != 0
+        || (ui_scan_pending && audio_status() == 0))
+        return true;
+#endif
+    return tagcache_ui_count() < 0;
 }
 
 bool tagcache_ui_updating(void)

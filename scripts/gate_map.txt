@@ -218,7 +218,7 @@ apps/pcmbuf.c                      ipodui-p15-fade ipodui-p15-standby* ipodui-np
 firmware/drivers/audio/wm8758.c    ipodui-p15-* ipodui-p11-eq
 firmware/drivers/audio/sdl.c       ipodui-p15-* ipodui-p11-eq
 firmware/pcm_mixer.c               ipodui-p15-* ipodui-np-row-paused ipodui-np-queue-end ipodui-p9-smoke-play
-apps/playback.c                    ipodui-p15-* ipodui-np-row-paused ipodui-np-queue-end ipodui-p9-smoke-play ipodui-p6-book-end
+apps/playback.c                    ipodui-p15-* ipodui-np-row-paused ipodui-np-queue-end ipodui-p9-smoke-play ipodui-p6-book-end ipodui-shuf-unplayable-* ipodui-unplayable-*
 apps/audio_thread.c                ipodui-p15-* ipodui-np-row-paused ipodui-np-queue-end ipodui-p9-smoke-play
 firmware/export/dac_ext.h          ipodui-p15-*
 firmware/export/dac_gain.h         ipodui-p15-*
@@ -361,3 +361,8 @@ apps/ipodui/devbench.h             ipodui-p19-bench-*
 apps/ipodui/devbench_sim*          ipodui-p19-bench-*
 uisimulator/common/sim_cmd_bench.* ipodui-p19-bench-*
 scripts/bench_sim_script.py        ipodui-p19-bench-*
+
+# #281: the library shuffle (refill loop, record writes) and the scripts
+# that start or walk a library shuffle; unplayable queues
+apps/ipodui/lib_shuffle.c            ipodui-p5-shuffle* ipodui-shuf-* ipodui-p16-dbq-shuffle ipodui-np-stall ipodui-unplayable-*
+tests/fixtures/unplayable/*          ipodui-shuf-unplayable-* ipodui-unplayable-*

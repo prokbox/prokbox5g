@@ -410,6 +410,23 @@ static struct
 static bool codec_skip_pending = false;
 static int  codec_skip_status;
 static bool codec_seeking = false;          /* Codec seeking ack expected? */
+#ifdef HAVE_IPOD_UI
+/* #281: automatic track ends in a row that played nothing (a codec error
+ * before any PCM, or a codec that would not start). With Repeat, or a
+ * library shuffle that keeps adding entries, a queue in which nothing
+ * plays skipped on forever (~35 tracks a second on the device), and the
+ * shuffle's refills rewrote its record and the playlist control file all
+ * along. At SILENT_FAIL_MAX in a row, or once every entry of a shorter
+ * queue has failed, the queue ends as at its last track. */
+#define SILENT_FAIL_MAX 50
+static int silent_fails;
+static volatile bool unplayable_end;    /* audio_unplayable_end() */
+
+bool audio_unplayable_end(void)
+{
+    return unplayable_end;
+}
+#endif
 static unsigned int position_key PLAY_STATUS_XCORE;
 
 #define PLAYBACK_LOG_PATH ROCKBOX_DIR "/playback.log"
@@ -1586,7 +1603,12 @@ static void audio_handle_track_load_status(int trackstat)
             break;
 
     case LOAD_TRACK_ERR_START_CODEC:
+#ifdef HAVE_IPOD_UI
+        /* #281: nothing was decoded: counts as a silent failure */
+        audio_queue_post(Q_AUDIO_CODEC_COMPLETE, CODEC_ERROR_SILENT);
+#else
         audio_queue_post(Q_AUDIO_CODEC_COMPLETE, CODEC_ERROR);
+#endif
         break;
 
     default:
@@ -3454,6 +3476,23 @@ static void audio_on_codec_complete(int status)
 
     codec_skip_pending = false;
 
+#ifdef HAVE_IPOD_UI
+    if (status != CODEC_ERROR_SILENT)
+        silent_fails = 0;
+    else if (++silent_fails >= MIN(playlist_amount(), SILENT_FAIL_MAX))
+    {
+        /* #281: nothing in this queue plays: end it here, as at its last
+         * track (the PCM still queued plays out, then playback stops) */
+        ui_log("audio", "unplayable run=%d queue=%d: stop", silent_fails,
+               playlist_amount());
+        silent_fails = 0;
+        unplayable_end = true;  /* the shuffle stops refilling */
+        track_event_flags = TEF_AUTO_SKIP;
+        audio_monitor_end_of_playlist();
+        return;
+    }
+#endif
+
     int trackstat = LOAD_TRACK_OK;
 
     track_event_flags = TEF_AUTO_SKIP;
@@ -3511,6 +3550,14 @@ static void audio_start_playback(const struct audio_resume_info *resume_info,
 #endif
     static struct audio_resume_info resume = { 0, 0 };
     enum play_status old_status = play_status;
+
+#ifdef HAVE_IPOD_UI
+    if (!(flags & AUDIO_START_RESTART))
+    {
+        silent_fails = 0;       /* #281: a new start, a new count */
+        unplayable_end = false;
+    }
+#endif
 
     bool skip_resume_adjustments = false;
     if (resume_info)

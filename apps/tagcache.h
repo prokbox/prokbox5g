@@ -269,6 +269,10 @@ bool tagcache_scan_active(void);
  * commit, a reload, the lists' precompute, the changelog import). Any
  * thread; volatile reads only, no I/O. */
 bool tagcache_ui_updating(void);
+/* #276: library building takes utter priority: a build, a scan, a commit,
+ * a load or the lists' jobs runs or is about to (tagcache.c). Background
+ * jobs yield before each unit of work while true. Any thread, no I/O. */
+bool tagcache_ui_library_busy(void);
 /* #84: "._" sidecars the last complete scan walked past; -1: none yet */
 int tagcache_ui_sidecars(void);
 void tagcache_ui_sidecars_reset(void);

@@ -1,5 +1,10 @@
 {{- /* Links between Markdown files (../guide/music.md#section) become links
        to the generated pages, so the same source reads well on GitHub. */ -}}
+{{- /* An empty link to #item-... is an entry's anchor on What's coming (scripts/roadmap.py),
+       which the home page's lanes link to: it becomes the anchor itself */ -}}
+{{- if and (eq (string .Text) "") (or (hasPrefix .Destination "#item-") (hasPrefix .Destination "#notplanned-")) -}}
+<a class="item-anchor" id="{{ strings.TrimPrefix "#" .Destination }}" aria-hidden="true" tabindex="-1"></a>
+{{- else -}}
 {{- $dest := .Destination -}}
 {{- $u := urls.Parse $dest -}}
 {{- if and (not $u.IsAbs) (strings.HasSuffix $u.Path ".md") -}}
@@ -12,4 +17,5 @@
   {{- end -}}
 {{- end -}}
 <a href="{{ $dest | safeURL }}"{{ with .Title }} title="{{ . }}"{{ end }}{{ if $u.IsAbs }} rel="noopener"{{ end }}>{{ .Text }}</a>
+{{- end -}}
 {{- /**/ -}}

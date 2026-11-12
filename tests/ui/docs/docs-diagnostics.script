@@ -1,0 +1,35 @@
+# User guide screenshot (scripts/docs_shots.sh; its row in tests/ui/docs/images.tsv):
+# Settings > About, its last page: Save Diagnostics, saved. Runs on the release-shaped sim with the video player, so the
+# menus are the ones a release shows (Videos on the main menu, no developer
+# items); in tests/ui/docs/, so the gate's tests/ui/*.script sweep leaves
+# it alone. Synthetic library and video fixtures only
+# (tests/ui/setup_library.py, tests/fixtures/videos/mkvideos.sh): no owner
+# media. Every docs script asks for both, so they share one primed disk.
+#   SIM_BUILD=build/sim-rel-video scripts/shots.sh tests/ui/docs/docs-diagnostics.script
+# needs: library
+# needs: video
+# golden: skip
+# timeout: 180
+wait 4000
+wait_db 45000
+art_wait 60000
+sim_clock 9:41
+clock_format 12
+battery 100
+wait 1000
+wheel +4 300         # Settings
+wait 600
+key SELECT
+wait 1500
+key SELECT           # About
+wait 1500
+key RIGHT
+wait 700
+key RIGHT
+wait 700
+key RIGHT
+wait 700
+key SELECT           # save
+wait 1500
+shot diagnostics_saved
+quit

@@ -64,6 +64,7 @@
 #include "ipodui/alarm_ring.h"      /* alarm_dark_wait() */
 #include "ipodui/sdk/sdk_int.h"     /* sdk_sleep_enter() */
 #include "ipodui/updscreen.h"       /* ui_upd_yield() */
+#include "ipodui/np_playback.h"     /* np_hires_yield() (#278) */
 #include "hang_watch.h"          /* hang_idle_begin(): asleep is idle */
 #include "power_sleep.h"        /* SLEEP_REFUSE_*, struct sleep_req */
 #ifdef HAVE_POWER_SLEEP
@@ -788,6 +789,7 @@ bool ui_sleep_run(void)
      * to the wake: power_sleep() refuses any boost held (the entry
      * window, if any, holds its own while it runs the build) */
     ui_upd_yield(UPD_YIELD_SLEEP, true);
+    np_hires_yield(true, "sleep");      /* #278: the hi-res hold too */
     q = quiesce(r, &entry);
     if (q == SQ_SLEEP)
     {
@@ -803,6 +805,7 @@ bool ui_sleep_run(void)
     ui_sleep_storage_hold(false);
     ui_upd_yield(UPD_YIELD_SLEEP, false);   /* the page's build: boosted
                                              * again if it is still up */
+    np_hires_yield(false, "wake");
     switch (q)
     {
     case SQ_OFF:

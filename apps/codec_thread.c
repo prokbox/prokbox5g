@@ -237,10 +237,18 @@ void codec_thread_do_callback(void (*fn)(void), unsigned int *id)
 
 /** --- codec API callbacks --- **/
 
+#ifdef HAVE_IPOD_UI
+static bool run_pcm;    /* #281: this run inserted PCM (codec thread) */
+#endif
+
 static void codec_pcmbuf_insert_callback(
         const void *ch1, const void *ch2, int count)
 {
     struct dsp_buffer src;
+#ifdef HAVE_IPOD_UI
+    if (count > 0)
+        run_pcm = true;
+#endif
     src.remcount  = count;
     src.pin[0]    = ch1;
     src.pin[1]    = ch2;
@@ -561,12 +569,20 @@ static void run_codec(void)
         buf_pin_handle(ci.audio_hid, true);
     }
 
+#ifdef HAVE_IPOD_UI
+    run_pcm = false;
+#endif
     status = CODEC_RUN();
 
     if (!encoder)
     {
         /* Codec is done with it - let it move */
         buf_pin_handle(ci.audio_hid, false);
+#ifdef HAVE_IPOD_UI
+        /* #281: an error before any PCM: the track is unplayable */
+        if (status == CODEC_ERROR && !run_pcm)
+            status = CODEC_ERROR_SILENT;
+#endif
 
         /* Notify audio that we're done for better or worse - advise of the
            status */

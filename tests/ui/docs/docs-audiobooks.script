@@ -1,0 +1,51 @@
+# User guide screenshots (scripts/docs_shots.sh; their rows in tests/ui/docs/images.tsv):
+# the Audiobooks list, a book on Now Playing, and the book's page (Resume
+# first, then its chapters). Runs on the release-shaped sim with the video
+# player, so the menus are the ones a release shows; in tests/ui/docs/, so
+# the gate's tests/ui/*.script sweep leaves it alone. Synthetic library only
+# (tests/ui/setup_library.py): no owner media.
+# Deterministic: "# fresh-db" drops the database's play statistics and
+# "# reset: books" the per-book resume store (artcache/books.dat), which
+# is what puts the last book played at the top of Audiobooks and outlives a
+# fresh database; with both, every run opens the same list.
+#   SIM_BUILD=build/sim-rel-video scripts/shots.sh tests/ui/docs/docs-audiobooks.script
+# needs: library
+# needs: video
+# fresh-db
+# reset: books
+# golden: skip
+# timeout: 180
+wait 4000
+wait_db 45000
+art_wait 60000
+sim_clock 9:41
+clock_format 12
+battery 100
+wait 1000
+key SELECT          # Music
+wait 800
+wheel +6 300        # Audiobooks
+wait 400
+key SELECT
+wait 1000
+shot list           # no book played yet: nothing pinned on top
+wheel +3 300        # Winter Stories (a title short enough not to scroll)
+wait 400
+key SELECT          # the book's page: its chapters (no Resume yet)
+wait 1500
+shot chapters_first
+key SELECT          # the first chapter: starts the book, opens Now Playing
+wait_pos 1500 20000
+np_pin 2000 50
+wait 2500           # the slide into Now Playing has settled
+shot now_playing
+key PLAY            # pause: the resume position is saved
+wait 500
+key MENU            # back to the book's page
+wait 800
+key MENU            # back to Audiobooks
+wait 1000
+key SELECT          # the book's page again: Resume first
+wait 1200
+shot chapters
+quit

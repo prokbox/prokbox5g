@@ -1,0 +1,1075 @@
+{
+ "generated_for": "0.8.2",
+ "source": "scripts/roadmap.py generate (do not edit by hand)",
+ "statuses": [
+  {
+   "name": "Considering",
+   "key": "considering",
+   "meaning": "an idea we are looking at",
+   "order": 5
+  },
+  {
+   "name": "Planned",
+   "key": "planned",
+   "meaning": "agreed, not started",
+   "order": 4
+  },
+  {
+   "name": "In design",
+   "key": "design",
+   "meaning": "working out how it looks and behaves",
+   "order": 3
+  },
+  {
+   "name": "In development",
+   "key": "development",
+   "meaning": "being built",
+   "order": 2
+  },
+  {
+   "name": "In testing",
+   "key": "testing",
+   "meaning": "built, being checked",
+   "order": 1
+  }
+ ],
+ "releases": [
+  {
+   "name": "0.8.3",
+   "heading": "Release 0.8.3",
+   "anchor": "release-083",
+   "theme": "A new playback engine, one download for every player, and fixes.",
+   "later": false,
+   "stands": "Under way",
+   "under_way": "15 of 17",
+   "aimed": ""
+  },
+  {
+   "name": "0.9.0",
+   "heading": "Release 0.9.0",
+   "anchor": "release-090",
+   "theme": "Sound and languages: better audio, menus in more languages, better song details, and fixes.",
+   "later": false,
+   "stands": "Under way",
+   "under_way": "11 of 19",
+   "aimed": ""
+  },
+  {
+   "name": "0.9.1",
+   "heading": "Release 0.9.1",
+   "anchor": "release-091",
+   "theme": "Album art, Album Flow and other screen improvements.",
+   "later": false,
+   "stands": "Under way",
+   "under_way": "4 of 7",
+   "aimed": ""
+  },
+  {
+   "name": "0.9.2",
+   "heading": "Release 0.9.2",
+   "anchor": "release-092",
+   "theme": "Sleep and battery life, and the first kit for making your own games, with a Sudoku game.",
+   "later": false,
+   "stands": "Under way",
+   "under_way": "3 of 6",
+   "aimed": ""
+  },
+  {
+   "name": "0.9.3",
+   "heading": "Release 0.9.3",
+   "anchor": "release-093",
+   "theme": "Video: more formats, a better video player, and fixes.",
+   "later": false,
+   "stands": "Under way",
+   "under_way": "5 of 13",
+   "aimed": ""
+  },
+  {
+   "name": "0.9.4",
+   "heading": "Release 0.9.4",
+   "anchor": "release-094",
+   "theme": "Your library and USB, and the second game kit, with a short role-playing game.",
+   "later": false,
+   "stands": "Under way",
+   "under_way": "1 of 12",
+   "aimed": ""
+  },
+  {
+   "name": "0.9.5",
+   "heading": "Release 0.9.5",
+   "anchor": "release-095",
+   "theme": "Docks, cars and connections.",
+   "later": false,
+   "stands": "Under way",
+   "under_way": "1 of 5",
+   "aimed": ""
+  },
+  {
+   "name": "0.9.6",
+   "heading": "Release 0.9.6",
+   "anchor": "release-096",
+   "theme": "Extras, games and more ways to shape your sound, and the third game kit, with an arcade racing game.",
+   "later": false,
+   "stands": "Under way",
+   "under_way": "1 of 6",
+   "aimed": ""
+  },
+  {
+   "name": "0.9.7",
+   "heading": "Release 0.9.7",
+   "anchor": "release-097",
+   "theme": "Polish: a careful clean-up of the whole player, making everything as lean and refined as we can, with no new features.",
+   "later": false,
+   "stands": "Planned",
+   "under_way": "",
+   "aimed": ""
+  },
+  {
+   "name": "0.9.8",
+   "heading": "Release 0.9.8",
+   "anchor": "release-098",
+   "theme": "Interoperability Mode, and the last test version before 1.0.",
+   "later": false,
+   "stands": "Planned",
+   "under_way": "0 of 2",
+   "aimed": ""
+  },
+  {
+   "name": "1.0",
+   "heading": "Release 1.0",
+   "anchor": "release-10",
+   "theme": "Independence: our own start-up software, Disk Mode, recovery and an installer, so you can fully replace the original software.",
+   "later": false,
+   "stands": "Planned",
+   "under_way": "0 of 3",
+   "aimed": ""
+  },
+  {
+   "name": "Later",
+   "heading": "Later",
+   "anchor": "later",
+   "theme": "Ideas for later, in no fixed order.",
+   "later": true,
+   "stands": "Under way",
+   "under_way": "1 of 7",
+   "aimed": ""
+  }
+ ],
+ "items": [
+  {
+   "issue": 300,
+   "release": "0.8.3",
+   "status": "In testing",
+   "key": "testing",
+   "short": "Speed matched to how hard the music is",
+   "text": "Smoother playback of demanding files, and less battery used on easy ones: the player now watches both of its processor cores to choose its speed.",
+   "anchor": "item-speed-matched-to-how-hard-the-music-is"
+  },
+  {
+   "issue": 284,
+   "release": "0.8.3",
+   "status": "In testing",
+   "key": "testing",
+   "short": "Very loud 24-bit FLAC fixed",
+   "text": "A rare fault with very loud 24-bit FLAC files is fixed: they play correctly.",
+   "anchor": "item-very-loud-24-bit-flac-fixed"
+  },
+  {
+   "issue": 285,
+   "release": "0.8.3",
+   "status": "In testing",
+   "key": "testing",
+   "short": "32-bit FLAC skipped cleanly",
+   "text": "32-bit FLAC files are skipped cleanly instead of playing back wrongly. They stay in your library.",
+   "anchor": "item-32-bit-flac-skipped-cleanly"
+  },
+  {
+   "issue": 298,
+   "release": "0.8.3",
+   "status": "In testing",
+   "key": "testing",
+   "short": "No silence when skipping unplayable songs",
+   "text": "Skipping a song the player cannot play no longer leaves a short silence.",
+   "anchor": "item-no-silence-when-skipping-unplayable-songs"
+  },
+  {
+   "issue": 282,
+   "release": "0.8.3",
+   "status": "In development",
+   "key": "development",
+   "short": "New playback engine on the second core",
+   "text": "A new playback engine: all of the audio work moves to the player's second processor core, so the menus stay smooth while music plays.",
+   "anchor": "item-new-playback-engine-on-the-second-core"
+  },
+  {
+   "issue": 278,
+   "release": "0.8.3",
+   "status": "In development",
+   "key": "development",
+   "short": "24-bit, 192 kHz FLAC without drop-outs",
+   "text": "24-bit, 192 kHz FLAC files play without drop-outs.",
+   "anchor": "item-24-bit-192-khz-flac-without-drop-outs"
+  },
+  {
+   "issue": 205,
+   "release": "0.8.3",
+   "status": "In development",
+   "key": "development",
+   "short": "One download for every player",
+   "text": "One download for every player: original or modded, hard drive or flash, 32 or 64 MB. It asks you once which battery your player has.",
+   "anchor": "item-one-download-for-every-player"
+  },
+  {
+   "issue": 205,
+   "release": "0.8.3",
+   "status": "In development",
+   "key": "development",
+   "short": "Dock support in every download",
+   "text": "Dock support is built into every download, and stays idle until you connect a dock. Work on how docks behave comes in 0.9.5.",
+   "anchor": "item-dock-support-in-every-download"
+  },
+  {
+   "issue": 271,
+   "release": "0.8.3",
+   "status": "In development",
+   "key": "development",
+   "short": "Best-quality sample rate converter, always",
+   "text": "Cleaner sound for songs at sample rates the player has to convert: it always uses its best-quality converter.",
+   "anchor": "item-best-quality-sample-rate-converter-always"
+  },
+  {
+   "issue": 259,
+   "release": "0.8.3",
+   "status": "In development",
+   "key": "development",
+   "short": "Video chip draws the visualiser and art",
+   "text": "The video chip does the drawing for the visualiser and album art, which leaves the main processor free.",
+   "anchor": "item-video-chip-draws-the-visualiser-and-art"
+  },
+  {
+   "issue": 262,
+   "release": "0.8.3",
+   "status": "In development",
+   "key": "development",
+   "short": "No blank screen after Hold in a video",
+   "text": "Turning Hold off during a video no longer blanks the screen for a few seconds.",
+   "anchor": "item-no-blank-screen-after-hold-in-a-video"
+  },
+  {
+   "issue": 265,
+   "release": "0.8.3",
+   "status": "In development",
+   "key": "development",
+   "short": "Every equaliser band works",
+   "text": "All of the equaliser's bands will work: one of the upper bands has no effect today. The fix ships once we have checked its battery cost.",
+   "anchor": "item-every-equaliser-band-works"
+  },
+  {
+   "issue": 272,
+   "release": "0.8.3",
+   "status": "In development",
+   "key": "development",
+   "short": "Buttons no longer hold full speed",
+   "text": "Button presses no longer keep the player at full speed for longer than needed, which saves battery.",
+   "anchor": "item-buttons-no-longer-hold-full-speed"
+  },
+  {
+   "issue": 295,
+   "release": "0.8.3",
+   "status": "In development",
+   "key": "development",
+   "short": "Visualiser always opens",
+   "text": "The visualiser always opens while music plays. Today it sometimes fails to.",
+   "anchor": "item-visualiser-always-opens"
+  },
+  {
+   "issue": 268,
+   "release": "0.8.3",
+   "status": "In development",
+   "key": "development",
+   "short": "24-bit playback",
+   "text": "24-bit playback: 24-bit FLAC and WAV files play at their full depth.",
+   "anchor": "item-24-bit-playback"
+  },
+  {
+   "issue": 291,
+   "release": "0.8.3",
+   "status": "Planned",
+   "key": "planned",
+   "short": "Wheel wakes the clock screen",
+   "text": "Turning the wheel wakes the player from the clock screen, like a button press, without scrolling or changing the volume.",
+   "anchor": "item-wheel-wakes-the-clock-screen"
+  },
+  {
+   "issue": 156,
+   "release": "0.8.3",
+   "status": "Planned",
+   "key": "planned",
+   "short": "Smooth visualiser with MP3 files",
+   "text": "The visualiser runs smoothly, without the stutter you may see with MP3 files.",
+   "anchor": "item-smooth-visualiser-with-mp3-files"
+  },
+  {
+   "issue": 180,
+   "release": "0.9.0",
+   "status": "In testing",
+   "key": "testing",
+   "short": "Long artist names scroll on Now Playing",
+   "text": "On Now Playing, a long artist name scrolls so you can read all of it.",
+   "anchor": "item-long-artist-names-scroll-on-now-playing"
+  },
+  {
+   "issue": 163,
+   "release": "0.9.0",
+   "status": "In testing",
+   "key": "testing",
+   "short": "Newer numbered genres show correctly",
+   "text": "Files tagged with the newer numbered genres, such as Audiobook and Podcast, show the right genre.",
+   "anchor": "item-newer-numbered-genres-show-correctly"
+  },
+  {
+   "issue": 167,
+   "release": "0.9.0",
+   "status": "In testing",
+   "key": "testing",
+   "short": "Every artist on Now Playing",
+   "text": "Now Playing shows every artist on a song, not just the first. Browsing by artist still uses the first artist.",
+   "anchor": "item-every-artist-on-now-playing"
+  },
+  {
+   "issue": 270,
+   "release": "0.9.0",
+   "status": "In development",
+   "key": "development",
+   "short": "Optional 88.2 and 96 kHz output",
+   "text": "A new Settings › Audiophile menu with optional 88.2 and 96 kHz output. It is off by default. It runs the audio chip beyond its official range, so it comes with a warning. Your player tests itself first and offers only the rates that pass. If anything goes wrong, it drops back to a safe rate.",
+   "anchor": "item-optional-88-2-and-96-khz-output"
+  },
+  {
+   "issue": 277,
+   "release": "0.9.0",
+   "status": "In development",
+   "key": "development",
+   "short": "Format and sample rate page in Now Playing",
+   "text": "An extra info page in Now Playing shows a song's format, bit depth and sample rate, for example FLAC, 24-bit, 96 kHz.",
+   "anchor": "item-format-and-sample-rate-page-in-now-playing"
+  },
+  {
+   "issue": 266,
+   "release": "0.9.0",
+   "status": "In development",
+   "key": "development",
+   "short": "Menus in Japanese",
+   "text": "Menus in Japanese.",
+   "anchor": "item-menus-in-japanese"
+  },
+  {
+   "issue": 235,
+   "release": "0.9.0",
+   "status": "In development",
+   "key": "development",
+   "short": "Japanese and Korean characters in names",
+   "text": "Japanese and Korean characters show correctly in song, artist and album names.",
+   "anchor": "item-japanese-and-korean-characters-in-names"
+  },
+  {
+   "issue": 235,
+   "release": "0.9.0",
+   "status": "In development",
+   "key": "development",
+   "short": "Sorting by Sort Artist and other sort tags",
+   "text": "Lists sort by the sort-name tags, such as Sort Artist, when your files have them.",
+   "anchor": "item-sorting-by-sort-artist-and-other-sort-tags"
+  },
+  {
+   "issue": 203,
+   "release": "0.9.0",
+   "status": "In design",
+   "key": "design",
+   "short": "Equaliser presets keep the volume",
+   "text": "We are working on keeping the volume the same when you turn on an equaliser preset. Today presets make everything quieter.",
+   "anchor": "item-equaliser-presets-keep-the-volume"
+  },
+  {
+   "issue": 286,
+   "release": "0.9.0",
+   "status": "In design",
+   "key": "design",
+   "short": "Unplayable songs greyed out and skipped",
+   "text": "Songs the player cannot play stay in your library, greyed out with a sign, and are skipped instead of failing without explanation.",
+   "anchor": "item-unplayable-songs-greyed-out-and-skipped"
+  },
+  {
+   "issue": 283,
+   "release": "0.9.0",
+   "status": "In design",
+   "key": "design",
+   "short": "Video sound and clicks on the second core",
+   "text": "Video soundtracks and click sounds move to the second processor core too, like music.",
+   "anchor": "item-video-sound-and-clicks-on-the-second-core"
+  },
+  {
+   "issue": 289,
+   "release": "0.9.0",
+   "status": "Planned",
+   "key": "planned",
+   "short": "24-bit output for MP3 and AAC",
+   "text": "MP3 and AAC files use the 24-bit output too, keeping more of their detail.",
+   "anchor": "item-24-bit-output-for-mp3-and-aac"
+  },
+  {
+   "issue": 214,
+   "release": "0.9.0",
+   "status": "Planned",
+   "key": "planned",
+   "short": "Near-seamless sample rate changes",
+   "text": "We are working on switching between songs with different sample rates with at most a very short pause.",
+   "anchor": "item-near-seamless-sample-rate-changes"
+  },
+  {
+   "issue": 273,
+   "release": "0.9.0",
+   "status": "Planned",
+   "key": "planned",
+   "short": "Menus in Dutch and German",
+   "text": "Menus in Dutch and German.",
+   "anchor": "item-menus-in-dutch-and-german"
+  },
+  {
+   "issue": 292,
+   "release": "0.9.0",
+   "status": "Planned",
+   "key": "planned",
+   "short": "Better Opus support",
+   "text": "We are working on better Opus support: loudness tags for volume levelling, and Opus files that end in .ogg. We are also checking that gapless endings are clean.",
+   "anchor": "item-better-opus-support"
+  },
+  {
+   "issue": 318,
+   "release": "0.9.0",
+   "status": "Planned",
+   "key": "planned",
+   "short": "32-bit FLAC files play",
+   "text": "32-bit FLAC files play, instead of being skipped.",
+   "anchor": "item-32-bit-flac-files-play"
+  },
+  {
+   "issue": 317,
+   "release": "0.9.0",
+   "status": "Planned",
+   "key": "planned",
+   "short": "Guide page on adding audiobooks",
+   "text": "A new guide page on putting audiobooks on the player: which formats play, chapters, resume and speed, and why copy-protected books cannot play.",
+   "anchor": "item-guide-page-on-adding-audiobooks"
+  },
+  {
+   "issue": 170,
+   "release": "0.9.0",
+   "status": "Planned",
+   "key": "planned",
+   "short": "Music keeps playing when opening screens",
+   "text": "Opening some screens while music plays no longer stops the music.",
+   "anchor": "item-music-keeps-playing-when-opening-screens"
+  },
+  {
+   "issue": 82,
+   "release": "0.9.0",
+   "status": "Considering",
+   "key": "considering",
+   "short": "Your own equaliser settings",
+   "text": "We are looking at letting you make up to three equaliser settings of your own, with a picture of each curve.",
+   "anchor": "item-your-own-equaliser-settings"
+  },
+  {
+   "issue": 182,
+   "release": "0.9.1",
+   "status": "In testing",
+   "key": "testing",
+   "short": "Badge for explicit songs",
+   "text": "A small E badge marks explicit songs and albums.",
+   "anchor": "item-badge-for-explicit-songs"
+  },
+  {
+   "issue": 6,
+   "release": "0.9.1",
+   "status": "In design",
+   "key": "design",
+   "short": "Album Flow",
+   "text": "Album Flow: flip through your albums by their cover art, from the first row of the Music menu.",
+   "anchor": "item-album-flow"
+  },
+  {
+   "issue": 288,
+   "release": "0.9.1",
+   "status": "In design",
+   "key": "design",
+   "short": "Video chip prepares album art",
+   "text": "The video chip does the work of preparing album art, instead of the main processor, so songs start quickly even while art is being built.",
+   "anchor": "item-video-chip-prepares-album-art"
+  },
+  {
+   "issue": 301,
+   "release": "0.9.1",
+   "status": "In design",
+   "key": "design",
+   "short": "Sharper art on the main menu",
+   "text": "The Now Playing row on the main menu shows sharp album art more often, instead of a blurry small copy.",
+   "anchor": "item-sharper-art-on-the-main-menu"
+  },
+  {
+   "issue": 215,
+   "release": "0.9.1",
+   "status": "Planned",
+   "key": "planned",
+   "short": "Visualiser volume bar like video's",
+   "text": "In the visualiser, the volume bar slides up and looks like the one in the video player.",
+   "anchor": "item-visualiser-volume-bar-like-video-s"
+  },
+  {
+   "issue": 125,
+   "release": "0.9.1",
+   "status": "Planned",
+   "key": "planned",
+   "short": "No garbled damaged covers",
+   "text": "Damaged cover images no longer show as garbled pictures.",
+   "anchor": "item-no-garbled-damaged-covers"
+  },
+  {
+   "issue": 125,
+   "release": "0.9.1",
+   "status": "Considering",
+   "key": "considering",
+   "short": "Progressive JPEG covers",
+   "text": "We are looking at showing covers saved as progressive JPEGs, which show no art today.",
+   "anchor": "item-progressive-jpeg-covers"
+  },
+  {
+   "issue": 210,
+   "release": "0.9.2",
+   "status": "In testing",
+   "key": "testing",
+   "short": "Hold Play to sleep at every setting",
+   "text": "Holding the play button puts the player to sleep at every backlight setting.",
+   "anchor": "item-hold-play-to-sleep-at-every-setting"
+  },
+  {
+   "issue": 86,
+   "release": "0.9.2",
+   "status": "In development",
+   "key": "development",
+   "short": "Sleep and instant wake",
+   "text": "Sleep and instant wake, like the original software, so the player rarely needs a full start-up.",
+   "anchor": "item-sleep-and-instant-wake"
+  },
+  {
+   "issue": 280,
+   "release": "0.9.2",
+   "status": "In design",
+   "key": "design",
+   "short": "Speed and power matched to what you do",
+   "text": "The player raises and lowers its speed and power to match what you are doing, to save battery.",
+   "anchor": "item-speed-and-power-matched-to-what-you-do"
+  },
+  {
+   "issue": 160,
+   "release": "0.9.2",
+   "status": "Planned",
+   "key": "planned",
+   "short": "Progress bar at full start-up",
+   "text": "When the player does a full start-up, the start screen shows a progress bar.",
+   "anchor": "item-progress-bar-at-full-start-up"
+  },
+  {
+   "issue": 141,
+   "release": "0.9.2",
+   "status": "Planned",
+   "key": "planned",
+   "short": "Switch off when idle on weak USB power",
+   "text": "The player can switch itself off when idle, even while plugged into a weak USB power source such as a car charger.",
+   "anchor": "item-switch-off-when-idle-on-weak-usb-power"
+  },
+  {
+   "issue": 304,
+   "release": "0.9.2",
+   "status": "Planned",
+   "key": "planned",
+   "short": "First game kit, with Sudoku",
+   "text": "The first kit for making your own small games and apps, with a guide. It comes with an original Sudoku game built with the kit.",
+   "anchor": "item-first-game-kit-with-sudoku"
+  },
+  {
+   "issue": 169,
+   "release": "0.9.3",
+   "status": "In testing",
+   "key": "testing",
+   "short": "Subtitles for widescreen videos",
+   "text": "Subtitles for widescreen videos, from the video file or a .srt file beside it. Turn them on in Videos › Settings.",
+   "anchor": "item-subtitles-for-widescreen-videos"
+  },
+  {
+   "issue": 171,
+   "release": "0.9.3",
+   "status": "In testing",
+   "key": "testing",
+   "short": "Title and battery bar over widescreen video",
+   "text": "While you watch a widescreen video, a black bar with the title, time and battery slides down from the top along with the progress bar.",
+   "anchor": "item-title-and-battery-bar-over-widescreen-video"
+  },
+  {
+   "issue": 173,
+   "release": "0.9.3",
+   "status": "In testing",
+   "key": "testing",
+   "short": "Video posters from picture files",
+   "text": "A simple, documented way to give your videos posters, by placing picture files beside them.",
+   "anchor": "item-video-posters-from-picture-files"
+  },
+  {
+   "issue": 176,
+   "release": "0.9.3",
+   "status": "In testing",
+   "key": "testing",
+   "short": "No white flash waking a paused video",
+   "text": "No white flash when you wake the screen while a video is paused: the screen stays dark until the picture is ready.",
+   "anchor": "item-no-white-flash-waking-a-paused-video"
+  },
+  {
+   "issue": 185,
+   "release": "0.9.3",
+   "status": "In development",
+   "key": "development",
+   "short": "MPEG-4 video up to 320 × 240",
+   "text": "MPEG-4 videos (up to 320 × 240) play, as well as H.264. These are the two video formats the original player supported.",
+   "anchor": "item-mpeg-4-video-up-to-320-240"
+  },
+  {
+   "issue": 188,
+   "release": "0.9.3",
+   "status": "Planned",
+   "key": "planned",
+   "short": "AVI video files",
+   "text": "AVI video files play, when the video inside is a kind the player can decode.",
+   "anchor": "item-avi-video-files"
+  },
+  {
+   "issue": 189,
+   "release": "0.9.3",
+   "status": "Planned",
+   "key": "planned",
+   "short": "MKV and WebM video files",
+   "text": "MKV and WebM video files play, once the player can decode the kinds of video they usually hold.",
+   "anchor": "item-mkv-and-webm-video-files"
+  },
+  {
+   "issue": 190,
+   "release": "0.9.3",
+   "status": "Planned",
+   "key": "planned",
+   "short": "Clearer message for too-large videos",
+   "text": "A clearer message when a video is too large to play: it says what is wrong and how to convert it.",
+   "anchor": "item-clearer-message-for-too-large-videos"
+  },
+  {
+   "issue": 263,
+   "release": "0.9.3",
+   "status": "Planned",
+   "key": "planned",
+   "short": "Clean video starts, no glitches",
+   "text": "Some videos no longer start with glitches and a pause of a few seconds.",
+   "anchor": "item-clean-video-starts-no-glitches"
+  },
+  {
+   "issue": 174,
+   "release": "0.9.3",
+   "status": "Planned",
+   "key": "planned",
+   "short": "Quick volume and progress bars in video",
+   "text": "The volume and progress bars respond straight away while a video plays.",
+   "anchor": "item-quick-volume-and-progress-bars-in-video"
+  },
+  {
+   "issue": 194,
+   "release": "0.9.3",
+   "status": "Considering",
+   "key": "considering",
+   "short": "MPEG-4 video larger than 320 × 240",
+   "text": "We are looking at playing MPEG-4 videos larger than 320 × 240.",
+   "anchor": "item-mpeg-4-video-larger-than-320-240"
+  },
+  {
+   "issue": 187,
+   "release": "0.9.3",
+   "status": "Considering",
+   "key": "considering",
+   "short": "MPEG-1 and MPEG-2 video",
+   "text": "We are looking at playing MPEG-1 and MPEG-2 videos (.mpg files).",
+   "anchor": "item-mpeg-1-and-mpeg-2-video"
+  },
+  {
+   "issue": 186,
+   "release": "0.9.3",
+   "status": "Considering",
+   "key": "considering",
+   "short": "H.265 video, as an experiment",
+   "text": "We are looking at H.265 (HEVC) video, as an experiment. It ships only if it works well, and is marked experimental if it does.",
+   "anchor": "item-h-265-video-as-an-experiment"
+  },
+  {
+   "issue": 247,
+   "release": "0.9.4",
+   "status": "In design",
+   "key": "design",
+   "short": "Quick library updates after small changes",
+   "text": "We are working on making library updates quick after you add a few songs, even for a big library.",
+   "anchor": "item-quick-library-updates-after-small-changes"
+  },
+  {
+   "issue": 81,
+   "release": "0.9.4",
+   "status": "Planned",
+   "key": "planned",
+   "short": "Shows up on a Mac without extra software",
+   "text": "The player shows up on a Mac by itself when you plug it in, with no extra software.",
+   "anchor": "item-shows-up-on-a-mac-without-extra-software"
+  },
+  {
+   "issue": 164,
+   "release": "0.9.4",
+   "status": "Planned",
+   "key": "planned",
+   "short": "Podcasts ordered by release date",
+   "text": "Podcast episodes are ordered by their release date, even when you copied them all at once.",
+   "anchor": "item-podcasts-ordered-by-release-date"
+  },
+  {
+   "issue": 241,
+   "release": "0.9.4",
+   "status": "Planned",
+   "key": "planned",
+   "short": "Faster genre artist lists",
+   "text": "A genre's list of artists opens faster.",
+   "anchor": "item-faster-genre-artist-lists"
+  },
+  {
+   "issue": 248,
+   "release": "0.9.4",
+   "status": "Planned",
+   "key": "planned",
+   "short": "Use the menus during the first library build",
+   "text": "On the first library build, hold the centre button for 5 seconds to skip waiting and use the menus while it finishes.",
+   "anchor": "item-use-the-menus-during-the-first-library-build"
+  },
+  {
+   "issue": 249,
+   "release": "0.9.4",
+   "status": "Planned",
+   "key": "planned",
+   "short": "Library builder for your computer",
+   "text": "An optional tool for your computer that builds the library before the player's first start, for very large collections.",
+   "anchor": "item-library-builder-for-your-computer"
+  },
+  {
+   "issue": 250,
+   "release": "0.9.4",
+   "status": "Planned",
+   "key": "planned",
+   "short": "Keep play counts when files move",
+   "text": "We are working on keeping play counts, resume points and tags when you move or rename files.",
+   "anchor": "item-keep-play-counts-when-files-move"
+  },
+  {
+   "issue": 246,
+   "release": "0.9.4",
+   "status": "Planned",
+   "key": "planned",
+   "short": "Songs in the Bin or Trash",
+   "text": "We are checking whether songs waiting in your computer's Bin or Trash still show in the library. If they do, we will fix it.",
+   "anchor": "item-songs-in-the-bin-or-trash"
+  },
+  {
+   "issue": 305,
+   "release": "0.9.4",
+   "status": "Planned",
+   "key": "planned",
+   "short": "Second game kit, with a role-playing game",
+   "text": "The second game kit, for bigger games. It comes with an original short role-playing game built with the kit.",
+   "anchor": "item-second-game-kit-with-a-role-playing-game"
+  },
+  {
+   "issue": 319,
+   "release": "0.9.4",
+   "status": "Planned",
+   "key": "planned",
+   "short": "Sections in DJ mixes and podcasts",
+   "text": "Long files such as DJ mixes and podcasts show their sections: the current section is named on Now Playing, and next and previous move between sections.",
+   "anchor": "item-sections-in-dj-mixes-and-podcasts"
+  },
+  {
+   "issue": 139,
+   "release": "0.9.4",
+   "status": "Considering",
+   "key": "considering",
+   "short": "Top 25 and Recently Played playlists",
+   "text": "We are looking at automatic Top 25 Most Played and Recently Played playlists.",
+   "anchor": "item-top-25-and-recently-played-playlists"
+  },
+  {
+   "issue": 140,
+   "release": "0.9.4",
+   "status": "Considering",
+   "key": "considering",
+   "short": "Lyrics from .lrc files",
+   "text": "We are looking at showing lyrics from a .lrc file next to a song, as plain text on Now Playing.",
+   "anchor": "item-lyrics-from-lrc-files"
+  },
+  {
+   "issue": 236,
+   "release": "0.9.5",
+   "status": "In development",
+   "key": "development",
+   "short": "Docks that behave like the original's",
+   "text": "We are working on dock support that behaves like the original player's, with a fixed line-out level and no volume swings through a dock.",
+   "anchor": "item-docks-that-behave-like-the-original-s"
+  },
+  {
+   "issue": 134,
+   "release": "0.9.5",
+   "status": "Planned",
+   "key": "planned",
+   "short": "Car stereos that read USB drives",
+   "text": "We are working on making car stereos that play music from a USB drive work with the player too.",
+   "anchor": "item-car-stereos-that-read-usb-drives"
+  },
+  {
+   "issue": 144,
+   "release": "0.9.5",
+   "status": "Planned",
+   "key": "planned",
+   "short": "Digital audio over USB",
+   "text": "We are working on digital audio over USB: first to a computer, later to cars and docks that accept it.",
+   "anchor": "item-digital-audio-over-usb"
+  },
+  {
+   "issue": 145,
+   "release": "0.9.5",
+   "status": "Planned",
+   "key": "planned",
+   "short": "USB-C headphone adapters",
+   "text": "We are checking that a simple USB-C headphone adapter works on modded players whose USB-C port carries audio. Adapters with their own sound chip won't work.",
+   "anchor": "item-usb-c-headphone-adapters"
+  },
+  {
+   "issue": 101,
+   "release": "0.9.5",
+   "status": "Planned",
+   "key": "planned",
+   "short": "Screen stays lit while connected",
+   "text": "While connected to a computer, the screen stays lit. On a charger alone, the player can still sleep.",
+   "anchor": "item-screen-stays-lit-while-connected"
+  },
+  {
+   "issue": 32,
+   "release": "0.9.6",
+   "status": "In development",
+   "key": "development",
+   "short": "Extras: clocks, alarms, notes and more",
+   "text": "Extras: clocks, alarms, sleep timer, stopwatch, screen lock, notes, contacts, calendars and games.",
+   "anchor": "item-extras-clocks-alarms-notes-and-more"
+  },
+  {
+   "issue": 150,
+   "release": "0.9.6",
+   "status": "Planned",
+   "key": "planned",
+   "short": "Drawing tools for game makers",
+   "text": "For game makers: building blocks and tools for drawing with the video chip, with a guide.",
+   "anchor": "item-drawing-tools-for-game-makers"
+  },
+  {
+   "issue": 306,
+   "release": "0.9.6",
+   "status": "Planned",
+   "key": "planned",
+   "short": "Third game kit, with a racing game",
+   "text": "The third game kit, for games that take over the whole player, the way video does. It comes with an original arcade racing game built with the kit.",
+   "anchor": "item-third-game-kit-with-a-racing-game"
+  },
+  {
+   "issue": 33,
+   "release": "0.9.6",
+   "status": "Considering",
+   "key": "considering",
+   "short": "Automatic mixes from your music",
+   "text": "We are looking at automatic mixes, made on the player from your own music by genre and by songs that sound alike.",
+   "anchor": "item-automatic-mixes-from-your-music"
+  },
+  {
+   "issue": 274,
+   "release": "0.9.6",
+   "status": "Considering",
+   "key": "considering",
+   "short": "DSD files",
+   "text": "We are looking at playing DSD files (.dsf and .dff) by converting them to standard audio as they play.",
+   "anchor": "item-dsd-files"
+  },
+  {
+   "issue": 124,
+   "release": "0.9.6",
+   "status": "Considering",
+   "key": "considering",
+   "short": "A rhythm game",
+   "text": "We are looking at a rhythm game: tap the wheel in time with the music, using step-chart files.",
+   "anchor": "item-a-rhythm-game"
+  },
+  {
+   "issue": 227,
+   "release": "0.9.8",
+   "status": "Planned",
+   "key": "planned",
+   "short": "Interoperability Mode",
+   "text": "Interoperability Mode: an optional mode that keeps your library in the format the original software uses, so songs and covers you add with ProkBox5g show up there too. It is off by default, warns you before it changes anything, and offers to back up the original library first.",
+   "anchor": "item-interoperability-mode"
+  },
+  {
+   "issue": 323,
+   "release": "0.9.8",
+   "status": "Planned",
+   "key": "planned",
+   "short": "Improvements that could go back to Rockbox",
+   "text": "A page showing where ProkBox5g has improved on Rockbox in ways that could be offered back to the Rockbox project.",
+   "anchor": "item-improvements-that-could-go-back-to-rockbox"
+  },
+  {
+   "issue": 62,
+   "release": "1.0",
+   "status": "Planned",
+   "key": "planned",
+   "short": "Our own start-up software",
+   "text": "Our own start-up software, so your player no longer needs the original software at all. It comes only after our own recovery is proven to work.",
+   "anchor": "item-our-own-start-up-software"
+  },
+  {
+   "issue": 122,
+   "release": "1.0",
+   "status": "Planned",
+   "key": "planned",
+   "short": "Our own Disk Mode and recovery",
+   "text": "Our own Disk Mode and recovery: hold a button combination as the player starts, or let it start this way after a failed start, and copy working software back from your computer.",
+   "anchor": "item-our-own-disk-mode-and-recovery"
+  },
+  {
+   "issue": 128,
+   "release": "1.0",
+   "status": "Planned",
+   "key": "planned",
+   "short": "An installer for every computer",
+   "text": "An installer for Mac, Windows and Linux that installs, updates, removes and recovers ProkBox5g, and backs up your player first.",
+   "anchor": "item-an-installer-for-every-computer"
+  },
+  {
+   "issue": 260,
+   "release": "Later",
+   "status": "In design",
+   "key": "design",
+   "short": "Lists glide to the letter you stop on",
+   "text": "In long lists, when you stop the wheel on a letter while scrolling fast, the list glides to the first item for that letter.",
+   "anchor": "item-lists-glide-to-the-letter-you-stop-on"
+  },
+  {
+   "issue": 158,
+   "release": "Later",
+   "status": "Planned",
+   "key": "planned",
+   "short": "Spinning arrows while copying music",
+   "text": "Spinning arrows on the screen while your computer copies music to the player.",
+   "anchor": "item-spinning-arrows-while-copying-music"
+  },
+  {
+   "issue": 159,
+   "release": "Later",
+   "status": "Considering",
+   "key": "considering",
+   "short": "A dark look",
+   "text": "We are looking at an optional dark look for the whole player, modelled on the dark screens of the original.",
+   "anchor": "item-a-dark-look"
+  },
+  {
+   "issue": 53,
+   "release": "Later",
+   "status": "Considering",
+   "key": "considering",
+   "short": "A companion app",
+   "text": "We are looking at a companion app, or an add-on for an existing music app, to copy music, podcasts and audiobooks to the player easily.",
+   "anchor": "item-a-companion-app"
+  },
+  {
+   "issue": 287,
+   "release": "Later",
+   "status": "Considering",
+   "key": "considering",
+   "short": "Faster MP3 and AAC playback",
+   "text": "We are looking at making MP3 and AAC playback faster, which would save battery.",
+   "anchor": "item-faster-mp3-and-aac-playback"
+  },
+  {
+   "issue": 116,
+   "release": "Later",
+   "status": "Considering",
+   "key": "considering",
+   "short": "Language packs and more alphabets",
+   "text": "We are looking at languages as separate packs you can add, and more alphabets, such as Greek, Cyrillic and right-to-left scripts.",
+   "anchor": "item-language-packs-and-more-alphabets"
+  },
+  {
+   "issue": 104,
+   "release": "Later",
+   "status": "Considering",
+   "key": "considering",
+   "short": "Hard drive starts before you need it",
+   "text": "We are looking at starting the hard drive just before you need it, so browsing waits less on hard-drive players.",
+   "anchor": "item-hard-drive-starts-before-you-need-it"
+  }
+ ],
+ "not_planned": {
+  "intro": "These are things we have decided not to build, each with the reason. It is a list of decisions, not a list of gaps: if the reason changes, we will say so here.",
+  "anchor": "not-planned",
+  "items": [
+   {
+    "key": "skins-and-themes",
+    "title": "Skins and themes",
+    "text": "Letting you restyle the player with skins or themes would mean rebuilding that whole system, which is prohibitively difficult when the interface is tuned so closely to the look and behaviour of the original player.",
+    "anchor": "notplanned-skins-and-themes"
+   },
+   {
+    "key": "output-sample-rate",
+    "title": "Choosing the output sample rate",
+    "text": "The player always picks the best rate for each file itself, so there is no setting to get wrong. This does not affect the optional high-rate output planned under Audiophile in Settings.",
+    "anchor": "notplanned-output-sample-rate"
+   },
+   {
+    "key": "copy-protected-files",
+    "title": "Unlocking copy-protected files",
+    "text": "We will not decrypt copy-protected audiobooks or songs, such as Audible files or protected AAC. They show greyed out in your library, and a guide page (planned) explains your options.",
+    "anchor": "notplanned-copy-protected-files"
+   },
+   {
+    "key": "plugins-as-they-are",
+    "title": "Plugins from other firmware",
+    "text": "Existing plugins will not run here as they are. Games and apps come through our own game kits, which run in a sandbox so a faulty one cannot harm the player.",
+    "anchor": "notplanned-plugins-as-they-are"
+   },
+   {
+    "key": "system-settings-menus",
+    "title": "System-level settings menus",
+    "text": "Settings stays a short, curated list in the original style. Options that change how the player works underneath are not shown.",
+    "anchor": "notplanned-system-settings-menus"
+   },
+   {
+    "key": "other-ipod-models",
+    "title": "Other iPod models",
+    "text": "ProkBox5g is tuned only for the iPod Video (5th generation and 5.5G). Support for other players would be a separate project, not a setting in this firmware.",
+    "anchor": "notplanned-other-ipod-models"
+   }
+  ]
+ }
+}

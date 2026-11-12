@@ -165,6 +165,23 @@ bool sim_db_lib_updating(void)
 #endif
 }
 
+bool sim_db_settled(void)
+{
+#if defined(HAVE_IPOD_UI) && defined(HAVE_TC_RAMCACHE)
+    /* the boot check walked and its scan (and commit) ended, nothing of
+     * the library's runs or is owed (a scan, the commit, a reload, the
+     * candidate's load and lists: tagcache_ui_library_busy()), and the
+     * active library is a published generation */
+    return tagcache_boot_check(NULL) == 2
+           && tagcache_ui_scans_ended() >= 1
+           && !tagcache_ui_library_busy()
+           && !tagcache_ui_scan_owed()
+           && tagcache_context_published(tagcache_context_active());
+#else
+    return true;
+#endif
+}
+
 bool sim_db_set_dirty(void)
 {
     /* struct master_header (tagcache.c): tagcache_header (magic,
@@ -291,6 +308,11 @@ int sim_db_active_generation(void)
 bool sim_db_lib_updating(void)
 {
     return false;
+}
+
+bool sim_db_settled(void)
+{
+    return true;
 }
 
 bool sim_db_set_dirty(void)

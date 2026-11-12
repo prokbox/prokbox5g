@@ -1810,6 +1810,7 @@ static void shell_main(void)
         dac_trace();                /* P15: codec standby counts */
 #endif
         lib_window_log();           /* 8b: a closed empty window, once */
+        np_hires_poll();            /* #278: hi-res held at full speed */
         if (ui_unlit_active())
         {
             /* H2: the face suspends drawing, never logic. The top screen,

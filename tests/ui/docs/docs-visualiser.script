@@ -1,0 +1,46 @@
+# User guide screenshot (scripts/docs_shots.sh; its row in tests/ui/docs/images.tsv):
+# the Now Playing visualiser, reached the way the guide says: Select steps
+# Normal, Scrubber, Rating, Shuffle, Visualizer. Runs on the release-shaped
+# sim with the video player (the visualiser draws on the BCM model); in
+# tests/ui/docs/, so the gate's tests/ui/*.script sweep leaves it alone.
+# Synthetic tone (tests/ui/setup_music.sh: a 20-60 s sine track, long enough
+# that no track change resets the step), no owner media.
+# Playback is waited for by position (wait_pos). The visualiser itself shows
+# no text and the language has no wait for it, so the "# log:" lines below
+# are asserted by scripts/docs_shots.sh against the run's log (the visualiser
+# really opened and drew on the BCM, and never fell back to Normal), and
+# "heap_tight" (as ipodui-p19-viz.script) makes the view's start prompt:
+# without it the Select that opens it was handled after the shot.
+#   SIM_BUILD=build/sim-rel-video scripts/shots.sh tests/ui/docs/docs-visualiser.script
+# needs: music
+# needs: video
+# reset: viz
+# golden: skip
+# timeout: 180
+# log: np viz full=1
+# log: np mode shuffle -> visualizer ev=0
+# log: viz start style=0 path=bcm
+# nolog: np mode visualizer -> normal
+wait 3000
+wait_db 45000
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait_pos 1500 20000
+key SELECT          # Music
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 1500
+key SELECT          # Scrubber
+wait 500
+key SELECT          # Rating
+wait 500
+key SELECT          # Shuffle
+wait 1500
+heap_tight          # no slack left: the view must not need a new allocation
+key SELECT          # Visualizer
+wait 2500           # the view has started and drawn a few frames
+shot bars
+quit

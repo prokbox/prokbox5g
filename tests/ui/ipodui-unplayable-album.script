@@ -1,0 +1,49 @@
+# #281: an album, and Songs ("play all"), with Repeat All, where no track
+# plays. 0.8.1 skipped through the queue for ever (each failure ~25 ms on
+# the device, the drive kept busy). Now playback ends the queue once every
+# entry has failed in a row (here 3: apps/playback.c, the queue's length
+# below SILENT_FAIL_MAX) and nothing more is written.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-unplayable-album.script
+# disk: bare
+# needs: unplayable
+# disk-file: build/unplayable-fixtures/bad1.flac Music/bad1.flac
+# disk-file: build/unplayable-fixtures/bad2.flac Music/bad2.flac
+# disk-file: build/unplayable-fixtures/bad3.flac Music/bad3.flac
+# log: audio unplayable run=3 queue=3: stop
+# golden: skip album songs
+# timeout: 90
+
+wait 1000
+wait_db 30000
+repeat all
+key SELECT          # Music
+wait 800
+wheel +2            # Albums
+wait 300
+key SELECT
+wait 800
+key SELECT          # "Unplayable"
+wait 800
+key SELECT          # its first track: the album plays from it
+wait 5000
+expect_stopped
+shot album
+writes_mark
+wait 4000
+expect_writes_max 0
+key MENU            # the album list
+wait 600
+key MENU            # Music, Albums highlighted
+wait 600
+wheel +1            # Songs
+wait 300
+key SELECT
+wait 800
+key SELECT          # the first song: all songs play from it
+wait 5000
+expect_stopped
+shot songs
+writes_mark
+wait 4000
+expect_writes_max 0
+quit

@@ -24,14 +24,14 @@ Audio podcasts are kept apart, in **Podcasts**. If a file is both, Podcasts wins
 4. Choose **Resume** to carry on where you stopped, or choose a chapter to start there.
 
 ![Audiobook chapters](../images/audiobooks-audiobook-chapters.png)
-<!-- screenshot: scripts/shots.sh tests/ui/ipodui-p4-audiobooks.script -->
+<!-- screenshot: scripts/docs_shots.sh; generator in tests/ui/docs/images.tsv -->
 
 Starting a book plays only that book, not the whole list.
 
 ## On Now Playing
 
 ![Audiobook Now Playing](../images/audiobooks-audiobook-now-playing.png)
-<!-- screenshot: scripts/shots.sh tests/ui/ipodui-p5-audiobook.script -->
+<!-- screenshot: scripts/docs_shots.sh; generator in tests/ui/docs/images.tsv -->
 
 - The bar covers the **whole book**, with small tick marks where chapters start.
 - The line under the title shows the current chapter, and a counter such as "3 of 12".

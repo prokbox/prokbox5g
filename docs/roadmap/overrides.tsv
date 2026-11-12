@@ -1,0 +1,148 @@
+# What's coming: the curated source for docs/user/roadmap.md (scripts/roadmap.py).
+# The release each entry belongs to is the issue's milestone on the tracker; this file
+# never moves an entry.  Tab-separated.
+#   @theme  release  text          one plain line per release (x.y.z or Later)
+#   @word   term  explanation      one line of the "Words on this page" box
+#   issue  release  status  changed  text  reason  [short]
+#     release  leave empty (if given, it must equal the milestone, or generate fails)
+#     status   empty = from the tracker's status/* labels; this column only overrides them
+#              (Considering marks an idea not designed yet; its text starts "We are looking at")
+#     changed  the version in which a Postponed / Cancelled status was set
+#     text     a user-facing UK-English sentence in our own words; '-' hides the issue
+#     reason   for Postponed / Cancelled
+#     short    optional label of at most 48 characters for the home page's lane bubble; needed
+#              when the text is longer.  The entry's anchor on the page is made from it, so
+#              changing it changes the link (keep labels stable)
+# Every open type/feature issue in a release up to 1.0 needs a row here (a sentence or '-').
+# No Apple marks except to name the hardware, no "Rockbox", no owner media, no jargon.
+@theme	0.8.3	A new playback engine, one download for every player, and fixes.
+@theme	0.9.0	Sound and languages: better audio, menus in more languages, better song details, and fixes.
+@theme	0.9.1	Album art, Album Flow and other screen improvements.
+@theme	0.9.2	Sleep and battery life, and the first kit for making your own games, with a Sudoku game.
+@theme	0.9.3	Video: more formats, a better video player, and fixes.
+@theme	0.9.4	Your library and USB, and the second game kit, with a short role-playing game.
+@theme	0.9.5	Docks, cars and connections.
+@theme	0.9.6	Extras, games and more ways to shape your sound, and the third game kit, with an arcade racing game.
+@theme	0.9.7	Polish: a careful clean-up of the whole player, making everything as lean and refined as we can, with no new features.
+@theme	0.9.8	Interoperability Mode, and the last test version before 1.0.
+@theme	1.0	Independence: our own start-up software, Disk Mode, recovery and an installer, so you can fully replace the original software.
+@theme	Later	Ideas for later, in no fixed order.
+@word	Second processor core	the player has two processor cores. Giving the music to the second one keeps the menus smooth on the first.
+@word	Video chip	a separate chip in the player that is good at drawing and handling pictures. Using it takes work off the main processor.
+@word	Start-up software	the small program that starts the player before anything else runs (often called a bootloader).
+@word	Disk Mode	a mode in which the player shows up on your computer as a drive, even when its main software cannot start.
+@word	Sample rate	how many times a second the sound is measured, such as 44.1 kHz or 96 kHz.
+@word	Bit depth	how finely each of those measurements is stored, such as 16-bit or 24-bit.
+300				Smoother playback of demanding files, and less battery used on easy ones: the player now watches both of its processor cores to choose its speed.		Speed matched to how hard the music is
+284				A rare fault with very loud 24-bit FLAC files is fixed: they play correctly.		Very loud 24-bit FLAC fixed
+285				32-bit FLAC files are skipped cleanly instead of playing back wrongly. They stay in your library.		32-bit FLAC skipped cleanly
+298				Skipping a song the player cannot play no longer leaves a short silence.		No silence when skipping unplayable songs
+282				A new playback engine: all of the audio work moves to the player's second processor core, so the menus stay smooth while music plays.		New playback engine on the second core
+278				24-bit, 192 kHz FLAC files play without drop-outs.		24-bit, 192 kHz FLAC without drop-outs
+205				One download for every player: original or modded, hard drive or flash, 32 or 64 MB. It asks you once which battery your player has.		One download for every player
+205				Dock support is built into every download, and stays idle until you connect a dock. Work on how docks behave comes in 0.9.5.		Dock support in every download
+204				-	
+79				-	
+271				Cleaner sound for songs at sample rates the player has to convert: it always uses its best-quality converter.		Best-quality sample rate converter, always
+259				The video chip does the drawing for the visualiser and album art, which leaves the main processor free.		Video chip draws the visualiser and art
+262				Turning Hold off during a video no longer blanks the screen for a few seconds.		No blank screen after Hold in a video
+264				-	
+265				All of the equaliser's bands will work: one of the upper bands has no effect today. The fix ships once we have checked its battery cost.		Every equaliser band works
+272				Button presses no longer keep the player at full speed for longer than needed, which saves battery.		Buttons no longer hold full speed
+295				The visualiser always opens while music plays. Today it sometimes fails to.		Visualiser always opens
+291				Turning the wheel wakes the player from the clock screen, like a button press, without scrolling or changing the volume.		Wheel wakes the clock screen
+156				The visualiser runs smoothly, without the stutter you may see with MP3 files.		Smooth visualiser with MP3 files
+268				24-bit playback: 24-bit FLAC and WAV files play at their full depth.		24-bit playback
+289				MP3 and AAC files use the 24-bit output too, keeping more of their detail.		24-bit output for MP3 and AAC
+270				A new Settings › Audiophile menu with optional 88.2 and 96 kHz output. It is off by default. It runs the audio chip beyond its official range, so it comes with a warning. Your player tests itself first and offers only the rates that pass. If anything goes wrong, it drops back to a safe rate.		Optional 88.2 and 96 kHz output
+277				An extra info page in Now Playing shows a song's format, bit depth and sample rate, for example FLAC, 24-bit, 96 kHz.		Format and sample rate page in Now Playing
+214				We are working on switching between songs with different sample rates with at most a very short pause.		Near-seamless sample rate changes
+203				We are working on keeping the volume the same when you turn on an equaliser preset. Today presets make everything quieter.		Equaliser presets keep the volume
+266				Menus in Japanese.		Menus in Japanese
+273				Menus in Dutch and German.		Menus in Dutch and German
+235				Japanese and Korean characters show correctly in song, artist and album names.		Japanese and Korean characters in names
+235				Lists sort by the sort-name tags, such as Sort Artist, when your files have them.		Sorting by Sort Artist and other sort tags
+286				Songs the player cannot play stay in your library, greyed out with a sign, and are skipped instead of failing without explanation.		Unplayable songs greyed out and skipped
+283				Video soundtracks and click sounds move to the second processor core too, like music.		Video sound and clicks on the second core
+292				We are working on better Opus support: loudness tags for volume levelling, and Opus files that end in .ogg. We are also checking that gapless endings are clean.		Better Opus support
+318				32-bit FLAC files play, instead of being skipped.		32-bit FLAC files play
+317				A new guide page on putting audiobooks on the player: which formats play, chapters, resume and speed, and why copy-protected books cannot play.		Guide page on adding audiobooks
+180				On Now Playing, a long artist name scrolls so you can read all of it.		Long artist names scroll on Now Playing
+163				Files tagged with the newer numbered genres, such as Audiobook and Podcast, show the right genre.		Newer numbered genres show correctly
+167				Now Playing shows every artist on a song, not just the first. Browsing by artist still uses the first artist.		Every artist on Now Playing
+170				Opening some screens while music plays no longer stops the music.		Music keeps playing when opening screens
+6				Album Flow: flip through your albums by their cover art, from the first row of the Music menu.		Album Flow
+288				The video chip does the work of preparing album art, instead of the main processor, so songs start quickly even while art is being built.		Video chip prepares album art
+182				A small E badge marks explicit songs and albums.		Badge for explicit songs
+215				In the visualiser, the volume bar slides up and looks like the one in the video player.		Visualiser volume bar like video's
+301				The Now Playing row on the main menu shows sharp album art more often, instead of a blurry small copy.		Sharper art on the main menu
+125		Planned		Damaged cover images no longer show as garbled pictures.		No garbled damaged covers
+125		Considering		We are looking at showing covers saved as progressive JPEGs, which show no art today.		Progressive JPEG covers
+86				Sleep and instant wake, like the original software, so the player rarely needs a full start-up.		Sleep and instant wake
+209				-	
+280				The player raises and lowers its speed and power to match what you are doing, to save battery.		Speed and power matched to what you do
+160				When the player does a full start-up, the start screen shows a progress bar.		Progress bar at full start-up
+141				The player can switch itself off when idle, even while plugged into a weak USB power source such as a car charger.		Switch off when idle on weak USB power
+210				Holding the play button puts the player to sleep at every backlight setting.		Hold Play to sleep at every setting
+304				The first kit for making your own small games and apps, with a guide. It comes with an original Sudoku game built with the kit.		First game kit, with Sudoku
+185				MPEG-4 videos (up to 320 × 240) play, as well as H.264. These are the two video formats the original player supported.		MPEG-4 video up to 320 × 240
+194		Considering		We are looking at playing MPEG-4 videos larger than 320 × 240.		MPEG-4 video larger than 320 × 240
+188				AVI video files play, when the video inside is a kind the player can decode.		AVI video files
+189				MKV and WebM video files play, once the player can decode the kinds of video they usually hold.		MKV and WebM video files
+187		Considering		We are looking at playing MPEG-1 and MPEG-2 videos (.mpg files).		MPEG-1 and MPEG-2 video
+186		Considering		We are looking at H.265 (HEVC) video, as an experiment. It ships only if it works well, and is marked experimental if it does.		H.265 video, as an experiment
+190				A clearer message when a video is too large to play: it says what is wrong and how to convert it.		Clearer message for too-large videos
+169				Subtitles for widescreen videos, from the video file or a .srt file beside it. Turn them on in Videos › Settings.		Subtitles for widescreen videos
+171				While you watch a widescreen video, a black bar with the title, time and battery slides down from the top along with the progress bar.		Title and battery bar over widescreen video
+173				A simple, documented way to give your videos posters, by placing picture files beside them.		Video posters from picture files
+263				Some videos no longer start with glitches and a pause of a few seconds.		Clean video starts, no glitches
+174				The volume and progress bars respond straight away while a video plays.		Quick volume and progress bars in video
+176				No white flash when you wake the screen while a video is paused: the screen stays dark until the picture is ready.		No white flash waking a paused video
+81				The player shows up on a Mac by itself when you plug it in, with no extra software.		Shows up on a Mac without extra software
+139		Considering		We are looking at automatic Top 25 Most Played and Recently Played playlists.		Top 25 and Recently Played playlists
+140		Considering		We are looking at showing lyrics from a .lrc file next to a song, as plain text on Now Playing.		Lyrics from .lrc files
+164				Podcast episodes are ordered by their release date, even when you copied them all at once.		Podcasts ordered by release date
+241				A genre's list of artists opens faster.		Faster genre artist lists
+247				We are working on making library updates quick after you add a few songs, even for a big library.		Quick library updates after small changes
+248				On the first library build, hold the centre button for 5 seconds to skip waiting and use the menus while it finishes.		Use the menus during the first library build
+249				An optional tool for your computer that builds the library before the player's first start, for very large collections.		Library builder for your computer
+250				We are working on keeping play counts, resume points and tags when you move or rename files.		Keep play counts when files move
+246				We are checking whether songs waiting in your computer's Bin or Trash still show in the library. If they do, we will fix it.		Songs in the Bin or Trash
+305				The second game kit, for bigger games. It comes with an original short role-playing game built with the kit.		Second game kit, with a role-playing game
+236				We are working on dock support that behaves like the original player's, with a fixed line-out level and no volume swings through a dock.		Docks that behave like the original's
+134				We are working on making car stereos that play music from a USB drive work with the player too.		Car stereos that read USB drives
+144				We are working on digital audio over USB: first to a computer, later to cars and docks that accept it.		Digital audio over USB
+145				We are checking that a simple USB-C headphone adapter works on modded players whose USB-C port carries audio. Adapters with their own sound chip won't work.		USB-C headphone adapters
+101				While connected to a computer, the screen stays lit. On a charger alone, the player can still sleep.		Screen stays lit while connected
+136				-	
+32				Extras: clocks, alarms, sleep timer, stopwatch, screen lock, notes, contacts, calendars and games.		Extras: clocks, alarms, notes and more
+33		Considering		We are looking at automatic mixes, made on the player from your own music by genre and by songs that sound alike.		Automatic mixes from your music
+82				Make up to three equaliser settings of your own, with a picture of each curve, alongside the built-in ones.		Your own equaliser settings
+274		Considering		We are looking at playing DSD files (.dsf and .dff) by converting them to standard audio as they play.		DSD files
+124		Considering		We are looking at a rhythm game: tap the wheel in time with the music, using step-chart files.		A rhythm game
+150				For game makers: building blocks and tools for drawing with the video chip, with a guide.		Drawing tools for game makers
+306				The third game kit, for games that take over the whole player, the way video does. It comes with an original arcade racing game built with the kit.		Third game kit, with a racing game
+217				-	
+227				Interoperability Mode: an optional mode that keeps your library in the format the original software uses, so songs and covers you add with ProkBox5g show up there too. It is off by default, warns you before it changes anything, and offers to back up the original library first.		Interoperability Mode
+103				-	
+62				Our own start-up software, so your player no longer needs the original software at all. It comes only after our own recovery is proven to work.		Our own start-up software
+122				Our own Disk Mode and recovery: hold a button combination as the player starts, or let it start this way after a failed start, and copy working software back from your computer.		Our own Disk Mode and recovery
+128				An installer for Mac, Windows and Linux that installs, updates, removes and recovers ProkBox5g, and backs up your player first.		An installer for every computer
+260				In long lists, when you stop the wheel on a letter while scrolling fast, the list glides to the first item for that letter.		Lists glide to the letter you stop on
+159		Considering		We are looking at an optional dark look for the whole player, modelled on the dark screens of the original.		A dark look
+53		Considering		We are looking at a companion app, or an add-on for an existing music app, to copy music, podcasts and audiobooks to the player easily.		A companion app
+287		Considering		We are looking at making MP3 and AAC playback faster, which would save battery.		Faster MP3 and AAC playback
+116		Considering		We are looking at languages as separate packs you can add, and more alphabets, such as Greek, Cyrillic and right-to-left scripts.		Language packs and more alphabets
+158				Spinning arrows on the screen while your computer copies music to the player.		Spinning arrows while copying music
+104		Considering		We are looking at starting the hard drive just before you need it, so browsing waits less on hard-drive players.		Hard drive starts before you need it
+319				Long files such as DJ mixes and podcasts show their sections: the current section is named on Now Playing, and next and previous move between sections.		Sections in DJ mixes and podcasts
+323				A page showing where ProkBox5g has improved on Rockbox in ways that could be offered back to the Rockbox project.		Improvements that could go back to Rockbox
+@notplanned_intro	These are things we have decided not to build, each with the reason. It is a list of decisions, not a list of gaps: if the reason changes, we will say so here.
+@notplanned	skins-and-themes	Skins and themes	Letting you restyle the player with skins or themes would mean rebuilding that whole system, which is prohibitively difficult when the interface is tuned so closely to the look and behaviour of the original player.
+@notplanned	output-sample-rate	Choosing the output sample rate	The player always picks the best rate for each file itself, so there is no setting to get wrong. This does not affect the optional high-rate output planned under Audiophile in Settings.
+@notplanned	copy-protected-files	Unlocking copy-protected files	We will not decrypt copy-protected audiobooks or songs, such as Audible files or protected AAC. They show greyed out in your library, and a guide page (planned) explains your options.
+@notplanned	plugins-as-they-are	Plugins from other firmware	Existing plugins will not run here as they are. Games and apps come through our own game kits, which run in a sandbox so a faulty one cannot harm the player.
+@notplanned	system-settings-menus	System-level settings menus	Settings stays a short, curated list in the original style. Options that change how the player works underneath are not shown.
+@notplanned	other-ipod-models	Other iPod models	ProkBox5g is tuned only for the iPod Video (5th generation and 5.5G). Support for other players would be a separate project, not a setting in this firmware.
+327		Considering		We are looking at letting the sound chip mute itself during silent stretches, to cut faint hiss in quiet passages and while paused.		Quieter silence
+330				Spoken menus: the player can read out menu items and song, artist and album names.		Spoken menus

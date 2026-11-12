@@ -54,6 +54,7 @@ struct codec_api {
     void (*strip_filesize)(off_t value);
     void (*panicf)(const char *msg, ...);
     bool cop_assist;
+    void (*ui_log)(const char *tag, const char *fmt, ...);    /* #281 */
 };
 int codec_run_proc(void);
 #endif

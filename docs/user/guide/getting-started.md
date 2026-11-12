@@ -18,7 +18,7 @@ With it you can:
 ProkBox5g is not Apple software. It is an independent, community-driven fork of Rockbox, and Apple Inc. has not made, approved, endorsed or supported it in any way. For help, ask the ProkBox community (prokbox.project@gmail.com), not Apple.
 
 ![Main menu](../images/getting-started-main-menu.png)
-<!-- screenshot: scripts/shots.sh tests/ui/ipodui-nav-panels.script -->
+<!-- screenshot: scripts/docs_shots.sh; generator in tests/ui/docs/images.tsv -->
 
 ## Pick the right download
 
@@ -31,7 +31,7 @@ Each release comes as eight zip files, named `ProkBox5g-<version>-{stock,modded}
 | How much memory? | `32MB` or `64MB` |
 
 > [!NOTE]
-> 0.8.0 includes all eight downloads, but only **flash, 64 MB, modded (USB-C with haptics)** has been tested on a real player. The other seven are untested. They should work, and reports from them are very welcome.
+> 0.8.2 includes all eight downloads, but only **flash, 64 MB, modded (USB-C with haptics)** has been tested on a real player. The other seven are untested. They should work, and reports from them are very welcome.
 
 "Modded" is one choice that stands for all three changes together. If your player has only some of them (for example a bigger battery but the original dock connector), no download fits exactly. Pick the one that matches the battery, and expect the USB icon or the haptic tap to be wrong. Tell us which mix you have.
 
@@ -61,10 +61,10 @@ How to tell:
 
 Each release page lists a `SHA256SUMS` file. After downloading, compute the zip's checksum and compare it with the matching line in that file. Every character must match. If it does not, download again.
 
-- **macOS and Linux:** `shasum -a 256 ProkBox5g-0.8.0-modded-flash-64MB.zip` (on Linux you can also use `sha256sum`).
-- **Windows (Command Prompt or PowerShell):** `certutil -hashfile ProkBox5g-0.8.0-modded-flash-64MB.zip SHA256`
+- **macOS and Linux:** `shasum -a 256 ProkBox5g-0.8.2-modded-flash-64MB.zip` (on Linux you can also use `sha256sum`).
+- **Windows (Command Prompt or PowerShell):** `certutil -hashfile ProkBox5g-0.8.2-modded-flash-64MB.zip SHA256`
 
-Use your own file's name in place of the example. 0.8.0 is marked as a pre-release on the download page.
+Use your own file's name in place of the example. 0.8.2 is marked as a pre-release on the download page.
 
 ## Get ipodpatcher
 
@@ -84,13 +84,13 @@ Check it against `SHA256SUMS` as above. Save it in the same folder as the unzipp
 - **macOS and Linux:** put `sudo` in front of every `ipodpatcher` command below.
 - **Windows:** open the Start menu, type `cmd`, right-click Command Prompt and choose "Run as administrator". Use that window for every command, after changing into the folder that holds `ipodpatcher.exe` and the unzipped files (`cd` followed by the folder's path).
 - **macOS:** the downloaded tool is not signed by a registered developer and may be blocked. If so, allow it under System Settings › Privacy & Security, or remove the download mark with `xattr -d com.apple.quarantine ipodpatcher`; or build it yourself (see the advanced note above).
-- **Linux:** run it with `sudo`; the player appears as a disk such as `/dev/sdb`. Check with `lsblk` that you are pointing at the player and nothing else. We have not tried these steps on Linux for 0.8.0 yet; reports are welcome.
+- **Linux:** run it with `sudo`; the player appears as a disk such as `/dev/sdb`. Check with `lsblk` that you are pointing at the player and nothing else. We have not tried these steps on Linux for 0.8.2 yet; reports are welcome.
 
 Connect only one iPod at a time.
 
 ## Install
 
-There is no installer app in 0.8.0. You install by hand, in this order: save a backup, copy the ProkBox files and check them, then add the start-up program last. Set aside about 20 minutes.
+There is no installer app in 0.8.2. You install by hand, in this order: save a backup, copy the ProkBox files and check them, then add the start-up program last. Set aside about 20 minutes.
 
 > [!WARNING]
 > Take the firmware-partition backup **once**, on a player that has never had ProkBox installed. Never run it again on an installed player: that would overwrite the good backup with a copy of the ProkBox start-up program, and restoring it later would put ProkBox back instead of Apple's software. Put a date in the name and keep the file somewhere safe, one per player.
@@ -132,4 +132,4 @@ The first time you start, and again after each new version, you see a short noti
 Then you see the main menu. Move with the wheel, press **Select** to choose, and press **Menu** to go back.
 
 ![First-start notice](../images/getting-started-legal-notice.png)
-<!-- screenshot: scripts/shots.sh tests/ui/ipodui-legal-notice.script -->
+<!-- screenshot: scripts/docs_shots.sh; generator in tests/ui/docs/images.tsv -->

@@ -1,4 +1,5 @@
 #!/usr/bin/perl
+# Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
 #             __________               __   ___.
 #   Open      \______   \ ____   ____ |  | _\_ |__   _______  ___
 #   Source     |       _//  _ \_/ ___\|  |/ /| __ \ /  _ \  \/  /
@@ -100,7 +101,16 @@ printf O ("Manufacturer: %s\n", $ENV{'MANUFACTURER'});
 
 # Variables identifying Rockbox and bootloader properties. Possibly changing
 # every software upgrade.
-printf O ("Version: %s", `$ENV{TOOLSDIR}/version.sh $ENV{ROOTDIR}`);
+# ProkBox5g: the release version from git tags (scripts/version.sh, VERSION
+# overrides as in tools/version.sh); the Rockbox build id stays on its own line
+if (-x "$ENV{ROOTDIR}/scripts/version.sh") {
+    my $pv = (defined $ENV{VERSION} && $ENV{VERSION} ne "") ? $ENV{VERSION} : `$ENV{ROOTDIR}/scripts/version.sh $ENV{ROOTDIR}`;
+    $pv =~ s/\s+$//;
+    printf O ("Version: %s\n", $pv ne '' ? $pv : 'unknown');
+    printf O ("Build: %s", `$ENV{TOOLSDIR}/version.sh $ENV{ROOTDIR}`);
+} else {
+    printf O ("Version: %s", `$ENV{TOOLSDIR}/version.sh $ENV{ROOTDIR}`);
+}
 printf O ("Binary: %s\n", $ENV{'BINARY'});
 printf O ("Binary size: %s\n", filesize($ENV{'BINARY'}));
 printf O ("Voice format: %s\n", definescan("$ENV{APPSDIR}/talk.h", "VOICE_VERSION"));

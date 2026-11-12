@@ -248,6 +248,7 @@ tagcache_search
 tagcache_search_ctx
 tagcache_search_finish
 tagcache_ui_busy
+tagcache_ui_library_busy
 tagcache_ui_commitid
 tagcache_ui_commitid_ctx
 tagcache_ui_count

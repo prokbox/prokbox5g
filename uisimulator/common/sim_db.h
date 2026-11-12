@@ -70,6 +70,13 @@ int  sim_db_generation(void);
 /* The --ipodui shell's Music menu shows "Updating Library..." (its
  * lib_state() is LIB_UPDATING); false in other builds */
 bool sim_db_lib_updating(void);
+/* The library is idle after the boot: the boot check is done, a scan has
+ * ended, and nothing of the library runs or is owed (a scan, a commit, a
+ * reload, a candidate's load and lists: tagcache_ui_library_busy()), the
+ * active generation published. One sample: wait_db_settled requires it to
+ * hold through a quiet period (no tagcache.c accessor says "no candidate"
+ * directly). True in builds without the shell's cache */
+bool sim_db_settled(void);
 /* The active library generation's number (changes at a publication or a
  * reload), busy or not; -1 in builds without the shell's cache */
 int  sim_db_active_generation(void);

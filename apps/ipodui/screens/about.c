@@ -72,6 +72,7 @@
 #include "button.h"
 #include "settings.h"
 #include "version.h"
+#include "ipodui/prodver.h"
 #include "ipodui/anim.h"
 #include "ipodui/theme.h"
 #include "ipodui/paint.h"
@@ -135,6 +136,8 @@ extern const char *sim_script_file;     /* sim_script.c */
 #define P2_VALUE_R  302
 #define P3_LABEL    28
 #define P3_VALUE    190
+#define P3_RIGHT    (LCD_WIDTH - P3_LABEL / 2)  /* right margin for a value */
+#define P3_GAP      12                          /* label to a slid-left value */
 /* page 4: its wrapped line, in the title font, ending on the last row */
 #define P4_TEXT_W   (LCD_WIDTH - 2 * P3_LABEL)
 #define P4_TEXT_BASE (ROW_BASE + 3 * ROW_PITCH)
@@ -408,13 +411,33 @@ static const char *build_id(char *buf, size_t size)
     return buf;
 }
 
+/* Where a page-3 value starts. The page has no selectable rows (the wheel
+ * does nothing here, as on the 7G), so a long value cannot marquee: it keeps
+ * the usual column when it fits, else slides left to end at the right margin
+ * (a dev version such as "ProkBox5g 0.8.3-dev.22"), never into its own label. */
+static int value_x(int label_lang, const char *value)
+{
+    int w = 0, lw = 0, h, x = P3_VALUE;
+
+    font_getstringsize((const unsigned char *)value, &w, &h, ui_theme->font_ui);
+    if (x + w > P3_RIGHT)
+    {
+        font_getstringsize((const unsigned char *)str(label_lang), &lw, &h,
+                           ui_theme->font_ui);
+        x = P3_RIGHT - w;
+        if (x < P3_LABEL + lw + P3_GAP)
+            x = P3_LABEL + lw + P3_GAP;
+    }
+    return x;
+}
+
 static void page_device(void)
 {
-    char build[32];
+    char build[32], vers[64];
     const struct { short lang; const char *value; } rows[] = {
         { LANG_IPODUI_SERIAL_NUMBER, (const char *)global_settings.ipodui_serial },
         { LANG_IPODUI_MODEL, (const char *)global_settings.ipodui_model },
-        { LANG_IPODUI_VERSION, str(LANG_IPODUI_VERSION_STRING) },
+        { LANG_IPODUI_VERSION, ipodui_version_string(vers, sizeof(vers), false) },
         { LANG_IPODUI_BUILD, build_id(build, sizeof(build)) },
     };
     int i, row = 0;
@@ -426,7 +449,8 @@ static void page_device(void)
         if (!rows[i].value || !rows[i].value[0])
             continue;                   /* no value: no row (D1) */
         text_at(ui_theme->font_ui, P3_LABEL, base, -1, str(rows[i].lang));
-        text_at(ui_theme->font_ui, P3_VALUE, base, -1, rows[i].value);
+        text_at(ui_theme->font_ui, value_x(rows[i].lang, rows[i].value),
+                base, -1, rows[i].value);
         row++;
     }
 }

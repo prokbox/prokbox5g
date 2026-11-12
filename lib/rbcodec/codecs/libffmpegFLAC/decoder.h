@@ -1,3 +1,4 @@
+/* Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md. */
 #ifndef _FLAC_DECODER_H
 #define _FLAC_DECODER_H
 
@@ -5,7 +6,9 @@
 
 #define MAX_CHANNELS   7      /* Maximum supported channels, only left/right will be played back */
 #ifndef MAX_BLOCKSIZE
-#define MAX_BLOCKSIZE  4608   /* Maxsize in samples of one uncompressed frame */
+#define MAX_BLOCKSIZE  4608   /* Samples per channel of flac.c's static buffers;
+                                 larger blocks (to 65535) get buffers from
+                                 codec_malloc() */
 #endif
 #define MAX_FRAMESIZE  65536  /* Maxsize in bytes of one compressed frame */
 #define MIN_FRAME_SIZE 11     /* smallest valid FLAC frame possible */

@@ -1,0 +1,48 @@
+# #278 stopgap: while a track above 48 kHz plays, the UI holds one
+# counted boost (np_playback.c, np_hires_sync()): on at play, off at a
+# pause, on again at the resume, off at the change to a 44.1 kHz track,
+# on for a 96 kHz track again, off before the USB session (no boost
+# through a USB session). Every "on" has its "off" by the end.
+# fixtures/rate96k.flac: 5 s of silence, 96 kHz mono FLAC (ffmpeg
+# anullsrc).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-hires-boost.script
+# needs: library
+# golden: skip
+# fulls-extra: 2
+# timeout: 200
+# logbetween: h0 h1 np hires boost on rate=96000
+# logbetween: h1 h2 np hires boost off rate=96000
+# logbetween: h2 h3 np hires boost on rate=96000
+# logbetween: h3 h4 np hires boost off rate=96000
+# logbetween: h4 h5 np hires boost on rate=96000
+# logbetween: h5 h6 np hires boost off rate=96000
+# logbetween: h6 end no np hires boost on
+
+wait 4000
+copy fixtures/rate96k.flac /Music/rate96k.flac
+wait 500
+ab_mark h0
+play_files /Music/rate96k.flac /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait 1500
+expect_playing 1000
+ab_mark h1
+key PLAY                # pause
+wait 1000
+ab_mark h2
+key PLAY                # resume
+wait 1000
+ab_mark h3
+wait 7000               # the 96 kHz track ends: the 44.1 kHz one plays
+expect_playing 1000
+ab_mark h4
+play_files /Music/rate96k.flac
+wait 1500
+ab_mark h5
+usb_connect
+wait 2500
+ab_mark h6
+usb_disconnect
+wait 3000
+shot end
+rm_file /Music/rate96k.flac
+quit

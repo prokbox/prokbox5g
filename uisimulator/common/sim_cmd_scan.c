@@ -52,6 +52,31 @@ int sim_scan_slow_now(void)
     scan_slow_left -= ms;
     return (int)(ms / 10);                  /* HZ 100: ticks */
 }
+/* #276: "scan_begin_delay <ms> [n]" (sim_script.c): each of the next n
+ * (default 1) owed scans (an update's read-only probe, then the scan it
+ * hands over to) begins that long after the tagcache thread first finds
+ * it owed (the device's handover after an unplug: "usb hand last
+ * tagcache@180", and a busy CPU later still), so the moments between
+ * "owed" and "begun" can be seen; 0: off */
+long sim_scan_begin_delay_ms;
+int sim_scan_begin_delay_n;
+int sim_scan_begin_held(long now_ms);
+int sim_scan_begin_held(long now_ms)
+{
+    static long first = -1;
+
+    if (sim_scan_begin_delay_ms <= 0 || sim_scan_begin_delay_n <= 0)
+        return 0;
+    if (first < 0)
+        first = now_ms;
+    if (now_ms - first < sim_scan_begin_delay_ms)
+        return 1;
+    first = -1;
+    if (--sim_scan_begin_delay_n <= 0)
+        sim_scan_begin_delay_ms = 0;
+    return 0;
+}
+
 unsigned long sim_scan_us(void)
 {
     struct timespec t;

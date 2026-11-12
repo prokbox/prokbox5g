@@ -1,3 +1,5 @@
 # site/
 
 Source of the ProkBox5g site, https://prokbox.github.io/prokbox5g/, built by `.github/workflows/pages.yml` with Hugo (`site/hugo.toml`, our own layouts, content from `docs/user/`, built by `scripts/docs_build.sh`). Page plan: `docs/release-plan.md` section 3.4; content workstream #129. Our own words and our own screenshots only (CLAUDE.md rule 2), the short disclaimer from `docs/legal.md` section 2 on every page.
+
+**Versions (2026-11-12).** The site is versioned: `scripts/docs_versions.py` builds every release tag into `X.Y.Z/` with that tag's own `site/` (an old release keeps its own look and text), the newest release again at the root, and `dev/` for unreleased work. `site/versions/` holds what every version shares: the picker (`picker.js`, `picker.css`, copied to `_versions/` and linked from every page by the build) and `skip.tsv`, the reviewed list of tags left out. The picker reads the root `versions.json`, so old folders never need rebuilding to list newer releases. Preview locally: `python3 scripts/docs_versions.py --out build/site-versions` (add `--pdf`, `--search` when Chromium and Pagefind are installed).

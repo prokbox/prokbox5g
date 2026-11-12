@@ -1,0 +1,42 @@
+# #276 (owner, 2026-11-10): library building takes utter priority. An
+# art pass already decoding (a cold art cache, every album a decode, the
+# decodes as slow as on the ARM: art_decode_spin) when a library update
+# begins yields at its next decoder yield point and resumes once the
+# library is ready; nothing of the art runs meanwhile. "art libwork" is
+# the sim's own check: the builder did a unit of work while the library
+# was being built, past the half second a unit under way may take to
+# reach its next yield point. Red on 09791e053f (with the check): the
+# album under way decoded on through the update.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-libfirst-scan.script
+# needs: library
+# golden: skip
+# timeout: 500
+# nolog: art libwork
+# nolog: art fail
+# logbetween: s0 s1 art build album key=
+# logbetween: s1 s2 art yield lib at=
+# logbetween: s2 s3 art build done albums=
+
+wait 3000
+wait_db 60000
+art_wait 120000
+wait 2500
+rm_file /.rockbox/artcache/index.dat    # the art made again from nothing
+rm_file /.rockbox/artcache/index.prev
+rm_file /.rockbox/artcache/index.tmp
+rm_file /.rockbox/artcache/thumbs.pak
+art_decode_spin 3000    # 3 ms of decode between yield points (the ARM)
+ab_mark s0
+art_request
+wait 4000               # the pass is decoding albums
+ab_mark s1
+scan_slow 3             # every folder 30 ms: the update lasts seconds
+update_db_wait 60000    # a library update, the art pass mid-album
+scan_slow 0
+wait 1000
+ab_mark s2
+art_decode_spin 0
+art_wait 180000         # the art after the library, every album
+ab_mark s3
+shot end
+quit

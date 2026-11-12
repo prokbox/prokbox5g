@@ -81,7 +81,7 @@
  * any new functions "waiting" at the end of the list.
  */
 #ifdef HAVE_IPOD_UI
-#define CODEC_API_VERSION 51    /* ProkBox P19 19-1c: cop_assist */
+#define CODEC_API_VERSION 52    /* ProkBox #281: ui_log (51: cop_assist) */
 #else
 #define CODEC_API_VERSION 50
 #endif
@@ -237,6 +237,11 @@ struct codec_api {
        the CPU (a video's soundtrack, a COP that would not start, the
        developer CPU arm) */
     bool cop_assist;
+    /* ProkBox #281: one line in the shell's log, "<tag> <text>" (a codec
+       says why it refused a stream). Either core: a call on the COP is
+       carried to the CPU (codec_cop.c) */
+    void (*ui_log)(const char *tag, const char *fmt, ...)
+        ATTRIBUTE_PRINTF(2, 3);
 #endif
 };
 

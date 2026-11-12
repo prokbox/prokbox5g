@@ -165,18 +165,19 @@ static int step_of(const struct upd *u)
 {
     if (u->power)
         return LANG_IPODUI_LIB_STEP_POWER;
+    /* #276: after an unplug too, each step in its own words */
     switch (u->phase)
     {
         case PH_WALK:
             return u->mode == MODE_BOOT ? LANG_IPODUI_LIB_STEP_ADD
-                                        : LANG_IPODUI_UPD_LIBRARY;
+                                        : LANG_IPODUI_UPD_STEP_SONGS;
         case PH_COMMIT:
             return LANG_IPODUI_LIB_STEP_SORT;
         case PH_JOBS:
             return LANG_IPODUI_LIB_STEP_FINISH;
         default:            /* nothing yet, the count, a probe */
             return u->mode == MODE_BOOT ? LANG_IPODUI_LIB_STEP_FIND
-                                        : LANG_IPODUI_UPD_LIBRARY;
+                                        : LANG_IPODUI_UPD_STEP_CHECK;
     }
 }
 
@@ -187,11 +188,32 @@ static unsigned mix(unsigned c0, unsigned c1, int j, int n)
     return ui_paint_blend(c0, c1, n > 1 ? j * 15 / (n - 1) : 0);
 }
 
+/* #276: the sign of life. A soft light (SHEEN_W wide, strongest at its
+ * middle) travels along the bar once every SHEEN_TICKS while work runs,
+ * so no step looks frozen however long it lasts; brighter over the fill
+ * than over the track. None while the build waits for power (nothing
+ * runs: the step line says why) and none once full. */
+#define SHEEN_W     48
+#define SHEEN_TICKS (2 * HZ)
+#define SHEEN_FILL  7                   /* the peak, 4-bit: over the fill */
+#define SHEEN_TRACK 4                   /* over the track */
+
+/* the light's alpha (4-bit) at bar column x; centre: its middle's column */
+static int sheen_at(int x, int centre)
+{
+    int d = x - centre;
+
+    if (d < 0)
+        d = -d;
+    return d >= SHEEN_W / 2 ? 0 : 16 - d * 32 / SHEEN_W;   /* 16 .. 1 */
+}
+
 /* The rounded bar: a dark recessed track, the light glossy fill over its
  * first 'fill' columns (a square right end, as the 7G's). Rows straight
  * into the framebuffer over the body the caller drew; the round ends get
- * one blended pixel of coverage (4-bit). */
-static void draw_bar(int fill)
+ * one blended pixel of coverage (4-bit). 'sheen': the travelling light's
+ * middle column (SHEEN_W / 2 beyond either end: none shows). */
+static void draw_bar(int fill, int sheen)
 {
     const unsigned t_top = LCD_RGBPACK(18, 22, 31),
                    t_bot = LCD_RGBPACK(58, 66, 82),
@@ -222,6 +244,12 @@ static void draw_bar(int fill)
                    : 0;
             int d2 = ex * ex + dy * dy, a;
             unsigned c = x < fill ? fc : tc;
+            int l = sheen_at(x, sheen);
+
+            if (l)
+                c = ui_paint_blend(c, LCD_WHITE,
+                                   l * (x < fill ? SHEEN_FILL
+                                                 : SHEEN_TRACK) / 16);
 
             if (ex && d2 >= r2)
             {
@@ -253,15 +281,28 @@ static void draw_text(int y_base, int font, unsigned colour, const char *s)
     lcd_set_viewport(NULL);
 }
 
+/* the travelling light's middle column now (off the bar: none) */
+static int sheen_pos(const struct upd *u)
+{
+    long t;
+
+    if (u->power || u->done)
+        return -BAR_W;
+    t = (current_tick - u->t0) % SHEEN_TICKS;
+    return (int)(t * (BAR_W + SHEEN_W) / SHEEN_TICKS) - SHEEN_W / 2;
+}
+
 static void draw_band(struct upd *u)
 {
     ui_dark_body(BAND_Y, BAND_H);
-    draw_bar((int)((long)BAR_W * u->val / 1000));
+    draw_bar((int)((long)BAR_W * u->val / 1000), sheen_pos(u));
     draw_text(STEP_BASE, ui_theme->font_small, LCD_RGBPACK(206, 212, 222),
               str(step_of(u)));
     if (u->drawn > u->val)
         UPDATE_TRACE("upd bar back %d %d", u->drawn, u->val);
-    UPDATE_TRACE("upd draw bar=%d step=%d", u->val, step_id(u));
+    /* the light's own frames are not traced (8 a second) */
+    if (u->val != u->drawn || step_id(u) != u->step)
+        UPDATE_TRACE("upd draw bar=%d step=%d", u->val, step_id(u));
     u->drawn = u->val;
     u->step = (signed char)step_id(u);
 }
@@ -470,6 +511,8 @@ static int upd_tick(struct ui_screen *s)
     /* a gap between phases keeps the last phase (and its words) */
     if (u->val != u->drawn || step_id(u) != u->step)
         ui_invalidate_band(BAND_Y, BAND_H);
+    else if (!u->power)
+        ui_invalidate_band(BAR_Y, BAR_H);   /* #276: the light moves on */
     return STEP_TICKS;
 }
 

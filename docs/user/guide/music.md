@@ -16,7 +16,7 @@ Choose **Music** on the main menu. You will see these lists:
 Turn the wheel to move, press **Select** to open something, and **Menu** to go back. In a long list, spin the wheel fast and a big letter appears so you can jump to that part of the alphabet. A small speaker mark on the right shows which song is playing.
 
 ![Music menu](../images/music-music-menu.png)
-<!-- screenshot: scripts/shots.sh tests/ui/ipodui-nav-panels.script -->
+<!-- screenshot: scripts/docs_shots.sh; generator in tests/ui/docs/images.tsv -->
 
 **Search:** pick **Search**, then use the wheel to choose letters. Results appear as you type.
 
@@ -27,7 +27,7 @@ Turn the wheel to move, press **Select** to open something, and **Menu** to go b
 Start a song and you land on **Now Playing**. It shows the cover, title, artist, album, how far through the song you are, and the time left.
 
 ![Now Playing](../images/music-now-playing.png)
-<!-- screenshot: scripts/shots.sh tests/ui/ipodui-p5-rating.script -->
+<!-- screenshot: scripts/docs_shots.sh; generator in tests/ui/docs/images.tsv -->
 
 - **Wheel:** volume.
 - **Play/Pause:** pause and resume.
@@ -53,7 +53,7 @@ The visualiser fills the screen with moving pictures that follow the music. To u
 - **Leave:** press **Select**.
 
 ![Visualiser](../images/music-visualiser.png)
-<!-- screenshot: scripts/shots.sh tests/ui/ipodui-p19-viz.script -->
+<!-- screenshot: scripts/docs_shots.sh; generator in tests/ui/docs/images.tsv -->
 
 Showing the visualiser uses more battery than normal playing, because the screen stays on.
 
@@ -68,6 +68,8 @@ An On-The-Go playlist is one you build on the player itself.
 1. Find a song and press and hold **Select** on it (or on Now Playing). A menu opens.
 2. Choose **Add to On-The-Go**.
 3. Open **Music › Playlists › On-The-Go** to play or look at your list.
+
+Playlist files (.m3u or .m3u8) that you copy into a folder named **Playlists** at the top level of the player also appear in **Music › Playlists**.
 
 The same hold menu also has **Browse Album** and **Browse Artist**, to jump straight to the rest of that album or artist, and **Cancel**.
 

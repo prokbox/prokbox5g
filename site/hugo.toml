@@ -9,8 +9,9 @@ enableRobotsTXT = false
 
 [params]
   description = "Free, open-source firmware for the iPod Video (5th generation and 5.5)."
-  # the latest published release (the PDF cover and the home page badge)
-  version = "0.8.0"
+  # a dev default only: the real version comes from scripts/version.sh via scripts/docs_build.sh;
+  # release_docs.py refuses a hand-typed release number here
+  version = "dev"
   repo = "https://github.com/prokbox/prokbox5g"
   releases = "https://github.com/prokbox/prokbox5g/releases"
   contact = "prokbox.project@gmail.com"

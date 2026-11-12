@@ -20,21 +20,11 @@ features:
 
 Get the latest release from the [releases page]({{< param releases >}}). There are eight downloads, one for each combination of stock or modded hardware, hard drive or flash, and 32 or 64 MB of memory. Each release also carries ready-to-run copies of the install tool for macOS, Windows and Linux (`ProkBox5g-<version>-ipodpatcher-macos-universal`, `-windows-x86_64.exe` and `-linux-x86_64`), and a `SHA256SUMS` file to check them against.
 
-In 0.8.0 only the flash-modded, 64 MB, USB-C-and-haptics player has been tested on real hardware. The other seven downloads are untested. [Getting started](guide/getting-started.md) shows how to choose and install.
+In 0.8.2 only the flash-modded, 64 MB, USB-C-and-haptics player has been tested on real hardware. The other seven downloads are untested. [Getting started](guide/getting-started.md) shows how to choose and install.
 
-## The road to 1.0
+{{< swimlane >}}
 
-**0.8**, the first pre-release: music, audiobooks, drag-and-drop over USB, basic video and a music visualiser. Later 0.8 updates add Photos and wider hardware testing.
-
-**1.0**, the finish line:
-
-- **Album Flow**, a browser that flips through your albums' cover art;
-- **sleep and hibernation**, so the iPod wakes instantly and rarely needs a full shut-off;
-- a **games SDK** for richer games;
-- public, tested **hardware references** for the iPod Video's main processor (PP5022) and video processor (BCM2722);
-- complete user and technical documentation.
-
-**After 1.0**, in no particular order (not a priority list, and no dates): smart playlists (Top 25 Most Played, Favourites), Smart Mixes, dark mode, a warm screen filter for night use, custom EQ, more languages, faster library updates after you copy music on, a companion app, soft subtitles for video, easier use of very large flash cards on Macs, one download for flash and hard-drive iPods, USB extras (maybe), our own install and recovery, and more games.
+How does ProkBox5g compare with the original software and with Rockbox? See [Features](features.md).
 
 **Giving back:** once ProkBox5g is stable at 1.2, we'll start sending fixes and improvements back to [Rockbox](https://www.rockbox.org/), the project this is built on.
 

@@ -74,6 +74,7 @@
 #include "tagcache.h"
 #include "logf.h"
 #include "ipodui/anim.h"        /* UPDATE_TRACE */
+#include "ipodui/uilog.h"       /* ui_log (#278) */
 #include "ipodui/artcache.h"
 #include "ipodui/vlimit.h"
 #include "ipodui/volcurve.h"
@@ -137,12 +138,68 @@ static int book_q_of(const struct mp3entry *id3)
     return -1;
 }
 
+/* --- #278 stopgap: hi-res playback held at full speed ------------------- *
+ * A track above 48 kHz (88.2, 96, 176.4, 192) decodes and resamples at
+ * 2-4x the work of a 44.1 kHz one; on the owner's unit 24/192 starved at
+ * the default clock. While such a track plays (not paused, not stopped)
+ * the UI holds one counted boost, its single owner: every take and give
+ * is np_hires_sync() (UI thread only), so it is one at most. Given back
+ * at a track change to a lower rate, a pause, a stop, before a sleep's
+ * entry (power_sleep() refuses a held boost) and before the USB handler
+ * (no boost through a USB session: ui_upd_yield()'s pattern), taken
+ * again after. Looked at every UI pass (np_hires_poll(), cheap reads);
+ * a track change or a pause posts a UI wake. Device log: "np hires
+ * boost on|off rate= why=". A resume without a key (an accessory) is
+ * seen at the next UI pass (a minute at most, dark). */
+#define HIRES_MIN_HZ 48000
+static bool hires_held;
+static bool hires_yield;
+static unsigned long hires_rate;
+
+static void np_hires_sync(const char *why)
+{
+    int st = audio_status();
+    unsigned long rate = 0;
+    bool want;
+
+    if ((st & AUDIO_STATUS_PLAY) && !(st & AUDIO_STATUS_PAUSE))
+    {
+        struct mp3entry *id3 = audio_current_track();
+
+        if (id3)
+            rate = id3->frequency;
+    }
+    want = rate > HIRES_MIN_HZ && !hires_yield;
+    if (want == hires_held)
+        return;
+    hires_held = want;
+    if (want)
+        hires_rate = rate;
+    cpu_boost(want);
+    ui_log("np", "hires boost %s rate=%lu why=%s", want ? "on" : "off",
+           hires_rate, why);
+    UPDATE_TRACE("np hires boost %s rate=%lu why=%s", want ? "on" : "off",
+                 hires_rate, why);
+}
+
+void np_hires_poll(void)
+{
+    np_hires_sync("pass");
+}
+
+void np_hires_yield(bool yield, const char *why)
+{
+    hires_yield = yield;
+    np_hires_sync(why);
+}
+
 static void track_changed(unsigned short id, void *data)
 {
     struct track_event *te = data;
     struct ab_rec r;
 
     (void)id;
+    post_wake();                /* #278: the hi-res hold looks again */
     pb_track++;
     pb_seq += 2;                /* stays even (odd only inside a rewrite) */
     track_seq = pb_seq;
@@ -183,6 +240,7 @@ static void stop_or_pause(unsigned short id, void *data)
     struct ab_rec r;
 
     (void)id; (void)data;
+    post_wake();                /* #278: the hi-res hold looks again */
     if (!(audio_status() & AUDIO_STATUS_PLAY))
     {
         /* stopped (a queue or book that ended, or a stop): a seq move so
