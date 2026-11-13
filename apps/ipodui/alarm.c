@@ -54,6 +54,7 @@ unsigned int piezo_hz(unsigned int hz);
 #include "ipodui/unlit.h"
 #include "ipodui/usbscreen.h"
 #include "ipodui/xindex.h"
+#include "ipodui/fe_be.h"     /* #345: fe_audio_pause_sure() */
 
 #define ALARMS_DIR  ROCKBOX_DIR "/ipodui"
 #define ALARMS_DAT  ALARMS_DIR "/alarms.dat"
@@ -412,9 +413,7 @@ bool alarm_take_light(void)
 static void ring_show(void)
 {
     ring.usb = false;
-    if ((audio_status() & (AUDIO_STATUS_PLAY | AUDIO_STATUS_PAUSE))
-        == AUDIO_STATUS_PLAY)
-        audio_pause();                  /* Q6: paused, its spot kept */
+    fe_audio_pause_sure();              /* Q6: paused, its spot kept */
     ring_light(true);
     /* Hold on keeps the unlit face up whatever the light does (#65); the
      * ring goes over it. The face's own "leave without a key" event. */
@@ -675,9 +674,7 @@ bool alarm_blocks_poweroff(void)
 
 void alarm_dark_wait(void)
 {
-    if ((audio_status() & (AUDIO_STATUS_PLAY | AUDIO_STATUS_PAUSE))
-        == AUDIO_STATUS_PLAY)
-        audio_pause();
+    fe_audio_pause_sure();              /* #345: a posted press too */
     ui_log("alarm", "darkwait next=%lu", (unsigned long)next_rtc);
     ui_unlit_suppress_next();           /* dark, not the unlit face */
     backlight_off();

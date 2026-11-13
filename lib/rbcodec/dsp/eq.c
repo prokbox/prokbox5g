@@ -8,6 +8,7 @@
  *
  * Copyright (C) 2006-2007 Thom Johansen
  * Copyright (C) 2012 Michael Sevakis
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -104,13 +105,33 @@ static void update_samplerate(unsigned int fout)
 /** DSP interface **/
 
 /* Set the precut gain value */
+static void dsp_set_eq_precut_locked(int precut);
+
+/* ProkBox #282 step 4: under the DSP's cross-core lock (dsp_core.c) */
 void dsp_set_eq_precut(int precut)
+{
+    dsp_xcore_lock();
+    dsp_set_eq_precut_locked(precut);
+    dsp_xcore_unlock();
+}
+
+static void dsp_set_eq_precut_locked(int precut)
 {
     pga_set_gain(PGA_EQ_PRECUT, get_replaygain_int(precut * -10));
 }
 
 /* Update the filter configuration for the band */
+static void dsp_set_eq_coefs_locked(int band, const struct eq_band_setting *setting);
+
+/* ProkBox #282 step 4: under the DSP's cross-core lock (dsp_core.c) */
 void dsp_set_eq_coefs(int band, const struct eq_band_setting *setting)
+{
+    dsp_xcore_lock();
+    dsp_set_eq_coefs_locked(band, setting);
+    dsp_xcore_unlock();
+}
+
+static void dsp_set_eq_coefs_locked(int band, const struct eq_band_setting *setting)
 {
     if (band < 0 || band >= EQ_NUM_BANDS)
         return;
@@ -153,7 +174,17 @@ void dsp_set_eq_coefs(int band, const struct eq_band_setting *setting)
 }
 
 /* Enable or disable the equalizer */
+static void dsp_eq_enable_locked(bool enable);
+
+/* ProkBox #282 step 4: under the DSP's cross-core lock (dsp_core.c) */
 void dsp_eq_enable(bool enable)
+{
+    dsp_xcore_lock();
+    dsp_eq_enable_locked(enable);
+    dsp_xcore_unlock();
+}
+
+static void dsp_eq_enable_locked(bool enable)
 {
     struct dsp_config *dsp = dsp_get_config(CODEC_IDX_AUDIO);
     bool enabled = dsp_proc_enabled(dsp, DSP_PROC_EQUALIZER);

@@ -159,6 +159,17 @@ bool fe_be_is_service_thread(void);
  * is the split-off ui thread, which must ask be_svc instead */
 bool fe_be_route(void);
 
+/* #345: audio_status() as the shell shows it: a PLAY press posted
+ * (BE_AUDIO_PAUSE / BE_AUDIO_RESUME, audio_pause_post()) reads as done at
+ * once, while the queue plays, until the audio thread takes it. The
+ * header's icon and PLAY's toggle read this; anything that needs the
+ * pause in effect uses fe_audio_pause_sure() */
+int fe_audio_status(void);
+/* #345: pauses a playing queue and returns once it is paused, a posted
+ * press still queued included (sleep, the alarm, the charging sleep):
+ * the wait runs behind it, so a posted resume never lands later */
+void fe_audio_pause_sure(void);
+
 /* the shell's wrappers (one per family; call sites stay readable) */
 static inline int fe_settings_save(void)
 {

@@ -76,11 +76,26 @@ static struct dac_stats dac_state WM_XBSS;
 static unsigned short pwr_reg[3] WM_XBSS;       /* PWRMGMT1..3 as last requested */
 static unsigned short dacctrl_reg WM_XDATA = DACCTRL_SOFTMUTE;
 static unsigned short addctrl_reg WM_XBSS;      /* without M128ENB */
+/* #265: ADDCTRL M128ENB (the DSP at full rate) has two users: the EQ while
+ * band 4 has a gain (dac_eq_set()), and the 3D stage while it has a depth
+ * (dac_set_width3d() through dac_eq_set_m128()).  The bit is their OR, in
+ * dac_state.m128; audiohw_set_frequency() writes it back from there */
+static bool dac_m128_eq WM_XBSS, dac_m128_3d WM_XBSS;
+#ifdef HAVE_HIRATE_OUT
+/* p083-dacosr64 (experimental, the 96 kHz clicks): R10 DACOSR follows the
+ * rate.  At 88.2/96 kHz SYSCLK runs at 1.84/2.00x the codec's 12.288 MHz
+ * rating (#228), so the DAC's interpolation filter runs at 64x (DACOSR 0),
+ * half the work per sample; 128x (DACOSR 1, upstream's choice) at 48 kHz
+ * and below.  Set by audiohw_set_frequency() only, under dac_mtx */
+static bool dac_osr64 WM_XBSS;
+#endif
 /* EQ1..EQ5 as written; 0xffff: unknown, so the first dac_eq_set() writes
  * all five */
 static unsigned short eq_reg[DAC_EQ_BANDS] WM_XDATA =
     { 0xffff, 0xffff, 0xffff, 0xffff, 0xffff };
-static int dac_precut WM_XBSS;                  /* whole dB, 0..12 */
+static int dac_precut WM_XBSS;                  /* whole dB, 0..12: applied */
+static int dac_eq_precut WM_XBSS;               /* 0.8.3: the EQ's share */
+static int dac_width_cut WM_XBSS;               /* 0.8.3: the 3D's share */
 static int dac_vol_l WM_XBSS, dac_vol_r WM_XBSS;        /* LDACVOL/RDACVOL before precut */
 /* hardware Sound Check: the volume as requested (tenth dB) and the trim */
 static int dac_req_l WM_XDATA = DAC_GAIN_MUTE, dac_req_r WM_XDATA = DAC_GAIN_MUTE;
@@ -205,12 +220,22 @@ static void get_volume_params(int db, int *dac, int *amp)
     }
 }
 
+/* R10 while playing: the oversampling rate for the current rate */
+static unsigned short dacctrl_play(void)
+{
+#ifdef HAVE_HIRATE_OUT
+    return dac_osr64 ? 0 : DACCTRL_DACOSR128;
+#else
+    return DACCTRL_DACOSR128;
+#endif
+}
+
 static void audiohw_mute(bool mute)
 {
     if (mute) {
         wm_write(DACCTRL, DACCTRL_SOFTMUTE);
     } else {
-        wm_write(DACCTRL, DACCTRL_DACOSR128);
+        wm_write(DACCTRL, dacctrl_play());
     }
 }
 
@@ -429,6 +454,13 @@ void audiohw_set_frequency(int fsel)
      */
     static const unsigned char freq_setups[HW_NUM_FREQ] =
     {
+#ifdef HAVE_HIRATE_OUT
+        /* ProkBox #270: OUT OF SPEC, the family's PLL with MCLKDIV 1, so
+           SYSCLK is 2x the codec's 12.288 MHz rating (b11 hr96's R6 0x105,
+           R7 SR 000); only after the per-unit self-test (audiophile.c) */
+        [HW_FREQ_96] = CLKCTRL_MCLKDIV_1 | ADDCTRL_SR_48kHz | 1,
+        [HW_FREQ_88] = CLKCTRL_MCLKDIV_1 | ADDCTRL_SR_48kHz,
+#endif
         [HW_FREQ_48] = CLKCTRL_MCLKDIV_2 | ADDCTRL_SR_48kHz | 1,
         [HW_FREQ_44] = CLKCTRL_MCLKDIV_2 | ADDCTRL_SR_48kHz,
         [HW_FREQ_32] = CLKCTRL_MCLKDIV_3 | ADDCTRL_SR_32kHz | 1,
@@ -465,10 +497,22 @@ void audiohw_set_frequency(int fsel)
 
     /* set ADC and DAC filter characteristics according to sample rate */
 #ifdef HAVE_IPOD_UI
-    /* shadowed, so the S1 spike's M128ENB survives a rate change */
+    /* shadowed, so M128ENB (#265: EQ4 or the 3D stage) survives a rate
+     * change */
     mutex_lock(&dac_mtx);
     addctrl_reg = (freq_setups[fsel] & ADDCTRL_SR_MASK) | ADDCTRL_SLOWCLKEN;
     wm_write(ADDCTRL, addctrl_reg | (dac_state.m128 ? ADDCTRL_M128ENB : 0));
+#ifdef HAVE_HIRATE_OUT
+    /* R10's DACOSR for the new rate (see dac_osr64).  Unmuted: written now
+     * (PCM is stopped here); in DAC standby wm_write() keeps it soft-muted
+     * and the wake writes the shadow; muted: the unmute writes it */
+    dac_osr64 = fsel == HW_FREQ_96 || fsel == HW_FREQ_88;
+    if (!(dacctrl_reg & DACCTRL_SOFTMUTE))
+        wm_write(DACCTRL, (dacctrl_reg & ~DACCTRL_DACOSR128) | dacctrl_play());
+    dac_state.osr = dac_osr64 ? 64 : 128;
+    dac_state.rate_hz = hw_freq_sampr[fsel];
+    dac_state.rate_seq++;
+#endif
     mutex_unlock(&dac_mtx);
 #else
     wm_write(ADDCTRL, (freq_setups[fsel] & ADDCTRL_SR_MASK)
@@ -476,6 +520,35 @@ void audiohw_set_frequency(int fsel)
 #endif
     /* SLOWCLK enabled for zero cross timeout to work */
 }
+
+#ifdef HAVE_PCM_24BIT_OUT
+/* ProkBox #268: the audio interface's word length, 16 or 24 bits (I2S
+   format either way; b11 i2s24 [silicon]).  PCM stopped (pcm-pp.c) */
+void audiohw_set_depth(int bits)
+{
+    wm_write(AINTFCE, (bits > 16 ? AINTFCE_IWL_24BIT : AINTFCE_IWL_16BIT)
+                        | AINTFCE_FORMAT_I2S);
+}
+#endif
+
+#ifdef HAVE_IPOD_UI
+/* ProkBox Settings > Audiophile: the codec's 3D stereo enhancement on the
+   DAC path, depth 0 (off) .. 15.  The 3D block needs the 128x
+   oversampling (M128ENB, as the header's note says); it comes on with a
+   depth and goes off with 0.  Thread context (I2C) */
+void dac_set_width3d(int depth)
+{
+    if (depth < 0)
+        depth = 0;
+    if (depth > THREEDCTRL_DEPTH3D_MASK)
+        depth = THREEDCTRL_DEPTH3D_MASK;
+    if (depth)
+        dac_eq_set_m128(true);
+    wm_write(THREEDCTRL, depth);
+    if (!depth)
+        dac_eq_set_m128(false);
+}
+#endif
 
 void audiohw_enable_recording(bool source_mic)
 {
@@ -532,9 +605,23 @@ void audiohw_set_monitor(bool enable)
 #ifdef HAVE_IPOD_UI
 /* dac_ext.h (docs/phase15-brief.md sections 2.1, 3.1, 3.2) */
 
+/* #265: M128ENB from its users' requests; written only when it changes.
+ * Caller holds dac_mtx.  True when it wrote ADDCTRL */
+static bool dac_m128_apply(void)
+{
+    bool on = dac_m128_eq || dac_m128_3d;
+
+    if (on == dac_state.m128)
+        return false;
+    dac_state.m128 = on;
+    wm_write(ADDCTRL, addctrl_reg | (on ? ADDCTRL_M128ENB : 0));
+    return true;
+}
+
 void dac_eq_set(const struct dac_eq_band *band, int precut_db)
 {
     unsigned short regs[DAC_EQ_BANDS];
+    bool m128;
     int i;
 
     if (band)
@@ -564,6 +651,14 @@ void dac_eq_set(const struct dac_eq_band *band, int precut_db)
 
     /* EQ registers keep their values in standby: no wake needed */
     mutex_lock(&dac_mtx);
+    m128 = dac_eq_wants_m128(band);
+    if (m128)
+    {
+        /* #265: the full-rate DSP before EQ4 gets its gain */
+        dac_m128_eq = true;
+        if (dac_m128_apply())
+            dac_state.eq_writes++;
+    }
     for (i = 0; i < DAC_EQ_BANDS; i++)
     {
         if (eq_reg[i] != regs[i])
@@ -574,6 +669,16 @@ void dac_eq_set(const struct dac_eq_band *band, int precut_db)
         }
     }
     dac_state.hw_eq = band != NULL;
+    dac_eq_precut = precut_db;
+    precut_db = MIN(dac_eq_precut + dac_width_cut, 12);   /* 0.8.3 */
+    if (!m128)
+    {
+        /* #265: band 4 flat (or the EQ off): low-power mode again, unless
+         * the 3D stage still needs the full-rate DSP */
+        dac_m128_eq = false;
+        if (dac_m128_apply())
+            dac_state.eq_writes++;
+    }
     if (dac_precut != precut_db)
     {
         dac_precut = precut_db;
@@ -583,11 +688,28 @@ void dac_eq_set(const struct dac_eq_band *band, int precut_db)
     mutex_unlock(&dac_mtx);
 }
 
+/* 0.8.3: the stereo width's share of the precut (dac_ext.h) */
+void dac_set_width_cut(int db)
+{
+    int total;
+
+    db = MIN(MAX(db, 0), 12);
+    mutex_lock(&dac_mtx);
+    dac_width_cut = db;
+    total = MIN(dac_eq_precut + dac_width_cut, 12);
+    if (dac_precut != total)
+    {
+        dac_precut = total;
+        dac_write_vol();
+    }
+    mutex_unlock(&dac_mtx);
+}
+
 void dac_eq_set_m128(bool on)
 {
     mutex_lock(&dac_mtx);
-    dac_state.m128 = on;
-    wm_write(ADDCTRL, addctrl_reg | (on ? ADDCTRL_M128ENB : 0));
+    dac_m128_3d = on;
+    dac_m128_apply();
     mutex_unlock(&dac_mtx);
 }
 
@@ -622,10 +744,13 @@ static void dac_standby_enter(void)
 {
     unsigned short r3 = pwr_reg[2];
 
+    /* #312: the flag before any write, so a PCM start that looks
+     * (dac_in_standby()) after this poll's idle check wakes the codec
+     * once this ends (it waits on dac_mtx) */
+    dac_state.standby = true;
     /* 1. soft mute (PCM has been stopped for DAC_IDLE_MS, so the I2S data
      *    is already silence and no ramp needs waiting for) */
     wm_write_raw(DACCTRL, dacctrl_reg | DACCTRL_SOFTMUTE);
-    dac_state.standby = true;
     /* 2. OUT1 headphone amps off (and OUT2, the line out, if on) */
     wm_write_raw(PWRMGMT2, standby_mask(PWRMGMT2, pwr_reg[1]));
     r3 &= ~(PWRMGMT3_LOUT2EN | PWRMGMT3_ROUT2EN);
@@ -730,6 +855,11 @@ void dac_wake(void)
         dac_standby_wake();
     mutex_unlock(&dac_mtx);
 }
+
+bool dac_in_standby(void)
+{
+    return dac_state.standby;
+}
 #else
 void dac_standby_allow(bool allow)
 {
@@ -752,6 +882,11 @@ bool dac_idle_pending(void)
 
 void dac_wake(void)
 {
+}
+
+bool dac_in_standby(void)
+{
+    return false;
 }
 
 void dac_busy_now(void)

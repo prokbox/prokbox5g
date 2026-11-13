@@ -161,6 +161,11 @@ apps/ipodui/lock_core.c
 apps/ipodui/maint_core.c
 apps/ipodui/modclass.c
 apps/ipodui/notice.c
+# one-build WP3: the battery question, once at first start; the stored
+# answer applied once per boot (the drum, drawn per frame, stays ARM)
+apps/ipodui/battcell.c
+apps/ipodui/battcurve.c
+apps/ipodui/screens/battq.c
 # np_lyrics.c: np_lyrics_wrap() loops per character over at most
 # NP_LYRICS_MAX (8 KB), once per lyrics open (boosted): ~1 ms more at most,
 # against the file read it follows.
@@ -209,11 +214,12 @@ apps/language.c
 # the diagnostics screen (diag.c, above)
 apps/gui/line.c
 # the iAP lingoes: one handler call per dock packet (serial speeds); the
-# serial IRQ and its ring stay in firmware/ and iap-core.c (ARM)
-apps/iap/iap-lingo0.c          # optional: only with --dock30
-apps/iap/iap-lingo2.c          # optional: only with --dock30
-apps/iap/iap-lingo3.c          # optional: only with --dock30
-apps/iap/iap-lingo4.c          # optional: only with --dock30
+# serial IRQ and its ring stay in firmware/ and iap-core.c (ARM). Built
+# on every unit since #236 (iAP resident, dormant until an accessory speaks)
+apps/iap/iap-lingo0.c
+apps/iap/iap-lingo2.c
+apps/iap/iap-lingo3.c
+apps/iap/iap-lingo4.c
 # video: the first-use check, its record, the image files (once per boot
 # or per first play); the player's per-frame code stays ARM
 apps/video/vcheck.c            # optional: only with --bcmfw-video

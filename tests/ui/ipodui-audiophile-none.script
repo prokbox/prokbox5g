@@ -1,0 +1,36 @@
+# #270: the High Sample Rate self-test with both rates failing
+# (PROKBOX_HIRATE_FAULT=test): the result says neither passed and the
+# setting stays Off; turning it on again asks again (the warning), since
+# the stored result has no passing rate.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-audiophile-none.script
+# Starts from an untested unit only (see ipodui-audiophile.script).
+# env: PROKBOX_HIRATE_FAULT=test
+# golden: skip
+# reset: mainmenu
+# log: audiophile test mask=0x80 on=0
+wait 4000
+
+wheel +3 300            # Settings
+wait 400
+key SELECT 50
+wait 1200
+wheel +11 300           # Audiophile
+wait 1000
+key SELECT 50
+wait 1200
+key SELECT 50           # High Sample Rate: the warning
+wait 1000
+wheel -1 300            # Continue
+wait 300
+key SELECT 50
+wait 3800
+shot result_none        # neither passed, stays Off
+key SELECT 50
+wait 1500
+shot menu_off
+key SELECT 50           # asked again
+wait 1200
+shot warning_again
+key MENU 50             # back, Off
+wait 1500
+quit

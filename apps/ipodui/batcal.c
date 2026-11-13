@@ -95,6 +95,7 @@ static long last_write;
 static int nfits;
 static volatile bool writing, fit_due, urgent;
 static bool run_file, dat_dirty, prev_disk;
+static bool booted;                 /* batcal_boot() ran: builtin is set */
 
 static bool charge_ok(void)
 {
@@ -343,6 +344,7 @@ void batcal_boot(void)
     ui_thread = thread_self();
     memcpy(builtin, device_battery_tables.discharge, sizeof(builtin));
     builtin_default = device_battery_tables.isdefault;
+    booted = true;
     load_fits();
     bc_init(&st, disksafe);
     if (load_run())
@@ -426,8 +428,8 @@ void batcal_run_status(char *buf, size_t size)
         strlcpy(buf, "Run: waiting for a full charge", size);
 }
 
-#ifdef HAVE_IPOD_UI_DEVMODE
-void batcal_reset(void)
+/* the learned fits and the open run gone, the seed in use (UI thread) */
+static void forget(void)
 {
     uint32_t seq = st.next_seq;
     int old = disable_irq_save();
@@ -442,8 +444,41 @@ void batcal_reset(void)
     remove(BATCAL_DAT);
     remove(BATCAL_DAT_TMP);
     set_table(builtin, builtin_default);
+}
+
+#ifdef HAVE_IPOD_UI_DEVMODE
+void batcal_reset(void)
+{
+    forget();
     ui_log("batcal", "reset");
 }
 #endif /* HAVE_IPOD_UI_DEVMODE */
+
+void batcal_seed(const unsigned short *t, bool discard)
+{
+    if (!booted)
+    {
+        /* before batcal_boot(): the table batcal_boot() takes as its
+         * seed; a levels file loaded after this replaces it */
+        set_table(t, device_battery_tables.isdefault);
+        return;
+    }
+    if (!builtin_default)
+    {
+        ui_log("batcal", "seed kept: the levels file's table");
+        return;
+    }
+    memcpy(builtin, t, sizeof(builtin));
+    if (discard && (nfits || run_file || (st.h.flags & BC_F_RUN)))
+    {
+        ui_log("batcal", "seed: learned table discarded (fits=%d)", nfits);
+        forget();
+        return;
+    }
+    if (!nfits)
+        set_table(builtin, true);
+    ui_log("batcal", "seed %u %u %u, %s", builtin[0], builtin[5],
+           builtin[10], nfits ? "learned table kept" : "in use");
+}
 
 #endif /* HAVE_BATTERY_LEARN */

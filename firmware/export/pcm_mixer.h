@@ -175,4 +175,15 @@ typedef void (*mixer_tap_fn)(const void *frames, size_t size);
 void mixer_set_tap(mixer_tap_fn fn);
 #endif
 
+#ifdef HAVE_PCM_24BIT_OUT
+/* ProkBox #268: the playback channel's sample format (16 or 24) from the
+ * PCM's next start; a change stops the PCM like a rate change (CPU).
+ * 24: 8-byte frames, two int32 (left first) with the 24 bits at the top
+ * and the low byte 0; the other channels stay 16-bit */
+void mixer_set_depth(int bits);
+int mixer_get_depth(void);
+/* true while the output (and the tap's frames) are 8-byte 24-bit frames */
+bool mixer_output_s24(void);
+#endif
+
 #endif /* PCM_MIXER_H */

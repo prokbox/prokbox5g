@@ -88,8 +88,16 @@ enum
 #endif
     /* -> audio */
     Q_AUDIO_REMAKE_AUDIO_BUFFER, /* buffer needs to be reinitialized */
+#ifdef HAVE_HIRATE_OUT
+    Q_AUDIO_RATE_REPICK,        /* #270: re-pick the output rate (a high
+                                   rate's fallback, the setting changed) */
+#endif
 #ifdef HAVE_IPOD_UI
     Q_AUDIO_GIVE,               /* #88: free bytes for a paused window */
+    Q_AUDIO_TC_KICK,            /* #298: the tick saw the PCM's track
+                                   change notice: wake and scan */
+    Q_AUDIO_FILL_HELD,          /* #326: sleep entry held the fills: a
+                                   fill's boost is given back */
 #endif
 };
 

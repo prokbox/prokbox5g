@@ -129,7 +129,7 @@ When a video can't be played, the player shows a **Can't Play Video** screen wit
 - **Format not supported:** convert the file with the converter and copy it again.
 - **Video too large:** the video is too big or too long. Convert a smaller or shorter version.
 - **File damaged:** the copy may have been interrupted. Copy it again, and eject properly next time.
-- **Video didn't start:** try once more, then convert the file again.
+- **Video didn't start:** the picture or the sound never got going, and the player has stopped the sound for you. Try once more, then convert the file again.
 
 Still stuck? Please tell us, so we can fix it:
 

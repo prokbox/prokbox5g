@@ -32,11 +32,11 @@ One resident image serves the LCD contract, the video protocol and the jobs (`di
 | `0x0D3000–0x0D3FFF` | 4 KB | DMA control blocks | | |
 | `0x0D4000–0x0DBFFF` | 32 KB | `J_CLS_SCRATCH` (the skeleton's old FIFO; the video build reads its FIFO from SDRAM) | DMA staging fallback | game |
 | `0x0DC000–0x0DDFFF` | 8 KB | spare | the scaler's strip | |
-| `0x0DE000–0x0DE07F` | 128 B | **the job block** (`HP_JOBS` points here; `J_BLOCK_SIZE`, 64 B until `J_CUR_OP` at `0x40`) | same | same |
+| `0x0DE000–0x0DE07F` | 128 B | **the job block** (`HP_JOBS` points here; `J_BLOCK_SIZE`, 64 B until `J_CUR_OP` at `0x40`) | same, **except after a developer self-test `OPEN`** (`HP_OPEN_SELFTEST`): its scratch (`video.h` `VIDEO_ST_AREA`, three 64 × 24 areas, `0x0DDE00–0x0DEFFF`) overwrites the block, the slot table, the park stub's and the hibernate stub's places, and the image writes the block again only at its start. [silicon, b12, #325]: the block's `J_LAT_*` words then read the self-test's chroma ramp (`0x72645648`, logged as "22088, 29284"), and the job driver's next discovery failed. The PP restarts the image after such a session (`vpcore.c`); moving the scratch out is an image-batch item | same |
 | `0x0DE080–0x0DE87F` | 2 KB | **the slot table**: 64 × 32 B (reserved: rev 0.1 publishes none, `J_SLOT_TAB` 0) | same | same |
 | `0x0DE880–0x0DE8FF` | 128 B | spare | | |
 | `0x0DE900–0x0DE9FF` | 256 B | the warm swap's park stub (`BCMFW_PARK_STUB`), copied in only to park | same | |
-| `0x0DEA00–0x0DEFFF` | 1.5 KB | **the hibernate stub** (`hibwake.h` `HW_STUB`, 1,072 B today), uploaded by the PP before a hibernate park (`power-contract.md` §6.6; sim only) | the self-test scratch reaches `0x0DF000` (developer) | |
+| `0x0DEA00–0x0DEFFF` | 1.5 KB | **the hibernate stub** (`hibwake.h` `HW_STUB`, 1,072 B today), uploaded by the PP before a hibernate park (`power-contract.md` §6.6; sim only) | the self-test scratch (`0x0DDE00–0x0DEFFF`, developer; see the job block's row) | |
 | `0x0DF000–0x0DF3FF` | 1 KB | spare | the video guard (`0x0DF000`, 240 B) | |
 | `0x0DF400–0x0DF4FF` | 256 B | **the hibernate parameter block** (`HW_PARAM`: regions in, sums and times out) | | |
 | `0x0DF500–0x0DFFFF` | 2.75 KB | spare (the staged merged candidate: the self-test's 508 B snapshot at `0xDF500`, `BCMFW_JOBS_LOW_SNAP`, written only by a developer self-test `OPEN`) | | |

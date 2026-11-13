@@ -31,4 +31,7 @@
 #define DEFAULT_STACK_SIZE 0x1000
 #define PRIORITY_PLAYBACK 16
 #define HZ 100
+#define INIT_ATTR       /* buffering.h (0.8.3 colocate) */
+#define COP_LEASE_MODEL /* codec_cop.c: the lease calls, faked */
+#define HAVE_BCMFW_VIDEO /* codec_cop.c's video guard (0.8.3) */
 #endif

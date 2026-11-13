@@ -36,8 +36,8 @@
 # one boot of tests/perf/floor-settle.script on a clone (or on the
 # disk itself with --in-place). Prints the settled disk's path (SOURCE
 # itself when it is current); the clone lives under build/ and the caller
-# removes it. SETTLE_BUILD picks the simulator (default build/sim-ui,
-# else build/sim-ui32). Exit 1 when the boot did not re-sort.
+# removes it. SETTLE_BUILD picks the simulator (default build/sim-ui; the
+# re-sort does not depend on the unit's RAM). Exit 1 when the boot did not re-sort.
 set -u
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 SOURCE=$1
@@ -49,7 +49,6 @@ if [ -z "$GV" ] || [ "$(mark "$SOURCE")" = "$GV" ]; then
     exit 0
 fi
 SB=${SETTLE_BUILD:-$ROOT/build/sim-ui}
-[ -x "$SB/rockboxui" ] || SB=$ROOT/build/sim-ui32
 if [ "${2:-}" = --in-place ]; then
     DISK=$SOURCE
     LOG=$ROOT/build/settle65k-inplace.out

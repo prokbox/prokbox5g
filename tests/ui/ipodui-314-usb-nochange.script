@@ -1,0 +1,37 @@
+# #314: a USB session in which the computer changes no file (it only
+# reads, or writes just the FATs' dirty flag: usb_storage's data-area
+# count stays 0) skips the post-USB library check's walk: no "db walk",
+# the check logs "check skipped: no file changed", and no library page.
+# Red before #314: every session walked the whole tree (~32 s for 274
+# albums on the device). The skipped check ends the post-USB moment as a
+# scan's end would (seen=1: its 1 s gap; seen=0 was the 2 s grace with
+# the busy glyph spinning for nothing, red on p083-int7). The session is in the playing state, the
+# user's real one; the library is settled before it (nothing owed).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-314-usb-nochange.script
+# needs: library
+# timeout: 200
+# golden: skip
+# fulls-extra: 2   (the USB screen, the screen after it)
+# logbetween: u0 u1 usb host wrote cmds=0 data=0
+# logbetween: u0 u1 post-usb check changed=0 owed=0
+# logbetween: u0 u1 check skipped: no file changed
+# logbetween: u0 u1 no walk ms=
+# logbetween: u0 u1 no upd push
+# logbetween: u0 u1 usb busy end ms=\d+ seen=1
+# logbetween: u0 u1 usb housekeeping sidecars=
+
+wait 4000
+wait_db 45000
+wait 3000
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait_pos 2000 60000
+ab_mark u0
+usb_connect
+wait 3000
+shot usb
+usb_disconnect
+wait 6000
+shot after              # the main menu at once
+ab_mark u1
+audio_stop
+quit

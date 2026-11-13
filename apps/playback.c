@@ -42,6 +42,9 @@
 #ifdef HAVE_PLAY_FREQ
 #include "pcm_mixer.h"
 #endif
+#ifdef HAVE_PCM_24BIT_OUT
+#include "audiophile.h"            /* #268/#270 output rate and depth */
+#endif
 #include "pcmbuf.h"
 #include "audio_thread.h"
 #include "playback.h"
@@ -107,8 +110,12 @@
 #include "ipodui/anim.h"           /* UPDATE_TRACE */
 #include "ipodui/dbqueue_core.h"    /* #109: dbq_is_sentinel() */
 #include "ipodui/uilog.h"          /* ui_log (fb-stall) */
+#ifdef HAVE_DISK_STORAGE
+#include "ata.h"                   /* #79: ata_disk_isssd(), one build */
+#endif
 #include "ipodui/heapchk.h"        /* 4gh-b5: the heap walk at a shrink */
 #include "quiet_wait_core.h"        /* P19 19-1a: qw_audio_wait() */
+#include "autoskip_core.h"          /* #298: the skip over a silent track */
 #endif
 #if defined(HAVE_UI_THREAD_SPLIT) || defined(HAVE_CORE_LAYOUT_A)
 #include "xcore.h"                  /* P19: XCORE_BSS */
@@ -421,6 +428,15 @@ static bool codec_seeking = false;          /* Codec seeking ack expected? */
 #define SILENT_FAIL_MAX 50
 static int silent_fails;
 static volatile bool unplayable_end;    /* audio_unplayable_end() */
+/* #298: entries skipped at their silent failure during this automatic
+ * change (their codec failed before any PCM, so the next one started at
+ * once, behind the outgoing track's PCM): the change, when the PCM gets
+ * there, moves the playlist past them too. Valid while skip_pending is
+ * TRACK_SKIP_AUTO; reset when one begins. */
+static int skip_silent;
+/* #298: the PCM side's track-change counter as the tick last kicked the
+ * audio thread for it (the tick only writes it) */
+static unsigned int tc_kicked;
 
 bool audio_unplayable_end(void)
 {
@@ -450,6 +466,9 @@ static void audio_stop_playback(void);
 static void buffer_event_buffer_low_callback(unsigned short id, void *data, void *user_data);
 static void buffer_event_rebuffer_callback(unsigned short id, void *data);
 static void buffer_event_finished_callback(unsigned short id, void *data);
+#ifdef HAVE_IPOD_UI
+static void buffer_event_fill_held_callback(unsigned short id, void *data);
+#endif
 void audio_pcmbuf_sync_position(void);
 
 
@@ -790,6 +809,10 @@ static bool track_list_user_current(int offset, struct track_info *infop)
     {
         offset--;
     }
+#ifdef HAVE_IPOD_UI
+    if (skip_pending == TRACK_SKIP_AUTO)
+        offset -= skip_silent;      /* #298: entries skipped at the fail */
+#endif
 
     return !!track_list_get_info_from(track_list.current_hid, offset, infop);
 }
@@ -994,6 +1017,16 @@ static volatile bool audiobuf_regrow; /* audio_buffer_regrow() */
  * left out (statistics, the book's resume record, Now Playing, the
  * shell's wakes see nothing). Set and cleared in that one handler. */
 static volatile bool quiet_restart PLAY_STATUS_XCORE;
+/* #345: the shell's PLAY press (audio_pause_post()) is posted, never
+ * sent, so the ui thread never waits behind a track load or a fill. At
+ * most one such event is queued (pause_posted); the audio thread applies
+ * the latest wish (pause_wanted) when it reaches it. Written on the CPU
+ * only (the poster, the audio thread: no yield between the handler's
+ * two steps); uncached for a ui thread on the COP (audio_pause_pending,
+ * febe_rpc.list direct:). */
+static volatile bool pause_posted PLAY_STATUS_XCORE;
+static volatile bool pause_wanted PLAY_STATUS_XCORE;
+#define PAUSE_POSTED    2       /* Q_AUDIO_PAUSE data: apply pause_wanted */
 /* a paused shrink's stop (shrink_callback, Q_AUDIO_STOP data 2): no
  * finish event, so no statistics for a song that never ended */
 static bool quiet_stop;
@@ -1195,6 +1228,7 @@ static int shrink_callback(int handle, unsigned hints, void* start, size_t old_s
     bool paused = (audio_status() == (AUDIO_STATUS_PLAY | AUDIO_STATUS_PAUSE));
     if (paused)
         playing = true;
+    bool had_wish = pause_posted;   /* #345: replayed after the restart */
 #endif
     /* There's one problem with stoping and resuming: If it happens in a too
      * frequent fashion, the codecs lose the resume postion and playback
@@ -1233,6 +1267,9 @@ static int shrink_callback(int handle, unsigned hints, void* start, size_t old_s
         quiet_stop = false;
 #endif
         queue_clear(&audio_queue);
+#ifdef HAVE_IPOD_UI
+        pause_posted = false;       /* #345: dropped; replayed below */
+#endif
     }
     else
 #ifdef HAVE_IPOD_UI
@@ -1278,6 +1315,11 @@ static int shrink_callback(int handle, unsigned hints, void* start, size_t old_s
 #ifdef HAVE_IPOD_UI
         if (paused)     /* handled before the restart can sound */
             audio_queue_post(Q_AUDIO_PAUSE, true);
+        if (had_wish || pause_posted)
+        {   /* #345: a posted PLAY press the stop dropped, after it too */
+            pause_posted = true;
+            audio_queue_post(Q_AUDIO_PAUSE, PAUSE_POSTED);
+        }
 #endif
     }
 
@@ -1291,6 +1333,14 @@ static volatile long sim_give_hold;     /* give_hold <ms> (sim_cmd_maint) */
 void sim_audio_give_hold(long ms)
 {
     sim_give_hold = ms;
+}
+/* #345 (load_hold <ms>, sim_cmd_audio): each track load first waits this
+ * long, as a load behind a busy disk does; the audio thread reads no
+ * events meanwhile */
+static volatile long sim_load_hold;
+void sim_audio_load_hold(long ms)
+{
+    sim_load_hold = ms;
 }
 #endif
 /* Q_AUDIO_GIVE (audio thread), one event: a paused queue gives g->bytes
@@ -1475,13 +1525,21 @@ static void audio_update_filebuf_watermark(int seconds)
         seconds += 5;
 
     seconds += buffer_margin;
-#elif defined(HAVE_STORAGE_POWEROFF)
+#endif
+#if defined(HAVE_STORAGE_POWEROFF) && \
+    (!defined(HAVE_DISK_STORAGE) || defined(HAVE_IPOD_UI))
     /* ProkBox #114: the adapter may be powered off between refills, so the
      * refill must start early enough for a power-up and full re-init
      * (STOR_PWR_PWRUP_BUDGET_S) before the buffer runs dry, at the
      * playback speed (pitch x time-stretch), counted as at least 2x so an
-     * audiobook sped up after this was set is still covered */
+     * audiobook sped up after this was set is still covered. #79 (one
+     * build): on a solid drive only; a rotating one keeps the disk's
+     * formula above (spin-up + 5 s + the anti-skip margin) */
+#ifdef HAVE_DISK_STORAGE
+    if (ata_disk_isssd())
+#else
     (void)seconds;
+#endif
     {
         long pct = 100;
 #if defined(HAVE_PITCHCONTROL)
@@ -1491,9 +1549,21 @@ static void audio_update_filebuf_watermark(int seconds)
         seconds = stor_pwr_refill_secs(1, STOR_PWR_PWRUP_BUDGET_S,
                                        pct < 200 ? 200 : (int)pct);
     }
-#else
+#elif !defined(HAVE_DISK_STORAGE)
     /* flash storage */
     seconds = 1;
+#endif
+#if defined(HAVE_IPOD_UI) && defined(HAVE_DISK_STORAGE)
+    {   /* #79: the refill lead in use, once per change (the sim tests
+         * ipodui-onebuild-disk-* read it) */
+        static int wm_logged = -1;
+        if (seconds != wm_logged)
+        {
+            wm_logged = seconds;
+            ui_log("audio", "watermark s=%d solid=%d", seconds,
+                   ata_disk_isssd());
+        }
+    }
 #endif
 
     /* Watermark is a function of the bitrate of the last track in the buffer */
@@ -1559,6 +1629,20 @@ static inline void audio_pcmbuf_track_change_post(void)
 {
     track_change.in++;
 }
+
+#ifdef HAVE_IPOD_UI
+/* #298: the PCM side's notice (the FIQ's, on the COP in layout A, which
+ * may not post) wakes the audio thread from the CPU's tick, within one
+ * tick, instead of waiting for its 100 ms poll: the skip after a silent
+ * failure waited that long with the buffer dry, and every change's Now
+ * Playing switch up to that long. A compare per tick; the thread wakes
+ * only when the counter moved, so nothing new wakes it idle or paused. */
+static void audio_track_change_tick(void)
+{
+    if (as_kick_due(track_change.in, &tc_kicked))
+        audio_queue_post(Q_AUDIO_TC_KICK, 0);
+}
+#endif
 
 
 /** --- Helper functions --- **/
@@ -2121,12 +2205,157 @@ static void resume_rewind_adjust_progress(const struct mp3entry *id3,
 }
 
 /* Get the codec into ram and initialize it - keep it if it's ready */
+#ifdef HAVE_IPOD_UI
+/* 0.8.3: one track start's timeline, from the play request to the first
+ * PCM, one "audio start" line (an owner's MP3 took long to start):
+ *   stop:  request -> the start's fill begins (the previous stop, a
+ *          flush; a format change's restart re-marks it: rs counts them)
+ *   fill:  -> the first track's codec load is asked for (its data and
+ *          metadata buffered)
+ *   codec: -> the first decoded samples ask pcmbuf for room (the codec
+ *          loaded, placed on its core, the first frames decoded); a
+ *          second line: ld, codec_load()'s own ms (the image read and
+ *          relocated), tag, the first frame's offset (bytes of tags
+ *          before the audio), buf, the bytes buffered at the first
+ *          samples (KB)
+ *   pre:   -> the PCM starts (the prefill to its level)
+ * p083-codecload (an Opus start's codec= was 15 s): two more lines split
+ * the codec phase. "start t", the ms from its start (mark 2) at which each
+ * step was first reached: un, the old codec unloaded (a format change);
+ * ld, the new one loaded; go, codec_go() (after a resume's statistics
+ * lookup); run, the codec thread took the run; pst, the run posted to the
+ * COP (or started on the CPU); in, the CPU served the codec's first input
+ * call (read, request, advance or seek); '-' a step not reached. "start
+ * in": n, the input calls the CPU served before the first samples, ms
+ * their sum and max the longest (waits on buffering, or on a COP the cost
+ * of each round trip: n in the thousands is a codec reading by the byte),
+ * ev, the ms the audio thread spent in the track's statistics lookup
+ * (tagtree_buffer_event, a database walk for a name it has not seen)
+ * All on the CPU; only a start that audio_play() asked for is timed */
+static uint32_t st_t[4];
+static uint8_t st_on, st_restarts;
+static uint32_t st_load_us;     /* codec_load()'s own time (the image) */
+static uint32_t st_tag;         /* the track's first frame offset (tags) */
+static uint32_t st_buf;         /* bytes buffered at the first samples */
+static uint32_t st_s[STS_COUNT];    /* the codec phase's steps (times) */
+static uint32_t st_in_n, st_in_us, st_in_max;   /* input calls served */
+static uint32_t st_ev_us;       /* the statistics lookup (audio thread) */
+
+static uint32_t st_now(void)
+{
+#ifdef USEC_TIMER
+    return USEC_TIMER;
+#else
+    return (uint32_t)current_tick * (1000000 / HZ);
+#endif
+}
+
+void audio_start_trace_mark(int k)
+{
+    if (!st_on || k < 1 || k > 3)
+        return;
+    if (k == 1 && st_t[1])
+        st_restarts++;              /* a restart (format change) */
+    if (k == 3 && st_t[3])
+        return;                     /* the first request only */
+    if (k == 3)
+        st_buf = buf_used();
+    st_t[k] = st_now();
+}
+
+/* the first time each step of the codec phase is reached */
+void audio_start_trace_step(int step)
+{
+    if (!st_on || st_t[3] || step < 0 || step >= STS_COUNT || st_s[step])
+        return;
+    st_s[step] = st_now() | 1;      /* 0 is "not reached" */
+}
+
+/* An input call the CPU serves for the codec: 0 when no start is timed
+ * (the call then costs this check only), else its start time */
+uint32_t audio_start_trace_in_begin(void)
+{
+    if (!st_on || st_t[3])
+        return 0;
+    return st_now() | 1;
+}
+
+void audio_start_trace_in_end(uint32_t t0)
+{
+    uint32_t us;
+
+    if (!t0 || !st_on || st_t[3])
+        return;
+    if (!st_s[STS_IN])
+        st_s[STS_IN] = t0;
+    us = st_now() - (t0 & ~1u);     /* the mark's own bit off: no wrap */
+    st_in_n++;
+    st_in_us += us;
+    if (us > st_in_max)
+        st_in_max = us;
+}
+
+/* "start t" field k: the ms from mark 2, or -1 for a step not reached */
+static long st_step_ms(int k)
+{
+    if (!st_s[k] || !st_t[2])
+        return -1;
+    return (long)((st_s[k] - st_t[2]) / 1000);
+}
+
+void audio_start_trace_pcm(void)
+{
+    uint32_t now = st_now(), t0;
+
+    if (!st_on)
+        return;
+    st_on = 0;
+    t0 = st_t[0];
+    if (!st_t[1]) st_t[1] = t0;
+    if (!st_t[2]) st_t[2] = st_t[1];
+    if (!st_t[3]) st_t[3] = st_t[2];
+    ui_log("audio", "start ms=%lu stop=%lu fill=%lu codec=%lu pre=%lu rs=%u",
+           (unsigned long)(now - t0) / 1000,
+           (unsigned long)(st_t[1] - t0) / 1000,
+           (unsigned long)(st_t[2] - st_t[1]) / 1000,
+           (unsigned long)(st_t[3] - st_t[2]) / 1000,
+           (unsigned long)(now - st_t[3]) / 1000,
+           (unsigned)st_restarts);
+    ui_log("audio", "start ld=%lu tag=%lu buf=%luK",
+           (unsigned long)st_load_us / 1000, (unsigned long)st_tag,
+           (unsigned long)st_buf / 1024);
+    ui_log("audio", "start t un=%ld ld=%ld go=%ld run=%ld pst=%ld in=%ld",
+           st_step_ms(STS_UNLOAD), st_step_ms(STS_LOAD), st_step_ms(STS_GO),
+           st_step_ms(STS_RUN), st_step_ms(STS_POST), st_step_ms(STS_IN));
+    ui_log("audio", "start in n=%lu ms=%lu max=%lu ev=%lu",
+           (unsigned long)st_in_n, (unsigned long)st_in_us / 1000,
+           (unsigned long)st_in_max / 1000, (unsigned long)st_ev_us / 1000);
+}
+
+/* the statistics lookup's time, around PLAYBACK_EVENT_TRACK_BUFFER */
+static void st_send_buffer_event(struct mp3entry *id3)
+{
+    uint32_t t = st_on ? st_now() : 0;
+
+    send_track_event(PLAYBACK_EVENT_TRACK_BUFFER, 0, id3);
+    if (t && st_on)
+        st_ev_us += st_now() - t;
+}
+#endif
+
 static bool audio_init_codec(struct track_info *track_infop,
                              struct mp3entry *track_id3)
 {
     int codt_loaded = get_audio_base_codec_type(codec_loaded());
     int hid = ERR_HANDLE_NOT_FOUND;
 
+#ifdef HAVE_IPOD_UI
+    if (st_on && !st_t[2])
+    {
+        audio_start_trace_mark(2);  /* 0.8.3: the fill is done */
+        st_tag = track_id3->first_frame_offset;
+    }
+#endif
     if (codt_loaded != AFMT_UNKNOWN)
     {
         int codt = get_audio_base_codec_type(track_id3->codectype);
@@ -2150,6 +2379,9 @@ static bool audio_init_codec(struct track_info *track_infop,
             /* New codec - first make sure the old one's gone */
             logf("Removing prev. codec: %d", codt_loaded);
             codec_unload();
+#ifdef HAVE_IPOD_UI
+            audio_start_trace_step(STS_UNLOAD);
+#endif
         }
     }
 
@@ -2163,6 +2395,19 @@ static bool audio_init_codec(struct track_info *track_infop,
     track_info_sync(track_infop);
 #endif
 
+#ifdef HAVE_IPOD_UI
+    if (st_on && !st_load_us)
+    {
+        bool ok;
+        uint32_t t;
+
+        t = st_now();
+        ok = codec_load(hid, track_id3->codectype);
+        st_load_us = st_now() - t;
+        audio_start_trace_step(STS_LOAD);
+        return ok;
+    }
+#endif
     return codec_load(hid, track_id3->codectype);
     (void)track_infop; /* When codec buffering isn't supported */
 }
@@ -2262,7 +2507,11 @@ static bool audio_start_codec(bool auto_skip)
         bool resume = !auto_skip;
 
         /* Send the "buffer" event to obtain the resume position for the codec */
+#ifdef HAVE_IPOD_UI
+        st_send_buffer_event(cur_id3);
+#else
         send_track_event(PLAYBACK_EVENT_TRACK_BUFFER, 0, cur_id3);
+#endif
 
         if (!resume)
         {
@@ -2324,6 +2573,9 @@ static bool audio_start_codec(bool auto_skip)
     buf_set_base_handle(info.audio_hid);
 
     /* All required data is now available for the codec */
+#ifdef HAVE_IPOD_UI
+    audio_start_trace_step(STS_GO);
+#endif
     codec_go();
 
 #ifdef HAVE_TAGCACHE
@@ -2334,7 +2586,11 @@ static bool audio_start_codec(bool auto_skip)
         unsigned long elapsed = cur_id3->elapsed, offset = cur_id3->offset;
 #endif
         /* Send the "buffer" event now */
+#ifdef HAVE_IPOD_UI
+        st_send_buffer_event(cur_id3);
+#else
         send_track_event(PLAYBACK_EVENT_TRACK_BUFFER, 0, cur_id3);
+#endif
 #if defined(HAVE_IPOD_UI) && defined(HAVE_TAGCACHE)
         if (shell_resume)
         {
@@ -2590,6 +2846,13 @@ static int audio_load_track(void)
 {
     struct track_info info;
 
+#if defined(SIMULATOR) && defined(HAVE_IPOD_UI)
+    if (sim_load_hold)
+    {
+        ui_log("audio", "load held ms=%ld", sim_load_hold);
+        sleep(sim_load_hold * HZ / 1000);
+    }
+#endif
     if (track_list.in_progress_hid > 0)
     {
         /* There must be an info pointer if the in-progress id3 is even there */
@@ -2706,9 +2969,35 @@ static int audio_load_track(void)
 
         if (fd >= 0)
         {
+#ifdef HAVE_IPOD_UI
+            /* ProkBox #262: the wrap of a one-item queue (Repeat One, or
+             * Repeat All over one file: every video) is the file already
+             * buffered last, so its tags are copied from there instead of
+             * read again under this lock. The read (a storage wake, then
+             * a long video's sample tables) held the lock for about 2 s
+             * on the unit, and every audio_current_track() caller waited:
+             * the video thread stood still (b11, Hold off with Repeat
+             * All). The copy is the same metadata, from the start. */
+            struct track_info last;
+
+            id3_mutex_lock();
+            if (track_list_last(0, &last) && last.id3_hid >= 0 &&
+                bufreadid3(last.id3_hid, ub_id3) &&
+                !strcmp(ub_id3->path, path))
+            {
+                ub_id3->cuesheet = NULL;
+                ub_id3->audiobook = NULL;
+                ub_id3->elapsed = 0;
+                ub_id3->offset = 0;
+            }
+            else
+                get_metadata(ub_id3, fd, path);
+            id3_mutex_unlock();
+#else
             id3_mutex_lock();
             get_metadata(ub_id3, fd, path);
             id3_mutex_unlock();
+#endif
         }
 
         if (filling != STATE_FULL)
@@ -2985,6 +3274,12 @@ static int audio_fill_file_buffer(void)
         return LOAD_TRACK_ERR_FAILED;
 
     trigger_cpu_boost();
+#ifdef HAVE_IPOD_UI
+    /* #326: a fill started while sleep entry holds them (persist()'s
+       playlist_sync() flush): it waits for the wake, unboosted */
+    if (buffering_fill_held())
+        ui_log("audio", "fill while held state=%d", (int)filling);
+#endif
 
     /* Must reset the buffer before use if trashed or voice only - voice
        file size shouldn't have changed so we can go straight from
@@ -3223,6 +3518,15 @@ static bool single_mode_do_pause(int id3_hid)
    transition events */
 static void audio_finalise_track_change(void)
 {
+#ifdef HAVE_IPOD_UI
+    /* #298: entries already skipped at their silent failure */
+    int skipped = skip_pending == TRACK_SKIP_AUTO ? skip_silent : 0;
+
+    skip_silent = 0;
+#else
+    const int skipped = 0;
+#endif
+
     switch (skip_pending)
     {
     case TRACK_SKIP_NONE: /* Manual skip */
@@ -3231,7 +3535,8 @@ static void audio_finalise_track_change(void)
     case TRACK_SKIP_AUTO:
     case TRACK_SKIP_AUTO_NEW_PLAYLIST:
     {
-        int playlist_delta = skip_pending == TRACK_SKIP_AUTO ? 1 : 0;
+        int playlist_delta = skip_pending == TRACK_SKIP_AUTO ?
+                             1 + skipped : 0;
         audio_playlist_track_finish();
 
         if (!playlist_peek(playlist_delta, NULL, 0))
@@ -3437,6 +3742,54 @@ static bool audio_can_change_track(int *trackstat, enum pcm_track_change_type *t
     return true;
 }
 
+#ifdef HAVE_IPOD_UI
+/* #298: a codec that failed before any PCM while an automatic change is
+ * still playing out: start the next entry's codec now, behind the
+ * outgoing track's PCM (the change marker stays where it is: the failed
+ * track wrote nothing), so the skip is as gapless as a normal change.
+ * Stock deferred it to the PCM's change, which left the buffer to run
+ * dry for the notice's poll plus the next codec's start. The change
+ * then moves the playlist past every entry skipped here, so Now Playing
+ * goes from the outgoing track straight to the one now decoding. #281's
+ * count goes on; the failure that ends the run takes the stock path.
+ * Returns true when it handled the codec's end. */
+static bool audio_skip_silent_early(int status)
+{
+    struct track_info next;
+    struct as_in in = {
+        .paused = play_status == PLAY_PAUSED,
+        .skip_pending = skip_pending != TRACK_SKIP_NONE,
+        .skip_auto = skip_pending == TRACK_SKIP_AUTO && !codec_skip_pending,
+        .silent = status == CODEC_ERROR_SILENT,
+        .repeat_one = global_settings.repeat_mode == REPEAT_ONE,
+        .silent_fails = silent_fails,
+        .fail_limit = MIN(playlist_amount(), SILENT_FAIL_MAX),
+    };
+
+    if (!in.paused && in.skip_auto && in.silent)
+    {
+        in.next_ready = track_list_current(1, &next) && next.audio_hid >= 0;
+        in.next_pauses = in.next_ready && single_mode_do_pause(next.id3_hid);
+    }
+
+    if (as_codec_end(&in) != AS_EARLY)
+        return false;
+
+    silent_fails++;
+    skip_silent++;
+    track_list_advance_current(1, &next);
+    ui_log("audio", "unplayable skip early run=%d skipped=%d", silent_fails,
+           skip_silent);
+
+    /* the entry after the playing one is now this one */
+    audio_update_and_announce_next_track(bufgetid3(next.id3_hid));
+
+    if (!audio_start_codec(true))
+        audio_handle_track_load_status(LOAD_TRACK_ERR_START_CODEC);
+    return true;
+}
+#endif /* HAVE_IPOD_UI */
+
 /* Codec has completed decoding the track
    (usually Q_AUDIO_CODEC_COMPLETE) */
 static void audio_on_codec_complete(int status)
@@ -3450,6 +3803,11 @@ static void audio_on_codec_complete(int status)
        since the codec can't post it now - do things like it would have
        done */
     audio_complete_codec_seek();
+
+#ifdef HAVE_IPOD_UI
+    if (audio_skip_silent_early(status))
+        return;     /* #298: the next track's codec started already */
+#endif
 
     if (play_status == PLAY_PAUSED || skip_pending != TRACK_SKIP_NONE)
     {
@@ -3497,6 +3855,9 @@ static void audio_on_codec_complete(int status)
 
     track_event_flags = TEF_AUTO_SKIP;
     skip_pending = TRACK_SKIP_AUTO;
+#ifdef HAVE_IPOD_UI
+    skip_silent = 0;
+#endif
 
     enum pcm_track_change_type type;
     if (audio_can_change_track(&trackstat, &type))
@@ -3516,10 +3877,34 @@ static void audio_on_codec_seek_complete(void)
 
 /* Called when PCM track change has completed
    (Q_AUDIO_TRACK_CHANGED) */
-static void audio_on_track_changed(void)
+static void audio_on_track_changed(bool from_pcm)
 {
+#ifdef HAVE_IPOD_UI
+    int skipped = skip_pending == TRACK_SKIP_AUTO ? skip_silent : 0;
+    bool by_poll = from_pcm && tc_kicked != track_change.out;
+    bool dry = false;
+    unsigned long lag_us = from_pcm ? pcmbuf_track_change_lag_us(&dry) : 0;
+#else
+    (void)from_pcm;
+#endif
     /* Finish whatever is pending so that the WPS is in sync */
     audio_finalise_track_change();
+#ifdef HAVE_IPOD_UI
+    if (from_pcm)
+    {
+        /* #298, one line per change: lag, the PCM's change (the outgoing
+         * track's last chunk done) to this thread taking it up; fin, the
+         * switch itself (the playlist, Now Playing's id3, the track
+         * events); dry: nothing was queued after that chunk (the audio
+         * stopped there); by=poll: the 1 s backstop caught it, not the
+         * tick's kick */
+        unsigned long all_us = pcmbuf_track_change_lag_us(&dry);
+
+        ui_log("audio", "tc lag_ms=%lu fin_ms=%lu dry=%d skipped=%d by=%s",
+               lag_us / 1000, (all_us - lag_us) / 1000, dry ? 1 : 0,
+               skipped, by_poll ? "poll" : "kick");
+    }
+#endif
 
     if (codec_skip_pending)
     {
@@ -3681,6 +4066,9 @@ static void audio_start_playback(const struct audio_resume_info *resume_info,
        immediately */
     add_event(BUFFER_EVENT_REBUFFER, buffer_event_rebuffer_callback);
     add_event(BUFFER_EVENT_FINISHED, buffer_event_finished_callback);
+#ifdef HAVE_IPOD_UI
+    add_event(BUFFER_EVENT_FILL_HELD, buffer_event_fill_held_callback);
+#endif
 
     if (old_status == PLAY_STOPPED)
     {
@@ -3692,6 +4080,9 @@ static void audio_start_playback(const struct audio_resume_info *resume_info,
     }
 
     /* Fill the buffer */
+#ifdef HAVE_IPOD_UI
+    audio_start_trace_mark(1);
+#endif
     int trackstat = audio_fill_file_buffer();
 
     if (trackstat >= LOAD_TRACK_OK)
@@ -3767,6 +4158,9 @@ static void audio_stop_playback(void)
     /* Close all tracks and mark them NULL */
     remove_event(BUFFER_EVENT_REBUFFER, buffer_event_rebuffer_callback);
     remove_event(BUFFER_EVENT_FINISHED, buffer_event_finished_callback);
+#ifdef HAVE_IPOD_UI
+    remove_event(BUFFER_EVENT_FILL_HELD, buffer_event_fill_held_callback);
+#endif
     remove_event_ex(BUFFER_EVENT_BUFFER_LOW, buffer_event_buffer_low_callback, NULL);
 
     track_list_clear(TRACK_LIST_CLEAR_ALL);
@@ -3830,6 +4224,9 @@ static void audio_on_pause(bool pause)
 
     bool do_fade = global_settings.fade_on_stop;
 
+#ifdef HAVE_IPOD_UI
+    pcmbuf_note_pause(pause);   /* 0.8.3: the pause-to-standby line */
+#endif
     pcmbuf_fade(do_fade, !pause);
 
     if (!ff_rw_mode && !(do_fade && pause))
@@ -3888,6 +4285,11 @@ static void audio_on_skip(void)
         if (skip_pending == TRACK_SKIP_AUTO_NEW_PLAYLIST)
             playlist_delta--;
     }
+#ifdef HAVE_IPOD_UI
+    if (skip_pending == TRACK_SKIP_AUTO)
+        track_list_delta -= skip_silent;    /* #298: decoding is past them */
+    skip_silent = 0;
+#endif
 
     audio_playlist_track_finish();
     skip_pending = TRACK_SKIP_NONE;
@@ -4209,8 +4611,15 @@ void audio_playback_handler(struct queue_event *ev)
         case Q_AUDIO_TRACK_CHANGED:
             /* PCM track change done */
             LOGFQUEUE("playback < Q_AUDIO_TRACK_CHANGED");
-            audio_on_track_changed();
+            audio_on_track_changed(ev->data != 0);
             break;
+
+#ifdef HAVE_IPOD_UI
+        case Q_AUDIO_TC_KICK:
+            /* #298: the tick saw the PCM's notice: the scan below takes
+               it (a late or repeated kick finds nothing: harmless) */
+            break;
+#endif
 
         /** Control messages **/
         case Q_AUDIO_PLAY:
@@ -4233,11 +4642,24 @@ void audio_playback_handler(struct queue_event *ev)
             audio_stop_playback();
 #endif
             if (ev->data != 0)
+            {
                 queue_clear(&audio_queue);
+#ifdef HAVE_IPOD_UI
+                pause_posted = false;   /* #345: dropped with the rest */
+#endif
+            }
             return; /* no more playback */
 
         case Q_AUDIO_PAUSE:
             LOGFQUEUE("playback < Q_AUDIO_PAUSE");
+#ifdef HAVE_IPOD_UI
+            if (ev->data == PAUSE_POSTED)
+            {   /* #345: the latest wish (no yield between the two) */
+                pause_posted = false;
+                audio_on_pause(pause_wanted);
+                break;
+            }
+#endif
             audio_on_pause(ev->data);
             break;
 
@@ -4293,6 +4715,12 @@ void audio_playback_handler(struct queue_event *ev)
 
         /** Miscellaneous messages **/
 #ifdef HAVE_IPOD_UI
+        case Q_AUDIO_FILL_HELD:
+            /* #326: the boost goes below (a held fill's state) */
+            LOGFQUEUE("playback < Q_AUDIO_FILL_HELD");
+            ui_log("audio", "fill held state=%d", (int)filling);
+            break;
+
         case Q_AUDIO_GIVE:
             LOGFQUEUE("playback < Q_AUDIO_GIVE");
             audio_on_give((struct audio_give *)ev->data);
@@ -4300,6 +4728,16 @@ void audio_playback_handler(struct queue_event *ev)
                 async_give_posted = false;
             if (play_status == PLAY_STOPPED)
                 return;     /* the restart failed: stopped */
+            break;
+#endif
+#ifdef HAVE_HIRATE_OUT
+        case Q_AUDIO_RATE_REPICK:
+            /* #270: the high rates allowed changed (a fallback, the
+               setting): the playing track moves to its new output rate,
+               resumed where it was (the remake restarts it) */
+            LOGFQUEUE("playback < Q_AUDIO_RATE_REPICK");
+            if (play_status != PLAY_STOPPED)
+                audio_auto_change_frequency(audio_current_track(), true);
             break;
 #endif
         case Q_AUDIO_REMAKE_AUDIO_BUFFER:
@@ -4355,6 +4793,13 @@ void audio_playback_handler(struct queue_event *ev)
             /* Fall-through */
         case STATE_FILLING:
         case STATE_ENDING:
+#ifdef HAVE_IPOD_UI
+            /* #326: a fill held from sleep entry to the wake does not
+               end, so it keeps no boost: the next fill boosts again
+               (audio_fill_file_buffer()) */
+            if (buffering_fill_held())
+                cancel_cpu_boost();
+#endif
             if (audio_pcmbuf_track_change_scan())
             {
                 /* Transfer notification to audio queue event */
@@ -4367,13 +4812,15 @@ void audio_playback_handler(struct queue_event *ev)
                 /* P19 19-1a: no poll between tracks. The PCM side's
                  * notice (audio_pcmbuf_track_change_post(), from the
                  * FIQ, which can't post) exists only while an automatic
-                 * skip is pending, so that alone keeps the HZ/10 poll;
+                 * skip is pending; the tick kicks the thread on it
+                 * (#298), so that keeps only a 1 s backstop poll;
                  * a paused stream keeps HZ/2 for dac_idle_poll() until
                  * the codec's standby. Everything else here (watermark,
                  * boost, fill state) follows an event that posts. */
                 struct qw_audio_in qa = {
                     .skip_pending = skip_pending != TRACK_SKIP_NONE,
                     .paused = play_status == PLAY_PAUSED,
+                    .kicked = true,     /* #298: audio_track_change_tick() */
 #ifdef HAVE_DAC_STANDBY
                     .dac_pending = dac_idle_pending(),
 #endif
@@ -4421,6 +4868,17 @@ static void buffer_event_buffer_low_callback(unsigned short id, void *ev_data, v
     (void)ev_data;
     (void)user_data;
 }
+
+#ifdef HAVE_IPOD_UI
+/* #326: sleep entry held the fills (buffering.c): the audio thread's
+   fill boost goes at its next pass (the boost is that thread's own) */
+static void buffer_event_fill_held_callback(unsigned short id, void *ev_data)
+{
+    audio_queue_post(Q_AUDIO_FILL_HELD, 0);
+    (void)id;
+    (void)ev_data;
+}
+#endif
 
 /* Called when handles must be discarded in order to buffer new data */
 static void buffer_event_rebuffer_callback(unsigned short id, void *ev_data)
@@ -4641,6 +5099,15 @@ struct mp3entry * audio_next_track(void)
 void audio_play(unsigned long elapsed, unsigned long offset)
 {
     logf("audio_play");
+#ifdef HAVE_IPOD_UI
+    st_t[0] = st_now();
+    st_t[1] = st_t[2] = st_t[3] = 0;
+    st_restarts = 0;
+    st_load_us = st_tag = st_buf = 0;
+    memset(st_s, 0, sizeof(st_s));
+    st_in_n = st_in_us = st_in_max = st_ev_us = 0;
+    st_on = 1;
+#endif
 
 #ifdef PLAYBACK_VOICE
     /* Truncate any existing voice output so we don't have spelling
@@ -4674,6 +5141,30 @@ void audio_pause(void)
 #endif
     audio_queue_send(Q_AUDIO_PAUSE, true);
 }
+
+#ifdef HAVE_IPOD_UI
+/* #345: pause (or resume) without waiting for the audio thread */
+void audio_pause_post(bool pause)
+{
+    LOGFQUEUE("audio > audio Q_AUDIO_PAUSE posted %d", (int)pause);
+    if (!pause)
+        DEVSTATS_REQUEST(DEVSTATS_REQ_RESUME);
+    pause_wanted = pause;
+    if (!pause_posted)
+    {
+        pause_posted = true;
+        audio_queue_post(Q_AUDIO_PAUSE, PAUSE_POSTED);
+    }
+}
+
+int audio_pause_pending(void)
+{
+    bool posted = pause_posted;
+    bool wanted = pause_wanted;
+
+    return posted ? wanted : -1;
+}
+#endif
 
 /* This sends a stop message and the audio thread will dump all its
    subsequent messages */
@@ -4964,8 +5455,32 @@ void audio_set_crossfade(int enable)
 #endif /* HAVE_CROSSFADE */
 
 #ifdef HAVE_PLAY_FREQ
+#ifdef HAVE_PCM_24BIT_OUT
+/* ProkBox #268: the output depth for a track (apps/audiophile_core.c) */
+static int audio_guess_depth(struct mp3entry *id3)
+{
+    return audiophile_pick_depth(id3->bits_per_sample,
+#ifdef HAVE_CROSSFADE
+                                 global_settings.crossfade != 0,
+#else
+                                 false,
+#endif
+                                 pcm_current_sink() == PCM_SINK_BUILTIN);
+}
+#endif
+
 static unsigned long audio_guess_frequency(struct mp3entry *id3)
 {
+#ifdef HAVE_PCM_24BIT_OUT
+    /* ProkBox #270: each family at its highest enabled rate, 88.2/96 kHz
+       only with Settings > Audiophile on and this unit's self-test passed
+       (apps/audiophile_core.c, host-tested); a build without it (0.8.3)
+       allows none: 44.1/48 kHz, the rule the road-test build ran with
+       the setting off */
+    if (pcm_current_sink() == PCM_SINK_BUILTIN)
+        return audiophile_pick_rate(id3->frequency,
+                                    audiophile_hirate_allowed());
+#endif
     const struct pcm_sink_caps* caps = pcm_sink_caps(pcm_current_sink());
     bool have_44 = false;
     bool have_48 = false;
@@ -4991,13 +5506,32 @@ static bool audio_auto_change_frequency(struct mp3entry *id3, bool play)
     if (!valid_mp3entry(id3))
         return false;
     unsigned long guessed_frequency = global_settings.play_frequency == 0 ? audio_guess_frequency(id3) : 0;
+#ifdef HAVE_PCM_24BIT_OUT
+    /* #268: a depth change remakes the buffer as a rate change does */
+    int depth = audio_guess_depth(id3);
+    if (!guessed_frequency)
+        guessed_frequency = mixer_get_frequency();
+    if (mixer_get_frequency() != guessed_frequency ||
+        mixer_get_depth() != depth)
+#else
     if (guessed_frequency && mixer_get_frequency() != guessed_frequency)
+#endif
     {
         if (!play)
             return true;
 
 #ifdef PLAYBACK_VOICE
         voice_stop();
+#endif
+#ifdef HAVE_PCM_24BIT_OUT
+        ui_log("audio", "output %lu Hz %d-bit for %lu Hz %u-bit (ratio %lu:%lu)",
+               guessed_frequency, depth, id3->frequency,
+               (unsigned)id3->bits_per_sample,
+               id3->frequency >= guessed_frequency ?
+                   id3->frequency / guessed_frequency : 1UL,
+               id3->frequency >= guessed_frequency ?
+                   1UL : guessed_frequency / (id3->frequency ? id3->frequency : 1));
+        mixer_set_depth(depth);
 #endif
         mixer_set_frequency(guessed_frequency);
         audio_queue_post(Q_AUDIO_REMAKE_AUDIO_BUFFER, 0);
@@ -5088,5 +5622,8 @@ void INIT_ATTR playback_init(void)
 #endif
 #ifdef HAVE_DISK_STORAGE
     audio_set_buffer_margin(global_settings.buffer_margin);
+#endif
+#ifdef HAVE_IPOD_UI
+    tick_add_task(audio_track_change_tick);     /* #298 */
 #endif
 }

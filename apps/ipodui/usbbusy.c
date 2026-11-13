@@ -48,6 +48,7 @@ static struct {
     unsigned scans;                 /* tagcache_ui_scans_ended() at begin */
     long t0, quiet, next;
     unsigned char phase;
+    signed char hk;                 /* #315: housekeeping owed: seen + 1 */
 } ub;
 
 bool ui_usbbusy_moment(void)
@@ -107,6 +108,17 @@ static void housekeeping(bool scan_ran)
     if (scan_ran || storage_disk_is_active())
         ui_log_flush();
     modclass_save(false);
+}
+
+void ui_usbbusy_after_draw(void)
+{
+    bool seen;
+
+    if (!ub.hk)
+        return;
+    seen = ub.hk > 1;
+    ub.hk = 0;
+    housekeeping(seen);
 }
 
 /* 3.20 (owner, device, 2026-10-25): any library update shows the glyph,
@@ -250,7 +262,7 @@ static bool usb_poll(long now)
         ub.on = false;
         ui_log("usb", "busy end ms=%ld seen=%d",
                (now - ub.t0) * (1000 / HZ), ub.seen);
-        housekeeping(ub.seen);
+        ub.hk = 1 + ub.seen;        /* after this frame (#315) */
         return false;
     }
     return true;
@@ -275,7 +287,7 @@ int ui_usbbusy_poll(struct ui_header_state *st, bool lit)
     }
 #endif
 
-    if (!ub.on)
+    if (!ub.on && !ub.hk)
         xindex_poll();              /* P12: an index build owed */
     if (!usb && !lb.show)
     {

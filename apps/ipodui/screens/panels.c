@@ -50,6 +50,7 @@
 #include "lang.h"
 #include "ipodui/theme.h"
 #include "ipodui/paint.h"
+#include "ipodui/anim.h"         /* ui_lcd_push (#329) */
 #include "ipodui/library.h"
 #ifdef HAVE_BCMFW_VIDEO
 #include "ipodui/libfile.h"     /* struct libfile_vstats */
@@ -68,6 +69,7 @@
 #include "ipodui/extras.h"
 #include "ipodui/stopwatch.h"      /* ui_preview_x_stopwatch */
 #include "ipodui/material.h"
+#include "ipodui/preview.h"     /* ui_panel_shadow_band (#329) */
 #undef panelart_wheel_a
 #undef panelart_wheel_rgb
 extern const unsigned char *const panelart_wheel_a;
@@ -1323,15 +1325,39 @@ static void x_icon(const struct ui_panel *p, int art)
 /* Alarms (photo `extras-menu-b`, photo `extras-alarms`; also its own split list and the Main Menu's
  * Alarms item): the alarm clock; 12, 3, 6 and 9 in the small font, then
  * the reflection, so it mirrors them too */
-static int x_alarms_draw(const struct ui_panel *p, const void *arg,
-                         long phase)
+/* #329: up to two lines under the clock (the Sleep Timer's time left; an
+ * alarm's next ring and how far off it is), set as a Settings tile's
+ * caption: Bold 12 in panel_fg (a Settings caption keeps one colour on
+ * every line), centred, the last line on the caption's last baseline and
+ * a first one CAPTION_PITCH above it (Bold 15 clipped "Sleep in 120
+ * minutes"). The band, y 184-219, is clear of the reflection (its last
+ * ink row is y 178); line 1's cap top is y 191 */
+#define XALARM_CAP_Y    (CAPTION_BASE - CAPTION_PITCH - 16)
+#define XALARM_CAP_H    (CAPTION_PITCH + 22)
+
+static void x_alarms_cap(const char *l1, const char *l2)
+{
+    int base = CAPTION_BASE;
+
+    if (!l1 || !*l1)
+        return;
+    lcd_set_foreground(ui_theme->panel_fg);
+    if (l2 && *l2)
+    {
+        panel_text(ui_theme->font_title, CAPTION_BASE, l2);
+        base -= CAPTION_PITCH;
+    }
+    panel_text(ui_theme->font_title, base, l1);
+}
+
+void ui_x_alarms_panel(const struct ui_panel *p, const char *l1,
+                       const char *l2)
 {
     const int cx = (UI_PANEL_W - EXTRASART_W) / 2 + EXTRASART_ALARM_CX,
               cy = XICON_CY - EXTRASART_W / 2 + EXTRASART_ALARM_CY;
     struct canvas c;
     int k;
 
-    (void)arg; (void)phase;
     x_icon_c(p, EXTRASART_ALARM, &c);
     lcd_setfont(ui_theme->font_small);
     lcd_set_foreground(XALARM_NUM);
@@ -1346,7 +1372,44 @@ static int x_alarms_draw(const struct ui_panel *p, const void *arg,
                              cy + dy[k] * EXTRASART_ALARM_NUM_R + 4, 20, num[k]);
     }
     x_icon_refl(&c, EXTRASART_ALARM);
+    x_alarms_cap(l1, l2);
     panel_end();
+}
+
+void ui_x_alarms_caption(const char *l1, const char *l2)
+{
+    struct viewport vp;
+
+    /* P19 screen truth: a band drawn outside ui_panel_compose(), straight
+     * into the panel, and pushed; if the BCM holds the panel (a marquee's
+     * pan, the drift), the CPU's framing comes back first. Free otherwise. */
+    ui_fb_settle(UI_PANEL_X, XALARM_CAP_Y, UI_PANEL_W, XALARM_CAP_H);
+    memset(&vp, 0, sizeof(vp));
+    vp.x = UI_PANEL_X;
+    vp.width = UI_PANEL_W;
+    vp.height = UI_PANEL_H;
+    vp.font = ui_theme->font_title;
+    vp.drawmode = DRMODE_SOLID;
+    vp.fg_pattern = ui_theme->panel_fg;
+    vp.bg_pattern = ui_theme->panel_bg;
+    lcd_set_viewport(&vp);
+    ui_paint_panel_bg(XALARM_CAP_Y, XALARM_CAP_H);
+    lcd_set_drawmode(DRMODE_FG);
+    x_alarms_cap(l1, l2);
+    panel_end();
+    /* the band is panel, so it takes the list's seam shadow as every
+     * composed panel image does, once, through the panel's owner
+     * (preview.c): its columns were just repainted plain */
+    ui_panel_shadow_band(XALARM_CAP_Y, XALARM_CAP_H);
+    ui_lcd_push("panel-line", UI_PANEL_X, XALARM_CAP_Y, UI_PANEL_W,
+                XALARM_CAP_H);
+}
+
+static int x_alarms_draw(const struct ui_panel *p, const void *arg,
+                         long phase)
+{
+    (void)arg; (void)phase;
+    ui_x_alarms_panel(p, NULL, NULL);
     return TIMEOUT_BLOCK;
 }
 

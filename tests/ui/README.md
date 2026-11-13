@@ -246,6 +246,19 @@ the shell's own input loop, which sees the still-held PLAY and calls
 `sys_poweroff()`, quitting the sim. Every `ipodui-*` script that used
 `hold PLAY <ms> # stop` to stop playback uses `audio_stop` instead.
 
+    load_hold <ms>
+    expect_shown paused|playing <ms>
+    expect_pcm paused|playing <ms>
+
+\#345, also in `sim_cmd_audio.c` (shell builds). `load_hold` makes each
+track load in the audio thread wait `ms` first (0 ends it), so the
+thread reads no events meanwhile, as behind a slow disk. `expect_shown`
+waits up to `ms` for the header's play icon to be drawn in that state
+and prints the time it took; `expect_pcm` does the same for the playback
+PCM channel (paused: not playing, as the pause-to-standby path stops
+it). `ipodui-345-pause-mid-load` uses them: PLAY must redraw the pause
+icon at once even while the audio thread is in a load.
+
     record <ms> <fps> <name>
 
 Revision 2 (owner request), in `uisimulator/common/sim_cmd_record.c`.
@@ -623,7 +636,7 @@ Agent A's database commands live in `sim_cmd_p9a.c` (`stat_mark`,
 `expect_stat`, `expect_stat_delta`, `expect_in_db`, `expect_not_in_db`; see its header).
 
 Scripts: `ipodui-p9-smoke-{boot,browse,play,usb,devmode}` are the
-`sim-ui --ram=32` smoke set (criterion 8), run like any `ipodui-*` script;
+32 MB smoke set (criterion 8: `build/sim-ui` with `IPODUI_SIM_RAM=32`), run like any `ipodui-*` script;
 `smoke-boot` carries the boot `alloc_dump`/`open_count`. A's
 `ipodui-p9-stats-playcount`, `-usb-rescan`, `-rating-persist` and
 `-devmode-debug` cover H1, H2 and M1. None has goldens: they assert log
@@ -728,6 +741,7 @@ simulator (so `validate.sh` gets it too). Sim-only knobs of the shell:
 | Variable | Effect |
 |---|---|
 | `IPODUI_NO_STRIP=1` | the offscreen strip allocation fails (apps/ipodui/anim.c), so lists snap and push/pop redraw in full, as on a device out of memory |
+| `IPODUI_SIM_RAM=32\|64` | the unit's RAM (#204: one binary for both): 32 ends the core pool 32 MB lower, as `probed_ramsize` does on the device, and sets the floor (`maint_floor()`, the floor commands), the module RAM class and the #92 panel bank (none at 32); default 64; any other value stops the sim (exit 2). Every boot logs `sim: ram <N> MB` (firmware/target/hosted/sdl/system-sdl.c) |
 | `IPODUI_SIM_BATT_MV=<mV>` | pins the battery at that raw voltage from power-on (uisimulator/common/powermgmt-sim.c), until a `battery` command: the boot battery guard's scripts (`ipodui-p16-bootbatt-*`) |
 | `IPODUI_SIM_CHARGER=1` | boots with the charger plugged (powermgmt-sim.c) |
 | `SIM_DIGEST_SLOW_MS=<ms>` | that much sleep spread over the boot digest's first folders, at most 400 ms each (apps/ipodui/bootstamp.c), the device's directory reads, so it outlasts the boot window whatever the library's size: `ipodui-p081-bootwalk-bg` |
@@ -1105,6 +1119,23 @@ thread slept or blocked without marking itself idle: wrap the wait in
 `hang_idle_begin()`/`hang_idle_end()` (`firmware/export/hang_watch.h`). A
 missing or empty log fails as "inspected nothing". Self-test: `tests/gate/run.sh`.
 
+## Panic rule (`# expect: panic <regex>`)
+
+`scripts/check_hang_rule.py` (`panic_rule`, run by `scripts/shots.sh` on
+every script, `tests/perf/*` included, so a single run and the gate both
+apply it once; `check_trace.py` does not repeat it) fails a script whose `sim.log` holds any panic or fatal marker:
+a `panicf` message (`panicf`, `Error!`, `*PANIC*`), `sim_script: panic_fake`,
+a logged record (`ipodui: panic kind=N ...`, matched as one block with its
+`ipodui: panic ...` continuation lines), `Stkov`, stack overflow, an assert
+failure, a host signal (`Segmentation fault`, `Abort trap`, `Bus error`,
+`Illegal instruction`) or a target exception word (`UIE`, data/prefetch
+abort, undefined instruction). A deliberate panic declares
+`# expect: panic <regex>`, one line per expected panic; the regex is
+searched in the marker line (or the record block). Every marker must match
+a directive and every directive must match a marker, so a declaration whose
+panic never happens FAILS (it cannot pass vacuously). Hang records stay
+with the hang rule above. Self-test: `python3 tests/trace/test_panic_rules.py`.
+
 ## Fonts
 
 `scripts/check_fonts.sh build/sim-ui` (run by `validate.sh` after the
@@ -1295,7 +1326,7 @@ classifier and the mp4 reader for that flavour only). `# needs: video` makes
 `shots.sh` do the same for a standalone run (all `ipodui-p14a-*` names imply
 it), including a priming `build_db` boot.
 
-**`# needs: modules`** (header line, `validate.sh`): the script needs a simulator built with the module loader (`-DIPODUI_WITH_MODULES`, off by default since #106). Since the P12 close the gate runs it on **`build/sim-ui-mod`** (`--target=22 --type=s --ipodui`, then `-DIPODUI_WITH_MODULES` appended to the Makefile's `EXTRA_DEFINES` right after configure; a dir configured any other way is wiped, `.gate-mod-args`), in the full gate and the pool, never skipped. They also run on the UBSan pass's module twin, **`build/sim-ui-mod-ubsan`** (`UBSAN_VARIANT=mod scripts/risk/sim_ubsan.sh`; the default UBSan sim has no loader and leaves them out), in the full gate, the pool (`ubsanmod` jobs) and every `--quick` that built `sim-ui-mod`. **A misaligned access in `apps/ipodui/sdk/`, `apps/ipodui/games/` or `apps/ipodui/modload*` is a `STRICT:` finding and fails the gate** (the ARM7TDMI aborts a misaligned halfword or word access; the host does not: the P12 games crash, `quirks.md` #51). Every other UBSan finding stays report-only; `UBSAN_STRICT_RE` overrides the path pattern. `scripts/golden_capture.sh` picks the same sim. Standalone: `SIM_BUILD=build/sim-ui-mod scripts/shots.sh ...`.
+**`# needs: modules`** (header line, `validate.sh`): the script needs a simulator built with the module loader (`-DIPODUI_WITH_MODULES`, off by default since #106). Since the P12 close the gate runs it on **`build/sim-ui-mod`** (`--target=22 --type=s --ipodui`, then `-DIPODUI_WITH_MODULES` appended to the Makefile's `EXTRA_DEFINES` right after configure; a dir configured any other way is wiped, `.gate-mod-args`), in the full gate and the pool, never skipped. They also run on the UBSan pass's module twin, **`build/sim-ui-mod-ubsan`** (`UBSAN_VARIANT=mod scripts/risk/sim_ubsan.sh`; the default UBSan sim has no loader and leaves them out), in the full gate, the pool (`ubsanmod` jobs) and every `--quick` that built `sim-ui-mod`. **A misaligned access in `apps/ipodui/sdk/`, `apps/ipodui/games/` or `apps/ipodui/modload*` is a `STRICT:` finding and fails the gate** (the ARM7TDMI aborts a misaligned halfword or word access; the host does not: the P12 games crash, `quirks.md` #51). Every other UBSan finding stays report-only; `UBSAN_STRICT_RE` overrides the path pattern. `scripts/golden_capture.sh` picks the same sim. Standalone: `scripts/shots.sh ...` picks `build/sim-ui-mod` for such a script by itself, and refuses (exit 2, one line naming `build/sim-ui-mod`) a `SIM_BUILD` without the loader, so a hand run on `build/sim-ui` can no longer fail late with every game hidden and "log lacks ..." (p083-bricksleep).
 
 **Module builds in the gate (P12 close).** The simulator links modules statically, so the pack is only exercised on the firmware build. `validate.sh` also builds **`build/fw-ui-mod`** (`--target=22 --type=n --ipodui`, the same define, then `make zip`), removing `modules/check.ok` first so `modpak.py check`, `modules.pak` and the patched `rockbox.bin` are this run's. The **"module pack"** step then runs `tests/modpak/run.sh` strictly (`GATE_BUILD_STAMP=build/.gate/build.stamp`, `GATE_MOD_DIR`: `test_modpak.py` FAILs on a missing check.ok, one older than the run's build marker, or one older than its ELFs, `modpak.py`, manifests or deny lists; without the stamp, as in a plain `scripts/test.sh`, those are notes) and `tests/modload/run.sh`, which, when `tests/modload/test_modload_pak.c` is present (p12-modfix), must print both its `[developer]` and `[release]` runs on the pack. `--quick` builds `sim-ui-mod` and `fw-ui-mod` only when `apps/ipodui/modload*`, `apps/ipodui/modules/`, `apps/ipodui/sdk*`, `apps/ipodui/games/`, a top-level `modules/`, `sdk/` or `games/`, `tools/modpak.py`, `tests/modpak/`, `tests/modload/`, `scripts/validate.sh` or a `# needs: modules` script changed; `GATE_MOD=1` forces them, `GATE_MOD=0` drops them.
 
@@ -1345,6 +1376,15 @@ by Fixture Singer: Fixture Author is an audiobook author in
     video_screen <path> [tc]
     setvideos
 
+`video_fault decode <errors>` (#340) makes the next plays decode nothing (the
+model takes every packet with no picture) and report that many decode errors in
+STATUS word 8; 0 clears. It holds over plays until cleared. Three start faults
+are files, read at the start (simulator only): `/.rockbox/.sim_vaudio_late`
+(the video screen starts the audio 2 s after the player),
+`/.rockbox/.sim_vaudio_never` (it never starts the audio), and
+`/.rockbox/.sim_vaudio_nofile` (the player never sees the audio on its file:
+`vplayer.c` `audio_handle()`). See `ipodui-b12-vstart-*.script`.
+
 `video_wait_refusal [ms]` blocks until the model has refused the FEED armed by
 `video_fault feed <n>`, then until the player has handled it (its `FEED refused`
 lines logged, the session restarted), each within the limit (default 15000 ms).
@@ -1387,8 +1427,9 @@ Defined in `uisimulator/common/sim_cmd_floor.{c,h}`; used by
 (64 MB) through `tests/perf/floor_gate.sh [32|64]` (also run by
 `scripts/validate.sh`, step "audio buffer floor"; `FLOOR_GATE=0` skips it).
 Each unit runs at its stress ceiling (owner, #229; `tests/perf/stress_size.sh`):
-the 32 MB unit (`build/sim-ui32`) at 50k tracks against 7,500,000 B, the
-64 MB unit (`build/sim-ui`) at 65k against 39,000,000 B, for
+the 32 MB unit at 50k tracks against 7,500,000 B, the 64 MB unit at 65k
+against 39,000,000 B, both on `build/sim-ui` (one binary since #204; the
+gate sets `IPODUI_SIM_RAM` and fails a run whose log lacks `sim: ram <RAM> MB`), for
 `audio_buffer_size()` (`docs/hardware.md`, budget rules). Measured
 2026-11-09: minimum over all cases 11,299,712 B (32 MB, 50k) and
 40,143,144 B (64 MB, 65k). At 65k on 64 MB the paused window does not fit
@@ -1405,6 +1446,10 @@ at 65k, a red run (#229).
     floor_watch end <label> [free] log the minimum, fail under the floor
                                    ("free": the free-heap minimum only)
     floor_reserve <slot 0-3> <B>   a real core_alloc (a shell reservation)
+    floor_reserve_to <slot> <over> [keep]
+                                   the free heap but <keep> B, and enough of
+                                   the buffer that it is left <over> B above
+                                   the floor (#309, ipodui-maint-retry-regrow)
     floor_release <slot>           free it
 
 Failure text: `expect_floor failed: <where> <label>: audio file buffer N B <
@@ -1671,8 +1716,9 @@ Opt-in, `GATE_POOL=1` (full gate; stays opt-in until the soak in docs/gate-speed
   ui scripts, the UBSan scripts (`scripts/risk/sim_ubsan.sh --job`) and the floor gate
   (`FLOOR_PARALLEL=1 tests/perf/floor_gate.sh`, both RAM halves at once), longest first
   by estimated duration. Each job gets its own clone of a primed disk.
-- `sim-ui32`, the UBSan sim (`sim_ubsan.sh --build`) and the three compile-only builds
-  join the concurrent build phase.
+- The UBSan sim (`sim_ubsan.sh --build`) and the three compile-only builds
+  join the concurrent build phase (the 32 MB floor half runs `build/sim-ui`
+  with `IPODUI_SIM_RAM=32` since #204; there is no `sim-ui32`).
 - Host tests (`TEST_JOBS=4 scripts/test.sh`, fatcrash first) run in the background
   alongside the trace self-tests, benches and priming; output is printed before the pool starts.
 - A failing ui script is retried at once on a fresh clone inside its slot; one that fails

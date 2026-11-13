@@ -19,6 +19,7 @@
  *
  ****************************************************************************/
 #include <stdlib.h>
+#include <string.h>
 #include "system.h"
 #include "kernel.h"
 #include "logf.h"
@@ -70,6 +71,22 @@ extern void *fiq_function;
 void *fiq_core_target[NUM_CORES] IBSS_ATTR;
 static unsigned int pcm_core IBSS_ATTR;         /* takes source 26: CPU */
 static volatile int pcm_fiq_busy IBSS_ATTR;     /* pcm_core's FIQ runs */
+/* 0.8.3: FIQs since the last start (the first two are not judged) and the
+ * last one's time, for the FIFO and gap stats (IRAM: uncached) */
+static uint8_t pcm_fiq_warm IBSS_ATTR;
+static uint32_t pcm_fiq_last_us IBSS_ATTR;
+/* 0.8.3 fifo96: the one-channel lateness model.  A piece armed at
+ * pcm_arm_us with pcm_arm_free FIFO words free takes the FIFO's free
+ * words at once and the rest at the I2S rate, so the hardware ends it
+ * (words - free) word times later with the FIFO full; the FIQ is late by
+ * what passed beyond that.  pcm_tw_q8: one FIFO word's time, us x 256
+ * (CPU-written while stopped, at each rate or depth change) */
+static uint32_t pcm_arm_us IBSS_ATTR;
+static uint16_t pcm_arm_words IBSS_ATTR;
+static uint8_t pcm_arm_free IBSS_ATTR;
+static uint32_t pcm_tw_q8 IBSS_ATTR;
+static uint32_t pcm_lock_us IBSS_ATTR;  /* the PCM lock's first take */
+static uint8_t pcm_lock_playing IBSS_ATTR; /* playing when it was taken */
 static struct corelock pcm_lock_cl IBSS_ATTR;
 static struct pcm_pp_stats pcmpp IBSS_ATTR;
 
@@ -78,15 +95,27 @@ static struct pcm_pp_stats pcmpp IBSS_ATTR;
 #define CORE_INT_REG(cpu_reg, core) \
     (*(volatile unsigned long *)((uintptr_t)&(cpu_reg) + ((core) << 4)))
 
+/* 0.8.3 fifo96: where each core was when its last FIQ came: the
+ * interrupted pc + 4 (lr_fiq) and its cpsr (spsr_fiq), per core.  The
+ * FIQ keeps the pair of its latest late run (pcm_pp_stats late_pc): a pc
+ * just after an interrupt unmask names the section that held it off */
+uint32_t fiq_entry_ctx[NUM_CORES][2] IBSS_ATTR;
+
 void fiq_by_core(void) ICODE_ATTR __attribute__((naked));
 void fiq_by_core(void)
 {
-    /* FIQ mode banks r8-r14: r10 and r12 need no saving */
+    /* FIQ mode banks r8-r14: r10 and r12 need no saving.  The flags of
+     * the compare live through the stores (none sets them) */
     asm volatile (
         "mov    r10, #0x60000000    \n" /* PROCESSOR_ID */
         "ldrb   r12, [r10]          \n"
-        "ldr    r10, =fiq_core_target \n"
         "cmp    r12, #0x55          \n" /* the CPU */
+        "ldr    r10, =fiq_entry_ctx \n"
+        "addne  r10, r10, #8        \n" /* the COP's pair */
+        "str    lr, [r10]           \n"
+        "mrs    r12, spsr           \n"
+        "str    r12, [r10, #4]      \n"
+        "ldr    r10, =fiq_core_target \n"
         "ldreq  pc, [r10]           \n"
         "ldr    pc, [r10, #4]       \n" /* the COP */
         ".ltorg                     \n"
@@ -169,6 +198,169 @@ static uint16_t max_dma_chunk_size IBSS_ATTR;
 static uint16_t max_dma_chunk_size;
 #endif
 
+#ifdef HAVE_PCM_24BIT_OUT
+/* ProkBox #268: bytes a frame (4: 16-bit, 8: 24-bit in 32-bit words) and
+   the rate index, so a depth change re-sizes the DMA pieces; CPU-written
+   while the PCM is stopped, read by the FIQ: IRAM (uncached) */
+static uint8_t pcm_pp_bpf IDATA_ATTR = 4;
+static uint16_t pcm_pp_freq IDATA_ATTR = HW_FREQ_DEFAULT;
+/* the stall watch's progress word (pcm_builtin_progress()) */
+static unsigned long pcm_pp_pieces IBSS_ATTR;
+#define PCM_PP_PIECE_DONE() (pcm_pp_pieces++)
+#else
+#define PCM_PP_PIECE_DONE() do { } while (0)
+#endif
+
+#ifdef HAVE_CORE_LAYOUT_A
+/* 0.8.3 fifo96: the FIQ's timing (IRAM: the FIQ is the COP's) */
+static uint32_t pcm_fiq_in_us IBSS_ATTR;    /* this FIQ's entry */
+
+/* us for n FIFO words (pcm_tw_q8: one word's time x 256) */
+static inline uint32_t pcm_words_us(uint32_t n)
+{
+    return (n * pcm_tw_q8) >> 8;
+}
+
+/* a FIQ came late us after the hardware ended its piece */
+static void ICODE_ATTR pcm_note_late(int32_t us)
+{
+    const uint32_t *ctx = fiq_entry_ctx[CURRENT_CORE];
+
+    if (us <= 0)
+        return;
+    if ((uint32_t)us > pcmpp.late_max_us)
+    {
+        pcmpp.late_max_us = us;
+        pcmpp.late_pc = ctx[0] - 4;
+        pcmpp.late_psr = ctx[1];
+    }
+    if ((uint32_t)us > pcm_words_us(16))
+    {
+        pcmpp.late_over++;
+        pcmpp.over_pc = ctx[0] - 4;
+        pcmpp.over_psr = ctx[1];
+    }
+}
+
+/* the next piece is armed: the lateness model's start, and in the FIQ the
+ * time from its entry */
+#define PCM_PP_ARMED(size) do {                                     \
+        pcm_arm_free = IIS_TX_FREE_COUNT;                           \
+        pcm_arm_us = USEC_TIMER;                                    \
+        pcm_arm_words = (size) / 4;                                 \
+        if (pcm_fiq_busy &&                                         \
+            pcm_arm_us - pcm_fiq_in_us > pcmpp.restart_max_us)      \
+            pcmpp.restart_max_us = pcm_arm_us - pcm_fiq_in_us;      \
+    } while (0)
+#define PQ_STAT_PIECE()     (pcmpp.q_pieces++)
+#define PQ_STAT_DRY()       (pcmpp.q_dry++)
+#define PQ_STAT_ODD()       (pcmpp.q_odd++)
+#define PQ_STAT_FELL()      (pcmpp.q_fell++)
+/* the queued piece had moved b bytes when its FIQ looked: its start was
+ * the last one's end, with the FIFO full */
+#define PQ_STAT_LATE(b)     pcm_note_late((int32_t)pcm_words_us((b) / 4))
+#define PQ_STAT_RESTART() do {                                      \
+        uint32_t t_ = USEC_TIMER - pcm_fiq_in_us;                   \
+        if (t_ > pcmpp.restart_max_us)                              \
+            pcmpp.restart_max_us = t_;                              \
+    } while (0)
+/* st: the playing piece's status as the FIQ ends: its bytes left (the
+ * field counts as the command's, less 4) and the full FIFO behind it */
+#define PQ_STAT_SLACK(st) do {                                      \
+        uint32_t s_ = pcm_words_us(((st) & 0xfffc) / 4 + 1 + 16);   \
+        if (s_ < pcmpp.q_slack_min_us)                              \
+            pcmpp.q_slack_min_us = s_;                              \
+    } while (0)
+#else
+#define PCM_PP_ARMED(size) do { } while (0)
+#endif
+
+/* pcm-wait: begin (tests/pcmwait runs this block) */
+/* ProkBox #312: every wait on the playback path is bounded.  The I2S FIFO
+ * drains only while the codec clocks the I2S, and a playback channel told
+ * to stop goes idle only once the FIFO takes its last word.  In DAC
+ * standby (the codec's PLL off, wm8758.c) or with the I2S gated (AW-5,
+ * wmcodec-pp.c) neither happens, and an unbounded wait spins for ever
+ * with the PCM lock held.  The slowest drain: the FIFO's 16 words at
+ * 8 kHz, one word a 16-bit frame: 2 ms (a 24-bit frame is two words, half
+ * that).  The bound is four times it.  These waits run under the PCM lock
+ * or in the FIQ, where the codec cannot be woken (dac_wake() sleeps on
+ * I2C), so the start path wakes it first (pcm.c pcm_play_data()).  Here a
+ * wait that reaches the bound clears the FIFO (a stopped channel's last
+ * request is then served), waits once more and gives up: the stop
+ * completes either way, and the fault is kept for one log line from
+ * thread context (pcm_builtin_wait_fault(), pcm.c) */
+#define PCM_PP_FIFO_WORDS   16
+#define PCM_PP_SLOWEST_HZ   8000
+#define PCM_PP_WAIT_US \
+    (4ul * PCM_PP_FIFO_WORDS * 1000000ul / PCM_PP_SLOWEST_HZ)
+#ifndef PCM_DMA_STATUS
+#define PCM_DMA_STATUS(ch) \
+    (*(volatile unsigned long *)(DMA0_BASE_ADDR + 0x20 * (ch) + 0x04))
+#endif
+
+static struct pcm_wait_fault pcm_wf IBSS_ATTR;
+static unsigned long pcm_wf_dma IBSS_ATTR;  /* the channels' last status */
+
+/* The wait is over: the channels in what idle (busy and completion clear;
+ * reading a status acknowledges its completion), or the FIFO empty */
+static bool pcm_wait_done(unsigned int what)
+{
+#if defined(CPU_PP502x)
+    if (what != PCM_WAIT_FIFO)
+    {
+        unsigned long st = 0;
+
+        if (what & PCM_WAIT_CH0)
+            st |= PCM_DMA_STATUS(0);
+        if (what & PCM_WAIT_CH1)
+            st |= PCM_DMA_STATUS(1);
+        pcm_wf_dma = st;
+        return !(st & (DMA_STATUS_BUSY | DMA_STATUS_INTR));
+    }
+#endif
+    return IIS_TX_IS_EMPTY;
+}
+
+/* true when the wait ended within us (one last look past the bound: a
+ * long interrupt in between is not a fault) */
+static bool pcm_wait_within(unsigned int what, unsigned long us)
+{
+    const unsigned long t0 = USEC_TIMER;
+
+    while (!pcm_wait_done(what))
+    {
+        if (USEC_TIMER - t0 > us)
+            return pcm_wait_done(what);
+    }
+    return true;
+}
+
+static void pcm_wait_bounded(unsigned int what)
+{
+    const unsigned long t0 = USEC_TIMER;
+    unsigned long fifo;
+    bool ok;
+
+    if (pcm_wait_within(what, PCM_PP_WAIT_US))
+        return;
+    fifo = IISFIFO_CFG;
+    pcm_wf.dma = what == PCM_WAIT_FIFO ? 0 : pcm_wf_dma;
+    IISFIFO_CFG |= IIS_TXCLR;
+    ok = pcm_wait_within(what, PCM_PP_WAIT_US);
+    pcm_wf.fifo = fifo;
+    pcm_wf.us = USEC_TIMER - t0;
+    pcm_wf.what = what;
+    pcm_wf.recovered = ok;
+    pcm_wf.count++;     /* last: the reader's signal */
+}
+
+void pcm_builtin_wait_fault(struct pcm_wait_fault *out)
+{
+    *out = pcm_wf;
+}
+/* pcm-wait: end */
+
 #if defined(CPU_PP502x)
 /* 16-bit, L-R packed into 32 bits with left in the least significant halfword */
 #define SAMPLE_SIZE   16
@@ -225,6 +417,7 @@ static inline void dma_tx_start(bool begin)
     if (size + 16*4 > dma_play_data.size)
         size = dma_play_data.size;
 
+    PCM_PP_ARMED(size);     /* 0.8.3 fifo96: the lateness model's start */
     /* Set the new DMA values and activate channel */
     DMA0_RAM_ADDR = dma_play_data.addr;
     DMA0_CMD = DMA_PLAY_CONFIG | (size - 4) | DMA_CMD_START;
@@ -241,8 +434,8 @@ static void dma_tx_stop(void)
     /* Stop transfer */
     DMA0_CMD = cmd & ~(DMA_CMD_START | DMA_CMD_INTR);
 
-    /* Wait for not busy + clear int */
-    while (DMA0_STATUS & (DMA_STATUS_BUSY | DMA_STATUS_INTR));
+    /* Wait for not busy + clear int (ProkBox #312: bounded) */
+    pcm_wait_bounded(PCM_WAIT_CH0);
 
     if (status & DMA_STATUS_BUSY) {
         /* Transfer was interrupted - leave what's left */
@@ -284,6 +477,345 @@ static inline void dma_tx_unlock(void)
 #endif
 }
 
+#if defined(HAVE_CORE_LAYOUT_A) && !defined(PCM_PP_QUEUE)
+#define PCM_PP_QUEUE
+#endif
+#ifdef PCM_PP_QUEUE
+/* 0.8.3 fifo96: the two-channel queue (docs/pp5022-reference/dma.md 2.1).
+ * One channel can only be re-armed from the FIQ once its piece is done,
+ * and the I2S FIFO then lasts 16 words: 83 us at 96 kHz 24-bit, so any
+ * FIQ later than that is a click.  Here two general-engine channels on
+ * the same I2S request take turns: while one plays, the other holds the
+ * next piece, armed and waiting, and the hardware moves on to it with no
+ * software in between.  A FIQ then has a whole piece (1.3 ms at 96 kHz
+ * 24-bit, 5.8 ms at 44.1 kHz 16-bit, less the mix) to arm the one after.
+ * That the engine serves two channels on one request one after the other,
+ * in either order, is proved silently at the first start of each boot
+ * (pq_probe(): [silicon] only once the owner's log says "proved"); a
+ * refusal keeps the one-channel path.
+ *
+ * pq_n pieces are armed and not yet seen done; pq_act holds the older.
+ * dma_play_data is what is not armed yet.  At a completion: the queued
+ * piece plays already; if the done piece ended its buffer the mixer is
+ * told (PCM_DMAST_STARTED: it mixes into the buffer just freed), then the
+ * free channel is armed with what comes next, asking the PCM layer for
+ * the next buffer when this one is all armed.  So the mixer's two buffers
+ * are enough: one in the hardware, one mixed and armed or being mixed. */
+/* pcm-queue: begin (tests/pcmdma/test_pcmq.c runs this block) */
+#ifndef PQ_REG
+#define PQ_REG(ch, off) \
+    (*(volatile unsigned long *)(DMA0_BASE_ADDR + 0x20 * (ch) + (off)))
+#endif
+#define PQ_CMD(ch)    PQ_REG(ch, 0x00)
+#define PQ_STATUS(ch) PQ_REG(ch, 0x04)
+#define PQ_RAM(ch)    PQ_REG(ch, 0x10)
+
+static uint8_t pq_on IBSS_ATTR;         /* the queue is in use */
+static uint8_t pq_n IBSS_ATTR;          /* pieces armed, not yet seen done */
+static uint8_t pq_act IBSS_ATTR;        /* the channel of the older one */
+static uint8_t pq_last[2] IBSS_ATTR;    /* its piece ends its buffer */
+static uint16_t pq_sz4[2] IBSS_ATTR;    /* its piece's size field */
+/* fifo96 review: the queue failing in use (a hand-over found the queued
+ * piece done too a second time since the start, or an odd order): no more
+ * pieces are queued; once the armed ones end the play goes on with one
+ * channel, for the rest of the boot (pq_on clear), counted (fell) */
+static uint8_t pq_fail IBSS_ATTR;
+static uint8_t pq_dry_run IBSS_ATTR;    /* dry hand-overs since the start */
+static uint8_t pq_ready IBSS_ATTR;      /* the mixer holds a mixed buffer
+                                           not handed out yet */
+
+/* The next piece of dma_play_data onto the free channel, cut as
+ * dma_tx_start() cuts (whole words; no FIFO's worth left over), at most
+ * cap bytes.  With one armed already it waits for that one's end */
+static void ICODE_ATTR pq_arm(size_t cap)
+{
+    const unsigned int ch = pq_n ? pq_act ^ 1 : pq_act;
+    size_t size = cap;
+
+    if (size + 16*4 > dma_play_data.size)
+        size = dma_play_data.size;
+    PQ_RAM(ch) = dma_play_data.addr;
+    PQ_CMD(ch) = DMA_PLAY_CONFIG | (size - 4) | DMA_CMD_START;
+    pq_sz4[ch] = size - 4;
+    dma_play_data.addr += size;
+    dma_play_data.size -= size;
+    pq_last[ch] = dma_play_data.size == 0;
+    pq_n++;
+}
+
+/* Both channels armed: the rest of this buffer, else the next one.
+ * false: no more data (the PCM layer has stopped the PCM) */
+static bool ICODE_ATTR pq_fill(void)
+{
+    while (pq_n < 2)
+    {
+        if (pq_fail && pq_n != 0)
+            return true;            /* the armed one ends first */
+        if (dma_play_data.size == 0)
+        {
+            if (!pcm_play_dma_complete_callback(PCM_DMAST_OK,
+                                                &dma_play_data.p_r,
+                                                &dma_play_data.size))
+                return false;
+            pq_ready = 0;
+            dma_play_data.addr = dma_tx_buf_prepare(dma_play_data.p_r);
+        }
+        if (pq_fail)
+        {
+            /* nothing armed: channel 0 alone from here, as the one-channel
+             * FIQ expects it (dma_play_data from the piece it plays, the
+             * mixer one buffer ahead) */
+            pq_on = 0;
+            PQ_STAT_FELL();
+            dma_tx_start(false);
+            if (!pq_ready)
+                pcm_play_dma_status_callback(PCM_DMAST_STARTED);
+            return true;
+        }
+        pq_arm(max_dma_chunk_size);
+    }
+    return true;
+}
+
+/* At the start: the first buffer in two pieces at least, so the second
+ * waits armed from the first word (a 1 KB mixer frame is one piece at
+ * 64 kHz and up) */
+static void pq_start(void)
+{
+    size_t half = (dma_play_data.size / 2) & ~3;
+
+    pq_n = 0;
+    pq_act = 0;
+    pq_dry_run = 0;
+    pq_ready = 1;                   /* the mixer's start mixed two */
+    pq_arm(half >= 64 && half < max_dma_chunk_size ? half
+                                                   : max_dma_chunk_size);
+    if (dma_play_data.size != 0)
+        pq_arm(max_dma_chunk_size);
+}
+
+/* The FIQ.  Reads only the older piece's status (reading acknowledges);
+ * the queued one cannot end before it.  Late enough that both ended, the
+ * loop takes both, the gap counted (dry) */
+static void ICODE_ATTR pq_fiq(void)
+{
+    unsigned long st;
+    bool first = true;
+
+    if (pq_n == 0)
+        return;
+    st = PQ_STATUS(pq_act);
+    if (!(st & DMA_STATUS_INTR) && pq_n == 2)
+    {
+        /* the queued piece ended and the older did not: an engine the
+         * probe should have refused.  Taken, so its request cannot hold
+         * the FIQ up for ever; counted */
+        const unsigned long o = PQ_STATUS(pq_act ^ 1);
+
+        if (o & DMA_STATUS_INTR)
+        {
+            /* the queued piece played before the older one: their words
+             * came out of order.  Never on an engine the probe proved, so
+             * the queue is given up at once (fifo96 review) */
+            PQ_STAT_ODD();
+            pq_fail = 1;
+            pq_act ^= 1;
+            st = o;
+        }
+    }
+    while (st & DMA_STATUS_INTR)
+    {
+        const bool last = pq_last[pq_act];
+
+        PCM_PP_PIECE_DONE();
+        PQ_STAT_PIECE();
+        if (--pq_n != 0)
+        {
+            pq_act ^= 1;                /* the queued piece plays */
+            st = PQ_STATUS(pq_act);
+            if (st & DMA_STATUS_INTR)
+            {
+                /* it ended too: the FIFO ran out.  A second time since
+                 * the start (a FIQ that never comes for one channel, a
+                 * late one each piece) gives the queue up */
+                PQ_STAT_DRY();
+                if (++pq_dry_run >= 2)
+                    pq_fail = 1;
+            }
+            else if (first && (st & 0xfffc) <= (pq_sz4[pq_act] & 0xfffc))
+                PQ_STAT_LATE((pq_sz4[pq_act] & 0xfffc) - (st & 0xfffc));
+        }
+        else
+        {
+            if (!pq_fail)
+                PQ_STAT_DRY();          /* nothing was queued: a gap */
+            st = 0;
+        }
+        first = false;
+        /* a buffer ended: the mixer refills it, unless it still holds one
+         * not handed out (only while giving the queue up: two ends with
+         * no fill between; the fallback's start mixes the freed one) */
+        if (last && !pq_ready)
+        {
+            pcm_play_dma_status_callback(PCM_DMAST_STARTED);
+            pq_ready = 1;
+        }
+        if (!pq_fill() || !pq_on)
+            return;
+        PQ_STAT_RESTART();
+        if (!(st & DMA_STATUS_INTR))
+        {
+            st = PQ_STATUS(pq_act);     /* ended meanwhile? */
+            if (!(st & DMA_STATUS_INTR))
+                PQ_STAT_SLACK(st);
+        }
+    }
+}
+/* Both channels stopped: the waiting one first, so it cannot start */
+static void pq_stop(void)
+{
+    const unsigned int q = pq_act ^ 1;
+
+    PQ_CMD(q) &= ~(DMA_CMD_START | DMA_CMD_INTR);
+    PQ_CMD(pq_act) &= ~(DMA_CMD_START | DMA_CMD_INTR);
+    pcm_wait_bounded(PCM_WAIT_CH0 | PCM_WAIT_CH1);     /* #312 */
+    pq_n = 0;
+}
+/* pcm-queue: end */
+
+
+static void pq_setup(void)
+{
+    DMA1_PER_ADDR = (unsigned long)&IISFIFO_WR;
+    DMA1_FLAGS = DMA_FLAGS_UNK26;
+    DMA1_INCR = DMA_INCR_RANGE_FIXED | DMA_INCR_WIDTH_32BIT;
+}
+
+/* The silent proof, at the PCM's start (the PCM lock held: the source is
+ * masked, no FIQ runs): two pieces of zeros, one on each channel, armed
+ * back to back, both orders.  Proved when the waiting channel did not
+ * move while the first was busy (at most one sample, the hand-over's read
+ * race), the FIFO never ran dry between them, and both raised their
+ * completion bit.  ~3 ms at 44.1 kHz, once a boot (no progress in 20 ms:
+ * again at the next start, three runs at most) */
+#define PQ_PROBE_BYTES 128
+static uint32_t pq_zero[2 * PQ_PROBE_BYTES / 4] NOCACHEBSS_ATTR
+    __attribute__((aligned(16)));
+static struct pcm_pp_qprobe pq_res NOCACHEBSS_ATTR;
+
+static int pq_probe_dir(unsigned int first, struct pcm_pp_qdir *d)
+{
+    const unsigned int second = first ^ 1;
+    const unsigned long full = (PQ_PROBE_BYTES - 4) & 0xfffc;
+    unsigned long base = (unsigned long)pq_zero;
+    unsigned long a, b, t0, t = 0;
+    bool first_done = false;
+    int rc = -1;
+
+    if (base < UNCACHED_BASE_ADDR)
+        base = UNCACHED_ADDR(base);
+    memset(d, 0, sizeof(*d));
+    (void)PQ_STATUS(0);
+    (void)PQ_STATUS(1);
+    PQ_RAM(first) = base;
+    PQ_CMD(first) = DMA_PLAY_CONFIG | (PQ_PROBE_BYTES - 4) | DMA_CMD_START;
+    PQ_RAM(second) = base + PQ_PROBE_BYTES;
+    PQ_CMD(second) = DMA_PLAY_CONFIG | (PQ_PROBE_BYTES - 4) | DMA_CMD_START;
+    t0 = USEC_TIMER;
+    while (1)
+    {
+        unsigned long fifo_free;
+
+        a = PQ_STATUS(first);
+        b = PQ_STATUS(second);
+        fifo_free = IIS_TX_FREE_COUNT;
+        t = USEC_TIMER - t0;
+        if (d->samples == 0)
+            d->second_st0 = b;
+        if (d->samples < 0xffff)
+            d->samples++;
+        if (a & DMA_STATUS_INTR)
+            d->intr_first = 1;
+        if (b & DMA_STATUS_INTR)
+            d->intr_second = 1;
+        if ((a & DMA_STATUS_BUSY) && (b & 0xfffc) < full &&
+            d->overlap < 0xffff)
+            d->overlap++;
+        if (!(a & DMA_STATUS_BUSY))
+            first_done = true;
+        if (first_done && (b & DMA_STATUS_BUSY) && fifo_free >= 16 &&
+            d->gap < 0xffff)
+            d->gap++;
+        /* done when both have raised their completion (what the queue's
+         * FIQ relies on), whatever a waiting channel's busy bit says */
+        if (d->intr_first && d->intr_second && !((a | b) & DMA_STATUS_BUSY))
+        {
+            rc = 0;
+            break;
+        }
+        if (t > 20000)
+            break;
+    }
+    d->us = t;
+    PQ_CMD(second) &= ~(DMA_CMD_START | DMA_CMD_INTR);
+    PQ_CMD(first) &= ~(DMA_CMD_START | DMA_CMD_INTR);
+    pcm_wait_bounded(PCM_WAIT_CH0 | PCM_WAIT_CH1);     /* #312 */
+    return rc;
+}
+
+static void pq_probe(void)
+{
+    int r0, r1;
+
+    dma_tx_setup();
+    pq_setup();
+    r0 = pq_probe_dir(0, &pq_res.dir[0]);
+    r1 = pq_probe_dir(1, &pq_res.dir[1]);
+    pq_res.runs++;
+    if (r0 != 0 || r1 != 0)
+    {
+        /* no progress (the codec's clocks?): again at the next start */
+        pq_res.verdict = pq_res.runs < 3 ? 3 : 2;
+    }
+    else
+    {
+        bool ok = true;
+
+        for (int i = 0; i < 2; i++)
+        {
+            const struct pcm_pp_qdir *d = &pq_res.dir[i];
+
+            /* one overlapping sample can be the read race at the
+             * hand-over (the first's status read just before it ended); a
+             * shared request overlaps for the whole piece */
+            if (d->overlap > 1 || d->gap || !d->intr_first ||
+                !d->intr_second)
+                ok = false;
+        }
+        pq_res.verdict = ok ? 1 : 2;
+    }
+    pq_on = pq_res.verdict == 1;
+}
+
+void pcm_pp_queue_probe_result(struct pcm_pp_qprobe *out)
+{
+    *out = pq_res;
+}
+
+bool pcm_pp_queue_on(void)
+{
+    return pq_on;
+}
+
+void pcm_pp_queue_refuse(void)
+{
+    if (dma_play_data.state != 0)
+        return;
+    pq_on = 0;
+    pq_res.verdict = 2;
+}
+#endif /* PCM_PP_QUEUE */
+
 /* NOTE: direct stack use forbidden by GCC stack handling bug for FIQ */
 void fiq_playback(void) ICODE_ATTR __attribute__((interrupt("FIQ")));
 void fiq_playback(void)
@@ -301,11 +833,46 @@ void fiq_playback(void)
         return;
     }
     pcmpp.fiq[CURRENT_CORE]++;
+    {
+        /* 0.8.3: the FIFO as this piece ended, and the gap since the
+         * last piece's FIQ: a FIFO found empty is a click */
+        uint32_t now = USEC_TIMER;
+        uint32_t free = IIS_TX_FREE_COUNT;
+
+        pcm_fiq_in_us = now;
+        if (pcm_fiq_warm >= 2)
+        {
+            uint32_t gap = now - pcm_fiq_last_us;
+
+            if (free >= 16)
+                pcmpp.fifo_empty++;
+            if (free > pcmpp.fifo_free_max)
+                pcmpp.fifo_free_max = free;
+            if (gap > pcmpp.gap_max_us)
+                pcmpp.gap_max_us = gap;
+        }
+        else
+            pcm_fiq_warm++;
+        pcm_fiq_last_us = now;
+    }
+#ifdef PCM_PP_QUEUE
+    if (pq_on)
+    {
+        pq_fiq();
+        goto fiq_out;
+    }
+#endif
+    /* 0.8.3 fifo96: one channel: how late past the piece's end (the
+     * model at PCM_PP_ARMED) */
+    pcm_note_late((int32_t)(pcm_fiq_in_us - pcm_arm_us) -
+                  (int32_t)pcm_words_us(pcm_arm_words > pcm_arm_free ?
+                                        pcm_arm_words - pcm_arm_free : 0));
 #endif
     DMA0_STATUS; /* Clear any pending interrupt */
 
     size_t size = (DMA0_CMD & 0xffff) + 4; /* Get size of trasfer that caused
                                               this interrupt */
+    PCM_PP_PIECE_DONE();
     dma_play_data.addr += size;
     dma_play_data.size -= size;
 
@@ -330,6 +897,15 @@ void fiq_playback(void)
         pcm_play_dma_status_callback(PCM_DMAST_STARTED);
     }
 #ifdef HAVE_CORE_LAYOUT_A
+#ifdef PCM_PP_QUEUE
+fiq_out:
+#endif
+    {
+        uint32_t t = USEC_TIMER - pcm_fiq_in_us;
+
+        if (t > pcmpp.handler_max_us)
+            pcmpp.handler_max_us = t;
+    }
     pcm_fiq_busy = 0;
 #endif
 }
@@ -541,13 +1117,69 @@ void fiq_playback(void)
 #endif /* ASM / C selection */
 #endif /* CPU_PP502x */
 
+#ifdef HAVE_CORE_LAYOUT_A
+/* 0.8.3 fifo96: one FIFO word's time in us x 256: 16-bit frames are one
+ * word, 24-bit frames two (bpf: bytes a frame) */
+static void pcm_tw_update(unsigned long rate, unsigned int bpf)
+{
+    const uint32_t u = 4000000u / bpf;  /* 1 s in us over words a frame */
+
+    if (rate == 0)
+        return;
+    pcm_tw_q8 = ((u / rate) << 8) + ((u % rate) << 8) / rate;
+}
+#endif
+
 static void sink_set_freq(uint16_t freq) {
     /* ProkBox #191: whole 32-bit words (DMA0_INCR is 32-bit wide).  The
      * upstream rate >> 6 gave odd lengths (44.1 kHz: 689 bytes), and every
      * chunk after the first then started off a word boundary */
+#ifdef HAVE_PCM_24BIT_OUT
+    /* #268: the same time a piece (1/64 s) in either frame size */
+    pcm_pp_freq = freq;
+    max_dma_chunk_size = ((hw_freq_sampr[freq] >> 6) & ~3) * (pcm_pp_bpf / 4);
+#else
     max_dma_chunk_size = (hw_freq_sampr[freq] >> 6) & ~3;
+#endif
+#ifdef HAVE_CORE_LAYOUT_A
+#ifdef HAVE_PCM_24BIT_OUT
+    pcm_tw_update(hw_freq_sampr[freq], pcm_pp_bpf);
+#else
+    pcm_tw_update(hw_freq_sampr[freq], 4);
+#endif
+#endif
     audiohw_set_frequency(freq);
 }
+
+#ifdef HAVE_PCM_24BIT_OUT
+/* #268: FIFO format 3 (one 32-bit word a sample, the 24 bits at the top)
+   with the codec's 24-bit word, or format 7 (one word a 16-bit stereo
+   frame) with its 16-bit word: b11 i2s24 [silicon], the I2S size code
+   kept (16-bit; all four codes played clean).  The PCM is stopped (the
+   mixer's start), so no FIFO holds the old format's words */
+void pcm_builtin_set_depth(int bits)
+{
+    uint8_t bpf = bits > 16 ? 8 : 4;
+
+    if (bpf == pcm_pp_bpf)
+        return;
+    pcm_pp_bpf = bpf;
+    IISCONFIG = (IISCONFIG & ~IIS_FIFO_FORMAT_MASK) |
+                (bpf == 8 ? IIS_FIFO_FORMAT_LE32 : IIS_FIFO_FORMAT_LE16_2);
+    IISFIFO_CFG |= IIS_TXCLR;
+    audiohw_set_depth(bpf == 8 ? 24 : 16);
+    max_dma_chunk_size = ((hw_freq_sampr[pcm_pp_freq] >> 6) & ~3) *
+                         (bpf / 4);
+#ifdef HAVE_CORE_LAYOUT_A
+    pcm_tw_update(hw_freq_sampr[pcm_pp_freq], bpf);
+#endif
+}
+
+unsigned long pcm_builtin_progress(void)
+{
+    return pcm_pp_pieces;
+}
+#endif
 
 #ifdef HAVE_CORE_LAYOUT_A
 /* The locker is not pcm_core: its mask has stopped new FIQs there, and a
@@ -589,6 +1221,8 @@ static void sink_lock(void)
         dma_tx_lock();
         if (core != pcm_core)
             fiq_wait_out();
+        pcm_lock_us = USEC_TIMER;   /* fifo96: the source masked from */
+        pcm_lock_playing = dma_play_data.state != 0;
     }
     corelock_unlock(&pcm_lock_cl);
     restore_interrupt(status);
@@ -599,6 +1233,15 @@ static void sink_unlock(void)
     int status = disable_interrupt_save(IRQ_FIQ_STATUS);
 
     corelock_lock(&pcm_lock_cl);
+    if (dma_play_data.locked == 1) {
+        /* fifo96: how long the source was masked while playing (a FIQ
+         * waits); not a start (the probe) nor a stop (the FIFO drain) */
+        uint32_t t = USEC_TIMER - pcm_lock_us;
+
+        if (pcm_lock_playing && dma_play_data.state != 0 &&
+            t > pcmpp.lock_hold_max_us)
+            pcmpp.lock_hold_max_us = t;
+    }
     if (--dma_play_data.locked == 0 && dma_play_data.state != 0) {
         dma_tx_unlock();
     }
@@ -643,6 +1286,21 @@ void pcm_pp_get_stats(struct pcm_pp_stats *out)
 {
     *out = pcmpp;
 }
+
+/* 0.8.3: the maxima start over (a run's own); a race with the FIQ only
+ * loses one sample of a statistic */
+void pcm_pp_reset_max(void)
+{
+    pcmpp.fifo_free_max = 0;
+    pcmpp.gap_max_us = 0;
+    pcmpp.late_max_us = 0;
+    pcmpp.late_pc = pcmpp.late_psr = 0;
+    pcmpp.over_pc = pcmpp.over_psr = 0;
+    pcmpp.restart_max_us = 0;
+    pcmpp.handler_max_us = 0;
+    pcmpp.lock_hold_max_us = 0;
+    pcmpp.q_slack_min_us = ~0u;
+}
 #else /* !HAVE_CORE_LAYOUT_A */
 /* For the locks, FIQ must be disabled because the handler manipulates
    IISCONFIG and the operation is not atomic - dual core support
@@ -674,15 +1332,29 @@ static void sink_start_pcm(void)
 {
     FIQ_TARGET_SET(IF_LAYOUT_A_CORE, fiq_playback);
     dma_play_data.state = 1;
+#ifdef PCM_PP_QUEUE
+    if (pq_on)
+    {
+        pq_start();
+        return;
+    }
+#endif
     dma_tx_start(true);
 }
 
 static void sink_stop_pcm(void)
 {
+#ifdef PCM_PP_QUEUE
+    if (pq_on)
+        pq_stop();
+    else
+#endif
     dma_tx_stop();
 
-    /* Wait for FIFO to empty */
-    while (!IIS_TX_IS_EMPTY);
+    /* Wait for FIFO to empty.  ProkBox #270, #312: bounded, at every
+       rate (pcm_wait_bounded(): a codec in standby or that lost its PLL
+       never drains it) */
+    pcm_wait_bounded(PCM_WAIT_FIFO);
 
     dma_play_data.state = 0;
 }
@@ -698,10 +1370,22 @@ static void sink_dma_start(const void *addr, size_t size)
     dma_play_data.core = processor_id(); /* save initiating core */
 #endif
 
+#ifdef PCM_PP_QUEUE
+    /* fifo96: the queue's silent proof, at the first start of a boot (the
+     * PCM lock is held: the FIQ's source is masked).  The stop above left
+     * both channels idle; pq_on changes only here, while stopped */
+    if (pq_res.verdict == 0 || pq_res.verdict == 3)
+        pq_probe();
+    if (pq_on)
+        pq_setup();
+#endif
     dma_tx_setup();
 
     dma_play_data.addr = dma_tx_buf_prepare(addr);
     dma_play_data.size = size;
+#ifdef HAVE_CORE_LAYOUT_A
+    pcm_fiq_warm = 0;   /* 0.8.3: the FIFO starts empty */
+#endif
     sink_start_pcm();
 }
 
@@ -727,6 +1411,7 @@ static void sink_dma_init(void)
     FIQ_TARGET_SET(COP, fiq_spurious);
     corelock_init(&pcm_lock_cl);
     pcm_core = CPU;
+    pcmpp.q_slack_min_us = ~0u;     /* fifo96: a minimum */
 #endif
     dma_tx_init();
 

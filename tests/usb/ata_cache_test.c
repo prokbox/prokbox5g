@@ -65,6 +65,16 @@ static int ata_transfer_sectors(uint64_t start, int count, void *buf, int write)
     return 0;
 }
 
+/* #79 (one build): the drive's kind, as IDENTIFY reports it on the device
+ * (firmware/export/ata.h); -DTEST_SOLID=1 runs the flash adapter's case */
+#ifndef TEST_SOLID
+#define TEST_SOLID 0
+#endif
+static int ata_disk_isssd(void)
+{
+    return TEST_SOLID;
+}
+
 #include "firmware/drivers/ata-common.c"
 
 static void fill(unsigned char *b, int n, unsigned char v)
@@ -81,6 +91,22 @@ int main(void)
     phys_sector_mult = 1;
     ata_set_phys_sector_mult(4);        /* disk_mount with 2048 virtual */
     printf("phys_sector_mult %u\n", phys_sector_mult);
+#ifdef HAVE_USB_SECTOR_XLATE
+    {   /* #79: the storage-choices row "sector multiplier under USB": a
+         * solid drive keeps its own (1), a rotating one is raised to the
+         * 1024-byte cap (2). Literals, not the code's constants */
+        unsigned want = TEST_SOLID ? 1 : 2;
+        if (phys_sector_mult != want)
+        {
+            printf("FAIL phys_sector_mult %u, want %u (%s)\n",
+                   phys_sector_mult, want, TEST_SOLID ? "solid" : "rotating");
+            fails++;
+        }
+        else
+            printf("ok   phys_sector_mult %u on a %s drive\n", want,
+                   TEST_SOLID ? "solid" : "rotating");
+    }
+#endif
 
     /* the review's scenario at sectors 10/11 (one 1024-byte physical) */
     fill(w, 1, 0xA1); ata_write_sectors(11, 1, w);     /* FAT sector 11 */

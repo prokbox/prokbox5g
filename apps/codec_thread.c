@@ -34,6 +34,9 @@
 #include "dsp_core.h"
 #ifdef HAVE_COP_CODEC
 #include "codec_cop.h"      /* Fit-2: the decode on the second core */
+#ifdef HAVE_IPOD_UI
+#include "ipodui/uilog.h"   /* #282: the DSP on the COP */
+#endif
 #define CODEC_API(enc)      codec_cop_select(&ci, (enc))
 /* P19 19-1c: a run from Q_CODEC_RUN is a track start (a re-selection
  * point); a seek's re-run keeps the core it had */
@@ -296,6 +299,111 @@ static void codec_pcmbuf_insert_callback(
     }
 }
 
+#ifdef HAVE_COP_CODEC
+/* #282 step 4: the CPU's half of the COP's pcmbuf_insert (codec_cop.c
+   cop_pcmbuf_insert()). The COP runs the DSP into a window of pcmbuf and
+   comes here only to publish what it wrote and to take the next window:
+   once per window, not once per frame. The control part stays exactly
+   the original's: the same queue check, the same full-buffer sleep, the
+   same request (boost, prefill start, crossfade). used: samples the COP
+   wrote at the last window (its cache already written back by the call);
+   want: samples asked for, 0 to publish only. Returns the window and
+   *count, or NULL (*count 0) when a message waits for the codec: the
+   insert stops there, as the original's loop does */
+/* 0.8.3 road-test fix: how long codec_pcm_window() slept on a full
+   buffer, in us, since boot (the codec thread's; codec_cop.c splits the
+   COP's call wait into this and the CPU's latency) */
+static uint32_t pcm_window_full_us;
+
+uint32_t codec_pcm_window_full_us(void)
+{
+    return pcm_window_full_us;
+}
+
+void *codec_pcm_window(int used, unsigned long elapsed, off_t offset,
+                       int want, bool may_lease, int *count, bool *hold,
+                       bool *leased)
+{
+    static unsigned int epoch;      /* the write side's, at the grant */
+    bool slept = false;
+
+    *count = 0;
+    *hold = false;
+    *leased = false;
+#ifdef HAVE_CORE_LAYOUT_A
+    /* 0.8.3 colocate: back from the COP first, whatever it held */
+    pcmbuf_lease_reclaim();
+#else
+    (void)may_lease;
+    (void)slept;                /* the lease is layout A's */
+#endif
+    if (used > 0 && epoch != pcmbuf_write_epoch())
+    {
+        /* The write side was reset under the window (a stop or flush the
+           codec was not told of first): its samples belong nowhere.
+           Never expected: the COP publishes before every other call */
+#ifdef HAVE_IPOD_UI
+        ui_log("codec", "dsp cop: stale window dropped n=%d", used);
+#endif
+        logf("dsp cop: stale window dropped n=%d", used);
+    }
+    else if (used > 0)
+    {
+        /* The CPU may hold stale lines of the window from an earlier lap
+           (the wrap copy and a crossfade read it here): drop them first */
+        commit_discard_dcache();
+        pcmbuf_write_complete(used, elapsed, offset);
+#ifdef HAVE_IPOD_UI
+        run_pcm = true;
+#endif
+    }
+    if (want <= 0)
+        return NULL;
+
+    while (LIKELY(queue_empty(&codec_queue)) ||
+           codec_check_queue__have_msg() >= 0)
+    {
+        int n = MAX(want, 1024);
+        void *p = pcmbuf_request_buffer(&n);
+
+        if (p != NULL)
+        {
+#ifdef HAVE_CORE_LAYOUT_A
+            /* 0.8.3 colocate: after a full-buffer sleep (the boost
+               cancelled, the level high), the write side goes to the COP
+               until something needs it back: no window crosses then */
+            if (may_lease && slept && pcmbuf_lease_grant())
+            {
+                *leased = true;
+                return NULL;
+            }
+#endif
+            epoch = pcmbuf_write_epoch();
+            *hold = pcmbuf_window_may_hold();
+            *count = n;
+            return p;
+        }
+        slept = true;
+        cancel_cpu_boost();
+        codec_cop_observe();
+        {
+#if !defined(SIMULATOR)
+            uint32_t t0 = USEC_TIMER;
+#endif
+#ifdef HAVE_IPOD_UI
+            queue_wait_w_tmo(&codec_queue, NULL, pcmbuf_full_wait_ticks());
+#else
+            queue_wait_w_tmo(&codec_queue, NULL, HZ/20);
+#endif
+#if !defined(SIMULATOR)
+            pcm_window_full_us += USEC_TIMER - t0;
+#endif
+        }
+    }
+    return NULL;
+}
+#endif /* HAVE_COP_CODEC */
+
 /* helper function, not a callback */
 static bool codec_advance_buffer_counters(size_t amount)
 {
@@ -310,10 +418,22 @@ static bool codec_advance_buffer_counters(size_t amount)
     return true;
 }
 
+#ifdef HAVE_IPOD_UI
+/* p083-codecload: the input calls served before a timed start's first
+ * samples, counted and timed ("start in"; one check otherwise) */
+#define IN_TRACE_BEGIN()    uint32_t in_t0 = audio_start_trace_in_begin()
+#define IN_TRACE_END()      audio_start_trace_in_end(in_t0)
+#else
+#define IN_TRACE_BEGIN()    do { } while (0)
+#define IN_TRACE_END()      do { } while (0)
+#endif
+
 /* copy up-to size bytes into ptr and return the actual size copied */
 static size_t codec_filebuf_callback(void *ptr, size_t size)
 {
+    IN_TRACE_BEGIN();
     ssize_t copy_n = bufread(ci.audio_hid, size, ptr);
+    IN_TRACE_END();
 
     /* Nothing requested OR nothing left */
     if (copy_n <= 0)
@@ -332,7 +452,9 @@ static void * codec_request_buffer_callback(size_t *realsize, size_t reqsize)
     ssize_t ret;
     void *ptr;
 
+    IN_TRACE_BEGIN();
     ret = bufgetdata(ci.audio_hid, reqsize, &ptr);
+    IN_TRACE_END();
     if (ret >= 0)
         copy_n = MIN((size_t)ret, reqsize);
     else
@@ -347,7 +469,10 @@ static void * codec_request_buffer_callback(size_t *realsize, size_t reqsize)
 
 static void codec_advance_buffer_callback(size_t amount)
 {
-    if (!codec_advance_buffer_counters(amount))
+    IN_TRACE_BEGIN();
+    bool ok = codec_advance_buffer_counters(amount);
+    IN_TRACE_END();
+    if (!ok)
         return;
 
     audio_codec_update_offset(ci.curpos);
@@ -357,7 +482,9 @@ static bool codec_seek_buffer_callback(size_t newpos)
 {
     logf("codec_seek_buffer_callback");
 
+    IN_TRACE_BEGIN();
     int ret = bufseek(ci.audio_hid, newpos);
+    IN_TRACE_END();
     if (ret == 0)
     {
         ci.curpos = newpos;
@@ -571,6 +698,7 @@ static void run_codec(void)
 
 #ifdef HAVE_IPOD_UI
     run_pcm = false;
+    audio_start_trace_step(STS_RUN);    /* p083-codecload */
 #endif
     status = CODEC_RUN();
 

@@ -32,8 +32,9 @@ mkdir -p build/xlate
 cc -w -I. -DHAVE_USB_SECTOR_XLATE tests/usb/ata_cache_test.c \
    -o build/xlate/ata_cache_test
 build/xlate/ata_cache_test
-# the flash build keeps the drive's own multiplier (1): no partial path
-cc -w -I. -DHAVE_USB_SECTOR_XLATE -DHAVE_FLASH_STORAGE \
+# a solid drive keeps its own multiplier (1): no partial path (#79: one
+# build, ata_disk_isssd() at runtime)
+cc -w -I. -DHAVE_USB_SECTOR_XLATE -DTEST_SOLID=1 \
    tests/usb/ata_cache_test.c -o build/xlate/ata_cache_test_flash
 build/xlate/ata_cache_test_flash
 cc -w -I. tests/usb/ra_test.c -o build/xlate/ra_test
@@ -46,6 +47,9 @@ cc -Wall -Wextra -I. tests/usb/reset_test.c -o build/xlate/reset_test
 build/xlate/reset_test
 cc -Wall -Wextra -I. tests/usb/arc_fix_test.c -o build/xlate/arc_fix_test
 build/xlate/arc_fix_test
+# #314: which host WRITEs can change a file (the post-USB check's skip)
+cc -Wall -Wextra -I. tests/usb/xlate_data_test.c -o build/xlate/xlate_data_test
+build/xlate/xlate_data_test
 # send_and_read_next(), cut from usb_storage.c as it stands, both paths
 awk '/^static void send_and_read_next\(void\)$/ { on = 1 }
      on { print }

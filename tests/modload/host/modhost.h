@@ -54,6 +54,8 @@
 #define LCD_BLACK       0
 #define NUM_CORES       1
 #define MEMORYSIZE      64
+/* system-target.h: the unit's RAM read at boot (#204); the test sets it */
+extern unsigned char probed_ramsize;
 #define TIMEOUT_BLOCK   (-1)
 #define ROCKBOX_DIR     "/.rockbox"
 #define ATTRIBUTE_PRINTF(f, a) __attribute__((format(printf, f, a)))

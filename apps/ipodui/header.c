@@ -51,6 +51,7 @@
 #include "ipodui/theme.h"
 #include "ipodui/header.h"
 #include "ipodui/paint.h"
+#include "ipodui/fe_be.h"     /* #345: fe_audio_status() */
 
 /* Metrics and colours shared with the rest of the shell live in
  * ui_theme. The glyphs are pre-rendered tiles (header_tiles.h, generated
@@ -468,9 +469,18 @@ bool ui_header_draw(const struct ui_header_state *st, bool force)
     return true;
 }
 
+#ifdef SIMULATOR
+/* #345 (expect_shown, sim_cmd_audio): the play state last drawn
+ * (UI_PLAY_*), -1 before the first */
+int sim_header_play_drawn(void)
+{
+    return last.valid ? last.play : -1;
+}
+#endif
+
 void ui_header_poll(struct ui_header_state *st)
 {
-    int status = audio_status();
+    int status = fe_audio_status();     /* #345: a posted PLAY at once */
 
     if (status & AUDIO_STATUS_PAUSE)
         st->play = UI_PLAY_PAUSED;

@@ -1493,7 +1493,8 @@ help() {
                       (which depends on the target). Watch the output.  Run
                       without this option if you are not sure which the right
                       number is.
-                      iPod Video: 64 (default) or 32.
+                      iPod Video: 64 only; one build serves 32 and 64 MB
+                      units (the RAM is read at start-up, probed_ramsize)
 
     --type=TYPE       Sets the build type. Shortcuts are also valid.
                       Run without this option to see all available types.
@@ -1552,11 +1553,6 @@ help() {
     --ipodui-release  With --ipodui: compile developer mode out; in iPod
                       Video firmware it also turns the module loader on
                       (IPODUI_WITH_MODULES; "make zip" packs modules.pak)
-    --dock30          With --ipodui: the unit has a 30-pin dock connector
-                      (defines HAVE_IPOD_DOCK30)
-    --haptics, --no-haptics
-                      With --ipodui: the unit has (default) or lacks the
-                      haptic clicker mod (defines HAVE_IPOD_HAPTICS)
     --ipodui-trim=LIST
                       With --ipodui: name Phase 9 trims explicitly, a comma
                       list from firmware/export/config/ipodvideo-variant.h
@@ -1574,9 +1570,6 @@ help() {
     --[no-]thumb-cold With --ipodui (firmware): compile the cold-code list in
                       tools/thumb-cold.txt as Thumb (on by default; the
                       list is read by tools/root.make)
-    --storage=TYPE    iPod Video: flash (default) or hdd (IPOD_STORAGE_HDD)
-    --battery=MAH     iPod Video: 3000 (default), stock (400/600 by model) or
-                      a capacity in mAh (IPOD_BATTERY_MAH)
     --bcmfw-devtest   With --ipodui, iPod Video only: the BCM2722 device test
                       in the developer debug menu (defines HAVE_BCMFW_DEVTEST;
                       a test build, never a release; issue #60)
@@ -1646,11 +1639,7 @@ ARG_STACK_PROTECTOR=
 ARG_PLUGINS=
 ARG_IPODUI=
 ARG_IPODUI_RELEASE=
-ARG_DOCK30=
-ARG_HAPTICS=
 ARG_IPODUI_TRIM=
-ARG_STORAGE=
-ARG_BATTERY=
 ARG_IPODUI_PLUGINS=
 ARG_CORE_SECTIONS=
 ARG_THUMB_COLD=
@@ -1685,12 +1674,7 @@ for arg in "$@"; do
         --compiler-prefix=*)   ARG_COMPILER_PREFIX=`echo "$arg" | cut -d = -f 2`;;
         --ipodui)     ARG_IPODUI=1;;
         --ipodui-release) ARG_IPODUI_RELEASE=1;;
-        --dock30)     ARG_DOCK30=1;;
-        --haptics)    ARG_HAPTICS=1;;
-        --no-haptics) ARG_HAPTICS=0;;
         --ipodui-trim=*) ARG_IPODUI_TRIM=`echo "$arg" | cut -d = -f 2`;;
-        --storage=*)  ARG_STORAGE=`echo "$arg" | cut -d = -f 2`;;
-        --battery=*)  ARG_BATTERY=`echo "$arg" | cut -d = -f 2`;;
         --ipodui-plugins) ARG_IPODUI_PLUGINS=1;;
         --core-sections=*) ARG_CORE_SECTIONS=`echo "$arg" | cut -d = -f 2`;;
         --thumb-cold) ARG_THUMB_COLD=1;;
@@ -4905,9 +4889,6 @@ if test "$ARG_IPODUI" = "1"; then
       extradefines="$extradefines -DHAVE_BATTERY_LEARN"
     fi
   fi
-  if test "$ARG_DOCK30" = "1"; then
-    extradefines="$extradefines -DHAVE_IPOD_DOCK30"
-  fi
   if test "$ARG_BCMFW_DEVTEST" = "1"; then
     if test "$modelname" != "ipodvideo" || test "$ARG_IPODUI_RELEASE" = "1" || \
        test "$bootloader" = "1" || test "$simulator" = "yes"; then
@@ -4987,10 +4968,6 @@ if test "$ARG_IPODUI" = "1"; then
     extradefines="$extradefines -DHAVE_BCMFW_MERGED_VIDEO"
   fi
   if test "$bootloader" != "1"; then
-    # Phase 9 (docs/phase9-brief.md section 3.5): haptics default on
-    if test "$ARG_HAPTICS" != "0"; then
-      extradefines="$extradefines -DHAVE_IPOD_HAPTICS"
-    fi
     # --ipodui-plugins: the plugin API stays (the Videos path, section 3.3.2);
     # ipodvideo-variant.h then leaves PLUGINS and its closure untrimmed
     if test "$ARG_IPODUI_PLUGINS" = "1"; then
@@ -5042,60 +5019,30 @@ if test "$ARG_IPODUI" = "1"; then
       done
     fi
   fi
-elif test "$ARG_IPODUI_RELEASE" = "1" || test "$ARG_DOCK30" = "1" \
-     || test -n "$ARG_HAPTICS" || test -n "$ARG_IPODUI_TRIM" \
+elif test "$ARG_IPODUI_RELEASE" = "1" || test -n "$ARG_IPODUI_TRIM" \
      || test -n "$ARG_IPODUI_PLUGINS" || test -n "$ARG_CORE_SECTIONS" \
      || test -n "$ARG_THUMB_COLD" || test "$ARG_BCMFW_DEVTEST" = "1" \
      || test "$ARG_BCMFW" = "1" || test "$ARG_BCMFW_DEFAULT" = "1" \
      || test "$ARG_BCMFW_VIDEO" = "1" || test "$ARG_BCMFW_L1" = "1" \
      || test "$ARG_BCMFW_MERGED" = "1" || test "$ARG_USB_ISOPROBE" = "1"; then
-  echo "[ERROR] --ipodui-release, --dock30, --[no-]haptics, --ipodui-trim,"
+  echo "[ERROR] --ipodui-release, --ipodui-trim,"
   echo "        --ipodui-plugins, --core-sections, --thumb-cold,"
   echo "        --bcmfw-devtest, --bcmfw, --bcmfw-default, --bcmfw-video,"
   echo "        --bcmfw-l1, --bcmfw-merged and --usb-isoprobe need --ipodui"
   exit 1
 fi
 
-# Phase 9 hardware variant of the iPod Video (CLAUDE.md rule 7, docs/hardware.md
-# "Build variants"). The defaults are the owner's unit and add no define, so a
-# default build is unchanged.
-ipod_variant_define=
+# One build for every iPod Video (CLAUDE.md rule 7; docs/hardware.md "One
+# build"): the RAM (#204, probed_ramsize), the storage kind (#79,
+# ata_disk_isssd()) and the fitted battery (#205, asked once at first
+# start) are read at start-up; the dock connector and haptics are the same
+# code on every unit (#236). --storage, --battery, --dock30 and --haptics
+# are gone (0.8.3); --ram takes 64 only.
 if test "$modelname" = "ipodvideo"; then
-  v_storage=flash
-  case "$ARG_STORAGE" in
-    ""|flash) ;;
-    hdd) v_storage=hdd; extradefines="$extradefines -DIPOD_STORAGE_HDD" ;;
-    *) echo "[ERROR] --storage must be flash or hdd"; exit 1 ;;
-  esac
   case "$ARG_RAM" in
     ""|64) memory=64 ;;
-    32) memory=32 ;;
-    *) echo "[ERROR] --ram must be 64 or 32 for the iPod Video"; exit 1 ;;
+    *) echo "[ERROR] --ram: the iPod Video build is 64 only; a 32 MB unit is detected at start-up (simulator: IPODUI_SIM_RAM=32)"; exit 1 ;;
   esac
-  v_battery=3000
-  case "$ARG_BATTERY" in
-    "") ;;
-    stock) v_battery=stock; extradefines="$extradefines -DIPOD_BATTERY_MAH=0" ;;
-    *[!0-9]*) echo "[ERROR] --battery must be stock or a capacity in mAh"; exit 1 ;;
-    *) if test "$ARG_BATTERY" -lt 300; then
-         echo "[ERROR] --battery: $ARG_BATTERY mAh is below the 300 mAh minimum"
-         exit 1
-       fi
-       v_battery=$ARG_BATTERY
-       extradefines="$extradefines -DIPOD_BATTERY_MAH=$ARG_BATTERY" ;;
-  esac
-  if test "$ARG_IPODUI" = "1" && test "$bootloader" != "1"; then
-    v_dock=usbc
-    test "$ARG_DOCK30" = "1" && v_dock=dock30
-    v_haptic=haptic
-    test "$ARG_HAPTICS" = "0" && v_haptic=nohaptic
-    ipod_variant="$v_storage-$memory-$v_battery-$v_dock-$v_haptic"
-    echo "iPod Video variant: $ipod_variant"
-    ipod_variant_define="#define IPOD_VARIANT \"$ipod_variant\""
-  fi
-elif test -n "$ARG_STORAGE" || test -n "$ARG_BATTERY"; then
-  echo "[ERROR] --storage and --battery apply to the iPod Video only"
-  exit 1
 fi
 
 if test "$ARG_ARM_THUMB" = "1"; then
@@ -5228,9 +5175,6 @@ ${app_lcd_height}
 
 /* linker feature test macro for validating cross-section references */
 ${have_nocrossrefs_to}
-
-/* Phase 9 iPod Video variant name (ipodvideo-variant.h) */
-${ipod_variant_define}
 
 #endif /* __BUILD_AUTOCONF_H */
 EOF

@@ -84,7 +84,10 @@ printf '%s\n' "$rows" | awk -F'\t' '$2 ~ /\.script$/ {print $2 "\t" $5}' | sort 
 while IFS="$(printf '\t')" read -r script sim; do
     if [ $DRY = 1 ]; then echo "would run: SIM_BUILD=$sim scripts/shots.sh $script"; continue; fi
     [ -x "$sim/rockboxui" ] || {
-        echo "docs_shots: $sim/rockboxui is missing ($script needs it); configure and build it as scripts/validate.sh does (its configure line for $(basename "$sim"))" >&2
+        case "$sim" in
+            build/sim-rel-preview) echo "docs_shots: $sim/rockboxui is missing ($script needs it); build it with tests/ui/docs/preview_sim.sh" >&2 ;;
+            *) echo "docs_shots: $sim/rockboxui is missing ($script needs it); configure and build it as scripts/validate.sh does (its configure line for $(basename "$sim"))" >&2 ;;
+        esac
         exit 1; }
     echo "docs_shots: SIM_BUILD=$sim scripts/shots.sh $script"
     SIM_BUILD=$sim scripts/shots.sh "$script" >/dev/null || {

@@ -275,6 +275,10 @@ struct mp3entry {
     unsigned int codectype;
     unsigned int bitrate;
     unsigned long frequency;
+    /* ProkBox #268/#277: the source's bits a sample (FLAC, WAV, AIFF,
+       WavPack, ALAC; 0 unknown); playback plays sources above 16 bits
+       at 24, and the Now Playing info page shows it */
+    unsigned char bits_per_sample;
     unsigned long id3v2len;
     unsigned long id3v1len;
     unsigned long first_frame_offset; /* Byte offset to first real MP3 frame.

@@ -12,6 +12,7 @@
 # log: ipodui: panic pc=00012340 lr=00000000 sp=00000000
 # log: ipodui: panic msg Stkov at 0x0badf00d (a long message, so the reco
 # log: ipodui: panic msg rd holds more than one line of it)
+# expect: panic Stkov at 0x0badf00d
 # golden: skip
 
 wait 4000           # boot (logs a record a previous run left, if any)

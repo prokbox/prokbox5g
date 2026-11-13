@@ -1,0 +1,62 @@
+# One build (WP3): the first-start battery question (apps/ipodui/
+# battcell.h, screens/battq.c). Asked once, under the legal notice (the
+# notice first); the wheel turns the drum, which stops at both ends;
+# MENU, PLAY and the MENU hold do nothing; Select stores the answer
+# (config.cfg "ipodui battery cell") and applies it: capacity, and the
+# storage row scaled by the cell's sag, copied into the power thread's
+# table (the "battery curve" line reads the table back). A reboot does
+# not ask again and applies the stored answer at boot. Every other
+# script runs pre-answered "3,000 mAh" (battcell.h), so their first
+# frames never show it.
+# The sim's own linear row (3,300 .. 4,300 mV, powermgmt-sim.c) is the
+# base; 2,000 mAh = sag 10: 3300 3399 3795 4191 4290 (by hand:
+# 3300 + (v - 3300) * 990 / 1000). This run is the 64 MB unit (the
+# default; ipodui-battq-32.script is the 32 MB unit on the same binary).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-battq.script
+# env: IPODUI_SIM_BATTQ=clear
+# env: IPODUI_SIM_NOTICE=clear
+# golden: skip
+# log: battq shown
+# log: notice shown key=
+# log: boot unit battery cell=unset mah=850 ram=64
+# log: boot battery curve 3300 3400 3800 4200 4300 3200
+# log: battq answered cell=2000
+# log: battq unit battery cell=2000 mah=2000 ram=64
+# log: battq battery curve 3300 3399 3795 4191 4290 3200
+# log: boot unit battery cell=2000 mah=2000 ram=64
+# log: boot battery curve 3300 3399 3795 4191 4290 3200
+# nolog: hold MENU: to the main menu
+# expect-file: /.rockbox/config.cfg ipodui battery cell: 2
+
+# boot 1: nothing stored; the notice first, the question under it
+wait 4500
+shot notice
+key SELECT           # the notice's Select (past its 3 s guard)
+wait 1200
+shot battq           # Stock in the box, 2,000 mAh peeking below
+wheel +1
+wait 600
+shot battq-2000
+wheel +1
+wait 600
+shot battq-3000      # the last value: nothing below
+wheel +2             # stops at the end
+wait 600
+shot battq-end
+key MENU             # nothing
+wait 400
+key PLAY             # nothing
+wait 400
+hold MENU 1200       # not "to the main menu" here
+wait 600
+shot battq-keys
+wheel -1
+wait 600
+key SELECT           # answers 2,000 mAh
+wait 1500
+shot menu
+reboot
+# boot 2: answered; the Main Menu is the first frame
+wait 4000
+shot menu-next-boot
+quit

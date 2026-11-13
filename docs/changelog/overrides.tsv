@@ -12,3 +12,57 @@ dbf1d3748e	A queue in which nothing can play now stops instead of cycling throug
 5497af89fa	-
 387dd86ddb	Shuffle no longer gets stuck on a very small library
 6a9a85251d	-
+# 0.8.3
+aaa5e7d078	-
+f05932f2ff	-
+3f57b984e1	-
+68dbd1db75	-
+273eb5ded5	-
+427b76b75a	-
+ce43fa1157	-
+78292aea69	-
+3e86eb5486	-
+235882d175	-
+aa20b8bc75	-
+daefaccb97	-
+d6f88ac9df	-
+01488e01c6	-
+5a892fc145	-
+b52be7f604	-
+107f4566b8	-
+1cdfd6a41c	-
+b846e5bc65	-
+fca9a46d77	-
+d517583dbb	-
+af06c578d8	-
+a2764f0582	-
+8bc3dcdca0	-
+a428294b57	-
+ac0f8f8de4	-
+dca476faf5	-
+25f9269e65	-
+564c00d894	-
+b1eb2710ca	-
+6753f0ef74	-
+e9a701d926	-
+20cbfe375b	-
+fd779f0b61	-
+73cdaf6fba	-
+6acd2ff98d	-
+548e2fe0e9	-
+cf24787a1d	-
+16be4082d0	-
+046caffb4a	-
+beb49be894	[Playback and sound] FLAC files decode faster, most of all high-quality 24-bit ones
+d461eef1ce	[Playback and sound] All music is now decoded on the player's second processor
+dc3c572b37	[Playback and sound] FLAC, WAV and AIFF files recorded with more than 16 bits play at their full depth
+f02ba9b4a5	[Playback and sound] Better-quality conversion for music that is not at 44.1 or 48 kHz
+19306ce49a	[Playback and sound] Some high-quality FLAC files that could play wrongly now play correctly
+5f5e54174b	[Playback and sound] FLAC files wider than 29 bits are skipped cleanly instead of playing wrongly
+4aaa1339fc	[Power and start-up] The player watches both of its processors when it chooses its speed
+802a3a4e7e	[Playback and sound] Opus files need fewer hand-overs between the two processors when they start
+a6689f8de1	[Playback and sound] When a song cannot be played, the next one now starts straight away
+b14491719f	[Interface] Touching the wheel wakes the screen when it shows the clock face
+6a38eda2a2	[Storage and USB] One build for flash and hard-drive players: the player finds out which it has
+32204c0f5e	[Power and start-up] The first start asks which battery is fitted
+1936a90514	[Video] A video that cannot start stops the sound and shows a message instead of a blank screen

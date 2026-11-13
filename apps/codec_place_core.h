@@ -49,6 +49,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 /* The screen state, as the shell drives it */
 enum cpl_screen {
@@ -100,5 +101,56 @@ extern bool cpl_full_legacy;
  * at most hz; the old HZ/20 when the band above wm is too thin (or the
  * fallback is on). */
 long cpl_full_wait(size_t level, size_t wm, size_t byterate, long hz);
+
+/* ---- The COP's clock demand (p083-copclock; docs/hardware.md "The clock:
+ * the larger of both cores' needs", owner 2026-11-11) ----------------------
+ * The decode and its DSP run on the COP while the CPU idles, so the CPU's
+ * own boost requests no longer see the music's load. The COP measures
+ * its busy time per block (decode + DSP, wall time less its waits: also
+ * whatever else ran on the COP meanwhile, the PCM FIQ among it), times
+ * the clock it ran at: cycles. Per period of at least CPL_DM_PERIOD_US of
+ * OUTPUT audio (after resampling and time-stretch), the demand is
+ * cycles / audio us = the MHz this music needs, whatever the clock was
+ * (Apple's governor's busy share times clock). A smoothed demand at or
+ * over CPL_DM_HOLD_X10 (or one period busy CPL_DM_SAT_PCT % or more of
+ * its own clock: starving, at 24 MHz as at 30) asks for the boost; it is
+ * let go under CPL_DM_FREE_X10 after
+ * at least CPL_DM_MIN_HOLD periods. Units: tenths of a MHz.
+ *
+ * Why these numbers: at 30 MHz the whole COP is the music's (the UI is on
+ * the CPU), so 30.0 is 100 % busy and starves. 21.0 is 70 %: the pcmbuf
+ * (2 s watermark) absorbs a block's peaks (Opus: worst 48.9 ms against a
+ * 20 ms block, device log 19306ce49a), not a mean that high. The light
+ * formats stay under it: 16/44.1 FLAC and MP3 (estimate 15-19 MHz with
+ * the DSP, clockpol.c). 15.0 to let go: a demand measured at 80 MHz is
+ * never lower than at 30 for the same music (SDRAM stalls cost more
+ * cycles at the higher clock), so a held track cannot fall under it by
+ * the clock change alone: no flapping. The measurement is the device's
+ * own time, so the emulator's ~1.4x speed moves only what it reads
+ * (about 1/1.4 of silicon), not the decision on silicon. */
+#define CPL_DM_PERIOD_US    1000000u
+#define CPL_DM_HOLD_X10     210u
+#define CPL_DM_FREE_X10     150u
+#define CPL_DM_SAT_PCT      90u  /* busy share of the block's own clock */
+#define CPL_DM_MIN_HOLD     10u
+
+struct cpl_demand {
+    unsigned int ema_x10;   /* the smoothed demand */
+    unsigned int last_x10;  /* the last period's */
+    unsigned int held;      /* periods since the boost was asked for */
+    bool want;              /* the boost is asked for */
+    bool seeded;            /* ema_x10 holds a period */
+};
+
+/* No demand, no boost asked for */
+void cpl_demand_init(struct cpl_demand *d);
+/* A new run (a track): its first period seeds the average and decides
+ * afresh against the hold line; the last run's answer is not kept (a
+ * light album after a heavy track lets go at its first second) */
+void cpl_demand_restart(struct cpl_demand *d);
+/* One period: cycles (MHz x us busy) and busy_us (us busy) over out_us
+ * of output audio. Returns true when want changed */
+bool cpl_demand_period(struct cpl_demand *d, uint32_t cycles,
+                       uint32_t busy_us, uint32_t out_us);
 
 #endif /* CODEC_PLACE_CORE_H */

@@ -59,6 +59,7 @@
 #include "version.h"
 #include "timefuncs.h"
 #include "storage.h"
+#include "ata.h"            /* ata_disk_isssd(): the #340 grace */
 #include "../../bcmfw/hostproto.h"
 #include "../../bcmfw/jobs.h"
 #if defined(HAVE_BCM_JOBS) && !defined(SIMULATOR)
@@ -157,6 +158,9 @@ struct vblock
     bool ended;                 /* the last picture went up */
     volatile bool up;           /* vpc_start returned: the audio may start */
     long stop_after;            /* the audio left the file: stop then */
+    bool audio_seen;            /* #340: the audio played our file once */
+    long audio_by;              /* #340: it must have by then */
+    bool failed_here;           /* #340: the loop stopped and failed it */
     uint32_t prog_at;           /* day 4c: the last progress line (port us) */
     uint8_t mem[VPC_MEM_SIZE + 8];
     uint8_t stack[STACK_SIZE] __attribute__((aligned(8)));
@@ -1013,11 +1017,22 @@ static long read_at(int fd, uint64_t *pos, uint64_t off, void *buf,
     return got;
 }
 
+#ifdef SIMULATOR
+/* tests (ipodui-340-vstart): /.rockbox/.sim_vaudio_nofile at the start:
+   the audio plays, but never on our file (b12's slow start, held for
+   good: its metadata never loaded) */
+static bool sim_nofile;
+#endif
+
 /* The audio's handle on our file, if it is the one playing */
 static int audio_handle(void)
 {
     struct mp3entry *id3 = audio_current_track();
 
+#ifdef SIMULATOR
+    if (sim_nofile)
+        return -1;
+#endif
     if (!id3 || strcmp(id3->path, B->path))
         return -1;
     return ci.audio_hid;
@@ -1699,6 +1714,35 @@ static void progress_line(struct vpc *v, const char *why)
            (unsigned long)v->stats.feed_refusals);
 }
 
+/* #340: how long the audio may take to reach our file after the
+   session's start before the video has failed (BVP_E_NOAUDIO).  b12's
+   busy disk took over a second.  The shell's video screen gives the audio
+   START_GRACE (4 s on flash, 10 s on a rotating drive) to report PLAY and
+   shows the error page itself, so this is longer by 2 s on each kind (6 s
+   and 12 s, from the storage kind at runtime, docs/storage-choices.md):
+   in the shell its own rule acts first, and this one catches the audio
+   that reports PLAY but never loads our file, and the plays without the
+   screen (the bench's) */
+#define VPLAYER_AUDIO_GRACE_SOLID   (6 * HZ)
+/* a rotating drive's spin-up: the screen waits 10 s, this 12 s (tuning,
+   not a different experience: docs/storage-choices.md, one build) */
+#define VPLAYER_AUDIO_GRACE_DISK    (12 * HZ)
+#define VPLAYER_AUDIO_GRACE \
+    (ata_disk_isssd() ? VPLAYER_AUDIO_GRACE_SOLID : VPLAYER_AUDIO_GRACE_DISK)
+
+/* #340: the session stops here and stays VPC_FAILED with why, so the
+   shell shows the error page (and stops the audio) rather than a blank
+   screen; logged once (the thread's exit stops nothing again) */
+static void fail_here(struct vpc *v, int why, const char *line)
+{
+    dump_if_asked(v);
+    vpc_stop(v);                /* the BCM given back, as give_up() */
+    v->state = VPC_FAILED;
+    v->fail_why = why;
+    B->failed_here = true;
+    ui_log("video", "%s", line);
+}
+
 static void vplayer_thread(void)
 {
     struct vpc *v = &B->core;
@@ -1730,6 +1774,7 @@ static void vplayer_thread(void)
     be_log("video: tuning (boost|dma<<2|chip27<<3|e2<<4)", tuning, 0);
     vpc_start(v, B->last_a);
     B->up = true;
+    B->audio_by = current_tick + VPLAYER_AUDIO_GRACE;
     for (;;)
     {
         long tmo = (wait_ms * HZ + 999) / 1000;
@@ -1852,26 +1897,47 @@ static void vplayer_thread(void)
         if (v->state == VPC_DONE)
             B->ended = true;
         /* the audio moved on to another file, or stopped: video ends
-           (the shell's screen calls vplayer_stop() too) */
-        if (!(st & AUDIO_STATUS_PLAY) || audio_handle() < 0)
+           (the shell's screen calls vplayer_stop() too).  #340: only
+           once the audio has played our file; before that it may still
+           be on its way (b12: a busy disk held it past this rule's 1 s,
+           the video stopped and the audio then played under a blank
+           screen), within VPLAYER_AUDIO_GRACE */
+        if ((st & AUDIO_STATUS_PLAY) && audio_handle() >= 0)
         {
-            if (!B->stop_after)
-                B->stop_after = current_tick + HZ;
-            else if (TIME_AFTER(current_tick, B->stop_after))
+            B->audio_seen = true;
+            B->stop_after = 0;
+        }
+        else if (!B->audio_seen)
+        {
+            if (TIME_AFTER(current_tick, B->audio_by))
+                fail_here(v, BVP_E_NOAUDIO,
+                          "audio never reached the file: video failed");
+        }
+        else if (!B->stop_after)
+            B->stop_after = current_tick + HZ;
+        else if (TIME_AFTER(current_tick, B->stop_after))
+        {
+            /* no picture ever, after a decode error (b12's first OPEN
+               after a boot): the video failed, it didn't end */
+            if (!v->stats.pictures && (v->error_said || v->st_words[8]))
+                fail_here(v, BVP_E_STILL,
+                          "no picture after a decode error: video failed");
+            else
             {
                 dump_if_asked(v);
                 vpc_stop(v);
                 ui_log("video", "audio left the file: video stopped");
             }
         }
-        else
-            B->stop_after = 0;
     }
     dump_if_asked(v);
     progress_line(v, "end");
     al_stop();
     port_report();
-    vpc_stop(v);
+    if (B->failed_here)
+        v->state = VPC_IDLE;    /* stopped and logged once already */
+    else
+        vpc_stop(v);
     bcm_video_flush();      /* no port lock left held by this thread */
     hold_backlight(false);
     if (B->boosted)
@@ -1990,6 +2056,9 @@ bool vplayer_start(const char *path)
     B = (struct vblock *)ALIGN_UP((uintptr_t)core_get_data(blk_h), 8);
     memset(B, 0, offsetof(struct vblock, mem));
     strlcpy(B->path, path, sizeof(B->path));
+#ifdef SIMULATOR
+    sim_nofile = file_exists(ROCKBOX_DIR "/.sim_vaudio_nofile");
+#endif
     /* stage 6-8, and a normal play only with the developer's full log on
        (dev41: every video build is a device-test build, so dev35's "every
        play" meant every play; by default a play now logs its events and
@@ -4615,6 +4684,8 @@ bool vplayer_info(struct vplayer_info *info)
     info->vclk_on = B->core.vclk_inited;
     info->errors = B->core.st_words[8];
     info->concealed = B->core.st_words[9];
+    info->pictures = B->core.stats.pictures;
+    info->decode_err = B->core.error_said != 0;
     if (vpc_vclk_means(&B->core, &info->vclk_mhz, &info->vclk_lvl10,
                        &info->vclk_idle_pm, &info->vclk_ms))
     {

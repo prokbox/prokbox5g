@@ -55,6 +55,14 @@ static const uint32_t book_st[] = { 0, 600000, 1200000 };
 static const struct np_scrub_ctx book = {
     .length_ms = 1800000, .ch = { book_st, sizeof(uint32_t), 3 }, .snap = true };
 
+/* #277: the Info page is 0.9.0's (IPODUI_NP_INFO); every cycle test
+ * below runs with the screen offering it, test_info_off() the 0.8.3 one */
+static void np_init_info(struct np_state *s, long hz, enum np_shuffle sh)
+{
+    np_init(s, hz, sh);
+    np_set_info(s, true);
+}
+
 static void track(bool ab, bool lyr, int rating, const struct np_scrub_ctx *c)
 {
     np_set_track(&st, ab, lyr, 10, rating, c, now);
@@ -65,7 +73,7 @@ static void test_cycles(void)
     struct np_result r = { 0 };
 
     /* music, no lyrics: N -> S -> R -> Sh -> N */
-    np_init(&st, HZ, NP_SHUFFLE_OFF);
+    np_init_info(&st, HZ, NP_SHUFFLE_OFF);
     track(false, false, 0, &music);
     r = SELECT();
     CHECK_EQ(r.mode, NP_SCRUBBER);
@@ -73,6 +81,7 @@ static void test_cycles(void)
     CHECK(r.dirty & NP_DIRTY_ROW);
     CHECK_EQ(SELECT().mode, NP_RATING);
     CHECK_EQ(SELECT().mode, NP_SHUFFLE);
+    CHECK_EQ(SELECT().mode, NP_INFO);           /* #277 */
     r = SELECT();
     CHECK_EQ(r.mode, NP_NORMAL);
     CHECK(!(r.dirty & NP_DIRTY_FULL));
@@ -84,19 +93,22 @@ static void test_cycles(void)
     CHECK_EQ(r.mode, NP_LYRICS);
     CHECK(r.dirty & NP_DIRTY_FULL);
     r = SELECT();
-    CHECK_EQ(r.mode, NP_NORMAL);
-    CHECK(r.dirty & NP_DIRTY_FULL);
+    CHECK_EQ(r.mode, NP_INFO);
+    CHECK(r.dirty & NP_DIRTY_FULL);             /* leaving Lyrics */
+    CHECK_EQ(SELECT().mode, NP_NORMAL);
 
     /* audiobook: N -> S -> R -> N (no Shuffle) */
     track(true, false, 0, &book);
     CHECK_EQ(SELECT().mode, NP_SCRUBBER);
     CHECK_EQ(SELECT().mode, NP_RATING);
+    CHECK_EQ(SELECT().mode, NP_INFO);
     CHECK_EQ(SELECT().mode, NP_NORMAL);
 
     /* audiobook with lyrics: N -> S -> R -> L -> N */
     track(true, true, 0, &book);
     SELECT(); SELECT();
     CHECK_EQ(SELECT().mode, NP_LYRICS);
+    CHECK_EQ(SELECT().mode, NP_INFO);
     CHECK_EQ(SELECT().mode, NP_NORMAL);
 
     /* unknown length (stream): Scrubber skipped */
@@ -106,6 +118,7 @@ static void test_cycles(void)
         track(false, false, 0, &z);
         CHECK_EQ(SELECT().mode, NP_RATING);
         CHECK_EQ(SELECT().mode, NP_SHUFFLE);
+        CHECK_EQ(SELECT().mode, NP_INFO);
         CHECK_EQ(SELECT().mode, NP_NORMAL);
     }
 }
@@ -115,7 +128,7 @@ static void test_timeout(void)
     struct np_result r = { 0 };
     int m;
 
-    np_init(&st, HZ, NP_SHUFFLE_OFF);
+    np_init_info(&st, HZ, NP_SHUFFLE_OFF);
     track(false, true, 0, &music);
     for (m = NP_SCRUBBER; m <= NP_LYRICS; m++)
     {
@@ -148,7 +161,7 @@ static void test_timeout(void)
     CHECK(!r.mode_changed);
 
     /* tick wrap-around */
-    np_init(&st, HZ, NP_SHUFFLE_OFF);
+    np_init_info(&st, HZ, NP_SHUFFLE_OFF);
     track(false, false, 0, &music);
     now = 0x7fffffffL - 10;
     SELECT();
@@ -160,7 +173,7 @@ static void test_volume(void)
 {
     struct np_result r = { 0 };
 
-    np_init(&st, HZ, NP_SHUFFLE_OFF);
+    np_init_info(&st, HZ, NP_SHUFFLE_OFF);
     track(false, false, 0, &music);
     now = 5000;
     r = WHEEL(-3);
@@ -189,7 +202,7 @@ static void test_rating(void)
 {
     struct np_result r = { 0 };
 
-    np_init(&st, HZ, NP_SHUFFLE_OFF);
+    np_init_info(&st, HZ, NP_SHUFFLE_OFF);
     track(false, false, 2, &music);
     now = 100;
     SELECT();
@@ -216,7 +229,7 @@ static void test_rating(void)
     CHECK(r.dirty & NP_DIRTY_INFO);
 
     /* unchanged visit: no write */
-    np_init(&st, HZ, NP_SHUFFLE_OFF);
+    np_init_info(&st, HZ, NP_SHUFFLE_OFF);
     track(false, false, 3, &music);
     SELECT(); SELECT();
     WHEEL(1); WHEEL(-1);
@@ -224,7 +237,7 @@ static void test_rating(void)
     CHECK(!r.rating_commit);
 
     /* timeout commits */
-    np_init(&st, HZ, NP_SHUFFLE_OFF);
+    np_init_info(&st, HZ, NP_SHUFFLE_OFF);
     track(false, false, 0, &music);
     now = 100;
     SELECT(); SELECT();
@@ -237,7 +250,7 @@ static void test_rating(void)
 
     /* track change in Rating: old track's rating is committed, the new
      * track's rating is loaded, and the mode drops to Normal (owner) */
-    np_init(&st, HZ, NP_SHUFFLE_OFF);
+    np_init_info(&st, HZ, NP_SHUFFLE_OFF);
     track(false, false, 1, &music);
     SELECT(); SELECT();
     WHEEL(2);
@@ -251,7 +264,7 @@ static void test_rating(void)
     CHECK(!r.rating_commit);
 
     /* np_leave() commits */
-    np_init(&st, HZ, NP_SHUFFLE_OFF);
+    np_init_info(&st, HZ, NP_SHUFFLE_OFF);
     track(false, false, 0, &music);
     SELECT(); SELECT();
     WHEEL(1);
@@ -271,7 +284,7 @@ static void test_shuffle(void)
 {
     struct np_result r = { 0 };
 
-    np_init(&st, HZ, NP_SHUFFLE_SONGS);
+    np_init_info(&st, HZ, NP_SHUFFLE_SONGS);
     track(false, false, 0, &music);
     SELECT(); SELECT();
     r = SELECT();
@@ -291,7 +304,7 @@ static void test_shuffle(void)
 
     /* switching to an audiobook while on the shelf: commit, back to
      * Normal (books have no Shuffle step) */
-    np_init(&st, HZ, NP_SHUFFLE_OFF);
+    np_init_info(&st, HZ, NP_SHUFFLE_OFF);
     track(false, false, 0, &music);
     SELECT(); SELECT(); SELECT();
     WHEEL(1);
@@ -302,7 +315,7 @@ static void test_shuffle(void)
     CHECK(r.mode_changed);
 
     /* a track without lyrics while in Lyrics: Normal */
-    np_init(&st, HZ, NP_SHUFFLE_OFF);
+    np_init_info(&st, HZ, NP_SHUFFLE_OFF);
     track(false, true, 0, &music);
     SELECT(); SELECT(); SELECT(); SELECT();
     CHECK_EQ(st.mode, NP_LYRICS);
@@ -315,7 +328,7 @@ static void test_lyrics(void)
 {
     struct np_result r = { 0 };
 
-    np_init(&st, HZ, NP_SHUFFLE_OFF);
+    np_init_info(&st, HZ, NP_SHUFFLE_OFF);
     np_set_track(&st, false, true, 3, 0, &music, now);
     SELECT(); SELECT(); SELECT(); SELECT();
     CHECK_EQ(st.mode, NP_LYRICS);
@@ -330,7 +343,7 @@ static void test_lyrics(void)
     CHECK_EQ(st.lyrics_top, 0);
     /* re-entering starts at the top */
     WHEEL(2);
-    SELECT();
+    SELECT(); SELECT();                         /* Info, Normal */
     SELECT(); SELECT(); SELECT(); SELECT();
     CHECK_EQ(st.mode, NP_LYRICS);
     CHECK_EQ(st.lyrics_top, 0);
@@ -340,7 +353,7 @@ static void test_scrubber(void)
 {
     struct np_result r = { 0 };
 
-    np_init(&st, HZ, NP_SHUFFLE_OFF);
+    np_init_info(&st, HZ, NP_SHUFFLE_OFF);
     track(false, false, 0, &music);
     now = 100;
     elapsed = 30000;
@@ -378,7 +391,7 @@ static void test_scrubber(void)
     CHECK_EQ(np_shown_pos(&st, 1), 1);
 
     /* timeout with a seek pending: emitted with the drop to Normal */
-    np_init(&st, HZ, NP_SHUFFLE_OFF);
+    np_init_info(&st, HZ, NP_SHUFFLE_OFF);
     track(false, false, 0, &music);
     now = 100;
     SELECT();
@@ -389,7 +402,7 @@ static void test_scrubber(void)
     CHECK_EQ(r.mode, NP_NORMAL);
 
     /* track change with a seek pending: dropped (old track's position) */
-    np_init(&st, HZ, NP_SHUFFLE_OFF);
+    np_init_info(&st, HZ, NP_SHUFFLE_OFF);
     track(false, false, 0, &music);
     SELECT();
     WHEEL(3);
@@ -399,7 +412,7 @@ static void test_scrubber(void)
     CHECK_EQ(np_shown_pos(&st, 7), 7);
 
     /* audiobook: fast wheel snaps to chapter starts */
-    np_init(&st, HZ, NP_SHUFFLE_OFF);
+    np_init_info(&st, HZ, NP_SHUFFLE_OFF);
     track(true, false, 0, &book);
     elapsed = 100000;
     SELECT();
@@ -413,7 +426,7 @@ static void test_scrubber(void)
     CHECK_EQ(np_shown_pos(&st, elapsed), 601000);
 
     /* entering past the end clamps the marker */
-    np_init(&st, HZ, NP_SHUFFLE_OFF);
+    np_init_info(&st, HZ, NP_SHUFFLE_OFF);
     track(false, false, 0, &music);
     elapsed = 999999;
     SELECT();
@@ -435,7 +448,7 @@ static void test_select_after_change(void)
     struct np_result r = { 0 };
 
     /* Scrubber: scrubbed -> Normal, with the seek emitted */
-    np_init(&st, HZ, NP_SHUFFLE_OFF);
+    np_init_info(&st, HZ, NP_SHUFFLE_OFF);
     track(false, false, 0, &music);
     now = 100;
     elapsed = 30000;
@@ -464,7 +477,7 @@ static void test_select_after_change(void)
     elapsed = 30000;
 
     /* Rating: rated -> Normal (one commit); untouched -> Shuffle */
-    np_init(&st, HZ, NP_SHUFFLE_OFF);
+    np_init_info(&st, HZ, NP_SHUFFLE_OFF);
     track(false, false, 2, &music);
     SELECT(); SELECT();
     r = SELECT();
@@ -490,12 +503,12 @@ static void test_select_after_change(void)
     CHECK_EQ(SELECT().mode, NP_SHUFFLE);
 
     /* Shuffle: toggled -> Normal; untouched -> Lyrics (when present) */
-    np_init(&st, HZ, NP_SHUFFLE_OFF);
+    np_init_info(&st, HZ, NP_SHUFFLE_OFF);
     track(false, true, 0, &music);
     SELECT(); SELECT(); SELECT();
     CHECK_EQ(st.mode, NP_SHUFFLE);
     CHECK_EQ(SELECT().mode, NP_LYRICS);
-    SELECT();
+    SELECT(); SELECT();                         /* Info, Normal */
     SELECT(); SELECT(); SELECT();
     WHEEL(1);
     r = SELECT();
@@ -503,13 +516,13 @@ static void test_select_after_change(void)
     CHECK(r.shuffle_commit);
 
     /* the flag is per visit: the next page starts untouched */
-    np_init(&st, HZ, NP_SHUFFLE_OFF);
+    np_init_info(&st, HZ, NP_SHUFFLE_OFF);
     track(false, false, 0, &music);
     SELECT();
     CHECK_EQ(SELECT().mode, NP_RATING);
     CHECK_EQ(SELECT().mode, NP_SHUFFLE);
     /* a timeout after a change clears it too */
-    np_init(&st, HZ, NP_SHUFFLE_OFF);
+    np_init_info(&st, HZ, NP_SHUFFLE_OFF);
     track(false, false, 0, &music);
     now = 100;
     SELECT(); SELECT();
@@ -519,7 +532,7 @@ static void test_select_after_change(void)
     CHECK_EQ(SELECT().mode, NP_SCRUBBER);
     CHECK_EQ(SELECT().mode, NP_RATING);
     /* Normal's volume wheel never counts */
-    np_init(&st, HZ, NP_SHUFFLE_OFF);
+    np_init_info(&st, HZ, NP_SHUFFLE_OFF);
     track(false, false, 0, &music);
     WHEEL(2);
     CHECK_EQ(SELECT().mode, NP_SCRUBBER);
@@ -532,10 +545,10 @@ static void test_viz(void)
     struct np_result r;
     int i;
 
-    np_init(&st, HZ, NP_SHUFFLE_OFF);
+    np_init_info(&st, HZ, NP_SHUFFLE_OFF);
     track(false, false, 0, &music);
     np_set_viz(&st, true);
-    SELECT(); SELECT(); SELECT();               /* S, R, Sh */
+    SELECT(); SELECT(); SELECT(); SELECT();     /* S, R, Sh, Info */
     r = SELECT();
     CHECK(r.mode == NP_VIZ && r.mode_changed && (r.dirty & NP_DIRTY_FULL));
     for (i = 0; i < 100; i++)                   /* 10 s, no input */
@@ -553,23 +566,47 @@ static void test_viz(void)
     CHECK(st.mode == NP_VIZ && !r.mode_changed && (r.dirty & NP_DIRTY_FULL));
     r = np_set_track(&st, true, false, 0, 0, &book, now);   /* a book */
     CHECK(st.mode == NP_NORMAL && r.mode_changed);
-    /* a book never offers it */
-    SELECT(); SELECT();
+    /* a book never offers it: S, R, Info, Normal */
+    SELECT(); SELECT(); SELECT();
+    CHECK(st.mode == NP_INFO);
     r = SELECT();
     CHECK(st.mode == NP_NORMAL);
     /* music again: VIZ -> SELECT -> Normal */
     track(false, true, 0, &music);
     SELECT(); SELECT(); SELECT(); SELECT();     /* S R Sh Lyrics */
     CHECK(st.mode == NP_LYRICS);
+    SELECT();                                   /* Info */
     r = SELECT();
     CHECK(st.mode == NP_VIZ && (r.dirty & NP_DIRTY_FULL));
     r = SELECT();
     CHECK(st.mode == NP_NORMAL && (r.dirty & NP_DIRTY_FULL));
     /* not offered: skipped */
     np_set_viz(&st, false);
-    SELECT(); SELECT(); SELECT(); SELECT();
+    SELECT(); SELECT(); SELECT(); SELECT(); SELECT();
     r = SELECT();
     CHECK(st.mode == NP_NORMAL);
+}
+
+/* 0.8.3 (IPODUI_NP_INFO off): np_init() alone offers no Info page; the
+ * cycle is the stock one, Shuffle (or Lyrics) straight to the Visualizer
+ * or Normal */
+static void test_info_off(void)
+{
+    np_init(&st, HZ, NP_SHUFFLE_OFF);
+    track(false, false, 0, &music);
+    CHECK_EQ(SELECT().mode, NP_SCRUBBER);
+    CHECK_EQ(SELECT().mode, NP_RATING);
+    CHECK_EQ(SELECT().mode, NP_SHUFFLE);
+    CHECK_EQ(SELECT().mode, NP_NORMAL);
+    np_set_viz(&st, true);
+    track(false, true, 0, &music);
+    SELECT(); SELECT(); SELECT();
+    CHECK_EQ(SELECT().mode, NP_LYRICS);
+    CHECK_EQ(SELECT().mode, NP_VIZ);
+    CHECK_EQ(SELECT().mode, NP_NORMAL);
+    track(true, false, 0, &book);       /* a book: S, R, Normal */
+    SELECT(); SELECT();
+    CHECK_EQ(SELECT().mode, NP_NORMAL);
 }
 
 int main(void)
@@ -583,5 +620,6 @@ int main(void)
     test_scrubber();
     test_select_after_change();
     test_viz();
+    test_info_off();
     CHECK_DONE("test_np_state");
 }

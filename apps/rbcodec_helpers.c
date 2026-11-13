@@ -9,6 +9,7 @@
  * Copyright (C) 2006 by Nicolas Pitre <nico@cam.org>
  * Copyright (C) 2006-2007 by Stéphane Doyon <s.doyon@videotron.ca>
  * Copyright (C) 2012 Michael Sevakis
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -49,10 +50,22 @@ static int move_callback(int handle, void *current, void *new)
     return BUFLIB_CB_OK;
 }
 
+/* ProkBox #282 step 4: the DSP may be running on the COP; a move waits
+ * for its cross-core lock (dsp_core.c) and so never lands mid-frame */
+static void sync_callback(int handle, bool lock)
+{
+    (void)handle;
+    if (lock)
+        dsp_xcore_lock();
+    else
+        dsp_xcore_unlock();
+}
+
 static struct buflib_callbacks ops =
 {
     .move_callback = move_callback,
     .shrink_callback = NULL,
+    .sync_callback = sync_callback,
 };
 
 /* Allocate timestretch buffers */

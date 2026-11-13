@@ -42,6 +42,14 @@
 #include "cpu.h"
 #include "e2-port.h"
 #include "xcore.h"
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+/* #324: no port access with the BCM unpowered (lcd-video.c counts and
+ * logs the refusals); the stock build is unchanged */
+#include "bcm-port-gate.h"
+#define E2_PORT_OK(fn) bcm_port_on(fn)
+#else
+#define E2_PORT_OK(fn) true
+#endif
 
 #define E2_MASTER     (*(volatile uint32_t *)0x60008000)
 #define E2_CMD        (*(volatile uint32_t *)0x60009000)
@@ -114,6 +122,8 @@ static bool port_ready(void)
 {
     unsigned long t0 = USEC_TIMER;
 
+    if (!E2_PORT_OK("e2port_port_ready"))
+        return false;
     while (!(PORT_CONTROL & PORT_WR_READY))
         if (USEC_TIMER - t0 > PORT_US)
             return false;
@@ -138,6 +148,8 @@ int e2port_start(uint32_t bcm_addr, const void *src, uint32_t bytes)
        tail would be the port's lone trailing halfword, which it loses
        [silicon, ALGNP PLH1/3/5]; every caller checks e2port_fits() */
     if ((bytes & 3) || bytes < 4)
+        return -1;
+    if (!E2_PORT_OK("e2port_start"))   /* nor the engine into it */
         return -1;
     /* the high half at 0x30010002; Apple's own driver writes both halves
        to 0x30010000, low then high [apple-RE] (docs/data-paths.md).  Kept

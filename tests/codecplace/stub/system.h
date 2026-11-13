@@ -27,4 +27,7 @@
 #include <stdint.h>
 #include <stddef.h>
 void commit_dcache(void);
+#ifndef MAX
+#define MAX(a, b) (((a) > (b)) ? (a) : (b))
+#endif
 #endif

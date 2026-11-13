@@ -181,6 +181,32 @@ if [ $SIM_OK = 1 ]; then
             ub_scripts=$(grep -LE '^#[[:space:]]*needs:[[:space:]]*modules' tests/ui/$pat.script 2>/dev/null)
         fi
     fi
+    # Leave out the scripts this build can't run: shots.sh refuses (exit 2)
+    # a "# needs: video" script on a sim without the player and a
+    # "# needs: modules" one without the loader (p083-bricksleep), and a
+    # refusal is not a UBSan result. Read from the build's own defines, as
+    # shots.sh does; the count left out is printed, never silent.
+    ub_defs=" $(sed -n 's/^export EXTRA_DEFINES=//p' "$B/Makefile" 2>/dev/null) "
+    ub_kept=""; ub_left=0; ub_left_names=""
+    for s in $ub_scripts; do
+        ub_why=""
+        if grep -qE '^#[[:space:]]*needs:[[:space:]]*video' "$s" 2>/dev/null; then
+            case "$ub_defs" in *" -DHAVE_BCMFW_VIDEO "*) ;; *) ub_why=video ;; esac
+        fi
+        if grep -qE '^#[[:space:]]*needs:[[:space:]]*modules' "$s" 2>/dev/null; then
+            case "$ub_defs" in *" -DIPODUI_WITH_MODULES "*) ;; *) ub_why="${ub_why:+$ub_why+}modules" ;; esac
+        fi
+        if [ -n "$ub_why" ]; then
+            ub_left=$((ub_left + 1))
+            ub_left_names="$ub_left_names $(basename "$s" .script)($ub_why)"
+        else
+            ub_kept="$ub_kept $s"
+        fi
+    done
+    ub_scripts=$ub_kept
+    if [ $MODE != job ]; then
+        echo "note left out $ub_left script(s) whose \"# needs:\" $B can't meet${ub_left_names:+:$ub_left_names}"
+    fi
     UJ=${UBSAN_JOBS:-$(simpool_jobs)}
     ub_job() { # <script path>: one run on its own clone of the primed disk
         s=$1; n=$(basename "$s" .script); out=$SHOTS/$n

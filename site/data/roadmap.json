@@ -1,5 +1,5 @@
 {
- "generated_for": "0.8.2",
+ "generated_for": "0.8.3",
  "source": "scripts/roadmap.py generate (do not edit by hand)",
  "statuses": [
   {
@@ -34,16 +34,6 @@
   }
  ],
  "releases": [
-  {
-   "name": "0.8.3",
-   "heading": "Release 0.8.3",
-   "anchor": "release-083",
-   "theme": "A new playback engine, one download for every player, and fixes.",
-   "later": false,
-   "stands": "Under way",
-   "under_way": "15 of 17",
-   "aimed": ""
-  },
   {
    "name": "0.9.0",
    "heading": "Release 0.9.0",
@@ -81,7 +71,7 @@
    "theme": "Video: more formats, a better video player, and fixes.",
    "later": false,
    "stands": "Under way",
-   "under_way": "5 of 13",
+   "under_way": "5 of 14",
    "aimed": ""
   },
   {
@@ -156,159 +146,6 @@
   }
  ],
  "items": [
-  {
-   "issue": 300,
-   "release": "0.8.3",
-   "status": "In testing",
-   "key": "testing",
-   "short": "Speed matched to how hard the music is",
-   "text": "Smoother playback of demanding files, and less battery used on easy ones: the player now watches both of its processor cores to choose its speed.",
-   "anchor": "item-speed-matched-to-how-hard-the-music-is"
-  },
-  {
-   "issue": 284,
-   "release": "0.8.3",
-   "status": "In testing",
-   "key": "testing",
-   "short": "Very loud 24-bit FLAC fixed",
-   "text": "A rare fault with very loud 24-bit FLAC files is fixed: they play correctly.",
-   "anchor": "item-very-loud-24-bit-flac-fixed"
-  },
-  {
-   "issue": 285,
-   "release": "0.8.3",
-   "status": "In testing",
-   "key": "testing",
-   "short": "32-bit FLAC skipped cleanly",
-   "text": "32-bit FLAC files are skipped cleanly instead of playing back wrongly. They stay in your library.",
-   "anchor": "item-32-bit-flac-skipped-cleanly"
-  },
-  {
-   "issue": 298,
-   "release": "0.8.3",
-   "status": "In testing",
-   "key": "testing",
-   "short": "No silence when skipping unplayable songs",
-   "text": "Skipping a song the player cannot play no longer leaves a short silence.",
-   "anchor": "item-no-silence-when-skipping-unplayable-songs"
-  },
-  {
-   "issue": 282,
-   "release": "0.8.3",
-   "status": "In development",
-   "key": "development",
-   "short": "New playback engine on the second core",
-   "text": "A new playback engine: all of the audio work moves to the player's second processor core, so the menus stay smooth while music plays.",
-   "anchor": "item-new-playback-engine-on-the-second-core"
-  },
-  {
-   "issue": 278,
-   "release": "0.8.3",
-   "status": "In development",
-   "key": "development",
-   "short": "24-bit, 192 kHz FLAC without drop-outs",
-   "text": "24-bit, 192 kHz FLAC files play without drop-outs.",
-   "anchor": "item-24-bit-192-khz-flac-without-drop-outs"
-  },
-  {
-   "issue": 205,
-   "release": "0.8.3",
-   "status": "In development",
-   "key": "development",
-   "short": "One download for every player",
-   "text": "One download for every player: original or modded, hard drive or flash, 32 or 64 MB. It asks you once which battery your player has.",
-   "anchor": "item-one-download-for-every-player"
-  },
-  {
-   "issue": 205,
-   "release": "0.8.3",
-   "status": "In development",
-   "key": "development",
-   "short": "Dock support in every download",
-   "text": "Dock support is built into every download, and stays idle until you connect a dock. Work on how docks behave comes in 0.9.5.",
-   "anchor": "item-dock-support-in-every-download"
-  },
-  {
-   "issue": 271,
-   "release": "0.8.3",
-   "status": "In development",
-   "key": "development",
-   "short": "Best-quality sample rate converter, always",
-   "text": "Cleaner sound for songs at sample rates the player has to convert: it always uses its best-quality converter.",
-   "anchor": "item-best-quality-sample-rate-converter-always"
-  },
-  {
-   "issue": 259,
-   "release": "0.8.3",
-   "status": "In development",
-   "key": "development",
-   "short": "Video chip draws the visualiser and art",
-   "text": "The video chip does the drawing for the visualiser and album art, which leaves the main processor free.",
-   "anchor": "item-video-chip-draws-the-visualiser-and-art"
-  },
-  {
-   "issue": 262,
-   "release": "0.8.3",
-   "status": "In development",
-   "key": "development",
-   "short": "No blank screen after Hold in a video",
-   "text": "Turning Hold off during a video no longer blanks the screen for a few seconds.",
-   "anchor": "item-no-blank-screen-after-hold-in-a-video"
-  },
-  {
-   "issue": 265,
-   "release": "0.8.3",
-   "status": "In development",
-   "key": "development",
-   "short": "Every equaliser band works",
-   "text": "All of the equaliser's bands will work: one of the upper bands has no effect today. The fix ships once we have checked its battery cost.",
-   "anchor": "item-every-equaliser-band-works"
-  },
-  {
-   "issue": 272,
-   "release": "0.8.3",
-   "status": "In development",
-   "key": "development",
-   "short": "Buttons no longer hold full speed",
-   "text": "Button presses no longer keep the player at full speed for longer than needed, which saves battery.",
-   "anchor": "item-buttons-no-longer-hold-full-speed"
-  },
-  {
-   "issue": 295,
-   "release": "0.8.3",
-   "status": "In development",
-   "key": "development",
-   "short": "Visualiser always opens",
-   "text": "The visualiser always opens while music plays. Today it sometimes fails to.",
-   "anchor": "item-visualiser-always-opens"
-  },
-  {
-   "issue": 268,
-   "release": "0.8.3",
-   "status": "In development",
-   "key": "development",
-   "short": "24-bit playback",
-   "text": "24-bit playback: 24-bit FLAC and WAV files play at their full depth.",
-   "anchor": "item-24-bit-playback"
-  },
-  {
-   "issue": 291,
-   "release": "0.8.3",
-   "status": "Planned",
-   "key": "planned",
-   "short": "Wheel wakes the clock screen",
-   "text": "Turning the wheel wakes the player from the clock screen, like a button press, without scrolling or changing the volume.",
-   "anchor": "item-wheel-wakes-the-clock-screen"
-  },
-  {
-   "issue": 156,
-   "release": "0.8.3",
-   "status": "Planned",
-   "key": "planned",
-   "short": "Smooth visualiser with MP3 files",
-   "text": "The visualiser runs smoothly, without the stutter you may see with MP3 files.",
-   "anchor": "item-smooth-visualiser-with-mp3-files"
-  },
   {
    "issue": 180,
    "release": "0.9.0",
@@ -695,6 +532,15 @@
    "short": "Quick volume and progress bars in video",
    "text": "The volume and progress bars respond straight away while a video plays.",
    "anchor": "item-quick-volume-and-progress-bars-in-video"
+  },
+  {
+   "issue": 346,
+   "release": "0.9.3",
+   "status": "Planned",
+   "key": "planned",
+   "short": "Photos",
+   "text": "Photos: browse your pictures by album, view them full screen, and play slideshows with music. Copy photos over by drag-and-drop, with no app.",
+   "anchor": "item-photos"
   },
   {
    "issue": 194,

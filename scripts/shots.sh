@@ -31,7 +31,10 @@
 # out/shots/<scriptname>/), converts them to PNG and prints their paths.
 # The simulator is killed if it runs longer than SHOTS_TIMEOUT seconds
 # (default 60). Set SHOTS_WINDOW=1 to show the simulator window, and
-# SIM_BUILD=<dir> to use another sim build directory (default build/sim).
+# SIM_BUILD=<dir> to use another sim build directory (default: the gate's
+# choice for the script, see DEFSIM below; build/sim for non-ipodui ones).
+# A build that can't meet the script (no shell, no module loader for
+# "# needs: modules", no player for "# needs: video") is refused, exit 2.
 # Scripts named ipodui-* or containing a "# needs: music" line get the test
 # mini library (tests/ui/setup_music.sh) in $SIM_BUILD/simdisk/Music first.
 # ipodui-p14a-* scripts and "# needs: video" ones get the Phase 14a video
@@ -88,9 +91,17 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 # player by default (build/sim-ui-video), ipodui-relvideo-* on the release
 # shape with the player (build/sim-rel-video, p19-relvideos); SIM_BUILD
 # overrides, as always.
+# The rest follow validate.sh's script_sim(): an ipodui-* script with a
+# "# needs: modules" line on build/sim-ui-mod, other ipodui-* on build/sim-ui.
 case "$(basename "${1:-}" .script)" in
-    ipodui-p14a-*) DEFSIM=build/sim-ui-video ;;
+    ipodui-p14a-*|ipodui-p19-*|ipodui-b12-*) DEFSIM=build/sim-ui-video ;;
     ipodui-relvideo-*) DEFSIM=build/sim-rel-video ;;
+    ipodui-*)
+        if grep -qE '^#[[:space:]]*needs:[[:space:]]*modules' "${1:-}" 2>/dev/null; then
+            DEFSIM=build/sim-ui-mod
+        else
+            DEFSIM=build/sim-ui
+        fi ;;
     *) DEFSIM=build/sim ;;
 esac
 SIM=${SIM_BUILD:-$DEFSIM}
@@ -102,6 +113,40 @@ case "$SIMDISK" in /*) ;; *) SIMDISK="$ROOT/$SIMDISK" ;; esac
 [ -n "$1" ] || { echo "usage: $0 <script> [outdir]" >&2; exit 2; }
 [ -f "$1" ] || { echo "no such script: $1" >&2; exit 2; }
 [ -x "$SIM/rockboxui" ] || { echo "build the sim first: $SIM" >&2; exit 2; }
+
+# The build must be able to run the script: a hand run on the wrong sim
+# (an ipodui-* script on the stock sim, a "# needs: modules" one on a build
+# without the module loader, a "# needs: video" one without the player)
+# otherwise fails late and misleadingly (every game hidden, "log lacks
+# ..."). Read from the build's own defines, so SIM_BUILD overrides are
+# checked too. Exit 2: refused, not run. A build dir with no Makefile of
+# its own (tests/perf/lib65k.sh's build/sim-50k and sim-65k: sim-ui's
+# binary, symlinked) has no defines to read: the note below, not an exit
+# (set -e ended the run there, and the floor gate's 50k library was never
+# built)
+sname=$1
+sim_defs=
+[ -f "$SIM/Makefile" ] \
+    && sim_defs=$(sed -n 's/^export EXTRA_DEFINES=//p' "$SIM/Makefile")
+sim_has() { case " $sim_defs " in *" -D$1 "*) return 0 ;; esac; return 1; }
+want_build() { # <define> <what> <build dir to use>
+    sim_has "$1" && return 0
+    echo "shots: $(basename "$sname" .script) refused: ${SIM#$ROOT/} has no $2 ($1); run it with SIM_BUILD=$3" >&2
+    exit 2
+}
+if [ -n "$sim_defs" ]; then
+    case "$(basename "$1" .script)" in
+        ipodui-*) want_build HAVE_IPOD_UI "shell (--ipodui)" "$DEFSIM" ;;
+    esac
+    if grep -qE '^#[[:space:]]*needs:[[:space:]]*modules' "$1"; then
+        want_build IPODUI_WITH_MODULES "module loader" build/sim-ui-mod
+    fi
+    if grep -qE '^#[[:space:]]*needs:[[:space:]]*video' "$1"; then
+        want_build HAVE_BCMFW_VIDEO "video player (--bcmfw-video)" build/sim-ui-video
+    fi
+else
+    echo "shots: note: no EXTRA_DEFINES in $SIM/Makefile; build checks skipped" >&2
+fi
 
 script=$(cd "$(dirname "$1")" && pwd)/$(basename "$1")
 name=$(basename "$1" .script)
@@ -372,9 +417,13 @@ fi
 # P12 Screen Lock: likewise its combination and lock (a lock script that
 # stopped half way would lock every later script). config.cfg.new too: a
 # write the last run left there replaces config.cfg at the next boot.
+# Settings > Audiophile (#270): Hi-Res, its self-test result and Stereo
+# Width persist too (a script that turned Hi-Res on would play every later
+# script's 88.2/96 kHz music at its own rate): every script starts Off and
+# untested.
 for cfg in "$SIMDISK/.rockbox/config.cfg" "$SIMDISK/.rockbox/config.cfg.new"; do
     [ -f "$cfg" ] || continue
-    { grep -v -E '^(backlight timeout( plugged)?|ipodui lock code|ipodui locked):' "$cfg" || true; } \
+    { grep -v -E '^(backlight timeout( plugged)?|ipodui lock code|ipodui locked|ipodui (high rate( ok)?|stereo width)):' "$cfg" || true; } \
         >"$cfg.tmp" && mv -f "$cfg.tmp" "$cfg"
 done
 

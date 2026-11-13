@@ -38,6 +38,7 @@
 #include "powermgmt.h"
 #include "sim_db.h"
 #include "pcmbuf.h"
+#include "codec_cop.h"       /* p083-copclock: cop_demand */
 int sim_mkdir(const char *path);   /* filesystem-sim.c */
 #include "sim_cmd_np.h"
 
@@ -353,6 +354,21 @@ bool sim_cmd_np(const char *cmd, char *argv[], int argc, int lineno)
             fprintf(stderr, "sim_script: %s ok: %lu\n", cmd, got);
         return true;
     }
+    /* 0.8.3: the underrun lines pcmbuf.c wrote to the log (a starvation
+     * must always leave one) */
+    if (!strcmp(cmd, "expect_underrun_lines") && argc >= 2)
+    {
+        unsigned long want = strtoul(argv[1], NULL, 10);
+        unsigned long got = pcmbuf_underrun_lines();
+
+        if (got != want)
+            fprintf(stderr, "sim_script:%d: %s failed: %lu, want %lu "
+                    "(mid-track underruns %lu)\n", lineno, cmd, got, want,
+                    pcmbuf_mid_underruns());
+        else
+            fprintf(stderr, "sim_script: %s ok: %lu\n", cmd, got);
+        return true;
+    }
     if (!strcmp(cmd, "pcm_starve") && argc >= 2)
     {
         extern long sim_pcmbuf_starve_until;
@@ -360,6 +376,35 @@ bool sim_cmd_np(const char *cmd, char *argv[], int argc, int lineno)
 
         sim_pcmbuf_starve_until = current_tick + ms * HZ / 1000;
         fprintf(stderr, "sim_script: pcm_starve %ld ms\n", ms);
+        return true;
+    }
+#endif
+#ifdef HAVE_COP_CODEC
+    /* p083-copclock: "cop_demand <MHz x 10> [periods]": the COP's demand
+     * as if it measured that for so many 1 s periods (the simulator times
+     * nothing); "expect_cop_demand 0|1": what it asks for now */
+    if (!strcmp(cmd, "cop_demand") && argc >= 2)
+    {
+        unsigned int x10 = (unsigned int)atoi(argv[1]);
+        int n = argc >= 3 ? atoi(argv[2]) : 1;
+
+        while (n-- > 0)
+            codec_cop_sim_demand(x10);
+        fprintf(stderr, "sim_script: cop_demand %u want=%d\n", x10,
+                (int)codec_cop_demand(NULL, NULL));
+        return true;
+    }
+    if (!strcmp(cmd, "expect_cop_demand") && argc >= 2)
+    {
+        bool want = atoi(argv[1]) != 0;
+        bool got = codec_cop_demand(NULL, NULL);
+
+        if (got != want)
+            fprintf(stderr, "sim_script:%d: expect_cop_demand failed: want "
+                    "%d, got %d\n", lineno, (int)want, (int)got);
+        else
+            fprintf(stderr, "sim_script: expect_cop_demand ok: %d\n",
+                    (int)got);
         return true;
     }
 #endif

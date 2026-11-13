@@ -37,6 +37,9 @@
 #endif
 #include "buffering.h"
 #include "linked_list.h"
+#if defined(HAVE_IPOD_UI) && defined(HAVE_DISK_STORAGE)
+#include "ata.h"            /* #79: ata_disk_isssd(), one build */
+#endif
 
 /* Define LOGF_ENABLE to enable logf output in this file */
 /* #define LOGF_ENABLE */
@@ -203,12 +206,30 @@ static struct event_queue buffering_queue SHAREDBSS_ATTR;
  * wake with nothing posted: the next fill starts when the levels ask for
  * one, so the wake itself reads nothing. */
 static volatile bool fill_hold;
+#ifdef SIMULATOR
+static volatile size_t sim_fill_ahead;
+
+void sim_buffering_stall(size_t ahead)
+{
+    sim_fill_ahead = ahead;
+}
+#endif
 
 void buffering_sleep_hold(bool hold)
 {
     fill_hold = hold;
     if (hold)
+    {
         queue_post(&buffering_queue, Q_SLEEP_HOLD, 0);
+        /* #326: whoever boosted for a fill gives it back; a fill held
+           never ends, so its end's unboost would never come */
+        send_event(BUFFER_EVENT_FILL_HELD, NULL);
+    }
+}
+
+bool buffering_fill_held(void)
+{
+    return fill_hold;
 }
 #endif
 static struct queue_sender_list buffering_queue_sender_list SHAREDBSS_ATTR;
@@ -488,6 +509,111 @@ static struct memory_handle * find_handle(int handle_id)
     return h;
 }
 
+#ifdef HAVE_COP_CODEC
+/* ProkBox (0.8.3 colocate): the reader on the other core (buffering.h
+ * struct buf_remote_reader; docs/data-paths.md R7 item 11). Only CPU
+ * threads touch this pointer and the handle; the reader touches only the
+ * struct's words. Its pos never runs ahead of a published end, so bytes
+ * from the handle's (applied) read position on never move or get
+ * overwritten while it reads them: audio data does not move (shrink_handle
+ * moves only the struct, into bytes before ridx), a fill writes only past
+ * end, and a rebuffer (a seek) happens only while it is detached. */
+static struct buf_remote_reader *remote;
+
+/* The reader's progress, onto the handle (stale is safe: the handle then
+ * holds more than it needs, never less) */
+static void remote_apply(void)
+{
+    struct memory_handle *h;
+    off_t p;
+
+    if (!remote)
+        return;
+    h = find_handle(remote->hid);
+    if (!h)
+        return;
+    p = (off_t)remote->pos;
+    if (p == h->pos)
+        return;
+    if (p < h->start || p > h->end)
+    {
+        /* never expected: the reader stays inside [pos, end) */
+        logf("remote reader: pos %ld outside %ld..%ld", (long)p,
+             (long)h->start, (long)h->end);
+        return;
+    }
+    h->ridx = ringbuf_add(h->data, p - h->start);
+    h->pos  = p;
+}
+
+/* New bytes for the reader: written back before end says they are there */
+static void remote_publish(const struct memory_handle *h)
+{
+    if (!remote || remote->hid != h->id)
+        return;
+    commit_dcache();
+    remote->filesize = (uint32_t)h->filesize;
+    remote->end = (uint32_t)h->end;
+}
+
+static void remote_drop(void)
+{
+    if (!remote)
+        return;
+    remote->live = 0;
+    remote = NULL;
+}
+
+bool buf_remote_attach(int handle_id, struct buf_remote_reader *r)
+{
+    struct memory_handle *h;
+
+    r->live = 0;
+    mutex_lock(&llist_mutex);
+    remote_apply();
+    remote_drop();
+    h = find_handle(handle_id);
+    if (!h || h->type != TYPE_PACKET_AUDIO)
+    {
+        mutex_unlock(&llist_mutex);
+        return false;
+    }
+    r->hid      = handle_id;
+    r->base     = buffer;
+    r->len      = (uint32_t)buffer_len;
+    r->map_pos  = (uint32_t)h->start;
+    r->map_idx  = (uint32_t)h->data;
+    r->pos      = (uint32_t)h->pos;
+    remote = r;
+    remote_publish(h);          /* write-back, filesize, end */
+    r->live = 1;                /* last: the reader may start */
+    mutex_unlock(&llist_mutex);
+    return true;
+}
+
+off_t buf_remote_detach(struct buf_remote_reader *r)
+{
+    off_t pos = -1;
+
+    mutex_lock(&llist_mutex);
+    if (remote == r)
+    {
+        struct memory_handle *h;
+
+        remote_apply();
+        h = find_handle(r->hid);
+        pos = h ? h->pos : -1;
+        remote_drop();
+    }
+    r->live = 0;
+    mutex_unlock(&llist_mutex);
+    return pos;
+}
+#else
+#define remote_apply()      do {} while (0)
+#define remote_publish(h)   do {} while (0)
+#endif /* HAVE_COP_CODEC */
+
 /* Move a memory handle and data_size of its data delta bytes along the buffer.
    delta maximum bytes available to move the handle.  If the move is performed
          it is set to the actual distance moved.
@@ -630,6 +756,8 @@ static int update_data_counters(struct data_counters *dc)
 
     mutex_lock(&llist_mutex);
 
+    remote_apply();             /* ProkBox: the other core's reads */
+
     int num = num_handles;
     struct memory_handle *m = find_handle(base_handle_id);
     bool is_useful = m == NULL;
@@ -681,6 +809,7 @@ static bool buffer_handle(int handle_id, size_t to_buffer)
         if (h->fd < 0) {
             /* could not open the file, truncate it where it is */
             h->filesize = h->end;
+            remote_publish(h);
             return true;
         }
 
@@ -689,8 +818,12 @@ static bool buffer_handle(int handle_id, size_t to_buffer)
     }
 
     /* ProkBox (Fit-1 C4a): no boost to fill on flash. UDMA2 keeps up at
-     * 30 MHz and the DMA wait yields; a hard disk keeps the boost. */
-#if !defined(HAVE_IPOD_UI) || defined(HAVE_DISK_STORAGE)
+     * 30 MHz and the DMA wait yields; a hard disk keeps the boost (#79,
+     * one build: decided at runtime, ata_disk_isssd()). */
+#if defined(HAVE_IPOD_UI) && defined(HAVE_DISK_STORAGE)
+    if (!ata_disk_isssd())
+        trigger_cpu_boost();
+#elif !defined(HAVE_IPOD_UI) || defined(HAVE_DISK_STORAGE)
     trigger_cpu_boost();
 #endif
 
@@ -707,12 +840,30 @@ static bool buffer_handle(int handle_id, size_t to_buffer)
     bool stop = false;
     while (h->end < h->filesize && !stop)
     {
+#if defined(SIMULATOR) && defined(HAVE_IPOD_UI)
+        /* tests (buf_stall, ipodui-p18-sleep-mid-fill): a slow fill: it
+         * keeps only 'sim_fill_ahead' bytes ahead of the reader, so it is
+         * under way for the whole track; a message still ends it */
+        if (to_buffer == 0 && sim_fill_ahead)
+        {
+            while (sim_fill_ahead
+                   && h->end - h->pos >= (off_t)sim_fill_ahead
+                   && queue_empty(&buffering_queue))
+                sleep(HZ/50);
+            if (!queue_empty(&buffering_queue))
+                break;
+        }
+#endif
         /* max amount to copy */
         size_t widx = h->widx;
         ssize_t copy_n = h->filesize - h->end;
         copy_n = MIN(copy_n, to_buffer ? BUFFERING_DEFAULT_FILECHUNK
                                        : BUFFERING_FILL_FILECHUNK);
         copy_n = MIN(copy_n, (off_t)(buffer_len - widx));
+#if defined(SIMULATOR) && defined(HAVE_IPOD_UI)
+        if (to_buffer == 0 && sim_fill_ahead)
+            copy_n = MIN(copy_n, (off_t)sim_fill_ahead);
+#endif
 
         mutex_lock(&llist_mutex);
 
@@ -745,12 +896,14 @@ static bool buffer_handle(int handle_id, size_t to_buffer)
             logf("File ended %lu bytes early\n",
                  (unsigned long)(h->filesize - h->end));
             h->filesize = h->end;
+            remote_publish(h);
             break;
         }
 
         /* Advance buffer and make data available to users */
         h->widx = ringbuf_add(widx, rc);
         h->end += rc;
+        remote_publish(h);      /* ProkBox: the other core's reader */
 
         yield();
 
@@ -783,6 +936,10 @@ static bool close_handle(int handle_id)
 
     /* If the handle is not found, it is closed */
     if (h) {
+#ifdef HAVE_COP_CODEC
+        if (remote && remote->hid == handle_id)
+            remote_drop();      /* ProkBox: never expected while read */
+#endif
         close_fd(&h->fd);
         unlink_handle(h);
     }
@@ -1269,6 +1426,12 @@ static void rebuffer_handle(int handle_id, off_t newpos)
     size_t new_index = h->data;
 #endif /* STORAGE_WANTS_ALIGN */
 
+#ifdef HAVE_COP_CODEC
+    /* ProkBox: the reader is detached for a seek; one still attached here
+       would read moved bytes, so it loses its lease (it falls back) */
+    if (remote && remote->hid == handle_id)
+        remote_drop();
+#endif
     /* Reset the handle to its new position */
     h->ridx = h->widx = h->data = new_index;
     h->start = h->pos = h->end = newpos;
@@ -1480,6 +1643,7 @@ off_t bufstripsize(int handle_id, off_t size)
         return ERR_INVALID_VALUE;
 
     h->filesize = size;
+    remote_publish(h);          /* ProkBox */
     return size;
 }
 
@@ -1679,6 +1843,8 @@ static void shrink_buffer(void)
     logf("shrink_buffer()");
 
     mutex_lock(&llist_mutex);
+
+    remote_apply();             /* ProkBox: the other core's reads */
 
     for (struct memory_handle *h = HLIST_LAST; h; h = HLIST_PREV(h)) {
         h = shrink_handle(h);

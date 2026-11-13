@@ -6,9 +6,10 @@
 # The boot pass's variant can't be driven in the sim: after a restart
 # the free heap fits the commit before any playback starts (the sim's
 # boot commits at once), so the same guard is checked by code path only.
-#   SIM_BUILD=build/sim-ui32 SIMDISK=<a clone of build/sim-50k/simdisk> \
+#   SIM_BUILD=build/sim-ui SIMDISK=<a clone of build/sim-50k/simdisk> \
 #     scripts/shots.sh tests/perf/deferred-commit-50k.script
 # golden: skip np_open
+# env: IPODUI_SIM_RAM=32
 # timeout: 900
 # log: candidate RAM cache waits for the commit
 wait 4000

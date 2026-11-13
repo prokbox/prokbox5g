@@ -10,8 +10,12 @@
 #   shot        for a sim script: the name of its "shot NAME" line; "-" otherwise
 #   scale       for a sim script: 1 (320x240) or 2 (640x480, nearest-neighbour); "-" otherwise
 #   sim         the simulator build the script runs on (see scripts/validate.sh script_sim)
-# Every row runs on build/sim-rel-video (--ipodui --ipodui-release --bcmfw-video
-# --bcmfw-merged) and so shows the menus a release shows. The first-start notice shows the
+# Every row but the previews runs on build/sim-rel-video (--ipodui --ipodui-release
+# --bcmfw-video --bcmfw-merged) and so shows the menus a release shows. The preview
+# rows (docs/user/images/preview/: features not released yet, labelled so on the
+# page) run on build/sim-rel-preview, the same release shape with that release's
+# compiled-out features switched on: tests/ui/docs/preview_sim.sh builds it, and
+# tests/ui/docs/make_preview_fixtures.sh makes the track preview-npinfo plays. The first-start notice shows the
 # release's version: docs_shots.sh sets IPODUI_SIM_VERSION (simulator builds only) from
 # scripts/version.sh, or from DOCS_SHOTS_VERSION when given.
 docs/user/images/getting-started-main-menu.png	tests/ui/readme/readme-stills.script	main_menu	1	build/sim-rel-video
@@ -33,3 +37,7 @@ docs/user/images/readme/videos.png	tests/ui/readme/readme-stills.script	videos	2
 docs/user/images/readme/settings.png	tests/ui/readme/readme-stills.script	settings	2	build/sim-rel-video
 docs/user/images/readme/usb.png	tests/ui/readme/readme-stills.script	usb	2	build/sim-rel-video
 docs/user/images/readme/navigation.gif	scripts/readme_visuals.sh	-	-	build/sim-rel-video
+docs/user/images/releases/0.8.3-battery.png	tests/ui/docs/docs-battery.script	battery	1	build/sim-rel-video
+docs/user/images/releases/0.8.3-alarms.png	tests/ui/docs/docs-alarms.script	alarm_next	1	build/sim-rel-video
+docs/user/images/preview/audiophile.png	tests/ui/docs/preview-audiophile.script	menu_on	1	build/sim-rel-preview
+docs/user/images/preview/now-playing-format.png	tests/ui/docs/preview-npinfo.script	flac_info	1	build/sim-rel-preview

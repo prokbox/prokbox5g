@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2007 by Christian Gmeiner
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -606,6 +607,10 @@ void audiohw_set_power_mode(int mode);
 #endif
 
 void audiohw_set_frequency(int fsel);
+#ifdef HAVE_PCM_24BIT_OUT
+/* ProkBox #268: the codec's audio word length (16 or 24), PCM stopped */
+void audiohw_set_depth(int bits);
+#endif
 
 #ifdef HAVE_RECORDING
 

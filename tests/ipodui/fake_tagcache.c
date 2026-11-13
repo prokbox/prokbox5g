@@ -397,6 +397,13 @@ void cpu_boost(bool on)
     fake_boost += on ? 1 : -1;
 }
 
+int fake_key_releases;          /* #272: button_boost_release() calls */
+
+void button_boost_release(void)
+{
+    fake_key_releases++;
+}
+
 /* -- playlist ---------------------------------------------------------- */
 
 static struct playlist_info info = { 2000, 1 };

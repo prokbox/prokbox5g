@@ -269,6 +269,17 @@ static void test_chains(void)
     int worst = 0;
     unsigned c;
 
+    /* #295: the visualizer's part holds its state (480 B on the ARM) and
+     * the tap's ring at the 96 kHz top rate (viz_tap_bytes(512) = 8,239 B,
+     * pinned in tests/viztap), 8-aligned: it held 4,143 B (48 kHz) and
+     * the view stopped opening while music played (rc=-3) */
+    CHECK(UI_ARENA_B_VIZ >= ((480 + 8239 + 7) & ~7),
+          "viz part %d < state 480 + ring 8239", UI_ARENA_B_VIZ);
+    /* and with Now Playing over the shallowest list, as on the road
+     * (the arena reported 8,640 B free under the view: 576 B taken) */
+    CHECK(UI_ARENA_SIZE - 576 >= ((480 + 8239 + 7) & ~7),
+          "arena %d - 576 short of the viz part", UI_ARENA_SIZE);
+
     for (c = 0; c < sizeof(chains) / sizeof(chains[0]); c++)
     {
         int i, sum = UI_STACK_MAX * UI_ARENA_ALIGN;    /* slack per level */

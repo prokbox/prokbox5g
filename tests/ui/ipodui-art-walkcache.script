@@ -1,0 +1,83 @@
+# #332: the art builder holds the folder walk cache (#243,
+# file_walk_cache()) for its cover lookups and gives it back at every
+# exit. search_albumart_files() makes up to 19 probes for a cover-less
+# album (the library has four), each a path lookup from the root; the
+# builder takes one hold at its first lookup in a pass (find_file()) and
+# drops it before every wait that can last and at the pass's end:
+#   art walk hold
+#   art walk drop why=<w> probes=<n> cold=<n>
+#   art walk usb held=<0|1>        (at SYS_USB_CONNECTED, before the ack)
+#   art walk pass ev=<e> probes=<n> cold=<n> held=<0|1>   (a pass's end)
+# The simulator has no fat.c, so file_walk_cache() is empty here: this
+# checks the builder's hold and release, every probe made under the hold
+# (cold=0) and nothing held after a pass or at the USB ack. The hits
+# themselves are tests/walkcache/run.sh's (the real lookups and
+# search_albumart_files() over the firmware file layer).
+# Two exits mid-pass: USB, then the user coming back while music plays
+# ("lit"), and that pass's end once the user is idle again (it ends
+# "deferred" for the albums the user interrupted: ev=8, their next idle).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-art-walkcache.script
+# needs: library
+# golden: skip usb built
+# timeout: 240
+# log: art walk hold
+# log: art walk drop why=done
+# logbetween: u0 u1 art walk drop why=usb probes=[1-9]
+# logbetween: u0 u1 art walk usb held=0
+# logbetween: p0 p1 art walk drop why=lit
+# logbetween: p1 end art walk pass ev=\d+ probes=[1-9]\d* cold=0 held=0
+# logrange: 0 0 art walk pass ev=\d+ probes=\d+ cold=(\d+)
+# logrange: 0 0 art walk pass ev=\d+ probes=\d+ cold=\d+ held=(\d+)
+# logrange: 0 0 art walk usb held=(\d+)
+
+wait 1000
+wait_db 30000
+art_wait 120000
+rm_file /.rockbox/artcache/index.dat
+rm_file /.rockbox/artcache/index.prev
+rm_file /.rockbox/artcache/index.tmp
+rm_file /.rockbox/artcache/thumbs.pak
+reboot
+
+wait 1000           # a full build starts (~100 ms per album)
+wait_db 30000
+wait 1500           # partway through the albums
+ab_mark u0
+usb_connect
+wait 2000
+shot usb
+usb_disconnect
+wait 1000
+ab_mark u1
+wait_db 30000
+art_wait 120000
+expect_art art_manifest.txt
+
+# the user comes back mid-pass while music plays
+wheel +4            # "Shuffle Songs"
+wait 500
+key SELECT          # plays
+wait 1500
+expect_playing 300
+key MENU
+wait 500
+rm_file /.rockbox/artcache/index.dat
+rm_file /.rockbox/artcache/index.prev
+rm_file /.rockbox/artcache/index.tmp
+rm_file /.rockbox/artcache/thumbs.pak
+art_request         # a build of every album, during playback
+wait 1000
+backlight_expire    # idle: it builds
+wait 1500
+ab_mark p0
+key MENU            # back: the face goes, the builder waits (lit)
+wait 2000
+ab_mark p1
+backlight_expire    # idle again: the pass goes on to its end
+wait 15000
+shot built
+key MENU
+wait 1000
+audio_stop
+
+quit

@@ -30,7 +30,11 @@
 #include <stdint.h>
 #include <sys/types.h>
 #include "config.h"
-struct mp3entry;
+/* #282: codec_cop.c reads the window's first position from the id3 */
+struct mp3entry { unsigned long elapsed; off_t offset;
+                  /* road test: the track's format line */
+                  unsigned int codectype; unsigned long frequency;
+                  unsigned char bits_per_sample; };
 struct dsp_config;
 enum { CODEC_ACTION_HALT = -1, CODEC_ACTION_NULL = 0 };
 struct codec_api {

@@ -185,6 +185,11 @@ int battery_voltage_scan(void);
 /* ProkBox boot guard: its resting reading seeds the voltage filter */
 void powermgmt_seed_voltage(int mv);
 extern unsigned short battery_level_disksafe;
+/* ProkBox #79 (one build): the storage's battery rows (disk-safe floor,
+ * the curve's base row), once, right after storage_init() (apps/main.c);
+ * the battery question (WP3) builds on it. The simulator's battery model
+ * keeps its own values for both kinds (powermgmt-sim.c). */
+void powermgmt_storage_init(bool solid);
 /* ProkBox: true (and counted) while USB keeps the device on */
 bool powermgmt_poweroff_inhibited(void);
 unsigned int powermgmt_poweroff_blocked(void);

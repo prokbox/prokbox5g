@@ -27,9 +27,10 @@
 #   tests/perf/floor_gate.sh [32|64 ...]      (default: 32 64)
 #
 # Each unit at its own stress ceiling (owner, 2026-11-09, #229): the 32 MB
-# unit (build/sim-ui32, --ram=32) runs tests/perf/floor-50k.script at
-# 50,000 tracks, the 64 MB unit (build/sim-ui, the default) runs
-# tests/perf/floor-65k.script at 65,000 (tests/perf/stress_size.sh). It
+# unit runs tests/perf/floor-50k.script at 50,000 tracks, the 64 MB unit
+# tests/perf/floor-65k.script at 65,000 (tests/perf/stress_size.sh). One
+# binary for both (#204): build/sim-ui, the unit's RAM IPODUI_SIM_RAM; a
+# run whose log does not say "sim: ram <RAM> MB" fails. It
 # fails when the audio file buffer is under the floor (7,500,000 B /
 # 39,000,000 B, docs/hardware.md budget rules) at any worst case. It never
 # touches build/sim-50k or build/sim-65k's simdisk: each run uses a
@@ -124,13 +125,15 @@ run_ram() { # RAM -> stdout/stderr as before; exit status = this half's RC
   RAM=$1
   while :; do
     case "$RAM" in
-        32) BUILD=$ROOT/build/sim-ui32; FLOOR=7500000 ;;
-        64) BUILD=$ROOT/build/sim-ui;   FLOOR=39000000 ;;
+        32) FLOOR=7500000 ;;
+        64) FLOOR=39000000 ;;
         *) echo "floor gate: RAM must be 32 or 64" >&2; return 2 ;;
     esac
+    BUILD=$ROOT/build/sim-ui
+    export IPODUI_SIM_RAM=$RAM
     eval "K=\$K_$RAM; SOURCE=\$SOURCE_$RAM"
     if [ ! -x "$BUILD/rockboxui" ]; then
-        echo "floor gate: FAIL $BUILD/rockboxui missing (build it: --ipodui --ram=$RAM)" >&2
+        echo "floor gate: FAIL $BUILD/rockboxui missing (build it: --ipodui)" >&2
         RC=1; break
     fi
     RUN=$(mktemp -d "$ROOT/build/floor-gate-$RAM.XXXXXX")
@@ -187,7 +190,29 @@ run_ram() { # RAM -> stdout/stderr as before; exit status = this half's RC
         ! grep -q "maint take job=commit" "$RUN3/sim.log" 2>/dev/null \
             || WAITBAD="${WAITBAD:-the window took memory below the floor}"
     fi
-    if [ -n "$WAITBAD" ]; then
+    if [ "$RAM" = 64 ] && [ $ST -eq 0 ]; then
+        if W_=$(window309 "$LOG" "$FLOOR"); then
+            echo "floor gate: 64 MB $W_"
+        else
+            WAITBAD="${WAITBAD:-$W_}"
+        fi
+    fi
+    # the run must have been the unit it claims (IPODUI_SIM_RAM): every
+    # boot's "sim: ram" line, and the floor lines' ram_mb
+    RAMBAD=
+    LOGS_="$LOG $RUN2/sim.log"
+    [ "$RAM" = 32 ] && LOGS_="$LOGS_ $RUN3/sim.log"
+    for L_ in $LOGS_; do
+        R_=$(sed -n 's/^sim: ram \([0-9]*\) MB$/\1/p' "$L_" 2>/dev/null | sort -u | tr '\n' ' ')
+        [ "$R_" = "$RAM " ] \
+            || RAMBAD="${RAMBAD:-$L_ ran as '${R_:-no sim: ram line}', not a ${RAM} MB unit}"
+    done
+    grep -E "ram_mb=[0-9]+" "$LOG" 2>/dev/null | grep -vq "ram_mb=$RAM " \
+        && RAMBAD="${RAMBAD:-floor lines with another ram_mb than $RAM ($LOG)}"
+    if [ -n "$RAMBAD" ]; then
+        echo "floor gate: FAIL ${RAM} MB unit: $RAMBAD (IPODUI_SIM_RAM)" >&2
+        RC=1
+    elif [ -n "$WAITBAD" ]; then
         echo "floor gate: FAIL ${RAM} MB unit: paused window floor rule: $WAITBAD" >&2
         RC=1
     elif [ $ST -ne 0 ] || [ -z "$MINLINE" ]; then
@@ -216,6 +241,30 @@ run_ram() { # RAM -> stdout/stderr as before; exit status = this half's RC
     break
   done
   return $RC
+}
+# #309, the 64 MB unit's paused window (floor-65k.script): between
+# "floor before_window" and "floor window_commit" the commit is first
+# refused for the floor, retried exactly once after the regrow, and taken
+# after that retry; the buffer right after it clears the floor. Prints
+# the window's line with its margin; 0 = the rule held, else the reason
+# (one line).
+window309() { # LOG FLOOR
+    awk -v floor="$2" '
+        /sim_script: floor before_window / { w = 1; next }
+        w && /ipodui: maint job=commit wait floor/ { if (!wt) wt = ++n }
+        w && /ipodui: maint retry after regrow job=commit/ { retries++; if (!rt) rt = ++n }
+        w && /ipodui: maint take job=commit ok=1/ { if (!tk) tk = ++n }
+        w && /sim_script: floor window_commit / {
+            for (i = 1; i <= NF; i++) if ($i ~ /^audio=/) a = substr($i, 7) + 0
+            done = 1; exit }
+        END {
+            if (!done) { print "no \"floor window_commit\" after \"floor before_window\""; exit 1 }
+            if (!wt) { print "no \"maint job=commit wait floor\" in the window (never refused: the #309 path did not run)"; exit 1 }
+            if (retries != 1) { print "\"maint retry after regrow job=commit\" " retries + 0 " times in the window, not once"; exit 1 }
+            if (!(wt < rt && rt < tk)) { print "the window order is not: wait floor, retry after regrow, commit take"; exit 1 }
+            if (a < floor) { print "window_commit audio=" a " B under the floor " floor " B"; exit 1 }
+            printf "paused window (#309): refused, retried once after the regrow, committed paused; audio=%d B, floor=%d B, margin=%d B\n", a, floor, a - floor
+        }' "$1"
 }
 # a clone of the 0.8.0 disk with this build's installed files
 upgrade_clone() { # SOURCE DEST
@@ -269,6 +318,13 @@ upgrade_case() { # SOURCE; uses RAM K BUILD RUN FLOOR; 0 = the floor held
     grep -E "sim_script: (floor |floor_watch end|floor_reserve )|expect_floor|ipodui: maint (take|job)" "$LOG4" 2>/dev/null \
         | sed 's/^sim_script: /upgrade: /'
     MIN4=$(grep -E "floor_watch all_cases" "$LOG4" | tail -1)
+    if [ "$RAM" = 64 ] && [ "$ST4" -eq 0 ]; then
+        if W_=$(window309 "$LOG4" "$FLOOR"); then
+            echo "floor gate: 64 MB upgrade $W_"
+        else
+            UB="${UB:-paused window floor rule: $W_}"
+        fi
+    fi
     # the case must really be an upgrade: this firmware published over
     # 0.8.0's library in the run
     [ -f "$RUN/simdisk-up/.rockbox/boot_stamp.dat" ] \

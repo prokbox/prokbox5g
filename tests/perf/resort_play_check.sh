@@ -52,11 +52,10 @@ for RAM in ${*:-32 64}; do
     SOURCE=${FLOOR_SOURCE:-$(stress_disk "$RAM")} \
         || { echo "resort play: RAM must be 32 or 64" >&2; exit 2; }
     "$ROOT/tests/perf/ensure65k.sh" "$SOURCE" || exit 1
-    case "$RAM" in
-        32) BUILD=$ROOT/build/sim-ui32 ;;
-        64) BUILD=$ROOT/build/sim-ui ;;
-        *) echo "resort play: RAM must be 32 or 64" >&2; exit 2 ;;
-    esac
+    case "$RAM" in 32|64) ;; *) echo "resort play: RAM must be 32 or 64" >&2; exit 2 ;; esac
+    # one binary for both units (#204): the unit's RAM is IPODUI_SIM_RAM
+    BUILD=$ROOT/build/sim-ui
+    export IPODUI_SIM_RAM=$RAM
     RUN=$(mktemp -d "$ROOT/build/resort-play-$RAM.XXXXXX")
     mkdir -p "$RUN/simdisk"
     cp -cpR "$SOURCE/." "$RUN/simdisk/" 2>/dev/null || cp -pR "$SOURCE/." "$RUN/simdisk/"
@@ -72,6 +71,7 @@ for RAM in ${*:-32 64}; do
     g=$(grep -c "db gen 3 " "$L" 2>/dev/null)
     p=$(sed -n '/commit_release/,$p' "$L" 2>/dev/null | grep -c "db cand ram yield .* stats=1")
     lo=$(grep -c "expect_floor failed" "$L" 2>/dev/null)
+    grep -q "^sim: ram $RAM MB" "$L" 2>/dev/null || lo="$lo (not a ${RAM} MB run)"
     min=$(grep "expect_floor ok min over all_cases" "$L" 2>/dev/null | tail -1)
     if [ $ST -eq 0 ] && [ "$y" -ge 3 ] && [ "$p" -ge 1 ] && [ "$d" = 1 ] \
        && [ "$g" -ge 1 ] && [ "$lo" = 0 ] && [ -n "$min" ]; then

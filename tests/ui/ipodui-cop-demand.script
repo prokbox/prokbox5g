@@ -1,0 +1,70 @@
+# p083-copclock: the clock is the larger of both cores' needs. The music
+# decodes on the COP while the CPU idles; the COP measures its demand
+# (codec_place_core.h: MHz the music needs) and, while it asks and
+# something plays, the UI holds one counted boost (np_playback.c,
+# np_hires_sync()), woken by the CPU's tick at each change. The simulator
+# times nothing, so "cop_demand" feeds the periods the COP would measure.
+# A light demand asks nothing; 25 MHz asks (on); a pause gives it back,
+# the resume takes it again; 9 light periods keep it (the 10 s minimum
+# hold), the 10th lets it go (off); a starving period asks at once; the
+# USB session gives it back (playback stops with it: none after, as the
+# hi-res hold); the demand is let go by light periods before the end.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-cop-demand.script
+# needs: library
+# golden: skip
+# fulls-extra: 2
+# timeout: 200
+# logbetween: c0 c1 no np cop boost on
+# logbetween: c1 c2 np cop boost on need=
+# logbetween: c2 c3 np cop boost off
+# logbetween: c3 c4 np cop boost on need=
+# logbetween: c4 c5 no np cop boost off
+# logbetween: c5 c6 np cop boost off
+# logbetween: c6 c7 np cop boost on need=
+# logbetween: c7 c8 np cop boost off
+# logbetween: c8 c9 no np cop boost on
+# logbetween: c9 end no np cop boost
+
+wait 4000
+repeat off
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait 1500
+expect_playing 1000
+ab_mark c0
+cop_demand 100 5        # MP3-like: under 21 MHz, nothing asked
+expect_cop_demand 0
+wait 1000
+ab_mark c1
+cop_demand 250 5        # Opus-like: the average reaches 21 MHz: asks
+expect_cop_demand 1
+wait 1000
+ab_mark c2
+key PLAY                # pause: given back
+wait 1000
+ab_mark c3
+key PLAY                # resume: taken again
+wait 1000
+ab_mark c4
+cop_demand 80 9         # light, inside the minimum hold: kept
+expect_cop_demand 1
+wait 1000
+ab_mark c5
+cop_demand 80           # the 10th light period: let go
+expect_cop_demand 0
+wait 1000
+ab_mark c6
+cop_demand 300          # one starving period: asks at once
+expect_cop_demand 1
+wait 1000
+ab_mark c7
+usb_connect             # no boost through a USB session
+wait 2500
+ab_mark c8
+usb_disconnect          # nothing plays after it: none taken
+wait 3000
+ab_mark c9
+cop_demand 80 10
+expect_cop_demand 0
+wait 1000
+shot end
+quit

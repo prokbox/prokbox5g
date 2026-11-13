@@ -2,7 +2,7 @@
 # the trims on: the About chord opens the stock list (unthemed under
 # IPODUI_TRIM_SKIN, M2), Debug opens, Back leaves developer mode.
 # ipodui-p9-devmode-debug (A) opens every debug screen; this is the short
-# path for the --ram=32 smoke set.
+# path for the 32 MB smoke set (IPODUI_SIM_RAM=32).
 #   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p9-smoke-devmode.script
 # nolog: splash-pass
 # golden: skip developer debug about_after

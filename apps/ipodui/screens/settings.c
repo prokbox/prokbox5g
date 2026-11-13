@@ -24,7 +24,9 @@
  ****************************************************************************/
 
 /* The stock 2.0.5 Settings tree as a split screen (spec settings.md,
- * catalogue 7.1, owner photos settings-01 ... settings-17): 17 rows,
+ * catalogue 7.1, owner photos settings-01 ... settings-17): 17 rows
+ * (plus Audiophile after Sound Check, #270: a deliberate difference, in
+ * 0.9.0; IPODUI_AUDIOPHILE, ipodvideo.h, builds it out of 0.8.3),
  * each with its tile panel; blue inline values on Shuffle, Repeat, Sound
  * Check, Clicker and Sort By, which SELECT cycles in place; Backlight a
  * split value list (backlight-values.jpg); Audiobooks a short submenu
@@ -71,6 +73,7 @@
 #include "ipodui/library.h"
 #include "ipodui/anim.h"
 #include "ipodui/screen_stack.h"
+#include "audiophile.h"            /* #270: Settings > Audiophile */
 
 /* -- tiles ------------------------------------------------------------------ */
 
@@ -292,6 +295,60 @@ static int eq_cap_lang(void)
     return (p >= 1 && p <= 22) ? LANG_IPODUI_EQ_ACOUSTIC + (p - 1) : LANG_OFF;
 }
 
+#ifdef IPODUI_AUDIOPHILE   /* 0.9.0 (ipodvideo.h scope switch) */
+/* Audiophile (#270): High Sample Rate is an inline On/Off that SELECT
+ * flips. Off -> On runs the warning and the self-test first
+ * (screens/audiophile.c) unless this unit already passed a rate (the
+ * stored mask decides; a unit that passed none is asked again). On ->
+ * Off at once, no prompt. Stereo Width is a split value list (the
+ * Backlight pattern). The back end (apps/audiophile.h) applies and saves
+ * both. */
+static int hirate_lang(void)
+{
+    return global_settings.ipodui_hirate ? LANG_ON : LANG_OFF;
+}
+
+static void act_hirate(void)
+{
+    int ok = global_settings.ipodui_hirate_ok;
+
+    if (global_settings.ipodui_hirate)
+        audiophile_set_hirate(false);
+    else if ((ok & AP_TESTED) && (ok & (AP_RATE_88 | AP_RATE_96)))
+        audiophile_set_hirate(true);
+    else
+    {
+        ui_push(&ui_ap_hirate_screen, NULL);
+        return;
+    }
+    UPDATE_TRACE("audiophile hirate=%d",
+                 (int)global_settings.ipodui_hirate);
+    changed();
+}
+
+static int width_value(void)
+{
+    int v = global_settings.ipodui_width3d;
+    return (v >= 0 && v < AP_WIDTH_STEPS) ? v : AP_WIDTH_OFF;
+}
+
+static const short width_lang[AP_WIDTH_STEPS] = {
+    LANG_OFF, LANG_IPODUI_AP_WIDTH_LOW, LANG_IPODUI_AP_WIDTH_MEDIUM,
+    LANG_IPODUI_AP_WIDTH_HIGH };
+
+static const char *width_label(int i, char *buf, size_t len)
+{
+    (void)buf; (void)len;
+    return str(width_lang[i]);
+}
+
+static void width_set(int i)
+{
+    audiophile_set_width(i);
+    UPDATE_TRACE("audiophile width=%d", i);
+}
+#endif
+
 /* Backlight (stock values; no 15 s): seconds, -1 = Off, 0 = Always On */
 static const signed char bl_values[] = { -1, 2, 5, 10, 20, 30, 0 };
 #define BL_COUNT ((int)ARRAYLEN(bl_values))
@@ -354,6 +411,14 @@ CAPTION(sort, str(global_settings.ipodui_sort_last ?
                   LANG_IPODUI_CAP_SORT_LAST : LANG_IPODUI_CAP_SORT_FIRST))
 CAPTION(ab_sort, str(ab_by_author() ? LANG_IPODUI_CAP_AB_SORT_AUTHOR :
                      LANG_IPODUI_CAP_AB_SORT_TITLE))
+#ifdef IPODUI_AUDIOPHILE   /* 0.9.0 (ipodvideo.h scope switch) */
+CAPTION(audiophile, str(LANG_IPODUI_CAP_AUDIOPHILE))
+/* what plays now: On after a fallback this session plays at 44.1/48 */
+CAPTION(ap_hirate, str(audiophile_hirate_allowed() ?
+                       LANG_IPODUI_AP_CAP_HIRATE_ON :
+                       LANG_IPODUI_AP_CAP_HIRATE_OFF))
+CAPTION(ap_width, str(width_lang[width_value()]))
+#endif
 CAPTION(legal, str(LANG_IPODUI_CAP_LEGAL))
 CAPTION(reset, str(LANG_IPODUI_CAP_RESET))
 
@@ -396,6 +461,11 @@ static const struct set_tile
     t_ab_sort  = { LANG_IPODUI_SORT_BY, PANELART_BOOK, cap_ab_sort },
     t_eq       = { LANG_IPODUI_EQ, PANELART_EQ, cap_eq },
     t_sound    = { LANG_IPODUI_SOUND_CHECK, PANELART_SPEAKER, cap_sound_check },
+#ifdef IPODUI_AUDIOPHILE   /* 0.9.0 (ipodvideo.h scope switch) */
+    t_audioph  = { LANG_IPODUI_AUDIOPHILE, PANELART_SPEAKER, cap_audiophile },
+    t_ap_hirate = { LANG_IPODUI_AP_HIRATE, PANELART_SPEAKER, cap_ap_hirate },
+    t_ap_width = { LANG_IPODUI_AP_WIDTH, PANELART_SPEAKER, cap_ap_width },
+#endif
     t_clicker  = { LANG_IPODUI_CLICKER, PANELART_CLICKER, cap_clicker },
     t_date     = { LANG_IPODUI_DATE_TIME, UI_TILE_CALENDAR, cap_date },
     t_sort     = { LANG_IPODUI_SORT_BY, PANELART_CONTACTS, cap_sort },
@@ -424,6 +494,12 @@ static void bl_set(int i)
 
 static const struct set_choice c_backlight = {
     LANG_BACKLIGHT, &t_backl, BL_COUNT, bl_index, bl_set, bl_label };
+
+#ifdef IPODUI_AUDIOPHILE   /* 0.9.0 (ipodvideo.h scope switch) */
+static const struct set_choice c_width = {
+    LANG_IPODUI_AP_WIDTH, &t_ap_width, AP_WIDTH_STEPS, width_value,
+    width_set, width_label };
+#endif
 
 struct choice_state {
     struct ui_list list;
@@ -688,6 +764,35 @@ static void ab_refresh(void)
     ab_items[1].label = ab_value;
 }
 
+#ifdef IPODUI_AUDIOPHILE   /* 0.9.0 (ipodvideo.h scope switch) */
+/* -- Audiophile: High Sample Rate and Stereo Width (#270) ------------------- */
+
+/* The Audiobooks pattern: a short split-screen menu, one inline value
+ * (High Sample Rate) and one value list (Stereo Width) */
+static void ap_refresh(void);
+
+static struct ui_menu_item ap_items[] = {
+    VALUE(act_hirate, t_ap_hirate),
+    ROW(&choice_screen, &c_width, NULL, t_ap_width),
+};
+
+static char ap_value[48];             /* "High Sample Rate" UI_VALUE_SEP value */
+
+static struct ui_menu ap_menu = {
+    NULL, ap_items, ARRAYLEN(ap_items), true, false, ap_refresh
+};
+
+/* menu.c calls it on enter and before every full draw */
+static void ap_refresh(void)
+{
+    ap_menu.title = str(LANG_IPODUI_AUDIOPHILE);
+    snprintf(ap_value, sizeof(ap_value), "%s%c%s",
+             str(LANG_IPODUI_AP_HIRATE), UI_VALUE_SEP, str(hirate_lang()));
+    ap_items[0].label = ap_value;
+    ap_items[1].label = str(LANG_IPODUI_AP_WIDTH);
+}
+#endif
+
 static struct ui_menu_item items[] = {
     { NULL, &ui_about_screen, NULL, refresh, NULL, &ui_preview_capacity,
       NULL },                                           /* About */
@@ -701,6 +806,9 @@ static struct ui_menu_item items[] = {
     ROW(&ui_menu_screen, &ab_menu, NULL, t_books),
     ROW(&ui_eq_screen, NULL, NULL, t_eq),
     VALUE(act_sound_check, t_sound),
+#ifdef IPODUI_AUDIOPHILE   /* 0.9.0 (ipodvideo.h scope switch) */
+    ROW(&ui_menu_screen, &ap_menu, NULL, t_audioph),    /* #270 */
+#endif
     VALUE(act_clicker, t_clicker),
     ROW(&ui_datetime_menu_screen, NULL, NULL, t_date),
     VALUE(act_sort, t_sort),
@@ -714,7 +822,11 @@ static const short item_lang[ARRAYLEN(items)] = {
     LANG_IPODUI_ABOUT, LANG_SHUFFLE, LANG_REPEAT, LANG_IPODUI_MAIN_MENU,
     LANG_IPODUI_MUSIC_MENU, LANG_IPODUI_VOLUME_LIMIT, LANG_BACKLIGHT,
     LANG_IPODUI_BRIGHTNESS, LANG_IPODUI_AUDIOBOOKS, LANG_IPODUI_EQ,
-    LANG_IPODUI_SOUND_CHECK, LANG_IPODUI_CLICKER, LANG_IPODUI_DATE_TIME,
+    LANG_IPODUI_SOUND_CHECK,
+#ifdef IPODUI_AUDIOPHILE
+    LANG_IPODUI_AUDIOPHILE,
+#endif
+    LANG_IPODUI_CLICKER, LANG_IPODUI_DATE_TIME,
     LANG_IPODUI_SORT_BY, LANG_LANGUAGE, LANG_IPODUI_LEGAL,
     LANG_IPODUI_RESET_SETTINGS,
 };
@@ -725,7 +837,11 @@ static const struct {
     int (*value)(void);
 } value_rows[] = {
     { 1, shuffle_lang }, { 2, repeat_lang }, { 10, sound_check_lang },
+#ifdef IPODUI_AUDIOPHILE
+    { 12, clicker_lang }, { 14, sort_lang },
+#else
     { 11, clicker_lang }, { 13, sort_lang },
+#endif
 };
 #define VALUE_LEN 48
 static char value_label[ARRAYLEN(value_rows)][VALUE_LEN];
@@ -765,6 +881,9 @@ void ui_settings_init(void)
         items[i].label = str(item_lang[i]);
     refresh();
     ab_refresh();
+#ifdef IPODUI_AUDIOPHILE
+    ap_refresh();
+#endif
     /* the saved Sort By, before any books list opens (#59) */
     lib_set_book_order(global_settings.ipodui_ab_sort);
 }

@@ -1,0 +1,63 @@
+# Release notes images (scripts/docs_shots.sh; their rows in tests/ui/docs/images.tsv):
+# Extras > Alarms, new in 0.8.3 (#329): the running Sleep Timer's panel
+# ("Sleep Timer Active" over the minutes left) and a weekend alarm's panel
+# (when it next rings and how far off that is). Runs on the release-shaped
+# sim with the video player, so the menus are the ones a release shows; in
+# tests/ui/docs/, so the gate's tests/ui/*.script sweep leaves it alone.
+# Synthetic library and video fixtures only (tests/ui/setup_library.py,
+# tests/fixtures/videos/mkvideos.sh): no owner media.
+#   SIM_BUILD=build/sim-rel-video scripts/shots.sh tests/ui/docs/docs-alarms.script
+# needs: library
+# needs: video
+# golden: skip
+# timeout: 240
+# reset: mainmenu
+# log: ipodui: alarms sleep set=120
+# log: ipodui: alarms panel row=2 in=
+wait 4500
+rtc_at 2026-10-06 15:06:00
+sim_clock 15:06
+wheel +3              # Extras
+wait 700
+key SELECT
+wait 1200
+wheel +3              # Alarms
+wait 800
+key SELECT
+wait 1500
+wheel +1              # Sleep Timer
+wait 800
+key SELECT
+wait 1200
+wheel +5              # 120 Minutes (Off, 15, 30, 60, 90, 120)
+wait 600
+key SELECT
+wait 1500
+shot sleep_timer      # "Sleep Timer Active" / "120 Minutes"
+key SELECT
+wait 1200
+wheel -5              # Off
+wait 600
+key SELECT
+wait 1500
+
+rtc_at 2026-10-06 15:06:00   # a known minute again, a Tuesday
+wait 1500
+wheel -1              # Create Alarm
+wait 800
+key SELECT            # the editor: 7:00 AM
+wait 1200
+wheel +3              # Repeat
+wait 700
+key SELECT
+wait 1200
+wheel +3              # Weekends
+wait 600
+key SELECT
+wait 1200
+key MENU              # the commit
+wait 1500
+wheel +2              # the weekend alarm (Create Alarm, Sleep Timer, it)
+wait 1000
+shot alarm_next       # "Sat 10 Oct, 7:00 AM" / "In 3 days 15 hours"
+quit

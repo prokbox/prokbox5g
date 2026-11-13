@@ -38,6 +38,7 @@
 #include "ipodui/screen_stack.h"
 #include "ipodui/npmark.h"
 #include "ipodui/ipodui.h"     /* ui_show_wps */
+#include "ipodui/fe_be.h"     /* #345: fe_audio_status() */
 #include "playlist.h"
 
 /* The anti-aliased font path's blit (firmware/drivers/lcd-color-common.c;
@@ -166,7 +167,8 @@ bool ui_npmark_continue(struct ui_list *l, struct ui_npmark_now *cur,
         *cur = was;     /* ui_npmark_sync() still sees the change */
         return false;
     }
-    if (audio_status() & AUDIO_STATUS_PAUSE)
+    if (fe_audio_status() & AUDIO_STATUS_PAUSE)  /* #345: a posted PLAY
+                                                  * too: resumed after it */
         audio_resume();
     ui_show_wps();
     return true;

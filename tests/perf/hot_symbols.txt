@@ -1,0 +1,45 @@
+# Hot code outside IRAM for tests/perf/layout_diff.py: fnmatch patterns,
+# one per line. The playback path (decode, DSP, PCM, buffering), the
+# kernel's switches and queues, the storage read path and the UI's frame
+# path: what runs per sample, per buffer or per frame. IRAM symbols are
+# always compared and need no line here.
+dsp_process
+dsp_*sample*
+resample_*
+pcmbuf_*
+pcm_play_*
+pcm_dma_*
+mixer_*
+buffering_*
+bufread
+bufadvance
+bufgetdata
+bufgettail
+bufcuttail
+codec_*
+audio_*
+switch_thread
+wakeup_thread*
+queue_wait*
+queue_post
+queue_send
+mutex_lock
+mutex_unlock
+semaphore_*
+cop_job_*
+ata_read_sectors
+ata_transfer_sectors
+storage_read_sectors
+fat_readwrite
+lcd_update*
+lcd_blit*
+ui_frame*
+anim_*
+# set-up and teardown run once, not per sample or frame
+!*_init
+!*_init_*
+!*_deinit
+!*_reset*
+# once per buffer fill or watermark message (playback.c), not per buffer
+# read: its growth is the #79 if (solid) watermark row
+!audio_update_filebuf_watermark

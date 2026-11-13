@@ -1,0 +1,42 @@
+# #326 (b12 slp5/slp6): hold PLAY to sleep while a buffer fill is under
+# way. The audio thread boosts for a fill (audio_fill_file_buffer()) and
+# gave it back only when buffering ended or playback stopped; sleep entry
+# stops the fill (buffering_sleep_hold()), so the boost stayed, the
+# device's power_sleep() refused it ("sleep refused why=2", "sleep held
+# thr=audio") and the unit stayed awake, dark and boosted for ~20 min.
+# Now the hold ends the fill's boost: the sleep is taken, nothing is
+# boosted asleep, and after the wake the fill goes on and ends unboosted.
+# buf_stall keeps the first track's background fill only 16 KB ahead of
+# the decoder, so the next track's metadata waits behind it (a fill under
+# way, as a slow refill of a large file is on the device).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p18-sleep-mid-fill.script
+# needs: library
+# golden: skip
+# timeout: 180
+# fulls-extra: 1          (the wake pushes the left screen in full)
+# log: sim_sleep: sleep enter
+# log: audio fill held state=1
+# nolog: sleep refused
+# nolog: sleep deep
+# nolog: tier=off
+# nolog: splash-pass
+
+sleep_mode soft       # soft sleep is off by default (developer switch)
+wait 4000
+buf_stall 16384       # the fill keeps 16 KB ahead: under way all track
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3 /Music/Tone%20Collective/Sine%20Studies/02%20Low%20E.mp3 /Music/Tone%20Collective/Sine%20Studies/03%20Warble.mp3
+wait_pos 3000 60000
+hold PLAY 1500        # pause, then the sleep; the fill is cut at entry
+expect_sleep asleep 12000
+expect_boost 0        # nothing boosted asleep
+expect_paused 500
+key SELECT            # wakes; swallowed
+expect_sleep button 3000
+wait 1000
+buf_stall off         # the fill may go on
+key PLAY              # playback again: the fill restarts with the levels
+wait 500
+expect_playing 1000
+expect_boost 0 20000  # the fill ends (or rests): its boost given back
+shot woken
+quit

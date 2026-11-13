@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2007 David Bryant
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -94,6 +95,10 @@ bool get_wavpack_metadata(int fd, struct mp3entry* id3)
 
         if (blocksamples) {
             int srindx = ((buf [26] >> 7) & 1) + ((buf [27] << 1) & 14);
+            /* ProkBox #268: bytes a sample - 1 (flags bits 0-1); float
+               (flags bit 7) counts as 24 */
+            id3->bits_per_sample = (buf [24] & 0x80) ? 24 :
+                                   ((buf [24] & 3) + 1) * 8;
 
             if (srindx == 15) {
                 uint32_t meta_size;

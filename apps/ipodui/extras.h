@@ -42,6 +42,7 @@ enum extra_id { XT_CLOCKS, XT_CALENDARS, XT_CONTACTS, XT_ALARMS, XT_GAMES,
                 XT_NOTES, XT_SCREENLOCK, XT_STOPWATCH, XT__N };
 
 struct ui_preview_ops;                  /* preview.h */
+struct ui_panel;                        /* preview.h */
 
 struct extra_ent {
     uint16_t title_lang;                /* LANG_IPODUI_X_* */
@@ -122,6 +123,14 @@ extern const struct ui_preview_ops ui_preview_x_plain;
  * resident, so a module's row shows its icon before the module loads.
  * Alarms' is also its own split list's panel. */
 extern const struct ui_preview_ops ui_preview_x_alarms;
+/* #329: the Alarms list's own panel: the alarm clock with up to two
+ * caption lines centred under it (l1 NULL or "": none; l2 NULL or "":
+ * l1 alone, on the last line), a provider's draw() into p. And the
+ * caption alone, straight into the LCD's panel (its band, y 184-219,
+ * repainted and pushed): the list's once-a-minute countdown, no fade. */
+void ui_x_alarms_panel(const struct ui_panel *p, const char *l1,
+                       const char *l2);
+void ui_x_alarms_caption(const char *l1, const char *l2);
 extern const struct ui_preview_ops ui_preview_x_contacts;
 extern const struct ui_preview_ops ui_preview_x_games;
 extern const struct ui_preview_ops ui_preview_x_notes;

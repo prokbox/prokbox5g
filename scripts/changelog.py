@@ -99,7 +99,9 @@ PREFIXES = {
 # commits are dropped too; the notes themselves are on the Releases page.)
 DROP_PREFIXES = {'tests', 'test', 'docs', 'doc', 'sim', 'wip', 'scripts', 'script', 'ci', 'gate',
                  'release', 'devbench', 'bench', 'dbgen', 'tools', 'build', 'emu', 'tooling', 'merge',
-                 'revert', 'chore', 'refactor'}
+                 'revert', 'chore', 'refactor',
+                 # 0.8.3 engine work: internal subsystems, user-facing lines come from trailers
+                 'audio_cop', 'codec_cop', 'pcmbuf', 'buffering', 'pp', 'bcmjob', 'platform', 'audiophile'}
 # Developer-only words anywhere in the subject (whole words, case-insensitive).
 DROP_WORDS = re.compile(r'\b(tests?|devbench|gate|golden|goldens|fixtures?|stubs?|febe|accountant|align-ok|scantrace|sim-only|simulator|CI|lint)\b', re.I)
 RELEASE_BUMP = ('release: About says ProkBox5g %s', 'release: ProkBox5g %s')

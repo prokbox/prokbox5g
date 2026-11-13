@@ -217,11 +217,40 @@ void sim_do_exit()
 
 uintptr_t *stackbegin;
 uintptr_t *stackend;
+
+#if defined(IPOD_VIDEO) && defined(HAVE_IPOD_UI)
+/* ProkBox one build (#204): one binary for 32 and 64 MB units; the
+ * device reads its RAM at boot (crt0-pp.S, system-pp502x.c), the
+ * simulator from IPODUI_SIM_RAM. core_allocator_init() then ends the
+ * pool 32 MB lower on a 32 MB unit, as on the device. */
+unsigned char probed_ramsize = 64;
+
+static void sim_ram_init(void)
+{
+    const char *e = getenv("IPODUI_SIM_RAM");
+
+    if (e && *e)
+    {
+        if (!strcmp(e, "32"))
+            probed_ramsize = 32;
+        else if (strcmp(e, "64"))
+        {
+            fprintf(stderr, "sim: IPODUI_SIM_RAM=%s refused (32 or 64)\n", e);
+            exit(2);
+        }
+    }
+    fprintf(stderr, "sim: ram %u MB\n", (unsigned)probed_ramsize);
+}
+#endif
+
 void system_init(void)
 {
     SDL_sem *s;
     /* fake stack, OS manages size (and growth) */
     stackbegin = stackend = (uintptr_t*)&s;
+#if defined(IPOD_VIDEO) && defined(HAVE_IPOD_UI)
+    sim_ram_init();
+#endif
 
 #if defined(RG_NANO) && !defined(SIMULATOR)
     /* Set system volume to max with amixer */

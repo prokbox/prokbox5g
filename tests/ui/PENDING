@@ -15,3 +15,12 @@
 # U2a's menu.c pointed Music > Search at ui_search_screen.)
 # Phase 11 (wave 2): the cross-area tour runs only once every screen has landed.
 ipodui-p11-tour
+# 0.8.3 scope (owner 2026-11-12, "do 24 bit now audiophile later"):
+# Settings > Audiophile (#270) and the Now Playing info page (#277) are
+# built out by IPODUI_AUDIOPHILE / IPODUI_NP_INFO (ipodvideo.h). Their
+# scripts wait for 0.9.0, which defines both and un-pends these.
+ipodui-audiophile
+ipodui-audiophile-none
+ipodui-audiophile-popup
+ipodui-audiophile-test96
+ipodui-np-info

@@ -1150,7 +1150,13 @@ static bool read_mp4_container(int fd, struct mp3entry* id3,
 #endif
                 if (subtype == MP4_alac)
                 {
-                    lseek(fd, 24, SEEK_CUR);
+                    uint8_t depth = 0;
+
+                    lseek(fd, 9, SEEK_CUR);
+                    if (read(fd, &depth, 1) != 1)
+                        depth = 0;
+                    id3->bits_per_sample = depth;
+                    lseek(fd, 14, SEEK_CUR);
                     read_uint32be(fd, &frequency);
                     size -= 28;
                     id3->frequency = frequency;

@@ -88,7 +88,7 @@ void maint_sleep_hold(bool hold);
 bool maint_wanted_job(enum maint_job j);
 void maint_pause_restart(void);
 
-/* The audio file buffer floor of this unit (MEMORYSIZE) */
+/* The audio file buffer floor of this unit (its RAM, probed_ramsize) */
 size_t maint_floor(void);
 /* Would taking 'bytes' from the paused buffer keep it >= the floor? */
 bool maint_fits(size_t bytes);
@@ -102,10 +102,12 @@ bool maint_take_fits(size_t bytes);
  * free heap has them already; otherwise, only with the window open and
  * the floor kept, one partial shrink (waits for the silent restart to
  * settle, a few hundred ms) and true. False: the job waits (logged once
- * per pause). Callers allocate right after, with no yield between. */
+ * per pause, and once more if refused again after the pause's regrow,
+ * #309). Callers allocate right after, with no yield between. */
 bool maint_take(enum maint_job j, size_t bytes);
 /* job j's take was refused in this pause (the floor): a retry would be
- * refused again until the pause ends (false when stopped) */
+ * refused again until the pause ends (false when stopped), or until the
+ * pause's one regrow grows the buffer: that clears it once (#309) */
 bool maint_declined(enum maint_job j);
 /* a job holds the window's memory (from maint_take() until maint_done()
  * or MAINT_JOB_TICKS): its steps may use free memory while paused, and

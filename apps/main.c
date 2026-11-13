@@ -25,6 +25,7 @@
 #ifdef HAVE_IPOD_UI
 #include "ipodui/ipodui.h"
 #include "ipodui/bootbatt.h"
+#include "ipodui/battcell.h"
 #include "logf.h"
 #endif
 #ifdef HAVE_IPOD_UI_DEVMODE
@@ -38,6 +39,9 @@
 #endif
 #include "gcc_extensions.h"
 #include "storage.h"
+#if defined(HAVE_IPOD_UI) && defined(HAVE_DISK_STORAGE)
+#include "ata.h"            /* #79: ata_disk_isssd(), one build */
+#endif
 #include "disk.h"
 #include "file_internal.h"
 #include "lcd.h"
@@ -520,10 +524,16 @@ static void init(void)
     viewportmanager_init();
 
     storage_init();
+#if defined(HAVE_IPOD_UI) && defined(HAVE_DISK_STORAGE)
+    powermgmt_storage_init(ata_disk_isssd());   /* #79: the sim's no-op */
+#endif
     pcm_init();
     dsp_init();
     settings_reset();
     settings_load();
+#ifdef HAVE_IPOD_UI
+    battcell_boot_apply();          /* one-build WP3: the fitted cell */
+#endif
     settings_apply(true);
     init_battery_tables();
 #ifdef HAVE_DIRCACHE
@@ -547,17 +557,12 @@ static void init(void)
 #ifdef HAVE_IPOD_UI /* the simulator mirrors the target's power rails (P9) */
 #ifdef HAVE_ACCESSORY_SUPPLY
     accessory_supply_set(global_settings.accessory_supply);
-#ifndef HAVE_IPOD_DOCK30
     DEBUGF("p9 accessory=%d\n", (int)global_settings.accessory_supply);
 #endif
-#endif
 #ifdef HAVE_LINEOUT_POWEROFF
-#ifdef IPODUI_TRIM_IAP
-    lineout_set(false); /* no dock connector: OUT2 (dock line-out) off */
-    DEBUGF("p9 lineout=0\n");
-#else
+    /* OUT2 (the dock's line-out) on, on every unit (#236) */
     lineout_set(global_settings.lineout_active);
-#endif
+    DEBUGF("p9 lineout=%d\n", (int)global_settings.lineout_active);
 #endif
 #endif /* HAVE_IPOD_UI */
 #ifndef IPODUI_TRIM_SKIN
@@ -720,6 +725,14 @@ static void init(void)
         dbg_ports();
         panicf("ata: %d", rc);
     }
+#if defined(HAVE_IPOD_UI) && defined(HAVE_DISK_STORAGE)
+    /* #79 (one build): the storage kind is known from here (IDENTIFY);
+     * the battery's storage rows before their first reader
+     * (bootbatt_latch_check() below). The driver's own rows were set in
+     * storage_init() (ata.c); the rest read ata_disk_isssd() where they
+     * act (docs/storage-choices.md) */
+    powermgmt_storage_init(ata_disk_isssd());
+#endif
 
 #if defined(NEED_ATA_POWER_BATT_MEASURE) && \
     (CONFIG_CHARGING <= CHARGING_MONITOR)
@@ -882,6 +895,11 @@ static void init(void)
         settings_reset();
     }
 #endif
+#ifdef HAVE_IPOD_UI
+    /* one-build WP3: the fitted cell's capacity and curve (the storage's
+     * row scaled), before init_battery_tables() so a levels file wins */
+    battcell_boot_apply();
+#endif
     CHART(">init_battery_tables");
     init_battery_tables();
     CHART("<init_battery_tables");
@@ -948,17 +966,12 @@ static void init(void)
 #endif
 #ifdef HAVE_ACCESSORY_SUPPLY
     accessory_supply_set(global_settings.accessory_supply);
-#if defined(HAVE_IPOD_UI) && !defined(HAVE_IPOD_DOCK30)
+#ifdef HAVE_IPOD_UI
     DEBUGF("p9 accessory=%d\n", (int)global_settings.accessory_supply);
 #endif
 #endif
 #ifdef HAVE_LINEOUT_POWEROFF
-#ifdef IPODUI_TRIM_IAP
-    lineout_set(false); /* no dock connector: OUT2 (dock line-out) off */
-    DEBUGF("p9 lineout=0\n");
-#else
     lineout_set(global_settings.lineout_active);
-#endif
 #endif
 #ifdef HAVE_HOTSWAP_STORAGE_AS_MAIN
     CHART("<check_bootfile(false)");

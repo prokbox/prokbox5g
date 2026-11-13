@@ -45,6 +45,12 @@
  * STALL_RESTARTS a boot (then a counted failure, loud) */
 #define STALL_MS        4000u
 #define STALL_RESTARTS  3
+/* #325: HELLO answered but the job block reads wrong (b12 silicon: the
+ * developer self-test's scratch over it).  The image runs, the block is
+ * gone until it starts again: our image is started again and found again
+ * at once, not counted as a failure, at most BLOCK_RESTARTS a boot (then
+ * the CPU path, logged) */
+#define BLOCK_RESTARTS  2
 #define HOUR_MS         3600000u
 #define BOXES           3               /* replies awaited at once: the
                                            owner's call, a decode's and an
@@ -62,7 +68,8 @@
 /* the merged image's overlay (album-render.md 5.3): DECODE */
 #define OVL_DEC         (1u << (J_OP_DECODE - 0x20))
 
-enum { ST_NONE, ST_JOBS, ST_CPU, ST_OFF };
+enum { ST_NONE, ST_JOBS, ST_CPU, ST_OFF,
+       ST_BLOCK };              /* discover(): the job block reads wrong */
 
 /* The hand-off's order (P19 S10, the state table at the DECODE section):
  * a store before BJC_FENCE() reaches the other side before a load after
@@ -195,6 +202,7 @@ static struct
     /* the wedged executor (STALL_MS): J_DONE as first seen frozen, when
        (ms; 0: not watching), the restarts it caused this boot */
     uint32_t stall_done, stall_t0, stall_restarts;
+    uint32_t block_restarts;    /* #325: restarts for a bad job block */
     uint32_t stall_slow, stall_slow_once;   /* the slow marks then: the
                                    stall's own timeouts are not slow ops */
 } BJC_OWN_LINES b;
@@ -648,13 +656,26 @@ static uint8_t discover(void)
         trace("bcmjob cpu why=hello %ld", (long)a);
         return ST_CPU;
     }
-    if (rd1(HP_JOBS, &b.block) < 0 || !b.block ||
-        rd1(b.block + J_VERSION, &v) < 0 ||
-        v >> 16 != J_MAGIC || (v >> 8 & 0xFF) != J_MAJOR ||
-        rd1(b.block + J_OPS, &b.ops) < 0 || rd1(b.block + J_DONE, &b.done_base) < 0)
+    /* the block: which word failed, and what it read (#325) */
     {
-        trace("bcmjob cpu why=job block %08lx", (unsigned long)b.block);
-        return ST_CPU;
+        const char *bad = NULL;
+
+        v = 0;
+        if (rd1(HP_JOBS, &b.block) < 0 || !b.block)
+            bad = "jobs", v = b.block;
+        else if (rd1(b.block + J_VERSION, &v) < 0 ||
+                 v >> 16 != J_MAGIC || (v >> 8 & 0xFF) != J_MAJOR)
+            bad = "version";
+        else if (rd1(b.block + J_OPS, &b.ops) < 0)
+            bad = "ops", v = b.ops;
+        else if (rd1(b.block + J_DONE, &b.done_base) < 0)
+            bad = "done", v = b.done_base;
+        if (bad)
+        {
+            trace("bcmjob job block bad word=%s val=%08lx at=%08lx", bad,
+                  (unsigned long)v, (unsigned long)b.block);
+            return ST_BLOCK;
+        }
     }
     b.minor = v & 0xFF;
     /* rev 0.5 (candidate images): the staged upload.  Older images never
@@ -693,6 +714,43 @@ static uint8_t discover(void)
     return ST_JOBS;
 }
 
+/* #325: the job block read wrong with the image answering HELLO.  Our
+ * image started again (the stall's restart: the PP framebuffer first, the
+ * panel dark 0.4-0.6 s) and found again, once; *g the new power-up.
+ * Bounded (BLOCK_RESTARTS a boot); never a counted failure.  The CPU path
+ * only when the restart can't be had or the block is still wrong. */
+static uint8_t block_restart(uint32_t *g)
+{
+    uint8_t st;
+
+    if (b.block_restarts >= BLOCK_RESTARTS || !b.p->lit())
+    {
+        trace("bcmjob cpu why=job block %08lx restarts=%lu%s",
+              (unsigned long)b.block, (unsigned long)b.block_restarts,
+              b.p->lit() ? "" : " dark");
+        return ST_CPU;
+    }
+    b.block_restarts++;
+    trace("bcmjob restart why=job block n=%lu",
+          (unsigned long)b.block_restarts);
+    epoch_lost();               /* whatever this power-up held is gone */
+    b.st = ST_NONE;
+    b.inflight = false;
+    b.p->restart();
+    *g = b.p->gen();
+    b.gen = *g;
+    st = *g ? discover() : ST_NONE;
+    if (st == ST_JOBS)
+    {
+        trace("bcmjob recovered after restart rc=0");
+        return ST_JOBS;
+    }
+    trace("bcmjob not recovered after restart rc=%d gen=%lu", (int)st,
+          (unsigned long)*g);
+    trace("bcmjob cpu why=job block %08lx", (unsigned long)b.block);
+    return ST_CPU;
+}
+
 /* Every API entry: the power-up's state; on_epoch delivered here.
  * Returns ST_JOBS, or ST_CPU / ST_OFF / ST_NONE (all "no jobs now"). */
 static uint8_t enter_st(void)
@@ -724,6 +782,8 @@ static uint8_t enter_st(void)
         b.inflight = false;     /* a new ring */
         trace("bcm power state=C1 why=%s", b.p->lit() ? "lit" : "want");
         b.st = discover();
+        if (b.st == ST_BLOCK)
+            b.st = block_restart(&g);
         if (b.st != ST_JOBS)
             b.st = ST_CPU;
     }
@@ -2269,8 +2329,12 @@ static int dec_record(void)
             return fault(J_OP_DECODE, BCMJOB_OFF);
     }
     /* the misses only, in request order (bcmjob.h): a hit is never a
-       destination */
-    pay[0] = b.ring_slot | J_DEC_RING;
+       destination.  The source word: the merged image has nothing that
+       strips J_DEC_RING, so its jref would take slot | 0x100 for a slot
+       and answer J_E_SLOT; it gets the plain slot, the ring being
+       J_DEC_LEN != 0 (dec_ovl.c decode()).  The display-only image's
+       decode_prepare() wants the bit (#302) */
+    pay[0] = j.lent ? b.ring_slot : (b.ring_slot | J_DEC_RING);
     pay[1] = j.lent && j.len > RING_BYTES ? RING_BYTES : j.len;
     pay[2] = j.res.miss_n;
     for (k = 0; k < j.res.miss_n; k++)

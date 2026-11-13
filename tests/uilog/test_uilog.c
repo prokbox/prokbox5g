@@ -190,7 +190,7 @@ void t_debugf(const char *fmt, ...)
 
 static char *slurp(const char *path)
 {
-    static char buf[65536];
+    static char buf[262144];       /* > UI_LOG_MAX and UI_LOG_BENCH_MAX */
     FILE *f = fopen(path, "rb");
     size_t n = 0;
 
@@ -226,26 +226,26 @@ static int boot_ring_test(const char *path)
     ui_log_init();
     CHECK(t_core_live == 1, "boot ring allocated");
     ui_log_hold(true);
-    for (i = 0; i < 40; i++)
+    for (i = 0; i < 200; i++)
         ui_log("boot", (i & 1) ? "a=%d" : "b=%d", i);
     ui_log_hold(false);
     ui_log_flush();
     s = slurp(path);
-    CHECK(strstr(s, "log boot ring lines=64\n") && strstr(s, "boot b=0\n") &&
-          strstr(s, "boot a=39\n") && !strstr(s, "log dropped"),
-          "40 lines kept: [%.300s]", s);
+    CHECK(strstr(s, "log boot ring lines=256\n") && strstr(s, "boot b=0\n") &&
+          strstr(s, "boot a=199\n") && !strstr(s, "log dropped"),
+          "200 lines kept: [%.300s]", s);
     ui_log_bench(true);
     CHECK(t_core_live == 2, "bench ring beside it");
     ui_log_bench(false);
     CHECK(t_core_live == 1, "bench ring freed, boot ring kept");
     ui_log_hold(true);
-    for (i = 0; i < 40; i++)
+    for (i = 0; i < 200; i++)
         ui_log("after", (i & 1) ? "a=%d" : "b=%d", i);
     ui_log_hold(false);
     ui_log_flush();
     s = slurp(path);
-    CHECK(strstr(s, "after b=0\n") && strstr(s, "after a=39\n") &&
-          !strstr(s, "log dropped"), "back to 64 after the session");
+    CHECK(strstr(s, "after b=0\n") && strstr(s, "after a=199\n") &&
+          !strstr(s, "log dropped"), "back to 256 after the session");
     return fails ? 1 : 0;
 }
 #endif

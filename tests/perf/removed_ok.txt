@@ -1,0 +1,6 @@
+# IRAM symbols whose removal is intended (tests/perf/layout_diff.py):
+# "<symbol> <reason>", one per line; a line without a reason is refused.
+rolo_restart #316: restart is a real reboot; rolo unused in the shell
+rolo_restart_cop #316: restart is a real reboot; rolo unused in the shell
+cpu_message #316: restart is a real reboot; rolo unused in the shell
+cpu_reply #316: restart is a real reboot; rolo unused in the shell

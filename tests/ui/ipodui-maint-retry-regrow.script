@@ -1,0 +1,56 @@
+# #309: a library update refused by the floor in a pause is retried once
+# after the window's regrow. On a 32 MB unit a play between the boot
+# library's commit and its publication leaves the buffer short (13.1 MB at
+# 50k); the next pause's commit then logs "maint job=commit wait floor".
+# Here floor_reserve_to stands in for that short buffer on the small
+# library: the buffer is left 64 KB over the floor with 128 KB of heap
+# free (the scan and the candidate fit, the commit's ~300 KB peak does
+# not), so the window opens and refuses the commit. Releasing
+# the hold frees memory, the window's one regrow grows the buffer back,
+# and the refused commit gets its one retry on the larger buffer: the
+# update commits while still paused (before #309 it stayed declined for
+# the whole pause and waited for a stop).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-maint-retry-regrow.script
+# needs: library
+# env: IPODUI_SIM_RAM=32
+# timeout: 300
+# fulls-extra: 2
+# golden: skip retried
+# logbetween: start held maint job=commit wait floor
+# logbetween: held end maint take job=regrow ok=1
+# logbetween: held end maint retry after regrow job=commit
+# logbetween: held end maint take job=commit ok=1
+# nolog: restart FAILED
+
+wait 4000
+wait_db 30000
+rm_file /zz-retry-regrow.mp3        # leftover of a cut run (if any)
+repeat all
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait 2000
+expect_playing 500
+floor_reserve_to 0 65536 131072     # 64 KB over the floor, 128 KB free
+wait 1500
+floor short
+key PLAY                            # pause
+wait 800
+expect_paused 500
+backlight_expire
+copy fixtures/refresh.mp3 /zz-retry-regrow.mp3
+db_mark
+update_db
+wait 5000                           # the scan; the commit waits (no window)
+pause_age 200
+wait 5000                           # the window refuses it: wait floor
+ab_mark held
+floor_release 0                     # memory free: the window's regrow
+expect_db_grew 60000                # committed in the same pause
+expect_paused 500
+key MENU                            # wake the screen (first press wakes)
+wait 1000
+shot retried
+audio_stop
+wait 500
+rm_file /zz-retry-regrow.mp3
+update_db_wait_change 60000
+quit

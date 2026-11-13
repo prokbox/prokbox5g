@@ -99,15 +99,20 @@ floor_release 1
 floor_release 0
 wait 300
 
-# HOOK (16-1, #88), 64 MB at 65k (owner, #229): the paused window does
-# not fit this commit (need ~10.9 MB; the buffer would end under the
-# 39,000,000 B floor), so an update found while paused waits for the
-# stop: after pause_age the update is still deferred, nothing is taken,
-# and it commits once audio stops. expect_db_grew after audio_stop fails
-# if the update never commits; expect_db_same and expect_snapshot_deferred
-# after pause_age fail if the window committed or took the buffer. (At
-# 50k, floor-50k.script's window, the commit lands paused instead.) The
-# 32 MB wait case is tests/perf/paused-floor-wait-50k.script.
+# HOOK (16-1, #88), 64 MB at 65k (owner, #229), with #309: the paused
+# window first refuses this commit (need ~11 MB; "maint job=commit wait
+# floor"), then its one regrow grows the buffer, the refused job is
+# retried once ("maint retry after regrow job=commit") and the commit
+# lands paused, the buffer still over the 39,000,000 B floor (owner
+# rule: the floors bind; 0.8.3 integration, coordinator decision on the
+# p083-gfixA floor run: 39,632,520 B, margin 632,520 B).
+# tests/perf/floor_gate.sh checks the order in the log (the wait, one
+# retry, the commit's take, all inside the window) and prints the
+# margin; "floor window_commit" is the buffer right after the commit,
+# "floor after_window_regrow" 3 s later, still paused (on the
+# p083-gfixA run it had not grown back: 39,695,592 B both). Before #309
+# this window waited for the stop (expect_db_same here). The 32 MB wait
+# case is tests/perf/paused-floor-wait-50k.script.
 snapshot_pause
 expect_paused 500
 floor before_window
@@ -117,18 +122,18 @@ db_mark
 update_db
 expect_snapshot_deferred 5000
 pause_age 200
-expect_db_same 8000             # the window refused: nothing committed paused
-expect_snapshot_deferred 3000   # and nothing taken from the buffer
+expect_db_grew 300000           # #309: committed in the window, paused
 expect_paused 500
-floor window_refused
+floor window_commit             # the buffer after the commit's take
+wait 3000                       # the job is done, still paused and dark:
+floor after_window_regrow       # still paused: unchanged at 64 MB (p083-gfixA run)
 key MENU
 wait 800
 audio_stop
-expect_db_grew 300000           # committed at the stop
 snapshot_play
 wait 2500
 expect_playing 500
-floor after_stop_commit_play
+floor after_stop_play
 
 # the library update while audio plays: it defers and never takes the
 # playing or paused buffer (the commit peak is the free heap, not the

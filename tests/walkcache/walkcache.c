@@ -279,6 +279,32 @@ static void t_misc(void)
     CHECK(walk_cache_hits == 0, "after the last off: %lu hits",
           walk_cache_hits);
 
+    /* #332: a first user with no room (the art builder's hold while
+     * memory is short), then a second (the library walk) with room: the
+     * second one makes the block; it lives until the last off */
+    fatcrash_core_room = 0;
+    file_walk_cache(true);              /* no room: none */
+    fatcrash_core_room = 1 << 20;
+    file_walk_cache(true);              /* room now: made */
+    reset_stats();
+    CHECK(isdir("/M/S") && isdir("/M/S"), "late room");
+    CHECK(walk_cache_hits >= 2, "late room: %lu hits, want >= 2 (a "
+          "later user with room must make the cache)", walk_cache_hits);
+    file_walk_cache(false);             /* the first user's off */
+    reset_stats();
+    CHECK(isdir("/M/S"), "late room, one off");
+    CHECK(walk_cache_hits >= 1, "late room, one user left: %lu hits",
+          walk_cache_hits);
+    file_walk_cache(false);             /* the last off: freed */
+    fatcrash_core_room = 0;             /* none could be made again */
+    file_walk_cache(true);
+    reset_stats();
+    CHECK(isdir("/M/S") && isdir("/M/S"), "late room, after");
+    CHECK(walk_cache_hits == 0, "late room: the block outlived the last "
+          "off: %lu hits", walk_cache_hits);
+    file_walk_cache(false);
+    fatcrash_core_room = 1 << 20;
+
     memset(longname, 'L', 150);
     longname[150] = 0;
     snprintf(p, sizeof(p), "/M/%s", longname);
@@ -530,8 +556,242 @@ static int libwalk(unsigned long tracks, unsigned spc)
     return found != n;
 }
 
+
+/* ---- art: the art builder's cover lookups (#332) ----
+ * The real search_albumart_files() (apps/recorder/albumart.c, with
+ * apps/misc.c's fix_path_part() and strip_extension(), built by run.sh
+ * against tests/walkcache/artshim), as artcache.c find_file() calls it
+ * (no size string, the track's tags), for every album of a library-
+ * shaped volume in an order unrelated to the folders (the builder's key
+ * order), with the cache held across the whole pass as the builder holds
+ * it. Every candidate kind is on the volume, each album with its own
+ * expected answer (a second, independent statement of the stock order),
+ * checked here: a lookup the cache answers wrongly fails even where the
+ * builds with and without the cache agree. */
+#include "metadata.h"               /* artshim: struct mp3entry */
+bool search_albumart_files(const struct mp3entry *id3,
+                           const char *size_string, char *buf, int buflen);
+void albumart_set_probe_hook(void (*fn)(void));
+
+static unsigned long art_probe_n;
+static void art_probe_hook(void) { art_probe_n++; }
+
+enum { K_NONE, K_COVER, K_FOLDER, K_ALBUM, K_TRACK, K_BMP, K_PALBUM,
+       K_PCOVER, K_RBDIR, K_ORDER, K_CASE, K_EXT, K_NOTAG, K_N };
+static const char *const kind_name[K_N] = { "none", "cover", "folder",
+    "album", "track", "bmp", "palbum", "pcover", "rbdir", "order", "case",
+    "ext", "notag" };
+
+/* fix_path_part()'s mangling, written again from its description */
+static void mangle(char *out, const char *in)
+{
+    for (; *in; in++)
+        *out++ = *in == '"' ? '\'' : strchr("*/:<>?\\|", *in) ? '_' : *in;
+    *out = 0;
+}
+
+struct art_alb
+{
+    char track[200], album[96], artist[96], aartist[96], want[200];
+    int kind;
+};
+
+static int artwalk(unsigned long albums, unsigned spc)
+{
+    char p[MAX_PATH], dir[MAX_PATH], parent[MAX_PATH], want[MAX_PATH];
+    char a[96], b[96], t[96], m1[200], m2[200];
+    struct art_alb *al = calloc(albums, sizeof(*al));
+    unsigned long found = 0, bad = 0;
+    unsigned long kinds[K_N] = { 0 }, kinds_found[K_N] = { 0 };
+
+    mkfs(spc);
+    mount();
+    mk("/Music");
+    mk("/.rockbox");
+    mk("/.rockbox/albumart");
+    for (unsigned long i = 0; i < albums; i++)
+    {
+        unsigned long ar = i / 2;
+        struct art_alb *x = &al[i];
+        int k = (int)(ar % K_N);    /* both albums of an artist: one kind */
+
+        title(a, sizeof(a), (unsigned)ar * 7 + 1, 2 + ar % 3);
+        snprintf(parent, sizeof(parent), "/Music/%s %04lu/", a, ar);
+        if (i % 2 == 0)
+        {
+            snprintf(p, sizeof(p), "/Music/%s %04lu", a, ar);
+            mk(p);
+        }
+        title(b, sizeof(b), (unsigned)(i * 13), 3);
+        snprintf(dir, sizeof(dir), "%s%s (%lu)/", parent, b, i);
+        snprintf(p, sizeof(p), "%s%s (%lu)", parent, b, i);
+        mk(p);
+        for (int tr = 1; tr <= 2; tr++)
+        {
+            title(t, sizeof(t), (unsigned)(i * 31 + tr), 2);
+            snprintf(p, sizeof(p), "%s%02d %s.flac", dir, tr, t);
+            put(p, 40, 'A' + tr);
+            if (tr == 1)
+            {
+                snprintf(x->track, sizeof(x->track), "%s", p);
+                if (k == K_TRACK)
+                {
+                    snprintf(p, sizeof(p), "%s%02d %s.jpg", dir, tr, t);
+                    put(p, 10, 'j');
+                    snprintf(x->want, sizeof(x->want), "%s", p);
+                }
+            }
+        }
+        /* tags: an album title with every character fix_path_part()
+         * changes, and an album artist (likewise) on every third artist */
+        snprintf(x->album, sizeof(x->album), "%s: \"Live\" %lu/2 <a>?*|\\",
+                 b, i);
+        snprintf(x->artist, sizeof(x->artist), "%s %04lu", a, ar);
+        if (ar % 3 == 0)
+            snprintf(x->aartist, sizeof(x->aartist), "Various: %lu?", ar);
+        x->kind = k;
+        mangle(m1, x->album);
+        mangle(m2, x->aartist[0] ? x->aartist : x->artist);
+        want[0] = 0;
+        switch (k)
+        {
+        case K_NONE:
+        case K_TRACK:
+            break;
+        case K_COVER:
+            snprintf(want, sizeof(want), "%scover.jpg", dir);
+            break;
+        case K_FOLDER:
+            snprintf(want, sizeof(want), "%sfolder.jpg", dir);
+            break;
+        case K_ALBUM:
+            snprintf(want, sizeof(want), "%s%s.jpeg", dir, m1);
+            break;
+        case K_BMP:
+            snprintf(want, sizeof(want), "%scover.bmp", dir);
+            break;
+        case K_PALBUM:
+            snprintf(want, sizeof(want), "%s%s.jpg", parent, m1);
+            break;
+        case K_PCOVER:                  /* one file for both albums */
+            snprintf(want, sizeof(want), "%scover.jpeg", parent);
+            break;
+        case K_RBDIR:
+            snprintf(want, sizeof(want), "/.rockbox/albumart/%s-%s.jpg",
+                     m2, m1);
+            break;
+        case K_ORDER:                   /* cover before folder, the album
+                                           folder before its parent */
+            snprintf(p, sizeof(p), "%sfolder.jpg", dir);
+            put(p, 10, 'f');
+            snprintf(p, sizeof(p), "%scover.jpg", parent);
+            if (i % 2 == 0)
+                put(p, 10, 'p');
+            snprintf(want, sizeof(want), "%scover.jpg", dir);
+            break;
+        case K_CASE:                    /* in capitals on disk: the answer
+                                           is the probe's spelling */
+            snprintf(p, sizeof(p), "%sCOVER.JPG", dir);
+            put(p, 10, 'c');
+            snprintf(x->want, sizeof(x->want), "%scover.jpg", dir);
+            break;
+        case K_EXT:                     /* jpeg before jpg before bmp */
+            snprintf(p, sizeof(p), "%scover.bmp", dir);
+            put(p, 10, 'b');
+            snprintf(p, sizeof(p), "%scover.jpg", dir);
+            put(p, 10, 'g');
+            snprintf(want, sizeof(want), "%scover.jpeg", dir);
+            break;
+        case K_NOTAG:                   /* no album tag: no album-name or
+                                           albumart-folder probe (a decoy
+                                           there must not be found) */
+            x->album[0] = 0;
+            snprintf(p, sizeof(p), "/.rockbox/albumart/%s-.jpg", m2);
+            put(p, 10, 'n');
+            snprintf(want, sizeof(want), "%scover.jpg", parent);
+            break;
+        }
+        if (want[0])
+        {
+            snprintf(x->want, sizeof(x->want), "%s", want);
+            if ((k != K_PCOVER && k != K_NOTAG) || i % 2 == 0)
+                put(want, 10, 'w');
+        }
+    }
+    dc_empty();
+    printf("image digest %08x\n", fnv(2166136261u, img, wr_top * SECTOR));
+
+    /* the pass, in an order unrelated to the folders */
+    unsigned long *order = malloc(albums * sizeof(*order));
+    for (unsigned long i = 0; i < albums; i++)
+        order[i] = i;
+    for (unsigned long i = albums - 1; i > 0; i--)
+    {
+        unsigned long j = (unsigned long)((i * 2654435761u + 7) % (i + 1));
+        unsigned long sw = order[i];
+        order[i] = order[j];
+        order[j] = sw;
+    }
+    albumart_set_probe_hook(art_probe_hook);
+    file_walk_cache(true);
+    decoded = 0;
+    reset_stats();
+    clock_t c0 = clock();
+    for (unsigned long n = 0; n < albums; n++)
+    {
+        struct art_alb *x = &al[order[n]];
+        struct mp3entry id3;
+        char got[MAX_PATH];
+
+        memset(&id3, 0, sizeof(id3));
+        snprintf(id3.path, sizeof(id3.path), "%s", x->track);
+        id3.album = x->album[0] ? x->album : NULL;
+        id3.artist = x->artist;
+        id3.albumartist = x->aartist[0] ? x->aartist : NULL;
+        bool ok = search_albumart_files(&id3, "", got, sizeof(got));
+        dg_int(ok);
+        if (ok)
+            dg_str(got);
+        kinds[x->kind]++;
+        if (ok)
+        {
+            found++;
+            kinds_found[x->kind]++;
+        }
+        if (ok != (x->want[0] != 0) || (ok && strcmp(got, x->want)))
+        {
+            if (bad++ < 5)
+                printf("art: FAIL %s album %lu: got %s, want %s\n",
+                       kind_name[x->kind], order[n], ok ? got : "none",
+                       x->want[0] ? x->want : "none");
+        }
+    }
+    double ms = (double)(clock() - c0) * 1000.0 / CLOCKS_PER_SEC;
+    file_walk_cache(false);
+    albumart_set_probe_hook(NULL);
+    printf("art: %lu albums %lu found %lu wrong digest %08x\n", albums,
+           found, bad, dg);
+    for (int k = 0; k < K_N; k++)
+        printf("art kind %s: %lu of %lu found\n", kind_name[k],
+               kinds_found[k], kinds[k]);
+    fprintf(stderr, "art: decoded %lu entries, %lu probes, %lu hits %lu "
+            "misses, host %.0f ms\n", decoded, art_probe_n, walk_cache_hits,
+            walk_cache_misses, ms);
+    printf("stat art_decoded %lu art_probes %lu art_ms %.0f\n", decoded,
+           art_probe_n, ms);
+    free(order);
+    free(al);
+    return bad != 0 || !found;
+}
+
 int main(int argc, char **argv)
 {
+    if (argc >= 4 && !strcmp(argv[1], "art"))
+    {
+        if (argc == 5)
+            bps = (unsigned)atoi(argv[4]);
+        return artwalk(strtoul(argv[2], NULL, 0), (unsigned)atoi(argv[3]));
+    }
     if (argc >= 4 && !strcmp(argv[1], "lib"))
     {
         if (argc == 5)
@@ -545,6 +805,6 @@ int main(int argc, char **argv)
         return unit((unsigned)atoi(argv[2]));
     }
     fprintf(stderr, "usage: walkcache unit <spc> [bps] | "
-            "lib <tracks> <spc> [bps]\n");
+            "lib <tracks> <spc> [bps] | art <albums> <spc> [bps]\n");
     return 2;
 }

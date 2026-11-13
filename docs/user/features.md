@@ -48,7 +48,7 @@ Bit depth is how finely each moment of sound is stored, and sample rate is how m
 
 | | Original software (1.3) | Rockbox 4.0 | ProkBox5g |
 |---|---|---|---|
-| Bit depth sent to the audio chip | Not published | 16-bit | 16-bit today. 24-bit: {{< plan 268 >}} |
+| Bit depth sent to the audio chip | Not published | 16-bit | FLAC, WAV and AIFF play at their full depth (24-bit); MP3 and AAC are sent at 16-bit. MP3 and AAC at 24-bit: {{< plan 289 >}} |
 | Highest sample rate sent to the audio chip | Not published | 48 kHz | 48 kHz today. 88.2 and 96 kHz: {{< plan 270 >}} |
 | Files above 48 kHz (such as 96 or 192 kHz FLAC) | Not published | Play, converted down to 44.1 or 48 kHz[^hrm] | Play, converted down[^hrm][^hr] |
 
@@ -130,7 +130,7 @@ Bit depth is how finely each moment of sound is stored, and sample rate is how m
 
 | | Original software (1.3) | Rockbox 4.0 | ProkBox5g |
 |---|---|---|---|
-| Docks, speakers and car adapters on the dock connector | Yes | Partly[^iap] | {{< plan 205 item-dock-support-in-every-download >}}[^dock] Behaving like the original: {{< plan 236 >}} |
+| Docks, speakers and car adapters on the dock connector | Yes | Partly[^iap] | The dock code is in the one download for every player[^dock] Behaving like the original: {{< plan 236 >}} |
 | Remotes and the FM radio remote | Yes | Partly[^iap] | No |
 
 ## Battery and power
@@ -166,15 +166,27 @@ Skins, plugins and the full settings menus are not coming to ProkBox5g; see [Not
 | Licence | Apple's own | GNU GPL v2 or later | GNU GPL v2 or later |
 | Price | Came with the player | Free | Free |
 
-[^flac]: 32-bit FLAC files are rare, and today they do not play correctly. Skipping them cleanly instead: {{< plan 285 >}} Playing them: {{< plan 318 >}}
+## Previews: not released yet
+
+These pictures come from the simulator we develop on, running work that is not in a release yet. Each one is planned for the release named under it, and may still change before it arrives.
+
+**Optional 88.2 and 96 kHz output.** A new Settings › Audiophile menu. With Hi-Res on, music recorded at 88.2 or 96 kHz plays at its own rate once your player has passed a short self-test. {{< plan 270 >}}
+
+![Settings › Audiophile with Hi-Res on](images/preview/audiophile.png "Not released yet: planned for 0.9.0")
+
+**Format details in Now Playing.** One more press of the centre button shows the song's format, bit depth and sample rate, and what the player is sending to the headphones. Here a 24-bit, 96 kHz FLAC test file plays with Hi-Res on. {{< plan 277 >}}
+
+![Now Playing showing FLAC, 24-bit, 96 kHz, and the output at 24-bit, 96 kHz](images/preview/now-playing-format.png "Not released yet: planned for 0.9.0")
+
+[^flac]: 32-bit FLAC files are rare. They stay in your library but are skipped cleanly, because the player cannot play them. Playing them: {{< plan 318 >}}
 [^ape]: In Rockbox, Monkey's Audio files play smoothly only at the Fast compression level. ProkBox5g is expected to be the same (not measured).
 [^gap1]: Gapless playback arrived with software 1.2 in 2006. Apple did not say which formats it covers.
 [^gap]: Not for WMA, AC3, RealAudio or the game-console formats. For ProkBox5g we are also checking Opus endings: {{< plan 292 >}}
-[^eq]: Named like the presets on the later iPod classic. One band of some presets has no effect today ({{< plan 265 >}}), and presets make music quieter ({{< plan 203 >}}).
+[^eq]: Named like the presets on the later iPod classic. Presets make music quieter ({{< plan 203 >}}).
 [^sc]: ProkBox5g's Sound Check uses ReplayGain tags in your files. It does not read the loudness values iTunes stores.
 [^vlimit]: Rockbox sets a maximum volume, without a code.
 [^hrm]: How these files sound after the conversion has not been measured.
-[^hr]: 192 kHz files can cut out until {{< plan 278 >}}. The best-quality converter for every file: {{< plan 271 >}}
+[^hr]: 192 kHz files used to cut out every few seconds. 0.8.3 should play them better, but we have not yet tried it with a 192 kHz album on a real player.
 [^off]: iTunes copies back only songs bought from its store. Other music stays in hidden folders under coded names; the player's disk mode is meant for ordinary files.
 [^rbitl]: Rockbox's music scan also walks the folders where iTunes keeps songs, so it finds and plays them by their tags. It does not read iTunes' own library files.
 [^itl]: ProkBox5g only reads that library: it never changes what iTunes put there.
@@ -190,7 +202,7 @@ Skins, plugins and the full settings menus are not coming to ProkBox5g; see [Not
 [^conv]: Videos play once converted with the free converter that comes with ProkBox5g. Subtitles show only when burned into the picture; separate subtitles: {{< plan 169 >}}
 [^games]: Older iPods came with a few built-in games, and software 1.2 added games bought from the iTunes Store. Which games came on a player running 1.3 is not confirmed.
 [^extras]: The Extras menu is on the player today, with clocks, alarms, a stopwatch, screen lock, notes, contacts and calendars. The fuller set of extras and the games: {{< plan 32 >}} The kits for making your own games start with {{< plan 304 >}}
-[^dock]: The downloads for players that still have the original dock connector already include the dock code, but it has not been tested on a player. The downloads for players modded to USB-C leave it out.
+[^dock]: The one download includes the dock code on every player, but it has not been tested on a player that still has the original dock connector.
 [^iap]: Rockbox partly supports the dock connector's accessory protocol. Some accessories work and some do not.
 [^sleep]: From how these players are widely known to behave; Apple's documents we have do not describe it.
 [^install]: A one-time step of about 20 minutes. [Getting started](guide/getting-started.md) explains it.

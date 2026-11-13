@@ -92,6 +92,7 @@ int ui_unlit_ticks_to_minute(int sec_of_minute);    /* (60 - s) * HZ, min 1 */
 bool ui_unlit_active(void);
 /* input.c: SYS_IPODUI_BACKLIGHT_OFF, SYS_IPODUI_HOLD_CHANGED */
 void ui_unlit_sysevent(long ev, intptr_t data);
+void ui_unlit_wheel_touch(void);   /* #291: SYS_IPODUI_WHEEL_TOUCH */
 bool ui_unlit_filter(const struct ui_input *in);    /* true = consumed */
 /* P12: the face leaves without a key, for a screen that must show over it
  * (an alarm ring); trace "unlit exit <why>" */

@@ -99,6 +99,11 @@ uint64_t sim_video_hole(void);
    window_records, so a short clip slides it); 0 the build's */
 void sim_video_set_window(uint32_t records);
 uint32_t sim_video_window(void);
+/* #340: from the next take on, every packet is taken with no picture
+   and STATUS reports this many decode errors (the model's no_pic and
+   st_errors knobs: b12's first OPEN after a boot, whose decode failed and
+   showed nothing); 0 clears.  Kept over takes until cleared */
+void sim_video_set_decode_fault(uint32_t errors);
 #endif
 
 #endif /* SIM_VIDEO_H */

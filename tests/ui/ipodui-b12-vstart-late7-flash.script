@@ -1,0 +1,47 @@
+# #340, storage-aware grace: an audio start of 7 s fails on flash
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-b12-vstart-late7-flash.script
+# needs: video
+# timeout: 150
+#
+# The flash twin of ipodui-b12-vstart-late7-hdd: the same 7 s audio start
+# (/.rockbox/.sim_vaudio_late7) on the sim's flash disk is past flash's
+# 4 s screen grace (docs/storage-choices.md), so the video fails with the
+# error page and the audio is stopped; it never plays on unseen. Guards
+# that the drive's longer wait is chosen by the storage kind, not for all.
+# Each play starts from 0 with video_screen (no #154 resume point).
+
+# env: IPODUI_SIM_DISK=flash
+# golden: skip
+# trace: video
+# logbetween: late7 late7_out video sim: audio late
+# logbetween: late7 late7_out video failed: the audio never played
+# logbetween: late7 late7_out video error page=other audio=0
+# logbetween: late7 late7_out video error dismiss key=select
+# logbetween: late7 late7_out no audio left the file
+# logbetween: late7 late7_out no video sim: the late audio starts
+# nolog: splash
+wait 4000
+wait_db 45000
+art_wait 60000
+rm_file /.rockbox/.sim_vaudio_late
+rm_file /.rockbox/.sim_vaudio_late7
+rm_file /.rockbox/.sim_vaudio_never
+rm_file /.rockbox/.sim_vaudio_nofile
+video_fault decode 0
+wheel +1 300
+wait 600
+key SELECT          # Videos
+wait 900
+key SELECT          # Movies
+wait 1200
+
+copy fixtures/refresh.mp3 /.rockbox/.sim_vaudio_late7
+ab_mark late7
+video_screen /Misc/Audio%20First.m4v  # the audio 7 s late
+wait 6000
+shot late7_error
+expect_video 0 none
+key SELECT          # OK
+wait 1200
+ab_mark late7_out
+rm_file /.rockbox/.sim_vaudio_late7

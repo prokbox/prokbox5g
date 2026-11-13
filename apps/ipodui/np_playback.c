@@ -156,19 +156,65 @@ static bool hires_held;
 static bool hires_yield;
 static unsigned long hires_rate;
 
+/* p083-copclock: the COP's demand (docs/hardware.md "The clock: the
+ * larger of both cores' needs", owner 2026-11-11). The music decodes on
+ * the COP while the CPU idles, so the CPU's own boosts never saw its
+ * load. The COP measures its demand (codec_cop.c, codec_place_core.h:
+ * MHz the music needs, held at 21, let go under 15 after 10 s); while it
+ * asks and something plays, the UI holds one more counted boost here,
+ * with the hi-res hold's owner, its pause/stop and its yields (sleep,
+ * USB). A change wakes this thread from the CPU's tick
+ * (np_cop_demand_wake()). Log: "np cop boost on|off need= last= why="
+ * (MHz x 10), only at a change: the COP's own hysteresis and minimum hold
+ * keep it to one a track at most */
+#ifdef HAVE_COP_CODEC
+#include "codec_cop.h"
+static bool cop_held;
+static bool cop_wake_set;
+
+/* the CPU's tick (codec_cop.c dm_tick()): always a post, never the
+ * wake_posted flag (the UI thread clears that after its pass) */
+static void np_cop_demand_wake(void)
+{
+    button_queue_post(NP_PB_WAKE, 0);
+}
+#endif
+
 static void np_hires_sync(const char *why)
 {
     int st = audio_status();
     unsigned long rate = 0;
     bool want;
+    bool playing = (st & AUDIO_STATUS_PLAY) && !(st & AUDIO_STATUS_PAUSE);
 
-    if ((st & AUDIO_STATUS_PLAY) && !(st & AUDIO_STATUS_PAUSE))
+    if (playing)
     {
         struct mp3entry *id3 = audio_current_track();
 
         if (id3)
             rate = id3->frequency;
     }
+#ifdef HAVE_COP_CODEC
+    {
+        unsigned int ema = 0, last = 0;
+        bool cop = codec_cop_demand(&ema, &last) && playing && !hires_yield;
+
+        if (!cop_wake_set)
+        {
+            cop_wake_set = true;
+            codec_cop_set_demand_wake(np_cop_demand_wake);
+        }
+        if (cop != cop_held)
+        {
+            cop_held = cop;
+            cpu_boost(cop);
+            ui_log("np", "cop boost %s need=%u last=%u why=%s",
+                   cop ? "on" : "off", ema, last, why);
+            UPDATE_TRACE("np cop boost %s need=%u last=%u why=%s",
+                         cop ? "on" : "off", ema, last, why);
+        }
+    }
+#endif
     want = rate > HIRES_MIN_HZ && !hires_yield;
     if (want == hires_held)
         return;

@@ -124,6 +124,7 @@
 #include "ipodui/bootbatt.h"    /* the drained latch */
 #include "ipodui/uilog.h"       /* ui_log(): #118 USB flush time */
 #include "ipodui/modclass.h"     /* the USB path's own disk work */
+#include "ipodui/usbscreen.h"    /* ui_usb_host_wrote() (#314) */
 #endif
 #include "hang_watch.h"         /* ProkBox: hang_suspend(), a shutdown */
 #include "bcmjob_pp.h"          /* P19: bcmjob_owner_event() */
@@ -244,7 +245,12 @@ static void system_restore_db(void)
 
 #ifdef HAVE_TAGCACHE
     DEBUGF("p9 restore: tagcache scan\n");
+#ifdef HAVE_IPOD_UI
+    /* #314: no walk when the computer changed no file */
+    tagcache_start_scan_usb(ui_usb_host_wrote());
+#else
     tagcache_start_scan();
+#endif
 #endif
 }
 #endif /* IPODUI_TRIM_BROWSER */
@@ -523,7 +529,13 @@ static bool clean_shutdown(enum shutdown_type sd_type,
     status_save(true);
 
 #if CONFIG_CHARGING && !defined(HAVE_POWEROFF_WHILE_CHARGING)
+#ifdef HAVE_IPOD_UI
+    /* #316: a restart (new software) runs on a charger too; only the
+     * power-off stays refused there */
+    if (sd_type == SHUTDOWN_REBOOT || !charger_inserted())
+#else
     if(!charger_inserted())
+#endif
 #endif
     {
         bool batt_safe = battery_level_safe();
@@ -595,7 +607,12 @@ static bool clean_shutdown(enum shutdown_type sd_type,
 #endif
         }
 
-#ifdef HAVE_DISK_STORAGE
+#if defined(HAVE_DISK_STORAGE) && defined(HAVE_IPOD_UI)
+        /* #79 (one build): a solid drive has no spin-up surge, so it
+         * saves the bookmark and settings at critical battery too; a
+         * rotating one doesn't (docs/storage-choices.md §4, §9) */
+        if (batt_safe || ata_disk_isssd())
+#elif defined(HAVE_DISK_STORAGE)
         if (batt_safe) /* do not save on critical battery */
 #endif
         {
@@ -774,6 +791,14 @@ static void hp_unplug_change(bool inserted)
     if (global_settings.unplug_mode)
     {
         int audio_stat = audio_status();
+#ifdef HAVE_IPOD_UI
+        /* #345: a PLAY press still posted (audio_pause_post()) counts as
+         * done: a posted resume is paused here, after it */
+        int want = audio_pause_pending();
+        if (want >= 0 && (audio_stat & AUDIO_STATUS_PLAY))
+            audio_stat = want ? (audio_stat | AUDIO_STATUS_PAUSE)
+                              : (audio_stat & ~AUDIO_STATUS_PAUSE);
+#endif
         if (inserted)
         {
             backlight_on();

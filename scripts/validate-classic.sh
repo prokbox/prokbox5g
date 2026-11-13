@@ -411,41 +411,9 @@ else
     echo "skip build fw-ui-video (see above)"
 fi
 
-# Phase 9 fw-alt (docs/phase9-brief.md 3.5 row 2, 7.8): the other corner
-# of the variant matrix (hdd, 32 MB, no haptics; trims and B's core
-# function/data sections as configure gives them), compile-only ("make
-# bin": the core image, no codecs or plugins). Full gate only, started
-# after the parallel builds finish so the memory peak doesn't grow; its
-# size is checked in the size step. While the header still guards the
-# trim set (contract state) it passes --ipodui-trim=all, as fw-ui would
-# need to.
-if [ $QUICK = 0 ]; then
-    alt_args="--target=22 --type=n --ipodui --storage=hdd --ram=32 --no-haptics $P"
-    grep -q '^#ifdef IPODUI_TRIM_DEFAULTS' firmware/export/config/ipodvideo-variant.h \
-        && alt_args="$alt_args --ipodui-trim=all"
-    if [ ! -f build/fw-alt/Makefile ] || [ build/fw-alt/Makefile -ot tools/configure ] \
-            || [ build/fw-alt/Makefile -ot firmware/export/config/ipodvideo-variant.h ] \
-            || [ "$(cat build/fw-alt/.p9-args 2>/dev/null)" != "$alt_args" ]; then
-        rm -rf build/fw-alt; mkdir -p build/fw-alt
-        # shellcheck disable=SC2086
-        (cd build/fw-alt && ../../tools/configure $alt_args </dev/null >configure.log 2>&1) \
-            && echo "$alt_args" >build/fw-alt/.p9-args \
-            || bad "configure build/fw-alt ($alt_args): $(grep -E 'ERROR|error' build/fw-alt/configure.log | head -2 | tr '\n' ' ')"
-    fi
-    if [ -f build/fw-alt/.p9-args ]; then
-        if make -C build/fw-alt -j"$NCPU" bin >build/fw-alt/make.log 2>&1; then
-            echo "ok   build/fw-alt (compile-only: $alt_args)"
-        else
-            bad "build build/fw-alt ($alt_args)"; grep -nE "error" build/fw-alt/make.log | head -10
-        fi
-    fi
-else
-    echo "skip build fw-alt (--quick: full gate only)"
-fi
-
 # #60 developer test build (--bcmfw-devtest --bcmfw): the BCM device test
 # and the opt-in boot path are compiled only here, compile-only ("make
-# bin"), full gate only, after the parallel builds like fw-alt.
+# bin"), full gate only, after the parallel builds like fw-ui-video.
 if [ $QUICK = 0 ]; then
     bcm_args="--target=22 --type=n --ipodui --bcmfw-devtest --bcmfw $P"
     if [ ! -f build/fw-bcmfw/Makefile ] || [ build/fw-bcmfw/Makefile -ot tools/configure ] \
@@ -510,6 +478,11 @@ step "trace rules self-test (Phase 12)"
 python3 tests/trace/test_p12_rules.py >"$GATE_TMP/trace-selftest12.log" 2>&1 \
     && echo "ok   check_trace.py p12 rules ($(grep -c '^ok' "$GATE_TMP/trace-selftest12.log") cases)" \
     || { cat "$GATE_TMP/trace-selftest12.log"; bad "check_trace.py p12 rules self-test"; }
+
+step "trace rules self-test (panic rule)"
+python3 tests/trace/test_panic_rules.py >"$GATE_TMP/trace-panic.log" 2>&1 \
+    && echo "ok   check_hang_rule.py panic rule ($(grep -c '^ok' "$GATE_TMP/trace-panic.log") cases)" \
+    || { cat "$GATE_TMP/trace-panic.log"; bad "check_hang_rule.py panic rule self-test"; }
 
 step "bcmfw benches (#60)"
 # Our VideoCore image and its tools against vc2sim (scripts/bcmfw_benches.sh,
@@ -1048,8 +1021,7 @@ if [ -f build/fw-ui-video/rockbox.elf ]; then
     arm-none-eabi-size build/fw-ui-video/rockbox.elf | awk 'NR==2{print "fw-ui-video text/data/bss: " $1, $2, $3}'
 fi
 # Phase 9 (docs/phase9-brief.md 7.2-7.4, 7.10): the image ceiling, the
-# resident _end, the decoder set and the normaliser, on fw-ui (and fw-alt
-# when this run built it). The ceiling and _end limits apply once the trim
+# resident _end, the decoder set and the normaliser, on fw-ui. The ceiling and _end limits apply once the trim
 # set is on: the header no longer guards it with IPODUI_TRIM_DEFAULTS (the
 # Part 1 integration), or this build passed --ipodui-trim=all.
 # Phase 16-A (owner, 2026-10-20; docs/hardware.md "Budget rules"): the
@@ -1088,7 +1060,7 @@ p9_size_check() { # build dir, label
     fi
     # decoders: the same 39 always; encoders only while RECORDING is back
     got=$(find "$d/lib/rbcodec/codecs" -name '*.codec' 2>/dev/null | sed 's|.*/||; s|\.codec$||' | sort)
-    [ -n "$got" ] || return 0      # fw-alt: compile-only (make bin), no codecs
+    [ -n "$got" ] || return 0      # a compile-only build (make bin): no codecs
     miss=$(for c in $P9_DECODERS; do echo "$got" | grep -qx "$c" || printf '%s ' "$c"; done)
     enc=$(echo "$got" | grep '_enc$' | tr '\n' ' ')
     extra=$(echo "$got" | grep -v '_enc$' | grep -vxF "$(printf '%s\n' $P9_DECODERS)" | tr '\n' ' ')
@@ -1192,9 +1164,6 @@ else
     cat "$GATE_TMP/reach-norm.err"; bad "p9: scripts/risk/reach.py failed on build/fw-ui/rockbox.elf"
 fi
 python3 -I scripts/sizemap.py build/fw-ui/rockbox.map --top 8 2>&1 | sed 's/^/sizemap: /'
-if [ -f build/fw-alt/rockbox.ipod ] && [ "$QUICK" = 0 ]; then
-    p9_size_check build/fw-alt fw-alt
-fi
 
 step "stock bootloader identity (Phase 8a)"
 # The stock bootloader must stay byte-for-byte what main builds: P's
@@ -1330,14 +1299,9 @@ elif [ $QUICK = 1 ] && [ $CHANGED = 1 ] && [ $CHANGED_ALL = 0 ] \
     floor_run=0; echo "note --changed: no apps/, firmware/, lib/, uisimulator/ or tests/perf change; floor gate skipped"
 fi
 if [ $floor_run = 1 ]; then
-    if [ ! -f build/sim-ui32/Makefile ]; then
-        mkdir -p build/sim-ui32
-        (cd build/sim-ui32 && ../../tools/configure --target=22 --type=s --ipodui --ram=32 </dev/null >configure.log 2>&1) \
-            || bad "configure build/sim-ui32 (32 MB floor sim)"
-    fi
-    if [ -f build/sim-ui32/Makefile ] && [ -x build/sim-ui/rockboxui ]; then
-        make -C build/sim-ui32 -j"$JOBS" >build/sim-ui32/make.log 2>&1 \
-            || bad "build build/sim-ui32 (32 MB floor sim): see build/sim-ui32/make.log"
+    # one binary for both units (#204): the 32 MB half runs build/sim-ui
+    # with IPODUI_SIM_RAM=32
+    if [ -x build/sim-ui/rockboxui ]; then
         [ -d build/sim-ui/simdisk/.rockbox/codecs ] || make -C build/sim-ui install >/dev/null 2>&1
         if tests/perf/floor_gate.sh 32 64 >build/floor-gate.log 2>&1; then
             grep -E "^floor gate: ok" build/floor-gate.log | sed 's/^/ok   /'
@@ -1347,7 +1311,7 @@ if [ $floor_run = 1 ]; then
             bad "audio buffer floor (tests/perf/floor_gate.sh, build/floor-gate.log)"
         fi
     else
-        bad "audio buffer floor: build/sim-ui or build/sim-ui32 missing"
+        bad "audio buffer floor: build/sim-ui missing"
     fi
 fi
 

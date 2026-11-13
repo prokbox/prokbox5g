@@ -10,6 +10,7 @@
  * Copyright (C) 2005 Magnus Holmgren
  * Copyright (C) 2007 Thom Johansen
  * Copyright (C) 2012 Michael Sevakis
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -97,7 +98,17 @@ static void dsp_replaygain_set_gains(const struct dsp_replay_gains *gains)
     dsp_replaygain_update(&current_settings, gains);
 }
 
+static void dsp_replaygain_set_settings_locked(const struct replaygain_settings *settings);
+
+/* ProkBox #282 step 4: under the DSP's cross-core lock (dsp_core.c) */
 void dsp_replaygain_set_settings(const struct replaygain_settings *settings)
+{
+    dsp_xcore_lock();
+    dsp_replaygain_set_settings_locked(settings);
+    dsp_xcore_unlock();
+}
+
+static void dsp_replaygain_set_settings_locked(const struct replaygain_settings *settings)
 {
     dsp_replaygain_update(settings, &current_gains);
 }

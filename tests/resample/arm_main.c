@@ -66,6 +66,23 @@ static int32_t noise(void)
 
 __attribute__((unused)) static const struct hb_coefs *const sets[3] = { &hb_t44, &hb_t48, &hb_r };
 
+#if WL % 100 >= 20 && WL % 100 <= 23
+#include "resample_fir.h"
+#if WL > 100
+#define FIR_ROW   rs_fir_row_c
+#define FIR_BATCH rs_fir_batch_c
+#else
+#define FIR_ROW   rs_fir_row
+#define FIR_BATCH rs_fir_batch
+#endif
+/* FIR workloads: NS outputs in batches of 16 at the step of 44.1 -> 48 kHz
+ * after the x2 (88.2 -> 48: 147/80), every row interpolated (WL 21: the
+ * uncached path, row + one channel; WL 22: row only; WL 23: dot only, rows
+ * cached as for x3, x6 and 3:2). */
+static int32_t rows[16][RS_FIR_TAPS];
+static uintptr_t tags[16];
+#endif
+
 #if defined(HERMITE) && WL >= 7 && WL <= 15
 /* The leading fields resample_hermite() uses (resample.c, dsp_core.h) */
 struct rs_data { uint32_t delta, phase; int32_t history[2][3]; };
@@ -84,6 +101,8 @@ int main(void)
 {
     for (int i = 0; i < 2 * NS; i++)
         in[i] = (i & 1024) ? noise() : noise() >> 9;  /* loud and quiet */
+    /* keep the init in the WL=99 baseline too, so it cancels out */
+    __asm__ volatile("" : : "r"(in) : "memory");
 #if WL == 0
     uint32_t sum = 0;
     int bad = 0;
@@ -148,6 +167,69 @@ int main(void)
     static char msg[] = "OUT xxxxxxxx\n";
     put_hex(msg + 4, outs);
     sh_write0(msg);
+#elif WL == 20
+    /* FIR kernels: rows at many phases (every interpolation weight, the
+     * last row), batches of 1..16 with every advance 0..2, ARM vs C */
+    uint32_t sum = 0;
+    int bad = 0;
+    static int32_t rc[16][RS_FIR_TAPS];
+    uint32_t frac = 0x9e3779b9u;
+    int pos = 0;
+    for (int it = 0; it < 600; it++)
+    {
+        int n = 1 + it % 16;
+        for (int k = 0; k < n; k++)
+        {
+            frac = frac * 2654435761u + 0x7f4a7c15u;
+            if (it % 50 == 0)
+                frac |= 0xfc000000u;            /* the last rows */
+            FIR_ROW(rows[k], frac);
+            rs_fir_row_c(rc[k], frac);
+            for (int i = 0; i < RS_FIR_TAPS; i++)
+                bad |= rows[k][i] != rc[k][i];
+            tags[k] = (uintptr_t)rows[k] | ((frac >> 7) % 3);
+        }
+        if (pos + 2 * n + RS_FIR_TAPS > 2 * NS)
+            pos = 0;
+        FIR_BATCH(out_a, in + pos, tags, n);
+        rs_fir_batch_c(out_c, in + pos, tags, n);
+        for (int k = 0; k < n; k++)
+        {
+            bad |= out_a[k] != out_c[k];
+            sum = (sum ^ (uint32_t)out_a[k]) * 16777619u;
+        }
+        pos += n;
+    }
+    static char msg[] = "FIR ARM==C ok xxxxxxxx\n";
+    put_hex(msg + 14, sum);
+    sh_write0(bad ? "FIR ARM==C FAIL\n" : msg);
+#elif WL % 100 >= 21 && WL % 100 <= 23
+    uint32_t ph = 0, w = 0;
+    for (int k = 0; k < 16; k++)    /* WL 23: rows made once, up front */
+        FIR_ROW(rows[k], (uint32_t)(((uint64_t)k << 32) / 16));
+    for (int o = 0; o < NS; o += 16)
+    {
+        uint32_t wl = w;
+        int __attribute__((unused)) w0 = w;
+        for (int k = 0; k < 16; k++)
+        {
+#if WL % 100 != 23
+            FIR_ROW(rows[k], (uint32_t)(((uint64_t)ph * 13743895348ull) >> 8));
+#endif
+            tags[k] = (uintptr_t)rows[k] | (w - wl);
+            wl = w;
+            ph += 67;               /* 147 / 80 = 1 + 67/80 */
+            w += 1;
+            if (ph >= 80)
+            {
+                ph -= 80;
+                w++;
+            }
+        }
+#if WL % 100 != 22
+        FIR_BATCH(out_a + o, in + w0, tags, 16);
+#endif
+    }
 #elif WL != 99
     int32_t st[HB_STATE] = { 0 };
     const struct hb_coefs *c = sets[(WL % 100 - 1) % 3];

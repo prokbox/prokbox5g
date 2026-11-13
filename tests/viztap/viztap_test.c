@@ -44,6 +44,8 @@ static void midread(const struct viz_ring *r);
 #include "viz_tap.h"
 #include "metadata.h"
 #include "pcm_mixer.h"
+#include "pcm_sampr.h"
+#include "xcore.h"
 #include "np_playback.h"
 #include "../../bcmfw/jobs/jviz.h"
 
@@ -403,14 +405,23 @@ static void mixer_frames(uint32_t frames_n)
 
 static void t_glue(void)
 {
-    static unsigned char mem[8192];
+    static unsigned char mem[16384];
     int16_t out[512];
     struct viz_tap_frame f;
     unsigned fl;
     size_t need = viz_tap_bytes(512);
 
-    printf("  viz_tap_bytes(512) = %zu (the PP's 256-frame mixer)\n", need);
-    CHECK(need <= 4096 + 64 + 15, "bytes %zu", need);
+    printf("  viz_tap_bytes(512) = %zu (the PP's 256-frame mixer, 96 kHz)\n",
+           need);
+    /* #295: the device's ring at the 96 kHz top rate, pinned (2,048
+     * frames, 32-byte header, 15 bytes of alignment); the arena's bound
+     * (screen_stack.h UI_ARENA_B_VIZ, tests/arena) is sized from it */
+    CHECK(need == 8239, "bytes %zu (pinned 8239)", need);
+    CHECK(viz_tap_bytes(256) == 8239, "bytes(256) %zu", viz_tap_bytes(256));
+    /* the constant twin the arena's _Static_assert uses (viz.c) */
+    CHECK(VIZ_TAP_BYTES_C(512) == need && VIZ_TAP_BYTES_C(256) == need,
+          "VIZ_TAP_BYTES_C %zu/%zu vs %zu", (size_t)VIZ_TAP_BYTES_C(512),
+          (size_t)VIZ_TAP_BYTES_C(256), need);
     CHECK(viz_tap_open(300, mem, sizeof(mem)) == VIZ_TAP_E_SIZE, "size");
     CHECK(viz_tap_open(512, mem, need - 1) == VIZ_TAP_E_NOMEM, "short mem");
     CHECK(!s_tap, "closed: no tap set");

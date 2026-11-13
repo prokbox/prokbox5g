@@ -27,8 +27,9 @@
 /* Phase 18-2, the pure half of the shell's sleep policy (brief §0.1,
  * §3.2): the tier, the deep-sleep time, the low-battery rule, Q11's boot
  * equivalent and the waking press's swallow mask. No Rockbox calls; the
- * wrappers in sleep.c pass IPOD_BATTERY_MAH, battery_level_disksafe and
- * the developer switches. Host test: tests/sleep/. */
+ * wrappers in sleep.c pass the fitted cell's capacity (battcell.h),
+ * battery_level_disksafe and the developer switches. Host test:
+ * tests/sleep/. */
 
 #include <stdbool.h>
 #include <stdint.h>

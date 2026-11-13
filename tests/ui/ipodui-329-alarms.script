@@ -1,0 +1,231 @@
+# #329: Extras > Alarms. (1) Coming back to the Alarms list repaints its
+# panel: back from the Sleep Timer values (whose panel is the timer) and
+# back from the editor's Repeat values (via the full-width editor) each
+# show the alarm clock again, pixel for pixel the panel of a fresh visit
+# ("# same:", the red/green check: before the fix the timer art, or the
+# editor's rows, stayed in the panel). (2) The caption under the clock
+# follows the highlighted row: Create Alarm says "Create New Alarm"; the
+# running Sleep Timer says "Sleep Timer Active" over the minutes left,
+# goes when another row is highlighted, and counts down once a minute
+# with a band push ("alarms panel left=N" from the tick; the lines come
+# and go the same way as the highlight moves); an alarm says when it next
+# rings and how far off that is ("alarms panel row=N in=S"), counting
+# down the same way (ipodui-329-alarms-tick: this script's light times
+# out after its backlight_expire); a switched-off one says "Alarm Off";
+# the 24 Hour Clock setting changes the time's format. The last minute
+# of the Sleep Timer is ipodui-329-alarms-sleep1.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-329-alarms.script
+# golden: skip
+# timeout: 480
+# same: fresh_create back_create
+# same: fresh_sleep back_sleep
+# log: ipodui: alarms sleep set=30
+# log: ipodui: alarms panel left=29
+# log: ipodui: alarms sleep set=120
+# log: ipodui: alarms panel row=2 in=194
+# log: ipodui: alarms panel row=3 in=
+# log: ipodui: datetime 24h=1
+# log: ipodui: datetime 24h=0
+# reset: mainmenu
+
+wait 4000
+rtc_at 2026-10-06 15:06:00
+sim_clock 15:06
+wheel +2              # Extras
+wait 700
+key SELECT
+wait 1200
+wheel +3              # Alarms
+wait 800
+key SELECT
+wait 1500
+shot fresh_create     # Create Alarm highlighted: the alarm clock, "Create New Alarm"
+wheel +1              # Sleep Timer (Inactive)
+wait 800
+shot fresh_sleep      # the alarm clock, no line under it
+key SELECT            # the Sleep Timer values (the timer art)
+wait 1200
+shot sleep_values
+key MENU              # back, nothing changed
+wait 2500
+shot back_sleep       # the alarm clock again (== fresh_sleep)
+wheel -1              # Create Alarm
+wait 800
+key SELECT            # the editor (full width)
+wait 1200
+wheel +3              # Repeat
+wait 600
+key SELECT            # the Repeat values (their own panel)
+wait 1200
+key MENU              # back to the editor
+wait 1200
+key MENU              # back to the list, nothing saved
+wait 2500
+shot back_create      # the alarm clock again (== fresh_create)
+wheel +1              # Sleep Timer
+wait 800
+key SELECT
+wait 1200
+wheel +2              # 30 Minutes (Off, 15, 30, ...)
+wait 600
+key SELECT            # 30 Minutes; back on the list, Sleep Timer row
+wait 1500
+shot timer_30         # "Sleep Timer Active" / "30 Minutes" under the clock
+wheel -1              # Create Alarm: "Create New Alarm" instead
+wait 1000
+shot timer_other_row
+wheel +1              # back on Sleep Timer: its two lines again
+wait 1000
+shot timer_30_again
+wait 61000            # a minute passes on the row
+shot timer_29         # "29 Minutes", the row's subtitle too
+backlight_expire      # dark for a minute: the unlit face covers the list,
+                      # so its countdown sleeps (list_tick is not called)
+wait 62000
+key SELECT            # the first press only wakes
+wait 1500
+shot timer_28_lit     # the list's full redraw: "28 Minutes"
+key SELECT
+wait 1200
+wheel +3              # 120 Minutes from 30 (the widest line)
+wait 600
+key SELECT
+wait 1500
+shot timer_120
+key SELECT
+wait 1200
+wheel -5              # Off
+wait 600
+key SELECT
+wait 1500
+shot timer_off        # no caption again
+
+# Alarms: a known minute again (the waits above moved the clock on), Tue
+rtc_at 2026-10-06 15:06:00
+wait 1500
+wheel -1              # Create Alarm
+wait 800
+key SELECT            # the editor: Alarm, Date, Time, Repeat, ...
+wait 1200
+wheel +2              # Time
+wait 700
+key SELECT            # 7:00 AM: the hour
+wait 1000
+wheel +1              # 8
+wait 700
+key SELECT            # the minutes
+wait 700
+wheel +30             # 30
+wait 700
+key SELECT            # AM/PM
+wait 700
+wheel +1              # PM
+wait 700
+key SELECT            # done
+wait 1000
+wheel +1              # Repeat
+wait 700
+key SELECT
+wait 1200
+wheel +1              # Every Day
+wait 600
+key SELECT            # back to the editor
+wait 1200
+key MENU              # leave the editor: the commit
+wait 1500
+wheel +2              # the 8:30 PM alarm (Create Alarm, Sleep Timer, it)
+wait 1000
+shot alarm_today      # "Tue 6 Oct, 8:30 PM" / "In 5 hours 24 minutes"
+wheel -2              # Create Alarm
+wait 800
+key SELECT            # a second alarm: 7:00 AM
+wait 1200
+wheel +3              # Repeat
+wait 700
+key SELECT
+wait 1200
+wheel +3              # Weekends
+wait 600
+key SELECT
+wait 1200
+key MENU              # the commit
+wait 1500
+wheel +3              # the weekend alarm
+wait 1000
+shot alarm_days       # "Sat 10 Oct, 7:00 AM" / "In 3 days 15 hours"
+wheel -3              # Create Alarm
+wait 800
+key SELECT            # a third alarm
+wait 1200
+key SELECT            # Alarm: Off
+wait 800
+key MENU              # the commit
+wait 1500
+wheel +4              # the switched-off alarm
+wait 1000
+shot alarm_off        # "Alarm Off"
+key MENU              # Extras
+wait 1200
+key MENU              # the Main Menu
+wait 1200
+wheel -10
+wait 600
+wheel +3              # Settings
+wait 600
+key SELECT
+wait 1500
+wheel -10
+wait 600
+wheel +12             # Date & Time
+wait 600
+key SELECT
+wait 1500
+wheel -10
+wait 600
+wheel +3              # 24 Hour Clock
+wait 600
+key SELECT            # On
+wait 1000
+key MENU              # Settings
+wait 1200
+key MENU              # the Main Menu
+wait 1200
+wheel -1              # Extras
+wait 600
+key SELECT
+wait 1200
+wheel -10
+wait 600
+wheel +3              # Alarms
+wait 800
+key SELECT
+wait 1500
+wheel +2              # the 8:30 PM alarm
+wait 1000
+shot alarm_24h        # "Tue 6 Oct, 20:30"
+wheel +1              # the weekend alarm
+wait 1000
+shot alarm_days_24h   # "Sat 10 Oct, 07:00"
+key MENU              # Extras
+wait 1200
+key MENU              # the Main Menu
+wait 1200
+wheel +1              # Settings
+wait 600
+key SELECT
+wait 1500
+wheel -10
+wait 600
+wheel +12             # Date & Time
+wait 600
+key SELECT
+wait 1500
+wheel -10
+wait 600
+wheel +3              # 24 Hour Clock
+wait 600
+key SELECT            # Off again, for the scripts after this one
+wait 1000
+key MENU
+wait 1000
+quit

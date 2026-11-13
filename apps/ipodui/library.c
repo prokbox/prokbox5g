@@ -111,6 +111,7 @@
 #include "ipodui/libfile.h"
 #include "ipodui/artkey.h"
 #include "ipodui/artcache.h"
+#include "button.h"              /* button_boost_release() (#272) */
 #include "ipodui/library.h"
 #include "ipodui/lib_shuffle.h"
 #include "ipodui/align_check.h"
@@ -3797,6 +3798,10 @@ static int play_view(int vh, int start, bool shuffle,
         return -1;
     }
 
+    /* #272: a row's path is a disk read here (a book, or no queue):
+     * the key's boost is not held through them */
+    if (bk || !dbq)
+        button_boost_release();
     srand(current_tick);
     for (i = first; i < last && added < cap; i++)
     {
@@ -3847,7 +3852,12 @@ static int play_view(int vh, int start, bool shuffle,
     if (dbq)
     {
         unsigned long t1 UNUSED_ATTR = now_us();
-        int cn = added > 0 ? dbq_commit(&tag) : -1;
+        int cn;
+
+        /* #272: the queue's write boosts itself (dbq_commit()); the
+         * key's boost is not held through it or the playlist's writes */
+        button_boost_release();
+        cn = added > 0 ? dbq_commit(&tag) : -1;
 
         /* design 5.2: payload, dbq.hdr, then one T line */
         if (cn <= 0 || playlist_insert_dbq_ipodui(NULL, 0, cn, tag) < 0)

@@ -56,6 +56,20 @@ bool sim_cmd_storpwr(const char *cmd, char *argv[], int argc, int lineno)
 {
     const struct stor_pwr *s;
 
+#ifdef HAVE_IPOD_UI
+    if (!strcmp(cmd, "disk"))
+    {   /* #79: "disk model flash|hdd", the sim's disk model from here on
+         * (filesystem-sim.c); rows read at boot need the env instead:
+         * "# env: IPODUI_SIM_DISK=hdd" */
+        if (argc >= 3 && !strcmp(argv[1], "model")
+            && (!strcmp(argv[2], "flash") || !strcmp(argv[2], "hdd")))
+            sim_disk_set_model(!strcmp(argv[2], "flash"));
+        else
+            fprintf(stderr, "sim_script:%d: disk model failed: want flash|hdd\n",
+                    lineno);
+        return true;
+    }
+#endif
     if (strncmp(cmd, "stor_", 5) && strcmp(cmd, "drive_ab"))
         return false;
     s = storage_power_state();

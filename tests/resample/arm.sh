@@ -50,13 +50,15 @@ CF="-mcpu=arm7tdmi -O2 -ffreestanding -fno-builtin -DRESAMPLE_HB_STANDALONE -Ili
 $CC -mcpu=arm7tdmi -c "$H/start.S" -o "$B/start.o" || exit 1
 $CC $CF -c lib/rbcodec/dsp/resample_hb.c -o "$B/hb_c.o" || exit 1
 $CC -mcpu=arm7tdmi -DRESAMPLE_HB_STANDALONE -c lib/rbcodec/dsp/resample_hb_arm.S -o "$B/hb_arm.o" || exit 1
+$CC $CF -c lib/rbcodec/dsp/resample_fir.c -o "$B/fir_c.o" || exit 1
+$CC -mcpu=arm7tdmi -DRESAMPLE_HB_STANDALONE -c lib/rbcodec/dsp/resample_fir_arm.S -o "$B/fir_arm.o" || exit 1
 $CC $CF -c tests/npscreen/insn_libc.c -o "$B/libc.o" || exit 1
 
 run() { # run WL [extra objects/flags] -> qemu stdout+stderr
     rwl=$1; shift
     $CC $CF -DWL="$rwl" ${HFLAG:-} -c tests/resample/arm_main.c -o "$B/m$rwl.o" &&
     $CC -mcpu=arm7tdmi -nostdlib -ffreestanding -Wl,-T,"$H/link.ld" -Wl,--no-warn-rwx-segments \
-        "$B/start.o" "$B/m$rwl.o" "$B/hb_c.o" "$B/hb_arm.o" "$B/libc.o" "$@" \
+        "$B/start.o" "$B/m$rwl.o" "$B/hb_c.o" "$B/hb_arm.o" "$B/fir_c.o" "$B/fir_arm.o" "$B/libc.o" "$@" \
         -lgcc -o "$B/wl$rwl.elf" || return 1
     timeout 120 qemu-system-arm -M versatilepb -cpu arm926 -nographic \
         -semihosting -plugin "./$B/cyc.dylib" -kernel "$B/wl$rwl.elf" 2>&1
@@ -66,6 +68,12 @@ out=$(run 0)
 case "$out" in
     *"ARM==C ok"*) echo "ok   ARM == C, bit for bit: $(echo "$out" | sed -n 's/.*ARM==C ok \([0-9a-f]*\).*/\1/p')";;
     *) echo "FAIL ARM vs C: $out"; exit 1;;
+esac
+
+out=$(run 20)
+case "$out" in
+    *"FIR ARM==C ok"*) echo "ok   FIR ARM == C, bit for bit: $(echo "$out" | sed -n 's/.*ARM==C ok \([0-9a-f]*\).*/\1/p')";;
+    *) echo "FAIL FIR ARM vs C: $out"; exit 1;;
 esac
 
 NS=4032
@@ -86,6 +94,19 @@ for wl in 1:"x2 hb_t44 (4+3)" 2:"x2 hb_t48 (3+3)" 3:"x2 hb_r (2+1)" \
         "$(echo "scale=1; ($ai - $bi) / $outs" | bc)" \
         "$(echo "scale=1; ($ac - $bc) / $outs" | bc)" \
         "$(echo "scale=1; ($cc_ - $bc) / $outs" | bc)"
+done
+
+# The fractional path's FIR (10 taps), per output per channel
+for wl in 21:"FIR row+dot (uncached)" 22:"FIR row only" 23:"FIR dot (cached rows)"; do
+    n=${wl%%:*}; name=${wl#*:}
+    a=$(run "$n"); c=$(run $((n + 100)))
+    ai=$(echo "$a" | sed -n 's/^INSN_COUNT //p')
+    ac=$(echo "$a" | sed -n 's/^CYC_COUNT //p')
+    cc_=$(echo "$c" | sed -n 's/^CYC_COUNT //p')
+    printf '  %-22s %10s %10s %10s\n' "$name" \
+        "$(echo "scale=1; ($ai - $bi) / $NS" | bc)" \
+        "$(echo "scale=1; ($ac - $bc) / $NS" | bc)" \
+        "$(echo "scale=1; ($cc_ - $bc) / $NS" | bc)"
 done
 
 # Upstream Hermite for comparison: the ARM code from a firmware build

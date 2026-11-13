@@ -162,7 +162,14 @@ static inline void storage_sleep(void) {};
     #if defined(HAVE_HOSTFS)
         #define STORAGE_FUNCTION(NAME) (stub_storage_## NAME)
         #define storage_event stub_storage_event
+        #if defined(SIMULATOR) && defined(HAVE_IPOD_UI)
+            /* #79: the shell sim's disk model keeps the idle hold
+             * (filesystem-sim.c) */
+            void sim_storage_spindown(int seconds);
+            #define storage_spindown(sec) sim_storage_spindown(sec)
+        #else
         #define storage_spindown(sec) stub_storage_spindown(sec)
+        #endif
         #define storage_sleep() stub_storage_sleep()
         #define storage_spin() stub_storage_spin()
 

@@ -38,12 +38,10 @@
 #define UI_USB_BAND_Y   (UI_USB_DISC_CY - UI_USB_DISC_D / 2)   /* 53 */
 #define UI_USB_BAND_H   UI_USB_DISC_D                         /* 92 rows */
 
+/* The USB-C glyph on every unit (#236: today's picture, no dock
+ * dimension); the 30-pin one stays for the sim's "usb_glyph dock30" */
 enum ui_usb_glyph { UI_USB_GLYPH_DOCK30, UI_USB_GLYPH_USBC };
-#ifdef HAVE_IPOD_DOCK30
-#define UI_USB_IDLE_GLYPH UI_USB_GLYPH_DOCK30
-#else
 #define UI_USB_IDLE_GLYPH UI_USB_GLYPH_USBC
-#endif
 
 struct ui_usb_state {
     signed char frame;      /* identity: arrows frame on screen, -1 = idle glyph */

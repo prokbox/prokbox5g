@@ -81,8 +81,8 @@ static const char *const mod_names[MOD__N] = {
  * module's header, export slot 0. */
 static struct mod_rt rt[MOD__N];
 
-/* The unit's RAM variant (rule 7: a build-time dimension) */
-#define UNIT_RAM ((MEMORYSIZE) >= 64 ? MOD_RAM_64 : MOD_RAM_32)
+/* The unit's RAM (rule 7: a per-unit fact, read at boot; #204) */
+#define UNIT_RAM (probed_ramsize >= 64 ? MOD_RAM_64 : MOD_RAM_32)
 
 static void rt_hide(int id, int why)
 {

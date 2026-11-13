@@ -1,0 +1,43 @@
+# #314: a USB session in which the computer copies one song into Music
+# still walks after the unplug, and the library grows: the data-area
+# count is not 0 ("usb host wrote ... data=1"+), the check runs its walk
+# ("db walk ms= ent= probe="), the page shows at once (#315), and the
+# song is in the library. The companion of ipodui-314-usb-nochange.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-314-usb-change.script
+# needs: library
+# timeout: 240
+# golden: skip
+# fulls-extra: 2   (the USB screen, the screen after it)
+# logbetween: u0 u1 usb host wrote cmds=[1-9]\d* data=[1-9]
+# logbetween: u0 u1 post-usb check changed=1 owed=0
+# logbetween: u0 u1 db walk ms=\d+ ent=[1-9]\d* probe=
+# logbetween: u0 u1 no check skipped: no file changed
+# logbetween: u0 u1 upd push mode=unplug shown=1
+# logbetween: u0 u1 update screen shown ms=0 n=
+#
+# The song is tests/ui/fixtures/refresh.mp3, copied as /Music/P314/; a
+# leftover of an interrupted run is removed (and rescanned) first, and
+# the script removes it again at the end.
+
+wait 4000
+wait_db 45000
+remove /Music/P314/one.mp3
+update_db_wait 30000
+wait 3000
+db_mark
+ab_mark u0
+usb_connect
+wait 2500
+mkdir /Music/P314
+copy fixtures/refresh.mp3 /Music/P314/one.mp3
+usb_disconnect
+wait 300
+shot page               # the update page at once (#315)
+expect_db_grew 45000
+expect_in_db /Music/P314/one.mp3 30000
+wait_db 45000
+wait 2000
+ab_mark u1
+remove /Music/P314/one.mp3
+update_db_wait 30000
+quit

@@ -75,6 +75,11 @@ void core_allocator_init(void)
 #ifdef HAVE_PANIC_RECORD
     audiobufend -= PANIC_REC_RESERVE;   /* panic_record_area() */
 #endif
+#elif defined(IPOD_VIDEO) && defined(HAVE_IPOD_UI) && defined(SIMULATOR)
+    /* ProkBox one build (#204): the 64 MB pool, 32 MB lower on a 32 MB
+     * unit (IPODUI_SIM_RAM), as on the device above */
+    if (probed_ramsize != 64)
+        audiobufend = audiobuffer + sizeof(audiobuffer) - (32 << 20);
 #endif
 
     buflib_init(&core_ctx, start, audiobufend - start);

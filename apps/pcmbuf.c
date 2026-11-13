@@ -26,6 +26,9 @@
 #include <kernel.h>
 #include "pcm.h"
 #include "pcm_mixer.h"
+#if defined(HAVE_COP_CODEC) && defined(HAVE_CORE_LAYOUT_A)
+#include "pcm-internal.h"       /* 0.8.3 colocate: pcm_is_playing() */
+#endif
 #include "pcmbuf.h"
 #include "dsp-util.h"
 #include "playback.h"
@@ -44,11 +47,31 @@
 #ifdef HAVE_IPOD_UI
 #include "ipodui/uilog.h"   /* pcm start/underrun lines (Fit-1 B) */
 #include "codec_place_core.h"   /* P19 19-1c (D) */
+#ifdef HAVE_DISK_STORAGE
+#include "ata.h"            /* #79: ata_disk_isssd(), one build */
+#endif
 #endif
 #include "xcore.h"              /* rc.6: XCORE_BSS, the state the COP's FIQ shares (empty without HAVE_COP_COHERENCE) */
 
+/* 0.8.3 colocate: a CPU entry point that touches the write side takes it
+   back from the COP first (pcmbuf_lease_grant() below) */
+#if defined(HAVE_COP_CODEC) && defined(HAVE_CORE_LAYOUT_A)
+#define LEASE_RECLAIM()     pcmbuf_lease_reclaim()
+#else
+#define LEASE_RECLAIM()     do {} while (0)
+#endif
+
+#ifdef HAVE_PCM_24BIT_OUT
+/* ProkBox #268: 4 (two int16) or 8 (two int32, 24 bits at the top) bytes
+   a frame, as the mixer's playback channel takes them; set at each
+   pcmbuf_init() from mixer_get_depth() (the audio thread, the codec
+   stopped: a depth change remakes the buffer like a rate change) */
+static unsigned int pcmbuf_bpf = 4;
+#define PCMBUF_SAMPLE_SIZE   pcmbuf_bpf
+#else
 /* 2 channels * 2 bytes/sample, interleaved */
 #define PCMBUF_SAMPLE_SIZE   (2 * 2)
+#endif
 
 /* This is the target fill size of chunks on the pcm buffer
    Can be any number of samples but power of two sizes make for faster and
@@ -86,10 +109,17 @@ static inline unsigned int data_level(int quarter_secs)
 /* Keep watermark high for large memory target - at least (2s) */
 #define PCMBUF_WATERMARK    (BYTERATE * 2)
 #define MIN_BUFFER_SIZE     (BYTERATE * 3)
-#if defined(HAVE_IPOD_UI) && defined(HAVE_FLASH_STORAGE)
-/* ProkBox (Fit-1 C3): start after 0.25 s on flash. A read never stalls
-   past ~100 ms there and the file buffer runs ahead; the codec then
-   refills boosted at the top band (docs/fit1-brief.md section B) */
+#if defined(HAVE_IPOD_UI) && defined(HAVE_DISK_STORAGE)
+/* ProkBox (Fit-1 C3; #79 one build): start after 0.25 s on a solid
+   drive. A read never stalls past ~100 ms there and the file buffer runs
+   ahead; the codec then refills boosted at the top band
+   (docs/fit1-brief.md section B). A rotating drive keeps upstream's 1 s
+   (it may spin up). Set by pcmbuf_init() from ata_disk_isssd(); the
+   storage kind never changes after boot, so the codec side reads it
+   plainly, as pcmbuf_bpf */
+static unsigned char pcmbuf_prefill_qsecs = 4;
+#define PCMBUF_PREFILL_QSECS pcmbuf_prefill_qsecs
+#elif defined(HAVE_IPOD_UI) && defined(HAVE_FLASH_STORAGE)
 #define PCMBUF_PREFILL_QSECS 1
 #else
 #define PCMBUF_PREFILL_QSECS 4  /* 1 s: upstream; a disk may spin up */
@@ -136,6 +166,11 @@ static size_t chunk_ridx XCORE_BSS;
 static size_t chunk_widx XCORE_BSS;
 
 static size_t pcmbuf_bytes_waiting;
+/* #282 step 4: bumped at every reset of the write side (a stop, a flush,
+   a snip), so a producer holding a window across frames (the COP's DSP,
+   codec_thread.c codec_pcm_window()) can tell its window went stale.
+   Producer side, CPU only */
+static unsigned int write_epoch;
 static struct chunkdesc *current_desc XCORE_BSS;
 static size_t chunk_transidx XCORE_BSS;
 
@@ -241,6 +276,47 @@ static unsigned long pcm_underruns XCORE_BSS;
    two "underruns" were these) */
 static volatile bool rate_gap_armed XCORE_BSS;
 static unsigned long pcm_rate_gaps XCORE_BSS;
+#endif
+#ifdef HAVE_IPOD_UI
+/* 0.8.3 road-test fix: the underruns that came mid-track (the chunk that
+   ran dry was not a track's last). The mixer stops the channel on one, so
+   the next request takes the prefill path, which used to set
+   underruns_seen to the count without a line: a starvation left only a
+   second "pcm start". And the lowest level the FIQ saw at a chunk's start
+   since the last pcmbuf_level_min_take(), in bytes (~0: none yet) */
+static unsigned long pcm_mid_underruns XCORE_BSS;
+static size_t pcm_level_min XCORE_BSS;
+/* #298: when the FIQ played out the last track change (the outgoing
+   track's last chunk done, in pcm_log_now_us()'s time), and whether
+   nothing was queued after it (the audio stopped there) */
+static unsigned long tc_done_us XCORE_BSS;
+static bool tc_done_dry XCORE_BSS;
+static unsigned long mid_underruns_seen;    /* already logged */
+static unsigned long underrun_lines;        /* lines written (sim check) */
+/* p083-copclock: the storm's rate limit (the next tick a mid-track
+   underrun line may go out; 0: none yet) and the restarts' quiet */
+#define PCM_UNDERRUN_LINE_TICKS (10 * HZ)
+static long mid_line_tick;
+static bool starts_quiet;
+static unsigned long starts_quieted;        /* "pcm start" lines held back */
+
+/* p083-copclock review: the underruns a storm's rate limit held back, as
+   a line at a track change and at a stop (CPU), so none goes unlogged */
+static void underrun_say_held(const char *why)
+{
+    if (pcm_mid_underruns == mid_underruns_seen)
+        return;
+    {
+        unsigned long add = pcm_mid_underruns - mid_underruns_seen;
+
+        mid_underruns_seen = pcm_mid_underruns;
+        mid_line_tick = current_tick + PCM_UNDERRUN_LINE_TICKS;
+        underrun_lines++;
+        starts_quiet = false;
+        ui_log("pcm", "underrun mid n=%lu all=%lu level_ms=0 new=%lu at=%s",
+               mid_underruns_seen, pcm_underruns, add, why);
+    }
+}
 #endif
 
 #ifdef HAVE_IPOD_UI
@@ -400,6 +476,7 @@ void snip_buffer_tail(size_t index, int offset)
 
     chunk_widx = index;
     pcmbuf_bytes_waiting = 0;
+    write_epoch++;
     index_chunkdesc(index)->pos_key = 0;
 
 #ifdef HAVE_CROSSFADE
@@ -552,6 +629,8 @@ long sim_pcmbuf_starve_until;
 
 void * pcmbuf_request_buffer(int *count)
 {
+    LEASE_RECLAIM();
+
     size_t size = *count * PCMBUF_SAMPLE_SIZE;
 
 #if defined(SIMULATOR) && defined(HAVE_IPOD_UI)
@@ -628,6 +707,7 @@ void * pcmbuf_request_buffer(int *count)
         {
             underrun_log_tick = current_tick + HZ;
             underruns_seen = pcm_underruns;
+            underrun_lines++;
             ui_log("pcm", "underrun n=%lu level_ms=%lu", underruns_seen,
                    (unsigned long)(remaining * 1000 / BYTERATE));
         }
@@ -644,6 +724,35 @@ void * pcmbuf_request_buffer(int *count)
         if (!prefill_us)
         {
             prefill_us = pcm_log_now_us() | 1;
+            audio_start_trace_mark(3);  /* 0.8.3: the first samples */
+            /* the channel stopped because the buffer ran dry mid-track:
+               a line, never swallowed. p083-copclock: a starving decode
+               stops and restarts about once a second (the emulator's
+               Opus at 30 MHz: ~200 a track), which pushed everything
+               else out of the ring; so one line per 10 s at most, the
+               first at once, each with the count since the last line
+               (new=), and the restart's "pcm start" lines quiet while
+               a storm's lines are held back. The COP run's summary
+               ("fiq ... und=") counts them per track as well */
+            if (pcm_mid_underruns != mid_underruns_seen)
+            {
+                if (!mid_line_tick
+                    || TIME_AFTER(current_tick, mid_line_tick))
+                {
+                    unsigned long add = pcm_mid_underruns
+                                        - mid_underruns_seen;
+
+                    mid_underruns_seen = pcm_mid_underruns;
+                    mid_line_tick = current_tick + PCM_UNDERRUN_LINE_TICKS;
+                    underrun_lines++;
+                    starts_quiet = false;
+                    ui_log("pcm", "underrun mid n=%lu all=%lu level_ms=0"
+                           " new=%lu", mid_underruns_seen, pcm_underruns,
+                           add);
+                }
+                else
+                    starts_quiet = true;    /* counted, said later */
+            }
             underruns_seen = pcm_underruns; /* the last track's end */
         }
 #endif
@@ -651,25 +760,7 @@ void * pcmbuf_request_buffer(int *count)
         /* If pre-buffered to the watermark, start playback */
         if (!pcmbuf_data_critical())
         {
-            start_audio_playback();
-#ifdef HAVE_IPOD_UI
-            if (mixer_channel_status(PCM_MIXER_CHAN_PLAYBACK)
-                    != CHANNEL_STOPPED)
-            {
-                ui_log("pcm", "start prefill_ms=%lu level_ms=%lu",
-                       (pcm_log_now_us() - (prefill_us & ~1ul)) / 1000,
-                       (unsigned long)(pcmbuf_unplayed_bytes() * 1000
-                                       / BYTERATE));
-                prefill_us = 0;
-                if (pcm_rate_gaps != rate_gaps_seen)
-                {
-                    /* the planned drain before this start: a rate switch */
-                    rate_gaps_seen = pcm_rate_gaps;
-                    ui_log("pcm", "rate gap n=%lu sampr=%lu", rate_gaps_seen,
-                           (unsigned long)mixer_get_frequency());
-                }
-            }
-#endif
+            start_audio_playback();     /* logs the start itself */
         }
     }
 
@@ -698,6 +789,8 @@ void * pcmbuf_request_buffer(int *count)
 /* Handle new samples to the buffer */
 void pcmbuf_write_complete(int count, unsigned long elapsed, off_t offset)
 {
+    LEASE_RECLAIM();
+
     size_t size = count * PCMBUF_SAMPLE_SIZE;
 
 #ifdef HAVE_CROSSFADE
@@ -746,6 +839,7 @@ static void init_buffer_state(void)
     /* Reset counters */
     chunk_ridx = chunk_widx = 0;
     pcmbuf_bytes_waiting = 0;
+    write_epoch++;
 
     /* Reset first descriptor */
     if (pcmbuf_descriptors)
@@ -754,6 +848,220 @@ static void init_buffer_state(void)
     /* Clear change notification */
     chunk_transidx = INVALID_BUF_INDEX;
 }
+
+unsigned int pcmbuf_write_epoch(void)
+{
+    return write_epoch;
+}
+
+/* #282 step 4: false while a crossfade mixes the new track into published
+   chunks: a producer then publishes after every frame, as the codec thread
+   always did, rather than hold a window across frames */
+bool pcmbuf_window_may_hold(void)
+{
+#ifdef HAVE_CROSSFADE
+    return crossfade_status == CROSSFADE_INACTIVE;
+#else
+    return true;
+#endif
+}
+
+#if defined(HAVE_COP_CODEC) && defined(HAVE_CORE_LAYOUT_A)
+/* 0.8.3 colocate (owner, 2026-11-10: no synchronous COP->CPU call in
+   steady-state playback; docs/data-paths.md R7 item 12): the write
+   side's lease. The CPU's codec thread hands it to the COP after a
+   full-buffer sleep (its boost cancelled), while playing with no
+   crossfade, low latency, position sync or rescue under way. The COP then
+   requests, stamps and commits chunks itself, as pcmbuf_request_buffer()
+   and pcmbuf_write_complete() do, and sleeps on a full buffer itself, so
+   the DSP (producer) and the FIQ (consumer) are on one core and no call
+   crosses per window. Every CPU entry point that touches the write side
+   reclaims it first. The COP gives it back, its cache written back, at a
+   message, a revoke, a call, the run's end, a stopped channel, a level
+   under the watermark (the CPU's rescue boost) or a full buffer that
+   stops draining (a pause). Cache: the COP writes the audio back before
+   chunk_widx moves (the FIQ reads it uncached), and at the release; the
+   CPU drops its lines at a reclaim, before it touches the audio again;
+   the COP dropped its own at the window call that granted it. */
+enum { LEASE_CPU = 0, LEASE_COP, LEASE_BACK };
+struct pcmbuf_lease {
+    volatile uint8_t owner;     /* LEASE_*: one writer at each step */
+    volatile uint8_t revoke;    /* CPU threads waiting to take it back */
+    size_t waiting;             /* pcmbuf_bytes_waiting while leased */
+    unsigned int key;           /* position_key at the grant */
+    unsigned int bpf;           /* PCMBUF_SAMPLE_SIZE ... */
+    size_t byterate;            /* ... BYTERATE ... */
+    size_t watermark;           /* ... pcmbuf_watermark at the grant */
+    uint32_t grants, revokes, commits, sleeps;
+};
+static struct pcmbuf_lease lease XCORE_BSS;
+
+bool pcmbuf_lease_grant(void)
+{
+    if (lease.owner != LEASE_CPU || lease.revoke)
+        return false;
+    if (mixer_channel_status(PCM_MIXER_CHAN_PLAYBACK) != CHANNEL_PLAYING
+        || !pcm_is_playing()
+        || low_latency_mode || pcmbuf_sync_position
+#ifdef HAVE_CROSSFADE
+        /* with crossfade on, even idle, the watermark is the buffer less
+           1 s (pcmbuf_finish_crossfade_enable()): the level dips under it
+           every refill and the lease would go back and forth (review of
+           d184744599, minor 3); crossfade users keep the window calls */
+        || crossfade_setting != CROSSFADE_ENABLE_OFF
+        || crossfade_status != CROSSFADE_INACTIVE
+#endif
+        || pcmbuf_size - pcmbuf_unplayed_bytes() - pcmbuf_bytes_waiting
+           < PCMBUF_CHUNK_SIZE
+        || pcmbuf_unplayed_bytes() + pcmbuf_bytes_waiting < pcmbuf_watermark)
+        return false;
+    commit_dcache();            /* any CPU write to the audio, to SDRAM */
+    lease.waiting = pcmbuf_bytes_waiting;
+    pcmbuf_bytes_waiting = 0;
+    lease.key = position_key;
+    lease.bpf = PCMBUF_SAMPLE_SIZE;
+    lease.byterate = BYTERATE;
+    lease.watermark = pcmbuf_watermark;
+    lease.grants++;
+    lease.owner = LEASE_COP;    /* last: the COP may write */
+    return true;
+}
+
+void pcmbuf_lease_reclaim(void)
+{
+    XCORE_ASSERT_CPU("pcmbuf_lease_reclaim");   /* it waits for the COP */
+    if (lease.owner == LEASE_CPU)
+        return;
+    /* a count of the CPU threads in here: the COP lets go while it is not
+       zero, and no grant is made meanwhile (another thread may run while
+       this one sleeps: the codec thread's window call among them) */
+    lease.revoke++;
+    if (lease.owner == LEASE_COP)
+    {
+        /* the COP sees it after the frame it is on or a full slice */
+        lease.revokes++;
+        while (lease.owner == LEASE_COP)
+            sleep(1);
+    }
+    if (lease.owner == LEASE_BACK)
+    {
+        /* the COP wrote its cache back and touches nothing more; another
+           waiting thread may have taken it back already (LEASE_CPU) */
+        pcmbuf_bytes_waiting = lease.waiting;
+        lease.waiting = 0;
+        commit_discard_dcache();    /* no stale line of the audio here */
+        lease.owner = LEASE_CPU;
+    }
+    lease.revoke--;
+}
+
+void *pcmbuf_lease_window(int *count, int *why)
+{
+    size_t size, freespace, index, endsize;
+
+    if (lease.owner != LEASE_COP || lease.revoke || !pcm_is_playing())
+    {
+        *why = PCMBUF_LEASE_BACK;
+        return NULL;
+    }
+    size = (size_t)*count * lease.bpf;
+    if (size > PCMBUF_MAX_BUFFER)
+        size = PCMBUF_MAX_BUFFER;
+    freespace = pcmbuf_size - pcmbuf_unplayed_bytes() - lease.waiting;
+    if (freespace < size + PCMBUF_CHUNK_SIZE)
+    {
+        *why = PCMBUF_LEASE_FULL;
+        return NULL;
+    }
+    if (pcmbuf_size - freespace < lease.watermark)
+    {
+        *why = PCMBUF_LEASE_BACK;   /* the rescue boost is the CPU's */
+        return NULL;
+    }
+    /* as pcmbuf_request_buffer(): the most there is, up to the guard */
+    if (size + PCMBUF_CHUNK_SIZE < freespace)
+        size = freespace - PCMBUF_CHUNK_SIZE;
+    index = chunk_widx + lease.waiting;
+    endsize = pcmbuf_size + PCMBUF_GUARD_SIZE - index;
+    if (size > endsize)
+        size = endsize;
+    *count = size / lease.bpf;
+    return index_buffer(index);
+}
+
+/* commit_chunks() on the COP, with the lease's count */
+static void lease_commit_chunks(size_t threshold)
+{
+    size_t index = chunk_widx;
+    size_t end_index = index + lease.waiting;
+    struct chunkdesc *desc;
+
+    if (end_index > pcmbuf_size)
+        memcpy(pcmbuf_buffer, pcmbuf_guardbuf, end_index - pcmbuf_size);
+    /* the audio and the wrap copy reach SDRAM before chunk_widx says so
+       (the FIQ reads them uncached) */
+    commit_dcache();
+    desc = index_chunkdesc(index);
+    do
+    {
+        size_t size = MIN(lease.waiting, PCMBUF_CHUNK_SIZE);
+        lease.waiting -= size;
+        desc->size = (uint16_t)size;
+        chunk_widx = index = index_next(index);
+        desc = index_chunkdesc(index);
+        desc->pos_key = 0;
+    }
+    while (lease.waiting >= threshold);
+    lease.commits++;
+}
+
+void pcmbuf_lease_commit(int count, unsigned long elapsed, off_t offset)
+{
+    struct chunkdesc *desc = index_chunkdesc(chunk_widx);
+
+    /* stamp_chunk() with the grant's key */
+    if (desc->pos_key != lease.key)
+    {
+        desc->pos_key = lease.key;
+        desc->elapsed = elapsed;
+        desc->offset = offset;
+    }
+    lease.waiting += (size_t)count * lease.bpf;
+    if (lease.waiting >= COMMIT_CHUNKS)
+        lease_commit_chunks(COMMIT_CHUNKS);
+}
+
+long pcmbuf_lease_full_ticks(void)
+{
+    long t = cpl_full_wait(pcmbuf_unplayed_bytes(), lease.watermark,
+                           lease.byterate, HZ);
+
+    lease.sleeps++;
+    return t < PCMBUF_LEASE_SLICE ? (t < 1 ? 1 : t) : PCMBUF_LEASE_SLICE;
+}
+
+size_t pcmbuf_lease_ridx(void)
+{
+    return chunk_ridx;
+}
+
+void pcmbuf_lease_release(void)
+{
+    if (lease.owner != LEASE_COP)
+        return;
+    commit_dcache();            /* the partial chunk the CPU commits later */
+    lease.owner = LEASE_BACK;
+}
+
+void pcmbuf_lease_stats(uint32_t *grants, uint32_t *revokes,
+                        uint32_t *commits, uint32_t *sleeps)
+{
+    *grants = lease.grants;
+    *revokes = lease.revokes;
+    *commits = lease.commits;
+    *sleeps = lease.sleeps;
+}
+#endif /* HAVE_COP_CODEC && HAVE_CORE_LAYOUT_A */
 
 /* call prior to init to get bytes required */
 size_t pcmbuf_size_reqd(void)
@@ -765,9 +1073,21 @@ size_t pcmbuf_size_reqd(void)
  * ...|---------PCMBUF---------|GUARDBUF|DESCS| */
 size_t pcmbuf_init(void *bufend)
 {
+    LEASE_RECLAIM();
+
     void *bufstart;
     void *const bufend_in = bufend;     /* the caller counts from here */
 
+#ifdef HAVE_PCM_24BIT_OUT
+    /* #268: the frame size first (BYTERATE and the sizes below use it);
+       the DSP writes the same format */
+    pcmbuf_bpf = mixer_get_depth() > 16 ? 8 : 4;
+    dsp_set_output_depth(dsp_get_config(CODEC_IDX_AUDIO),
+                         pcmbuf_bpf == 8 ? 24 : 16);
+#endif
+#if defined(HAVE_IPOD_UI) && defined(HAVE_DISK_STORAGE) && MEMORYSIZE > 2
+    pcmbuf_prefill_qsecs = ata_disk_isssd() ? 1 : 4;    /* #79 */
+#endif
     /* Set up the buffers */
     pcmbuf_desc_count = get_next_required_pcmbuf_chunks();
     pcmbuf_size = pcmbuf_desc_count * PCMBUF_CHUNK_SIZE;
@@ -880,6 +1200,7 @@ static void pcmbuf_cancel_track_change(bool position)
    immediately if the buffer is empty */
 void pcmbuf_monitor_track_change(bool monitor)
 {
+    LEASE_RECLAIM();
     pcm_play_lock();
 
     if (monitor)
@@ -892,6 +1213,11 @@ void pcmbuf_monitor_track_change(bool monitor)
 
 void pcmbuf_start_track_change(enum pcm_track_change_type type)
 {
+    LEASE_RECLAIM();
+#ifdef HAVE_IPOD_UI
+    underrun_say_held("track");
+#endif
+
     /* Commit all outstanding data before starting next track - tracks don't
        comingle inside a single buffer chunk */
     commit_if_needed(COMMIT_ALL_DATA);
@@ -1020,6 +1346,37 @@ unsigned long pcmbuf_rescues(void)
     return pcm_rescues;
 }
 
+/* 0.8.3: underruns that came mid-track, and the underrun lines written */
+unsigned long pcmbuf_mid_underruns(void)
+{
+    return pcm_mid_underruns;
+}
+
+unsigned long pcmbuf_underrun_lines(void)
+{
+    return underrun_lines;
+}
+
+/* 0.8.3: the lowest level (ms) the FIQ saw at a chunk's start since the
+   last call, then start over; -1: no chunk played since */
+long pcmbuf_level_min_take(void)
+{
+    size_t min = pcm_level_min;
+    unsigned long rate = BYTERATE;
+
+    pcm_level_min = ~(size_t)0;
+    if (min == ~(size_t)0 || rate == 0)
+        return -1;
+    return (long)((uint64_t)min * 1000 / rate);
+}
+
+/* #298: the trace line's lag (pcmbuf.h) */
+unsigned long pcmbuf_track_change_lag_us(bool *dry)
+{
+    *dry = tc_done_dry;
+    return pcm_log_now_us() - tc_done_us;
+}
+
 /* P19 19-1c (D): the playback FIQ drains the buffer at the output rate
    and may not post to the codec's queue, so the codec's sleep on a full
    buffer is the time the level takes to reach the low watermark, above
@@ -1052,6 +1409,15 @@ static void pcmbuf_pcm_callback(const void **start, size_t *size)
         if (track_change)
         {
             chunk_transidx = INVALID_BUF_INDEX;
+#ifdef HAVE_IPOD_UI
+            /* #298: the trace line's start (the timer: no call) */
+#ifdef USEC_TIMER
+            tc_done_us = USEC_TIMER;
+#else
+            tc_done_us = current_tick * (1000000 / HZ);
+#endif
+            tc_done_dry = index_next(index) == chunk_widx;
+#endif
 #ifdef HAVE_CORE_LAYOUT_A
             audio_pcmbuf_track_change_fiq();
 #else
@@ -1078,6 +1444,15 @@ static void pcmbuf_pcm_callback(const void **start, size_t *size)
         *start = index_buffer(index);
         *size = desc->size;
 
+#ifdef HAVE_IPOD_UI
+        {
+            /* 0.8.3: the level as this chunk starts (bytes) */
+            size_t level = pcmbuf_unplayed_bytes();
+
+            if (level < pcm_level_min)
+                pcm_level_min = level;
+        }
+#endif
         if (desc->pos_key != 0)
         {
             /* Positioning chunk - notify playback */
@@ -1099,7 +1474,13 @@ static void pcmbuf_pcm_callback(const void **start, size_t *size)
             pcm_rate_gaps++;
         }
         else
+        {
             pcm_underruns++;
+#ifdef HAVE_IPOD_UI
+            if (!ended_track)
+                pcm_mid_underruns++;
+#endif
+        }
     }
 #else
     (void)ended_track;
@@ -1110,7 +1491,40 @@ static void pcmbuf_sampr_callback(uint32_t sampr)
 {
     struct dsp_config* dsp = dsp_get_config(CODEC_IDX_AUDIO);
     dsp_configure(dsp, DSP_SET_OUT_FREQUENCY, sampr);
+#ifdef HAVE_PCM_24BIT_OUT
+    /* #268: never on its own: pcmbuf_init() follows (a remake) */
+    dsp_set_output_depth(dsp, pcmbuf_bpf == 8 ? 24 : 16);
+#endif
 }
+
+#ifdef HAVE_IPOD_UI
+/* The "pcm start" line and the start timeline's last mark, for every way
+   the channel starts after a prefill: the codec's request at the level,
+   a track change's pile-up or end-of-data start, a resume after a seek
+   (0.8.3: an AAC start logged neither; it came by one of the last) */
+static void log_pcm_start(void)
+{
+    if (!prefill_us
+        || mixer_channel_status(PCM_MIXER_CHAN_PLAYBACK) == CHANNEL_STOPPED)
+        return;
+    if (starts_quiet)
+        starts_quieted++;   /* p083-copclock: a storm's restart */
+    else
+        ui_log("pcm", "start prefill_ms=%lu level_ms=%lu",
+               (pcm_log_now_us() - (prefill_us & ~1ul)) / 1000,
+               (unsigned long)(pcmbuf_unplayed_bytes() * 1000 / BYTERATE));
+    starts_quiet = false;
+    prefill_us = 0;
+    audio_start_trace_pcm();        /* 0.8.3 */
+    if (pcm_rate_gaps != rate_gaps_seen)
+    {
+        /* the planned drain before this start: a rate switch */
+        rate_gaps_seen = pcm_rate_gaps;
+        ui_log("pcm", "rate gap n=%lu sampr=%lu", rate_gaps_seen,
+               (unsigned long)mixer_get_frequency());
+    }
+}
+#endif
 
 /* Force playback */
 void pcmbuf_play_start(void)
@@ -1126,6 +1540,9 @@ void pcmbuf_play_start(void)
             .sampr_changed = pcmbuf_sampr_callback,
         };
         mixer_channel_play_data(PCM_MIXER_CHAN_PLAYBACK, &cbs, NULL, 0);
+#ifdef HAVE_IPOD_UI
+        log_pcm_start();
+#endif
     }
 }
 
@@ -1133,6 +1550,10 @@ void pcmbuf_play_start(void)
 void pcmbuf_play_stop(void)
 {
     logf("pcmbuf_play_stop");
+    LEASE_RECLAIM();
+#ifdef HAVE_IPOD_UI
+    underrun_say_held("stop");
+#endif
 
     /* Reset channel */
     mixer_channel_stop(PCM_MIXER_CHAN_PLAYBACK);
@@ -1156,6 +1577,31 @@ void pcmbuf_play_stop(void)
     prefill_us = 0;     /* a seek or skip times its own prefill */
 #endif
 }
+
+#ifdef HAVE_IPOD_UI
+/* 0.8.3: the tick of the pause that is still on (0: none), so the shell
+   can log how long the codec took to reach standby after it */
+static long pause_tick;
+
+long pcmbuf_pause_tick(void)
+{
+    return pause_tick;
+}
+
+void pcmbuf_pause_tick_clear(void)
+{
+    pause_tick = 0;
+}
+
+/* playback.c's pause and resume (before any fade) */
+void pcmbuf_note_pause(bool pause)
+{
+    if (!pause)
+        pause_tick = 0;
+    else if (!pause_tick)
+        pause_tick = current_tick | 1;
+}
+#endif
 
 void pcmbuf_pause(bool pause)
 {
@@ -1714,6 +2160,7 @@ unsigned int pcmbuf_get_position_key(void)
    PCM frames - cancelled upon first codec insert or upon stopping */
 void pcmbuf_sync_position_update(void)
 {
+    LEASE_RECLAIM();
     pcmbuf_sync_position = true;
 }
 
@@ -1738,5 +2185,6 @@ bool pcmbuf_is_lowdata(void)
 
 void pcmbuf_set_low_latency(bool state)
 {
+    LEASE_RECLAIM();
     low_latency_mode = state;
 }

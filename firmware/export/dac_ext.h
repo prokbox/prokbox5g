@@ -51,8 +51,30 @@ struct dac_eq_band {
  * bass/treble writes only update their shadows. UI thread. */
 void dac_eq_set(const struct dac_eq_band *band, int precut_db);
 
-/* S1 spike only: the ADDCTRL M128ENB bit (kept across sample-rate changes) */
+/* #265 (b11 row m128, silicon): EQ4 has no effect in the DSP's low-power
+ * mode (ADDCTRL M128ENB = 0), while EQ2 and EQ3 do (S1). dac_eq_set()
+ * keeps M128ENB set while band 4 (index 3) has a gain, and clears it
+ * otherwise (EQ off included), unless the 3D stage holds it
+ * (dac_eq_set_m128()); the driver's shadow carries it across rate changes.
+ * Pure: the host tests use it too. */
+static inline bool dac_eq_wants_m128(const struct dac_eq_band *band)
+{
+    return band != NULL && band[3].gain != 0;
+}
+
+/* The 3D stage's request for ADDCTRL M128ENB (dac_set_width3d()).  The
+ * bit is this request ORed with dac_eq_set()'s band 4 (#265), kept across
+ * sample-rate changes */
 void dac_eq_set_m128(bool on);
+
+/* Settings > Audiophile: the codec's 3D stereo depth, 0 (off) .. 15; on
+ * turns M128ENB on with it. Thread context (I2C) */
+void dac_set_width3d(int depth);
+
+/* 0.8.3: the stereo width's headroom, whole dB (0..12), added to the EQ's
+ * precut on the same DAC volume, the sum at most 12 dB (the rule
+ * apps/audiophile_core.c audiophile_precut_total() states, host-tested) */
+void dac_set_width_cut(int db);
 
 /* Hardware Sound Check (brief section 3.5, wave 2b): a gain trim in tenth
  * dB, applied by the codec with the volume (amp 1 dB, DAC 0.5 dB, the
@@ -78,6 +100,11 @@ void dac_wake(void);
  * data, any stop): the idle time counts from now, even if no poll saw
  * it playing lately. Any context (a tick store). */
 void dac_busy_now(void);
+/* ProkBox #312: the codec is in standby (or entering it), one uncached
+ * load, any context: pcm_play_data() wakes it only then, since the mixer
+ * calls it under pcm_play_lock.  With dac_busy_now() stored first, a poll
+ * that has not set the flag yet re-reads the idle time and stays out */
+bool dac_in_standby(void);
 
 /* Developer switch (not saved; on at boot): false wakes the codec and
  * keeps it on, for an A/B of standby pops on the device */
@@ -94,6 +121,11 @@ struct dac_stats {
     int gain_db10;              /* dac_set_gain_db10()'s request */
     int gain_applied_db10;      /* after the cap, at the current volume
                                  * (left channel) */
+    /* p083-dacosr64: R10 DACOSR at the last rate set (64 or 128; 0 before
+     * the first), that rate, and a count of rate sets */
+    int osr;
+    unsigned long rate_hz;
+    unsigned int rate_seq;
 };
 void dac_get_stats(struct dac_stats *s);
 

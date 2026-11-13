@@ -23,5 +23,5 @@
 
 #ifndef VT_STUB_PCM_SAMPR_H
 #define VT_STUB_PCM_SAMPR_H
-#define HW_SAMPR_MAX 48000          /* the iPod Video's top rate */
+#define HW_SAMPR_MAX 96000          /* the iPod Video's top rate (ipodui: 88.2/96 kHz, #268/#270; run.sh checks the config) */
 #endif

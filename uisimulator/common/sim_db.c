@@ -32,6 +32,7 @@
 #include "sim_db.h"
 #include "audio.h"
 #include "kernel.h"
+#include "system.h"           /* probed_ramsize (#204) */
 #include <string.h>
 
 #if defined(HAVE_TAGCACHE) && !defined(__PCTOOL__)
@@ -431,7 +432,7 @@ bool sim_db_snapshot_deferred(long timeout_ms)
         sleep(1);
     }
     fprintf(stderr, "snapshot deferred ram_mb=%d audio=%lu status=%d ok=%d\n",
-            MEMORYSIZE, (unsigned long)bytes, audio_status(), ok);
+            (int)probed_ramsize, (unsigned long)bytes, audio_status(), ok);
     return ok;
 }
 
@@ -527,7 +528,7 @@ bool sim_db_snapshot_stress_switch(long timeout_ms)
         && lib_state() == LIB_READY && tagcache_ui_count() > stress_entries;
     fprintf(stderr, "snapshot stress ram_mb=%d entries=%d peak_cache=%ld "
             "free_min=%lu audio_start=%lu audio_end=%lu blocked=%d\n",
-            MEMORYSIZE, stress_entries, stress_ram_peak,
+            (int)probed_ramsize, stress_entries, stress_ram_peak,
             (unsigned long)stress_free_min, (unsigned long)stress_audio_start,
             (unsigned long)audio_buffer_size(), blocked);
     return ok;

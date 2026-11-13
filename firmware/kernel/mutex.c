@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2002 by Björn Stenberg
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -70,6 +71,35 @@ void mutex_lock(struct mutex *m)
     /* ...and turn control over to next thread */
     switch_thread();
 }
+
+#if defined(HAVE_IPOD_UI) || defined(HAVE_BCMFW_DEVTEST)
+/* ProkBox #324: gain ownership only if it is free (or already this
+ * thread's): mutex_lock()'s open path and nothing else, so a caller can
+ * bound its wait (lcd-video.c lcd_port_lock_tmo).  true: owned (unlock
+ * it as after mutex_lock) */
+bool mutex_trylock(struct mutex *m)
+{
+    ASSERT_CPU_MODE(CPU_MODE_THREAD_CONTEXT);
+
+    struct thread_entry *current = __running_self_entry();
+
+    if(current == m->blocker.thread)
+    {
+        m->recursion++;
+        return true;
+    }
+
+    corelock_lock(&m->cl);
+    if(LIKELY(m->blocker.thread == NULL))
+    {
+        m->blocker.thread = current;
+        corelock_unlock(&m->cl);
+        return true;
+    }
+    corelock_unlock(&m->cl);
+    return false;
+}
+#endif
 
 /* Release ownership of a mutex object - only owning thread must call this */
 void mutex_unlock(struct mutex *m)

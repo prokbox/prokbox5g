@@ -66,6 +66,8 @@ static bool dt_until(volatile unsigned short *reg, unsigned mask, bool set)
 {
     unsigned long t0 = USEC_TIMER;
 
+    if (!BCM_PORT_OK("dt_until"))      /* #324: unpowered, not touched */
+        return false;
     while (((*reg & mask) != 0) != set)
         if (USEC_TIMER - t0 > DT_PORT_US)
             return false;
@@ -82,7 +84,11 @@ static bool dt_wait(volatile unsigned short *reg, unsigned mask,
                     unsigned kind, uint32_t addr)
 {
     unsigned long t0 = USEC_TIMER, us;
-    bool ok = dt_until(reg, mask, true);
+    bool ok;
+
+    if (!BCM_PORT_OK("dt_wait"))       /* no diagnostic reads either */
+        return false;
+    ok = dt_until(reg, mask, true);
 
     us = USEC_TIMER - t0;
     if (us > dt_port[kind])
@@ -100,6 +106,8 @@ static bool dt_wait(volatile unsigned short *reg, unsigned mask,
 
 static int dt_rd(uint32_t addr, uint32_t *val)
 {
+    if (!BCM_PORT_OK("dt_rd"))
+        return -1;
     if (!dt_wait(&BCM_RD_ADDR, 1, 0, addr))
         return -1;
     BCM_RD_ADDR32 = addr;
@@ -124,6 +132,8 @@ static int dt_wr(uint32_t addr, uint32_t val)
         dt_half_writes++;
         return -1;
     }
+    if (!BCM_PORT_OK("dt_wr"))
+        return -1;
     BCM_WR_ADDR32 = addr;
     if (!dt_wait(&BCM_CONTROL, 0x2, 2, addr))
         return -1;
@@ -134,18 +144,22 @@ static int dt_wr(uint32_t addr, uint32_t val)
 /* bcm_port_block()'s primitives (bcm-port-block.h), on the main bank */
 static inline int bpb_addr(uint32_t a)
 {
+    if (!BCM_PORT_OK("bpb_addr"))
+        return -1;
     BCM_WR_ADDR32 = a;
     return dt_wait(&BCM_CONTROL, 0x2, 2, a) ? 0 : -1;
 }
 
 static inline void bpb_words(const uint16_t *s, uint32_t n)
 {
-    lcd_write_data((const fb_data *)s, n);      /* n even, s aligned */
+    if (BCM_PORT_OK("bpb_words"))
+        lcd_write_data((const fb_data *)s, n);  /* n even, s aligned */
 }
 
 static inline void bpb_word(uint32_t v)
 {
-    BCM_DATA32 = v;
+    if (BCM_PORT_OK("bpb_word"))
+        BCM_DATA32 = v;
 }
 
 static inline int bpb_rd(uint32_t a, uint32_t *v)
@@ -170,6 +184,8 @@ static int dt_wr_block(uint32_t addr, const uint16_t *src, uint32_t n)
         dt_half_writes++;
         return -1;
     }
+    if (!BCM_PORT_OK("dt_wr_block"))
+        return -1;
     return bcm_port_block(addr, src, n);
 }
 
@@ -191,6 +207,8 @@ static int dt_ppdma(const void *src, uint32_t bytes)
 {
     unsigned long a = (unsigned long)src;
 
+    if (!BCM_PORT_OK("dt_ppdma"))
+        return -1;
     if (a < UNCACHED_BASE_ADDR)
     {
         a = UNCACHED_ADDR(a);
@@ -226,6 +244,8 @@ static int dt_fb_upload(uint32_t addr, uint32_t off, uint32_t bytes, int how)
 {
     const fb_data *src = (const fb_data *)((const char *)FBADDR(0, 0) + off);
 
+    if (!BCM_PORT_OK("dt_fb_upload"))
+        return -1;
     BCM_WR_ADDR32 = addr;
     if (!dt_until(&BCM_CONTROL, 0x2, true))
         return -1;
@@ -262,6 +282,8 @@ static void dt_boost(bool on)
 /* The boot path's first frame: Rockbox's framebuffer, as lcd_update() */
 static int dt_upload_fb(void)
 {
+    if (!BCM_PORT_OK("dt_upload_fb"))
+        return -1;
     BCM_WR_ADDR32 = BCMA_CMDPARAM;
     if (!dt_until(&BCM_CONTROL, 0x2, true))
         return -1;
@@ -271,7 +293,8 @@ static int dt_upload_fb(void)
 
 static void dt_doorbell(void)
 {
-    BCM_CONTROL = 0x31;
+    if (BCM_PORT_OK("dt_doorbell"))
+        BCM_CONTROL = 0x31;
 }
 
 /* bcm_init()'s bootstrap with every wait bounded: power on, the strap,
@@ -281,6 +304,7 @@ static int dt_bootstrap(void)
     int i;
 
     GPO32_VAL |= 0x4000;
+    bcm_port_powered_up();      /* #324: a refusal after it is logged */
     sleep(HZ/20);
     STRAP_OPT_A &= ~0xF00;
     outl(0x1313, 0x70000040);
@@ -714,6 +738,8 @@ static int dt_fb_upload_l(uint32_t addr, uint32_t off, uint32_t bytes,
  * the whole write so nothing else lands between address and data. */
 static int dt_pa_addr(uint32_t addr, unsigned how)
 {
+    if (!BCM_PORT_OK("dt_pa_addr"))
+        return -1;
     if (how & BCMDT_PA_ADDR16)
     {
         BCM_WR_ADDR = addr & 0xFFFF;
@@ -1319,20 +1345,24 @@ uint32_t bcm_video_gpo32_enable(void)
     return GPO32_ENABLE;
 }
 
-/* PW6: the port's four registers read as they are, no address written
- * first (no WR_ADDR, RD_ADDR or CONTROL write): DATA four times,
- * CONTROL, ALT_DATA four times, ALT_CONTROL */
+/* PW6: the port's CONTROL register read as it is, no address written
+ * first: out[4].  Every other slot (DATA x4, ALT_DATA x4, ALT_CONTROL)
+ * is NOT read: always 0xFFFF.  #324, b12: vcdark froze for 23 min right
+ * after "the port's raw registers (before the cut (chip on))", i.e. in
+ * these reads, with the chip powered (bcm2722-reference/quirks.md #60).
+ * Only CONTROL is proven safe raw (ebt1: 10,000 reads); DATA, ALT_DATA
+ * and ALT_CONTROL stay unread until one is.  Every DATA read elsewhere
+ * goes through RD_ADDR first (dt_rd, bcm_read32, the ALT lab). */
 void bcm_video_port_raw(uint16_t out[10])
 {
     int i;
 
     vdma_wait();
-    for (i = 0; i < 4; i++)
-        out[i] = BCM_DATA;
+    for (i = 0; i < 10; i++)
+        out[i] = 0xFFFF;        /* not read raw: see above */
+    if (!BCM_PORT_OK("bcm_video_port_raw"))
+        return;                 /* as an unpowered port would read */
     out[4] = BCM_CONTROL;
-    for (i = 0; i < 4; i++)
-        out[5 + i] = BCM_ALT_DATA;
-    out[9] = BCM_ALT_CONTROL;
 }
 
 /* PW7: the ALT bank.  Every handshake bounded at 1 ms; nothing written
@@ -1379,7 +1409,7 @@ int bcm_video_alt_lab(struct bcm_alt_result *r)
     int oldlevel;
 
     memset(r, 0, sizeof(*r));
-    if (vdma_wait())
+    if (vdma_wait() || !BCM_PORT_OK("bcm_video_alt_lab"))
         return -1;
     /* 1: main bank */
     BCM_WR_ADDR32 = ALT_LAB_AREA;
@@ -1623,9 +1653,12 @@ static int vdma_wait_end(void)
 
 int bcm_video_rd(uint32_t addr, uint32_t *val)
 {
-    bool locked = lcd_port_lock();
+    int lk = lcd_port_lock_bounded(BW_LOCK_VIDEO);
+    bool locked = lk > 0;
     int rc;
 
+    if (lk < 0)
+        return -1;
     VPORT_CHECK();
     rc = vdma_wait() ? -1 : dt_rd(addr, val);
     lcd_port_unlock(locked);
@@ -1634,9 +1667,12 @@ int bcm_video_rd(uint32_t addr, uint32_t *val)
 
 int bcm_video_wr(uint32_t addr, uint32_t val)
 {
-    bool locked = lcd_port_lock();
+    int lk = lcd_port_lock_bounded(BW_LOCK_VIDEO);
+    bool locked = lk > 0;
     int rc;
 
+    if (lk < 0)
+        return -1;
     VPORT_CHECK();
     rc = vdma_wait() ? -1 : dt_wr(addr, val);
     lcd_port_unlock(locked);
@@ -1649,9 +1685,12 @@ static int vwr_block(uint32_t addr, const uint16_t *src, uint32_t n);
  * until vdma_wait() sees the block through */
 int bcm_video_wr_block(uint32_t addr, const uint16_t *src, uint32_t n)
 {
-    bool locked = lcd_port_lock();
+    int lk = lcd_port_lock_bounded(BW_LOCK_VIDEO);
+    bool locked = lk > 0;
     int rc;
 
+    if (lk < 0)
+        return -1;
     VPORT_CHECK();
     rc = vwr_block(addr, src, n);
     if (vdma_busy && locked && !vdma_held)
@@ -1679,6 +1718,8 @@ static int vwr_block(uint32_t addr, const uint16_t *src, uint32_t n)
         dt_half_writes++;
         return -1;
     }
+    if (!BCM_PORT_OK("vwr_block"))     /* no DMA started into it either */
+        return -1;
     vload.bytes += bytes;
     if (!vdma_on || vdma_broken || bytes < VDMA_MIN ||
         (vdma_e2 ? !e2port_fits(src, bytes) || !e2port_claim(E2PORT_VIDEO)
@@ -1757,7 +1798,7 @@ int bcm_video_wr_variant(uint32_t addr, const uint16_t *src, uint32_t n,
     /* whole words only: in either data form an odd last halfword would be
        lost (the port loses a lone trailing halfword [silicon, ALGNP
        PLH1/3/5]; the 32-bit loop never sends it) */
-    if (vdma_wait() || (n & 1))
+    if (vdma_wait() || (n & 1) || !BCM_PORT_OK("bcm_video_wr_variant"))
         rc = -1;
     else
     {
@@ -1986,6 +2027,7 @@ int bcm_e2_hold(void)
     int i;
 
     GPO32_VAL |= 0x4000;
+    bcm_port_powered_up();
     sleep(HZ/20);
     STRAP_OPT_A &= ~0xF00;
     outl(0x1313, 0x70000040);
@@ -2148,6 +2190,8 @@ int bcm_e2_piece(struct e2_piece *p)
     dst = p->port ? 0x30000000u : e2_phys(p->dst);
     p->rc = -2;
     if (vdma_wait())
+        return -2;
+    if (p->port && !BCM_PORT_OK("bcm_e2_piece"))
         return -2;
     if (p->port)
     {

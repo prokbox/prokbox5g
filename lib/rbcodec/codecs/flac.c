@@ -28,16 +28,17 @@ static FLACContext fc IBSS_ATTR_FLAC;
 
 /* The output buffers containing the decoded samples (channels 0 and 1).
    Streams whose blocks fit MAX_BLOCKSIZE (the reference encoder's 4096,
-   and every block size below it) decode channels 0-3 here, in IRAM where
-   the target has room. Channels 4-6, and every channel of a stream with
-   larger blocks (up to 65535 samples, the format's limit: ffmpeg writes
-   16384 at 176.4/192 kHz), get a buffer of max_blocksize samples from the
-   codec buffer's free memory (codec_malloc()) instead, sized per stream. */
+   and every block size below it) decode channels 0 and 1 here, in IRAM
+   where the target has it. Channels 2-6 (a multichannel stream, downmixed
+   to stereo), and every channel of a stream with larger blocks (up to 65535
+   samples, the format's limit: ffmpeg writes 16384 at 176.4/192 kHz), get a
+   buffer of max_blocksize samples from the codec buffer's free memory
+   (codec_malloc()) instead, sized per stream. Upstream kept channels 2 and
+   3 in IRAM too on PP502x; ProkBox gives those 36 KB to the decoder's hot
+   code (arm.S, decoder.c), which every stereo stream runs. */
 static int32_t decoded0[MAX_BLOCKSIZE] IBSS_ATTR_FLAC;
 static int32_t decoded1[MAX_BLOCKSIZE] IBSS_ATTR_FLAC;
-static int32_t decoded2[MAX_BLOCKSIZE] IBSS_ATTR_FLAC_LARGE_IRAM;
-static int32_t decoded3[MAX_BLOCKSIZE] IBSS_ATTR_FLAC_LARGE_IRAM;
-#define FLAC_STATIC_CHANNELS 4
+#define FLAC_STATIC_CHANNELS 2
 
 /* A stream the decoder cannot take: logged in plain words */
 #ifdef HAVE_IPOD_UI
@@ -116,7 +117,7 @@ static size_t flac_frame_worst(const FLACContext *fc)
 static bool flac_alloc(FLACContext *fc)
 {
     static int32_t * const fixed[FLAC_STATIC_CHANNELS] = {
-        decoded0, decoded1, decoded2, decoded3
+        decoded0, decoded1
     };
     bool large = fc->max_blocksize > MAX_BLOCKSIZE;
     int ch;
@@ -209,6 +210,21 @@ static bool flac_init(FLACContext* fc, int first_frame_offset)
                              | ((buf[12] & 0xf0) >> 4);
             fc->channels = ((buf[12]&0x0e)>>1) + 1;
             fc->bps = (((buf[12]&0x01) << 4) | ((buf[13]&0xf0)>>4) ) + 1;
+
+            /* #285: the decoder hands samples on at FLAC_OUTPUT_DEPTH bits
+               (shifted up by FLAC_OUTPUT_DEPTH - bps), so it is exact up
+               to 29 bits a sample (tests/flacarm's syn29) and wrong above.
+               Wider streams (32-bit FLAC) are refused here, before any
+               PCM: playback skips the track as unplayable (#281).  The
+               library still lists them: their metadata is fine. */
+            if (fc->bps > FLAC_OUTPUT_DEPTH) {
+#ifdef HAVE_IPOD_UI
+                    ci->ui_log("flac", "%d-bit not supported", fc->bps);
+#else
+                    DEBUGF("flac: %d-bit not supported\n", fc->bps);
+#endif
+                    return false;
+            }
 
             if (fc->channels > MAX_CHANNELS) {
                     LOGF("FLAC: Too many channels (%d > %d)\n",

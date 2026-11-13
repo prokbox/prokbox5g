@@ -1,0 +1,23 @@
+# Release notes image (scripts/docs_shots.sh; its row in tests/ui/docs/images.tsv):
+# the first-start Battery question, new in 0.8.3 (screens/battq.c), with
+# 2,000 mAh in the middle of the drum and both neighbours showing. Runs on the
+# release-shaped sim with the video player, so the menus are the ones a
+# release shows; in tests/ui/docs/, so the gate's tests/ui/*.script sweep
+# leaves it alone. Synthetic library and video fixtures only
+# (tests/ui/setup_library.py, tests/fixtures/videos/mkvideos.sh): no owner
+# media. Nothing is answered, so nothing is stored.
+#   SIM_BUILD=build/sim-rel-video scripts/shots.sh tests/ui/docs/docs-battery.script
+# needs: library
+# needs: video
+# golden: skip
+# timeout: 180
+# env: IPODUI_SIM_BATTQ=clear
+# env: IPODUI_SIM_NOTICE=clear
+# log: battq shown
+wait 4500            # the legal notice first (its ack is cleared)
+key SELECT           # past its 3 s guard
+wait 1200
+wheel +1             # 2,000 mAh: Stock above, 3,000 mAh below
+wait 800
+shot battery
+quit

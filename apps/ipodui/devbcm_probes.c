@@ -2448,11 +2448,19 @@ struct pw6_ctx
     uint16_t raw[3][PWH_RAW];       /* B1, B2 at 100 ms, B2 after the look */
 };
 
+/* #324: bcm_video_port_raw() reads CONTROL alone (b12's vcdark froze in
+ * the raw DATA/ALT_DATA/ALT_CONTROL reads, the chip on); the class is
+ * that one word's */
+static enum pwh_raw pw6_ctl_class(const uint16_t *v)
+{
+    return v[4] == 0xFFFF ? PWH_R_ONES : v[4] == 0 ? PWH_R_ZEROS
+                                                   : PWH_R_MIXED;
+}
+
 static void pw6_raw(const char *step, const uint16_t *v)
 {
-    pb_say("pw6: %s data %04x %04x %04x %04x ctl %04x alt %04x %04x %04x "
-           "%04x altctl %04x (%s)", step, v[0], v[1], v[2], v[3], v[4], v[5],
-           v[6], v[7], v[8], v[9], pwh_raw_name(pwh_raw_class(v)));
+    pb_say("pw6: %s ctl %04x (%s; data and ALT not read raw)", step,
+           v[4], pwh_raw_name(pw6_ctl_class(v)));
 }
 
 static int pw6_fn(struct bvp *b, uint32_t fast, void *ctx)
@@ -2520,13 +2528,13 @@ bool devbcm_pw6(void)
     rc = vplayer_probe(read_panel, pw6_fn, &c);
     pb_say("pw6: %s (rc %d): B1 %s, B2 %s / %s; owner looks recorded",
            c.b1 && c.b2 ? "ran" : "FAIL", rc,
-           c.b1 ? pwh_raw_name(pwh_raw_class(c.raw[0])) : "-",
-           c.b2 ? pwh_raw_name(pwh_raw_class(c.raw[1])) : "-",
-           c.b2 ? pwh_raw_name(pwh_raw_class(c.raw[2])) : "-");
+           c.b1 ? pwh_raw_name(pw6_ctl_class(c.raw[0])) : "-",
+           c.b2 ? pwh_raw_name(pw6_ctl_class(c.raw[1])) : "-",
+           c.b2 ? pwh_raw_name(pw6_ctl_class(c.raw[2])) : "-");
     simplelist_addline("PW6: %s", c.b1 && c.b2 ? "ran" : "FAIL");
-    simplelist_addline("Chip on: %s", c.b1 ? pwh_raw_name(pwh_raw_class(c.raw[0]))
+    simplelist_addline("Chip on: %s", c.b1 ? pwh_raw_name(pw6_ctl_class(c.raw[0]))
                                            : "-");
-    simplelist_addline("Chip cut: %s", c.b2 ? pwh_raw_name(pwh_raw_class(c.raw[1]))
+    simplelist_addline("Chip cut: %s", c.b2 ? pwh_raw_name(pw6_ctl_class(c.raw[1]))
                                             : "-");
     simplelist_addline("Was the picture kept?");
     if (rc)

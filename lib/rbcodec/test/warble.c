@@ -164,12 +164,16 @@ static void set_le32(char *buf, uint32_t val)
     buf[3] = val >> 24;
 }
 
+/* ProkBox #268: "depth=24" makes the DSP write 24-bit frames (int32, the
+   24 bits at the top) and the WAV 32-bit PCM (tests/audiophile) */
+static int out_depth = 16;
+
 static void write_wav_header(void)
 {
     int channels, sample_size, freq, type;
     if (use_dsp) {
         channels = 2;
-        sample_size = 16;
+        sample_size = out_depth > 16 ? 32 : 16;
         freq = dsp_get_output_frequency(ci.dsp);
         type = WAVE_FORMAT_PCM;
     } else {
@@ -231,6 +235,16 @@ static void write_pcm(int16_t *pcm, int count)
     for (i = 0; i < 2 * count; i++)
         pcm[i] = htole16(pcm[i]);
     write(output_fd, pcm, 4 * count);
+}
+
+static void write_pcm32(int32_t *pcm, int count)
+{
+    if (!write_header_written)
+        write_wav_header();
+    int i;
+    for (i = 0; i < 2 * count; i++)
+        pcm[i] = htole32(pcm[i]);
+    write(output_fd, pcm, 8 * count);
 }
 
 static void write_pcm_raw(int32_t *pcm, int count)
@@ -404,6 +418,9 @@ static void perform_config(void)
                 return;
         } else if (!strncmp(name, "dither=", 7)) {
             dsp_dither_enable(atoi(val) ? true : false);
+        } else if (!strncmp(name, "depth=", 6)) {
+            out_depth = atoi(val) > 16 ? 24 : 16;
+            dsp_set_output_depth(ci.dsp, out_depth);
         } else if (!strncmp(name, "halt=", 5)) {
             if (atoi(val))
                 codec_action = CODEC_ACTION_HALT;
@@ -451,8 +468,20 @@ static void *ci_codec_get_buffer(size_t *size)
     return buffer;
 }
 
+/* ProkBox p083-codecload: the codec's input calls, counted, and as they
+   stood at its first output (WARBLE_CI_STATS=1 prints both to stderr).
+   On the device each call a codec on the COP makes is a cross-core round
+   trip; a start that makes thousands of them is a slow start there */
+enum { CIS_READ, CIS_REQ, CIS_ADV, CIS_SEEK, CIS_N };
+static unsigned long ci_calls[CIS_N], ci_calls_first[CIS_N];
+static bool ci_calls_seen;
+
 static void ci_pcmbuf_insert(const void *ch1, const void *ch2, int count)
 {
+    if (!ci_calls_seen) {
+        ci_calls_seen = true;
+        memcpy(ci_calls_first, ci_calls, sizeof(ci_calls));
+    }
     num_output_samples += count;
 
     if (use_dsp) {
@@ -464,16 +493,21 @@ static void ci_pcmbuf_insert(const void *ch1, const void *ch2, int count)
         while (1) {
             int out_count = MAX(count, 512);
             int16_t buf[2 * out_count];
+            int32_t buf32[out_depth > 16 ? 2 * out_count : 1];
             struct dsp_buffer dst;
 
             dst.remcount = 0;
             dst.p16out = buf;
+            if (out_depth > 16)
+                dst.p32out = buf32;
             dst.bufcount = out_count;
 
             dsp_process(ci.dsp, &src, &dst, true);
 
             if (dst.remcount > 0) {
-                if (mode == MODE_WRITE)
+                if (mode == MODE_WRITE && out_depth > 16)
+                    write_pcm32(buf32, dst.remcount);
+                else if (mode == MODE_WRITE)
                     write_pcm(buf, dst.remcount);
                 else if (mode == MODE_PLAY)
                     playback_pcm(buf, dst.remcount);
@@ -532,6 +566,7 @@ static char *input_buffer = 0;
  */
 static size_t ci_read_filebuf(void *ptr, size_t size)
 {
+    ci_calls[CIS_READ]++;
     free(input_buffer);
     input_buffer = NULL;
 
@@ -552,6 +587,7 @@ static size_t ci_read_filebuf(void *ptr, size_t size)
  */
 static void *ci_request_buffer(size_t *realsize, size_t reqsize)
 {
+    ci_calls[CIS_REQ]++;
     free(input_buffer);
     if (!rbcodec_format_is_atomic(ci.id3->codectype))
         reqsize = MIN(reqsize, 32 * 1024);
@@ -571,6 +607,7 @@ static void *ci_request_buffer(size_t *realsize, size_t reqsize)
  */
 static void ci_advance_buffer(size_t amount)
 {
+    ci_calls[CIS_ADV]++;
     free(input_buffer);
     input_buffer = NULL;
 
@@ -586,6 +623,7 @@ static void ci_advance_buffer(size_t amount)
  */
 static bool ci_seek_buffer(size_t newpos)
 {
+    ci_calls[CIS_SEEK]++;
     free(input_buffer);
     input_buffer = NULL;
 
@@ -1083,6 +1121,15 @@ static void decode_file(const char *input_fn)
         fprintf(stderr, "error: codec error\n");
     }
     c_hdr->entry_point(CODEC_UNLOAD);
+
+    if (getenv("WARBLE_CI_STATS")) {
+        fprintf(stderr, "ci first-out read=%lu req=%lu adv=%lu seek=%lu\n",
+                ci_calls_first[CIS_READ], ci_calls_first[CIS_REQ],
+                ci_calls_first[CIS_ADV], ci_calls_first[CIS_SEEK]);
+        fprintf(stderr, "ci total read=%lu req=%lu adv=%lu seek=%lu\n",
+                ci_calls[CIS_READ], ci_calls[CIS_REQ], ci_calls[CIS_ADV],
+                ci_calls[CIS_SEEK]);
+    }
 
     /* Close */
     dlclose(dlcodec);

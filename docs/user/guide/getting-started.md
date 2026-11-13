@@ -22,27 +22,14 @@ ProkBox5g is not Apple software. It is an independent, community-driven fork of 
 
 ## Pick the right download
 
-Each release comes as eight zip files, named `ProkBox5g-<version>-{stock,modded}-{flash,hdd}-{32,64}MB.zip`. Choose the one that matches your player. You need to answer three questions.
+Each release comes as one zip file, `ProkBox5g-<version>.zip`, for every iPod Video: hard drive or flash, 32 MB or 64 MB, original or replacement battery, 30-pin dock connector or USB-C. The player works out its memory and its storage by itself when it starts.
 
-| Question | Choices |
-|---|---|
-| Which hardware changes does the player have? | `stock`: none, original battery and the 30-pin dock connector. `modded`: all of a 3000 mAh battery, a USB-C port in place of the dock connector, and a haptic motor |
-| Is the storage a hard drive, or flash (an SD, CF or similar adapter)? | `hdd` or `flash` |
-| How much memory? | `32MB` or `64MB` |
+The one thing it cannot tell is which battery is fitted, so it asks once, the first time it starts (just after the legal notice), on a screen titled **Battery**: **Stock** for the original battery, **2,000 mAh** for a replacement of about that size, or **3,000 mAh** for a replacement of 3,000 mAh or more. Turn the wheel to your answer and press the centre button. The answer sets the battery gauge and how long the player waits before it sleeps deeply; if you are not sure, choose **Stock**.
 
 > [!NOTE]
-> 0.8.2 includes all eight downloads, but only **flash, 64 MB, modded (USB-C with haptics)** has been tested on a real player. The other seven are untested. They should work, and reports from them are very welcome.
+> Only a flash, 64 MB player with a 3,000 mAh battery and USB-C has been tested on real hardware. Hard-drive players, 32 MB players, original batteries and the 30-pin dock connector should work, and reports from them are very welcome.
 
-"Modded" is one choice that stands for all three changes together. If your player has only some of them (for example a bigger battery but the original dock connector), no download fits exactly. Pick the one that matches the battery, and expect the USB icon or the haptic tap to be wrong. Tell us which mix you have.
-
-How to tell:
-
-- **Hard drive or flash:** if you opened the player and swapped the drive for a memory-card adapter, it is flash. If you never opened it, it is a hard drive.
-- **32 or 64 MB:** the 30 GB models have 32 MB. The 60 GB and 80 GB models have 64 MB. Flash-modded players keep the memory they started with, so go by the original capacity. Once you have `ipodpatcher` (see below), `ipodpatcher -l` also prints the model and, where it can tell, the memory.
 - **Right player:** this firmware is only for the iPod Video (5th generation and 5.5 generation, "5G" and "5.5G"). Never put it on an iPod Classic, nano, mini or any other model.
-
-> [!WARNING]
-> A wrong pick can leave the player running with the wrong battery gauge, buffer sizes or memory use, or fail to start. If that happens, put the right zip's files over the top (see "Updating" below); your music stays where it is. Do not guess "hard drive, 32 MB" for a unit you are unsure about; check first.
 
 ## Before you install
 
@@ -61,10 +48,10 @@ How to tell:
 
 Each release page lists a `SHA256SUMS` file. After downloading, compute the zip's checksum and compare it with the matching line in that file. Every character must match. If it does not, download again.
 
-- **macOS and Linux:** `shasum -a 256 ProkBox5g-0.8.2-modded-flash-64MB.zip` (on Linux you can also use `sha256sum`).
-- **Windows (Command Prompt or PowerShell):** `certutil -hashfile ProkBox5g-0.8.2-modded-flash-64MB.zip SHA256`
+- **macOS and Linux:** `shasum -a 256 ProkBox5g-0.8.3.zip` (on Linux you can also use `sha256sum`).
+- **Windows (Command Prompt or PowerShell):** `certutil -hashfile ProkBox5g-0.8.3.zip SHA256`
 
-Use your own file's name in place of the example. 0.8.2 is marked as a pre-release on the download page.
+Use your own file's name in place of the example. 0.8.3 is marked as a pre-release on the download page.
 
 ## Get ipodpatcher
 
@@ -84,13 +71,13 @@ Check it against `SHA256SUMS` as above. Save it in the same folder as the unzipp
 - **macOS and Linux:** put `sudo` in front of every `ipodpatcher` command below.
 - **Windows:** open the Start menu, type `cmd`, right-click Command Prompt and choose "Run as administrator". Use that window for every command, after changing into the folder that holds `ipodpatcher.exe` and the unzipped files (`cd` followed by the folder's path).
 - **macOS:** the downloaded tool is not signed by a registered developer and may be blocked. If so, allow it under System Settings › Privacy & Security, or remove the download mark with `xattr -d com.apple.quarantine ipodpatcher`; or build it yourself (see the advanced note above).
-- **Linux:** run it with `sudo`; the player appears as a disk such as `/dev/sdb`. Check with `lsblk` that you are pointing at the player and nothing else. We have not tried these steps on Linux for 0.8.2 yet; reports are welcome.
+- **Linux:** run it with `sudo`; the player appears as a disk such as `/dev/sdb`. Check with `lsblk` that you are pointing at the player and nothing else. We have not tried these steps on Linux for 0.8.3 yet; reports are welcome.
 
 Connect only one iPod at a time.
 
 ## Install
 
-There is no installer app in 0.8.2. You install by hand, in this order: save a backup, copy the ProkBox files and check them, then add the start-up program last. Set aside about 20 minutes.
+There is no installer app in 0.8.3. You install by hand, in this order: save a backup, copy the ProkBox files and check them, then add the start-up program last. Set aside about 20 minutes.
 
 > [!WARNING]
 > Take the firmware-partition backup **once**, on a player that has never had ProkBox installed. Never run it again on an installed player: that would overwrite the good backup with a copy of the ProkBox start-up program, and restoring it later would put ProkBox back instead of Apple's software. Put a date in the name and keep the file somewhere safe, one per player.
@@ -113,9 +100,9 @@ If anything fails halfway, do not unplug: read the message, and run the same com
 
 To move to a newer version, you only replace the files. You do not repeat the backup or the start-up program step.
 
-1. Download and check the new zip for the same variant.
+1. Download and check the new zip.
 2. Connect the player, show hidden files, and copy the new zip's dot-folder and files over the old ones, agreeing to replace them. Your settings, library, play counts and resume points are kept.
-3. Eject and restart. The first-start notice appears again.
+3. Eject and restart. The first-start notice appears again. Coming from 0.8.2 or earlier, the player also asks once which battery is fitted (see "Pick the right download").
 
 Run `ipodpatcher` again only if the release notes say the start-up program changed.
 

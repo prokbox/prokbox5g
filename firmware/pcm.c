@@ -108,6 +108,41 @@ volatile pcm_status_callback_type
 /* PCM playback state */
 volatile bool pcm_playing SHAREDBSS_ATTR = false;
 
+#ifdef HAVE_PCM_WAIT_REPORT
+/* ProkBox #312: the driver's bounded waits (pcm-pp.c) run under the PCM
+ * lock or in the FIQ; each one that reached its bound is logged here, at
+ * the next start or stop, in thread context on the CPU */
+static void (*pcm_fault_log)(const char *fmt, ...);
+static unsigned long pcm_fault_seen;
+
+void pcm_set_fault_log(void (*log)(const char *fmt, ...))
+{
+    pcm_fault_log = log;
+}
+
+/* ui_log never yields on the CPU (a RAM ring), so this is safe where the
+ * mixer still holds the PCM lock around pcm_play_data() */
+static void pcm_report_waits(void)
+{
+    struct pcm_wait_fault f;
+
+    pcm_builtin_wait_fault(&f);
+    if (f.count == pcm_fault_seen)
+        return;
+    if (pcm_fault_log)
+        pcm_fault_log("PCM FAULT: %s wait reached its bound (%lu since "
+                      "boot, +%lu): fifo=%08lx dma=%08lx %lu us, %s",
+                      f.what == PCM_WAIT_FIFO ? "I2S FIFO drain" :
+                      "DMA channel stop", f.count, f.count - pcm_fault_seen,
+                      f.fifo, f.dma, f.us,
+                      f.recovered ? "cleared the FIFO" :
+                      "gave up (the codec's clocks off?)");
+    pcm_fault_seen = f.count;
+}
+#else
+#define pcm_report_waits() do { } while (0)
+#endif
+
 struct pcm_sink* pcm_get_current_sink(void)
 {
     return sinks[cur_sink];
@@ -385,6 +420,17 @@ void pcm_play_data(pcm_play_callback_type get_more,
 {
     logf("pcm_play_data");
 
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER) && defined(HAVE_DAC_STANDBY)
+    /* ProkBox #312: the codec's clocks before any start, whoever starts
+     * (the mixer has woken it already; a bench row or a self-test that
+     * starts the PCM itself may not have).  The idle time first, so the
+     * audio thread's poll cannot begin a standby after this look; then a
+     * wake only if asleep: the mixer calls in under pcm_play_lock, where
+     * dac_wake() (a mutex, I2C) must not run (P15 review H3) */
+    dac_busy_now();
+    if (dac_in_standby())
+        dac_wake();
+#endif
     pcm_play_lock();
 
     pcm_callback_for_more = get_more;
@@ -409,6 +455,7 @@ void pcm_play_data(pcm_play_callback_type get_more,
     }
 
     pcm_play_unlock();
+    pcm_report_waits();
 }
 
 void pcm_play_stop(void)
@@ -424,6 +471,7 @@ void pcm_play_stop(void)
     }
 
     pcm_play_unlock();
+    pcm_report_waits();
 }
 
 /**/

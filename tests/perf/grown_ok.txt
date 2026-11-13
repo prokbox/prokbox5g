@@ -1,0 +1,5 @@
+# Hot functions whose growth past 64 B is intended (tests/perf/layout_diff.py):
+# "<symbol> <max size in bytes> <reason>", one per line. NEW may be at most
+# that big; a line without a size or reason is refused.
+lcd_update_rect 812 "#324: power gate + bounded port lock"
+audio_fill_file_buffer 1188 "p083-int6: GCC now inlines audio_load_track (888 B, single caller) after #262 (tag copy) and #326 (fill hold); the pair was 204+888=1092 B, now 1188 B (+96 B net)"

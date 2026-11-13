@@ -223,6 +223,7 @@ States: **NORMAL**, **FACE** (panel on; the backlight may be off *or on*) and
 | FACE_ASLEEP | backlight on without a button (Hold on, charger) | FACE (lit) | `lcd_awake()` pushes the framebuffer, which is the current face |
 | FACE / FACE_ASLEEP | **any button** (press, wheel touch or turn) | NORMAL | **Consumed** ⚠️: the press and its repeats and release are swallowed. Redraw the previous screen in full (`ui_invalidate(UI_DIRTY_ALL)`). The backlight comes on |
 | FACE / FACE_ASLEEP | **Hold slid off** | NORMAL | As for a button: restore the previous screen |
+| FACE, then a soft sleep (the idle timer) | **a button wakes it**, or one is pressed in the sleep's entry window | NORMAL | The waking press is the **only** one swallowed (owner, 2026-11-12): the sleep swallows it to its release and the face leaves in the same step (`sleep.c`, `ui_unlit_dismiss()`), so the next press acts. The wake redraws the top screen. Hold, USB, an alarm or a charger ending the sleep keep their own rows |
 | any | USB connected | (USB screen) | Leave the face first (state → NORMAL). The USB screen draws over it and keeps its own dark-time behaviour (spec: its animation stops while dark). The face is **never** shown over the USB screen ⚠️ |
 | any | alarm / sleep timer / shutdown | NORMAL | The event's own screen wins |
 

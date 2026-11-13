@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2002 by Björn Stenberg
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -26,7 +27,16 @@ extern void init_tick(void) INIT_ATTR;
 
 #define HZ      100 /* number of ticks per second */
 
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+/* ProkBox: the shell's own tick tasks (fe_be, audiophile, codec_cop,
+ * pgov, hang_watch, #298's track-change kick) filled upstream's 8 slots:
+ * the PCM fade's add at a pause or stop then panicked ("out of tasks").
+ * A slot is one pointer; call_tick_tasks() stops at the first NULL, so
+ * spare slots cost no time. */
+#define MAX_NUM_TICK_TASKS 12
+#else
 #define MAX_NUM_TICK_TASKS 8
+#endif
 
 /* global tick variable */
 #if defined(CPU_PP) && defined(BOOTLOADER) && \

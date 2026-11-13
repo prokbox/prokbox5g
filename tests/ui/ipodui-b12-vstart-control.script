@@ -1,0 +1,72 @@
+# #340's control: the normal ways out of a video show no error page
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-b12-vstart-control.script
+# needs: video
+# timeout: 150
+#
+# The start rules of #340 (the player's audio grace, the screen's
+# no-audio and no-picture failures) must leave every normal exit as it
+# was: none shows the error page or logs a failure.
+#   menu: MENU while playing                      -> back to Movies
+#   next: NEXT with no chapters runs the audio out -> back to Movies
+#   end:  Short Film plays to its end (13 s)       -> back to Movies
+#
+# Audio First (/Misc, no chapters; listed under Movies), Short Film.
+# Each play starts from 0 with video_screen (ui_video_play(path, -1): no
+# resume point), over the Movies list as the list's own play is: a
+# leftover per-file resume spot (#154) from an earlier script on the
+# same disk would otherwise start Audio First near its end.
+
+# golden: skip
+# trace: video
+# logbetween: menu menu_out video leave audio=0
+# logbetween: next next_out video end hold=0
+# logbetween: fin fin_out video end hold=0
+# logbetween: menu fin_out no video error page
+# logbetween: menu fin_out no ipodui: video failed
+# logbetween: menu fin_out no audio never
+# nolog: splash
+wait 4000
+wait_db 45000
+art_wait 60000
+repeat off
+rm_file /.rockbox/.sim_vaudio_late
+rm_file /.rockbox/.sim_vaudio_never
+rm_file /.rockbox/.sim_vaudio_nofile
+video_fault decode 0
+wheel +1 300
+wait 600
+key SELECT          # Videos
+wait 900
+key SELECT          # Movies
+wait 1200
+
+# -- MENU -----------------------------------------------------------------
+ab_mark menu
+video_screen /Misc/Audio%20First.m4v
+wait 4000
+expect_video 10 playing
+key MENU
+wait 1500
+expect_video 0 none
+ab_mark menu_out
+
+# -- NEXT -----------------------------------------------------------------
+ab_mark next
+video_screen /Misc/Audio%20First.m4v  # again
+wait 4000
+expect_video 10 playing
+key NEXT            # no chapters: the end
+wait 3000
+# no expect_video here: the seek to the end makes the sim's decoder log
+# decode errors (p19-video-exit's note); with pictures shown they are no
+# failure, which is what this checks ("video end", no error page)
+shot next_list
+ab_mark next_out
+
+# -- the end of the video -------------------------------------------------
+ab_mark fin
+video_screen /Movies/Short%20Film.m4v   # 13 s
+wait_pos 12000 40000 Film.m4v
+wait 3000
+shot end_list
+ab_mark fin_out

@@ -217,6 +217,80 @@ static void sample_output_auto(struct sample_io_data *this,
 }
 #endif /* HAVE_IPOD_UI || WARBLE */
 
+#ifdef DSP_OUT_S24
+/* ProkBox #268: 24-bit output, one int32 a sample with the 24 bits at the
+ * top and the low byte 0, interleaved.  Rounded, never dithered: at 24
+ * bits the rounding error sits below the codec's own noise.  The DSP's
+ * word holds frac_bits + 1 bits of signal (28: WORD_FRACBITS + 1), so a
+ * 24-bit source arrives as s << (frac_bits + 1 - 24) and leaves exactly
+ * as s (a 16-bit source as s << 8): bit-exact at unity, the host test's
+ * claim (tests/audiophile/) */
+static inline int32_t clip_sample_24(int32_t s)
+{
+    if ((int32_t)(s + 0x800000) >> 24)
+        s = 0x7fffff ^ (s >> 31);
+    return s;
+}
+
+static void sample_output_mono_s24(struct sample_io_data *this,
+                                   struct dsp_buffer *src,
+                                   struct dsp_buffer *dst)
+{
+    int count = this->outcount;
+    const int32_t *s0 = src->p32[0];
+    int32_t *d = dst->p32out;
+    int scale = src->format.output_scale - 8;
+    int32_t dc_bias = scale > 0 ? 1L << (scale - 1) : 0;
+
+    do
+    {
+        int32_t lr = clip_sample_24((*s0++ + dc_bias) >> scale) << 8;
+        *d++ = lr;
+        *d++ = lr;
+    }
+    while (--count > 0);
+}
+
+static void sample_output_stereo_s24(struct sample_io_data *this,
+                                     struct dsp_buffer *src,
+                                     struct dsp_buffer *dst)
+{
+    int count = this->outcount;
+    const int32_t *s0 = src->p32[0];
+    const int32_t *s1 = src->p32[1];
+    int32_t *d = dst->p32out;
+    int scale = src->format.output_scale - 8;
+    int32_t dc_bias = scale > 0 ? 1L << (scale - 1) : 0;
+
+    do
+    {
+        *d++ = clip_sample_24((*s0++ + dc_bias) >> scale) << 8;
+        *d++ = clip_sample_24((*s1++ + dc_bias) >> scale) << 8;
+    }
+    while (--count > 0);
+}
+
+/* The audio DSP's output depth (16 or 24), from the next block.  Set by
+   playback with the PCM buffer's frame size (apps/pcmbuf.c), the codec
+   stopped.  Under the DSP's cross-core lock like every other setter
+   (data-paths R7 item 9): with the DSP on the COP (#282) the lock's
+   release writes the CPU's cache back and the COP's next take drops its
+   own lines, so the COP's next dsp_process() sees the new depth */
+void dsp_set_output_depth(struct dsp_config *dsp, int bits)
+{
+    struct sample_io_data *data = (void *)dsp;
+    uint8_t depth = bits > 16 ? 24 : 16;
+
+    dsp_xcore_lock();
+    if (depth != data->output_depth)
+    {
+        data->output_depth = depth;
+        data->output_version = 0; /* Force format update */
+    }
+    dsp_xcore_unlock();
+}
+#endif /* DSP_OUT_S24 */
+
 /* Initialize the output function for settings and format */
 void dsp_sample_output_format_change(struct sample_io_data *this,
                                      struct sample_format *format)
@@ -240,12 +314,21 @@ void dsp_sample_output_format_change(struct sample_io_data *this,
     if (!dither && dsp_get_id((void *)this) == CODEC_IDX_AUDIO)
         this->output_samples = sample_output_auto;
 #endif
+#ifdef DSP_OUT_S24
+    /* #268: 24-bit frames: rounded, no dither (only the audio DSP) */
+    if (this->output_depth > 16 && dsp_get_id((void *)this) == CODEC_IDX_AUDIO)
+        this->output_samples = channels > 1 ? sample_output_stereo_s24
+                                            : sample_output_mono_s24;
+#endif
     this->output_version = format->version;
 }
 
 void dsp_sample_output_init(struct sample_io_data *this)
 {
     this->output_version = 0;
+#ifdef DSP_OUT_S24
+    this->output_depth = 16;
+#endif
     this->output_samples = sample_output_stereo;
 }
 

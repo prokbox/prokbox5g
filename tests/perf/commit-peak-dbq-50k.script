@@ -5,9 +5,10 @@
 # then commits with the queue still current. The peak margin is the
 # "floor_watch commit_peak free" minimum against the 7.5 MB floor (32 MB),
 # and the queue is rebased after the publication (dbq rebase).
-#   SIM_BUILD=build/sim-ui32 SIMDISK=<a clone of build/sim-50k/simdisk> \
+#   SIM_BUILD=build/sim-ui SIMDISK=<a clone of build/sim-50k/simdisk> \
 #     scripts/shots.sh tests/perf/commit-peak-dbq-50k.script
 # golden: skip published
+# env: IPODUI_SIM_RAM=32
 # fulls-extra: 2 snapshot_play pushes Now Playing and the stop returns
 # log: dbq build n=
 # log: dbq rebase block=

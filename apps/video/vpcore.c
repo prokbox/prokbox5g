@@ -821,6 +821,17 @@ static uint32_t open_mode(const struct vpc *v)
            ((v->be->open_flags ? v->be->open_flags() : 0) & ~v->open_drop);
 }
 
+/* Every OPEN goes through here (#325): what it asked for is the
+   session's record for the stop */
+static int open_now(struct vpc *v)
+{
+    uint32_t m = open_mode(v);
+
+    if (m & HP_OPEN_SELFTEST)
+        v->selftest_sent = true;
+    return bvp_open(&v->bvp, v->hdr.width, v->hdr.height, m);
+}
+
 static uint32_t sdc_word(uint32_t off)
 {
     return 0xA55A0000u ^ off ^ (off << 13);
@@ -882,7 +893,7 @@ static void sdram_check(struct vpc *v)
    to the log either way (hostproto.md, "OPEN") */
 static int open_session(struct vpc *v)
 {
-    int rc = bvp_open(&v->bvp, v->hdr.width, v->hdr.height, open_mode(v));
+    int rc = open_now(v);
 
     if (rc == HP_E_NOMEM && (open_mode(v) & HP_OPEN_FAST_CLOCK))
     {
@@ -890,7 +901,7 @@ static int open_session(struct vpc *v)
         say(v, "sdram: probe read", v->bvp.sd[2], v->bvp.sd[3]);
         memcpy(v->sd_pll, v->bvp.sd, sizeof(v->sd_pll));
         v->open_drop |= HP_OPEN_FAST_CLOCK;
-        rc = bvp_open(&v->bvp, v->hdr.width, v->hdr.height, open_mode(v));
+        rc = open_now(v);
     }
     if (v->bvp.sd_n)
         say(v, rc == HP_OK ? "sdram: up" : "sdram: failed",
@@ -977,7 +988,7 @@ static int session_restart(struct vpc *v)
     v->eos_posted = false;
     v->first_set = false;
     bvp_close(&v->bvp, 0);
-    rc = bvp_open(&v->bvp, v->hdr.width, v->hdr.height, open_mode(v));
+    rc = open_now(v);
     v->st.in_flight = 0;
     if (rc != HP_OK)
         return rc;
@@ -2291,7 +2302,10 @@ void vpc_stop(struct vpc *v)
            (VPC_FAILED) sessions have cut the chip, and a port read of a
            cut chip is unmeasured on silicon (the laptop's emulator,
            2026-11-08: dark, hibernate, then the stop at power-off) */
-        if (v->state == VPC_PLAYING || v->state == VPC_DONE)
+        /* (#325: not after the self-test, whose scratch overwrote these
+           words with its chroma ramp: b12's "22088, 29284") */
+        if ((v->state == VPC_PLAYING || v->state == VPC_DONE) &&
+            !v->selftest_sent)
         {
             uint32_t blk, sd, sr, mhz;
 
@@ -2324,14 +2338,22 @@ void vpc_stop(struct vpc *v)
     case VPC_DONE:
         read_guard(v);
         /* only a session the image closed hands back: an open one keeps
-           the panel (HP_OPEN_OWN_DISPLAY drops the driver's updates) */
-        if (bvp_close(&v->bvp, 0) == HP_OK && v->be->hand_back &&
-            v->be->hand_back() == 0)
+           the panel (HP_OPEN_OWN_DISPLAY drops the driver's updates).
+           #325: nor one that ran the developer self-test.  Its scratch
+           (bcmfw/video/video.h VIDEO_ST_AREA, 0xDDE00-0xDF000) overlays
+           the job block (0xDE000), which the image writes only at its
+           start: kept, the job driver found the self-test's chroma ramp
+           in J_VERSION (b12 silicon) and stayed on the CPU.  The cut
+           below starts the image afresh at the next wake. */
+        if (bvp_close(&v->bvp, 0) == HP_OK && !v->selftest_sent &&
+            v->be->hand_back && v->be->hand_back() == 0)
         {
             /* the resident image stays: no power cut, no dark panel */
             say(v, "video: panel handed back, image kept", 0, 0);
             break;
         }
+        if (v->selftest_sent)
+            say(v, "video: self-test ran: image not kept", 0, 0);
         /* fall through */
     case VPC_ASLEEP:
         v->be->cut();

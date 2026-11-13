@@ -169,6 +169,10 @@ void ui_panel_hide(void);
  * strip): draws the wanted panel straight into the framebuffer, no fade;
  * the caller pushes it with the rest of the screen. */
 void ui_panel_draw_now(void);
+/* A band of the LCD panel (panel rows y .. y+h-1) repainted plain in
+ * place by a panel's owner, outside the compose: gets the seam shadow
+ * once. The caller settled it (ui_fb_settle()) and pushes it after. */
+void ui_panel_shadow_band(int y, int h);
 /* After a full draw: whether the panel ui_panel_draw_now() drew differs
  * from what the LCD shows (another row's panel, new content, a fade cut
  * short, or nothing valid there). A caller that pushed the whole screen

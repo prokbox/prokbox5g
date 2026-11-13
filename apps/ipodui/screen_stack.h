@@ -78,6 +78,12 @@ struct ui_screen_ops {
      * which stays under it on the stack (no leave()). The video screen
      * ends its session here: a video never plays on behind a screen. */
     void (*covered)(struct ui_screen *s);
+    /* optional (#270): a small box drawn over the screen beneath (the
+     * high-rate fallback popup). Its full redraw first draws that screen
+     * (header and body, ui_under()), so a wake from the dark face or any
+     * other repaint shows both; its own draw() then paints only the box.
+     * Set it with header_w = UI_HEADER_NONE. */
+    bool overlay;
 };
 
 struct ui_screen {
@@ -149,6 +155,9 @@ void ui_pop_request_cut(struct ui_screen *s);
 bool ui_take_pop_cut(void);
 bool ui_take_pop_request(void);
 struct ui_screen *ui_top(void);
+/* The screen just beneath 's' on the stack, NULL for the root or a
+ * screen not on the stack (#270: an overlay's full redraw) */
+struct ui_screen *ui_under(const struct ui_screen *s);
 int  ui_depth(void);
 
 /* Screen lifetime (#38 fix round): a screen's slot is reused after it
@@ -224,17 +233,22 @@ void ui_clear_dirty(void);
  *   arena full need=<bytes> free=<bytes>   (ui_arena_alloc() returned NULL;
  *                                           the screen does not log it again)
  */
+/* P12 W3-K: 8 KB + 1 KB, so a paged Notes list (8 KB) keeps the 1 KB the
+ * screens over it take (the charging screen, the lock); #295 (0.8.3):
+ * + 4 KB, the visualizer's tap ring at the 96 kHz top rate (#268/#270:
+ * the mixer's frames, and so the ring, are twice the 48 kHz ones; its
+ * 8,239 B did not fit beside the view's state, and the fallback is
+ * refused while audio plays: "viz tap open rc=-3") */
+#define UI_ARENA_SIZE_DEV   (9216 + 4096)
 #ifndef SIMULATOR
-#define UI_ARENA_SIZE   9216        /* P12 W3-K: 8 KB + 1 KB, so a paged
-                                       Notes list (8 KB) keeps the 1 KB the
-                                       screens over it take (the charging
-                                       screen, the lock) */
+#define UI_ARENA_SIZE   UI_ARENA_SIZE_DEV
 #else
 /* #126: the simulator's mixer frames are 4x the device's (1,024 frames),
- * so the visualizer's tap ring is 16,431 B there against 4,143 on the
- * device: the simulator's arena carries the difference, so it takes the
- * device's path (the ring in the arena), never the fallback */
-#define UI_ARENA_SIZE   (9216 + 12288)
+ * so the visualizer's tap ring is 32,815 B there against 8,239 on the
+ * device (both at 96 kHz): the simulator's arena carries the difference
+ * (and its 64-bit state's), so it takes the device's path (the ring in
+ * the arena), never the fallback (viz.c asserts it) */
+#define UI_ARENA_SIZE   (UI_ARENA_SIZE_DEV + 24576 + 512)
 #endif
 #define UI_ARENA_ALIGN  8
 /* Shell start (ui_main.c): the arena's memory, 'size' bytes at 'base'
@@ -277,10 +291,16 @@ void     ui_arena_reset(uint16_t mark); /* mark <= top, else logged and
 #define UI_ARENA_B_LEGAL        2048    /* screens/legal.c (U2b) */
 #define UI_ARENA_B_CHARGING     64      /* sysscreen.c (U2b) */
 #define UI_ARENA_B_UPDATE       64      /* updscreen.c (#157, #237) */
-#define UI_ARENA_B_VIZ          4640    /* viz.c (#126): the view's state
+#ifndef SIMULATOR
+#define UI_ARENA_B_VIZ          8736    /* viz.c (#126): the view's state
                                            (480 B ARM) and the tap's ring
-                                           (viz_tap_bytes(512): 4,143 B);
-                                           only while the view shows, given
-                                           back before the style list */
+                                           (viz_tap_bytes(512): 8,239 B at
+                                           96 kHz, #295); only while the
+                                           view shows, given back before
+                                           the style list */
+#else
+#define UI_ARENA_B_VIZ          (8736 + 24576 + 512)    /* the sim's ring
+                                           (32,815 B) and 64-bit state */
+#endif
 
 #endif /* _IPODUI_SCREEN_STACK_H_ */

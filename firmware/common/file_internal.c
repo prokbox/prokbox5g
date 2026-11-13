@@ -295,8 +295,10 @@ void fill_dirinfo_native(struct dirinfo_native *dinp)
  *    the OEM code page, and FF_NOISO lookups scan as before.
  *  - Shared by every thread: lookups and mutations hold the file writer
  *    lock, listings the reader lock; nothing in here yields. No resident
- *    RAM: a movable core_alloc() made by the first file_walk_cache(true),
- *    freed by the last (false), taken only from free memory (never by
+ *    RAM: a movable core_alloc() made by a file_walk_cache(true) that
+ *    finds none (the first, or a later one after a first had no room),
+ *    freed by the last (false); the users are counted (the library walk
+ *    and the art builder, #332), taken only from free memory (never by
  *    shrinking the audio buffer; no room: no cache). The pointer is
  *    fetched again at every use. */
 #ifndef WALK_CACHE_SLOTS
@@ -389,14 +391,18 @@ void file_walk_cache(bool on)
     const size_t size = WALK_CACHE_SLOTS * sizeof (struct walk_cache_slot);
     int handle = 0;
 
-    /* outside the lock: an allocation may call other owners back */
-    if (on && !walk_cache_users && core_allocatable() >= size + 64)
+    /* outside the lock: an allocation may call other owners back. Also
+     * when others hold it with no block (#332: the art builder's hold,
+     * made with no room, must not leave a library walk that starts later
+     * with free memory uncached); a second block is freed below */
+    if (on && walk_cache_handle <= 0 && core_allocatable() >= size + 64)
         handle = core_alloc(size);
 
     file_internal_lock_WRITER();
     if (on)
     {
-        if (walk_cache_users++ == 0 && handle > 0 && walk_cache_handle <= 0)
+        walk_cache_users++;
+        if (handle > 0 && walk_cache_handle <= 0)
         {
             memset(core_get_data(handle), 0, size);
             walk_cache_handle = handle;

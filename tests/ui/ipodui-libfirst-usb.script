@@ -13,6 +13,7 @@
 # The scan begins 6 s after the unplug (scan_begin_delay), as on the
 # device, where the art pass began its panels in that moment (owner log
 # 2026-11-10: "art panel cpu ms=14120" before the scan, page 51 s).
+# #315: the page is up at the push (no second's grace: no "upd show").
 # Not a red test on 09791e053f: the sim's handover is quicker than the
 # device's, and the old gate held there; the red one is
 # ipodui-libfirst-scan.script. This one guards the page (its steps,
@@ -24,8 +25,8 @@
 # nolog: art libwork
 # nolog: art fail
 # nolog: upd bar back
-# logbetween: l0 l1 upd push mode=unplug
-# logbetween: l0 l1 upd show ms=
+# logbetween: l0 l1 upd push mode=unplug shown=1
+# logbetween: l0 l1 update screen shown ms=0 n=
 # logbetween: l0 l1 upd draw bar=\d+ step=[12]
 # logbetween: l0 l1 no art build album key=bc0254065027d9b4
 # logbetween: l1 l2 upd done ms=

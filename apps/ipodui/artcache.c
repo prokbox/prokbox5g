@@ -225,11 +225,10 @@
  * script command "disk_active <ms>" (uisimulator/common/sim_cmd_art.c)
  * sets it directly. */
 #ifdef SIMULATOR
-#ifdef HAVE_FLASH_STORAGE
-#define SIM_SPINDOWN    (1*HZ)      /* ata.c ATA_SLEEP_TIMEOUT_DEFAULT (C1) */
-#else
-#define SIM_SPINDOWN    (5*HZ)      /* ata.c sleep_timeout default */
-#endif
+/* ata.c's idle hold: 1 s solid (C1), 5 s rotating or the disk_spindown
+ * setting; the sim's disk model keeps it (#79, filesystem-sim.c) */
+long sim_ata_hold_ticks(void);
+#define SIM_SPINDOWN    sim_ata_hold_ticks()
 extern long sim_disk_active_until;
 static bool disk_active(void)
 {
@@ -468,6 +467,48 @@ static void fast_boost(bool on)
 #define fast_boost(on) ((void)(on))
 #define FAST_BOOSTED() false
 #endif
+
+/* #332: the folder walk cache (#243, file_walk_cache()) for the art
+ * lookups. search_albumart_files() makes up to 19 file_exists() probes
+ * for an album without a cover, and each one resolved /Music, the artist
+ * and the album folder by scanning them from their first entry (74 % of
+ * the art thread at 50k on the laptop's emulator). The builder holds one
+ * reference from its first lookup in a pass (find_file()) through the
+ * short gap between albums, and gives it back before every wait that can
+ * last: a pause or sleep entry, the user active, the library build (a
+ * wait or a park), USB (before the ack, as tagcache's walk does), a
+ * power-off, and the pass's end (done, a request, an error). The cache
+ * is reference-counted in file_internal.c (tagcache's walk may hold it
+ * too: the last off frees it), shared under the file locks, and made
+ * only from free memory (2 KB; no room: plain lookups). No disk I/O on
+ * either side. Builder thread only. Traces:
+ *   art walk hold
+ *   art walk drop why=<w> probes=<n> cold=<n>   (this pass so far: the
+ *       probes made while held, and without the hold) */
+static bool walk_ok;                /* a pass or an NP render runs */
+static bool walk_held;
+static unsigned long walk_probes, walk_cold;
+
+static void walk_hold(void)
+{
+    if (walk_held || !walk_ok || thread_self() != art_thread_id)
+        return;
+    file_walk_cache(true);
+    walk_held = true;
+    UPDATE_TRACE("art walk hold%s", "");
+}
+
+static void walk_drop(const char *why)
+{
+    if (!walk_held)
+        return;
+    file_walk_cache(false);
+    walk_held = false;
+    UPDATE_TRACE("art walk drop why=%s probes=%lu cold=%lu", why,
+                 walk_probes, walk_cold);
+    (void)why;
+}
+
 static volatile int commit_seq;     /* + 1 after every index rename */
 static volatile bool reader_stale;  /* USB: the UI reopens its fds */
 static volatile bool stopped;       /* power-off / reboot under way */
@@ -499,7 +540,10 @@ static volatile long sim_panel_hold; /* art_panel_hold (ms) */
  * block is the test's, not a stuck thread; scripts/check_hang_rule.py) */
 static void sim_hold_sleep(long ms)
 {
-    int hw = hang_idle_begin();
+    int hw;
+
+    walk_drop("hold");              /* #332 */
+    hw = hang_idle_begin();
 
     sleep(ms * HZ / 1000);
     hang_idle_end(hw);
@@ -1114,6 +1158,7 @@ static void art_gate(void)
 
         if (lib_busy())
             UPDATE_TRACE("art yield lib at=%s", "gate");
+        walk_drop("park");          /* #332 */
         resize_boost_release();
         fast_boost(false);
 #ifdef SIMULATOR
@@ -1469,6 +1514,7 @@ static void pace_defer(void)
     long t0 = current_tick;
     int hw;
 
+    walk_drop("input");             /* #332 */
     resize_boost_release();
     fast_boost(false);              /* never boosted while it waits */
     while (pace_input() && !stopped && !usb_owns_disk()
@@ -1510,6 +1556,7 @@ static void lib_defer(void)
     int hw;
 
     UPDATE_TRACE("art yield lib at=%s", "pace");
+    walk_drop("db");                /* #332 */
     resize_boost_release();
     fast_boost(false);              /* never boosted while it waits */
     while (lib_busy() && !stopped && !usb_owns_disk() && !sleep_hold
@@ -1588,6 +1635,13 @@ static void art_pace_probe(void)
 #else
     art_pace_at();
 #endif
+    if (thread_self() != art_thread_id)
+        return;                     /* another thread's search */
+    walk_hold();                    /* #332: again, if the point waited */
+    if (walk_held)
+        walk_probes++;
+    else
+        walk_cold++;
 }
 
 /* ======================================================================= */
@@ -2780,6 +2834,9 @@ static int pump(int ticks)
         return 0;
     case SYS_USB_CONNECTED:
         artidx_close(&bw->rd);      /* the only fd held across a wait */
+        walk_drop("usb");           /* #332: freed before the ack, as
+                                       tagcache's walk ends before its */
+        UPDATE_TRACE("art walk usb held=%d", (int)walk_held);
         UPDATE_TRACE("art build stop %s", "usb");
         fast_boost(false);          /* never boosted through a USB session */
         usb_acknowledge(SYS_USB_CONNECTED_ACK, ev.data);
@@ -2807,6 +2864,7 @@ static int pump(int ticks)
     case SYS_POWEROFF:
     case SYS_REBOOT:
         artidx_close(&bw->rd);
+        walk_drop("off");
         stopped = true;
         stopped_tick = current_tick;
         return EV_OFF;
@@ -2933,6 +2991,7 @@ static int wait_ready(bool gap)
         last_why = why;
         if (!why)
             break;
+        walk_drop(why);             /* #332: never held while it waits */
         if (FAST_BOOSTED())
         {
             fast_boost(false);      /* never boosted while it waits */
@@ -3348,6 +3407,7 @@ static bool syn_pace(void)
         if (!waited)
         {
             waited = true;
+            walk_drop("input");     /* #332 */
             fb = FAST_BOOSTED();
             resize_boost_release();
             fast_boost(false);      /* never boosted while it waits */
@@ -3698,6 +3758,7 @@ static bool find_file(struct bwork *w, bool from_tags)
         w->id3.artist = w->artist[0] ? w->artist : NULL;
         w->id3.albumartist = w->aartist[0] ? w->aartist : NULL;
     }
+    walk_hold();                    /* #332: the probes' folder lookups */
 #ifdef HAVE_BCMFW_VIDEO
     if (search_albumart_files(&w->id3, "", w->src, sizeof(w->src)))
         return true;
@@ -5065,11 +5126,13 @@ static bool source_unchanged(struct bwork *w, const struct artcache_rec *old)
          * file never: S1) */
         return !syn && old->src_kind != ARTSRC_FILE;
     }
+    if (old->src_kind == ARTSRC_EMBEDDED && prefer_emb)
+        return true;                /* no file would win: no search */
     ART_PACE();
     found = find_file(w, true);
     ART_PACE();
     if (old->src_kind == ARTSRC_EMBEDDED)
-        return prefer_emb || !found;    /* a new file would win */
+        return !found;              /* a new file would win */
     if (old->src_kind != ARTSRC_FILE)
         return !found;                  /* NOART: still none */
     if (!found || artkey_fnv32(w->src) != old->src_hash)
@@ -5149,15 +5212,21 @@ static bool source_sig(struct bwork *w, int want, bool sig2,
         now->src_kind = ARTSRC_SYNCDB;
         return false;
     }
-    ART_PACE();
-    file = find_file(w, false);
-    ART_PACE();
     emb = w->id3.has_embedded_albumart;
     file_first = global_settings.album_art != AA_PREFER_EMBEDDED;
 #ifdef HAVE_BCMFW_VIDEO
     if (w->vid)
         file_first = false;
 #endif
+    /* embedded art first and there is some: it is the first source
+     * whatever the image-file search would find, so no search */
+    file = false;
+    if (file_first || !emb)
+    {
+        ART_PACE();
+        file = find_file(w, false);
+        ART_PACE();
+    }
     if (file && (file_first || !emb))
     {
         int sfd;
@@ -5306,7 +5375,8 @@ static bool png_folder(struct bwork *w)
  * (decoded), ARTREC_NOART or ARTREC_FAILED. */
 static int source_decode(struct bwork *w, struct artcache_rec *rec)
 {
-    bool file_first, ok = false, file, emb, syn, syn_tried = false;
+    bool file_first, ok = false, file, file_known, emb, syn;
+    bool syn_tried = false;
     int fd;
 
     w->source_terminal = false;
@@ -5320,9 +5390,6 @@ static int source_decode(struct bwork *w, struct artcache_rec *rec)
         close(fd);
         return -1;                  /* a metadata read failure is not absence */
     }
-    ART_PACE();
-    file = find_file(w, false);
-    ART_PACE();
     emb = w->id3.has_embedded_albumart;
     file_first = global_settings.album_art != AA_PREFER_EMBEDDED;
 #ifdef HAVE_BCMFW_VIDEO
@@ -5331,6 +5398,16 @@ static int source_decode(struct bwork *w, struct artcache_rec *rec)
     if (w->vid)
         file_first = false;
 #endif
+    /* embedded art first and there is some: the image-file search (up to
+     * 19 probes) waits until that decode fails, its only use then */
+    file = false;
+    file_known = file_first || !emb;
+    if (file_known)
+    {
+        ART_PACE();
+        file = find_file(w, false);
+        ART_PACE();
+    }
     /* #225 S3 (owner Q1): a synced track's cover database image first
      * (thumbnail, Album Flow, Now Playing: no JPEG decode), except for the
      * panel set's 300 px panels, which take the embedded art when there
@@ -5345,6 +5422,12 @@ static int source_decode(struct bwork *w, struct artcache_rec *rec)
         ok = try_file(w, rec);
     if (!ok && emb)
         ok = try_embedded(w, fd, rec);
+    if (!ok && !file_known)
+    {
+        ART_PACE();
+        file = find_file(w, false);
+        ART_PACE();
+    }
     if (!ok && file && !file_first)
         ok = try_file(w, rec);
     if (!ok && syn && !syn_tried)
@@ -6897,7 +6980,10 @@ static void npr_run(struct bwork *w)
     npr_busy = true;
     npr_abort = false;
     npr_t0 = current_tick;
+    walk_ok = true;                 /* #332: its source lookup */
     npr_run_impl(w);
+    walk_ok = false;
+    walk_drop("np");
     npr_busy = false;
 }
 
@@ -9089,11 +9175,43 @@ static void sim_syn_cut(struct bwork *w)
     remove(F_SIMCUT);
     UPDATE_TRACE("art sim cut albums=%ld", seen);
     ui_log("art", "sim cut albums=%ld", seen);
+    walk_drop("cut");               /* #332 */
     hang_idle_begin();              /* stopped on purpose: not hung */
     for (;;)
         sleep(HZ);
 }
 #endif
+
+/* ipodui.log: the album walk's progress, "art progress n=N done=D/T
+ * s=S" (N: the pass's line count), at most every ART_PROG_STEPS-th of
+ * the albums and at most every ART_PROG_TICKS, whichever comes later (a
+ * 50k pass: <= 20 lines; a short pass: none). The log's RAM ring only:
+ * no storage access of its own. The simulator's passes take seconds, so
+ * there the time gate is one tick and the step alone bounds the lines
+ * (ipodui-art-progress.script checks that bound). */
+#define ART_PROG_STEPS 20
+#ifdef SIMULATOR
+#define ART_PROG_TICKS 1            /* the step alone (scripts check it) */
+#else
+#define ART_PROG_TICKS (60 * HZ)
+#endif
+
+struct art_prog {
+    long t0, next_tick;
+    int next_done, n;
+};
+
+static void prog_log(struct art_prog *p)
+{
+    if (!status.running || status.done < p->next_done
+        || TIME_BEFORE(current_tick, p->next_tick))
+        return;
+    ui_log("art", "progress n=%d done=%d/%d s=%ld", ++p->n, status.done,
+           status.total, (current_tick - p->t0) / HZ);
+    p->next_done = status.done
+                   + (status.total + ART_PROG_STEPS - 1) / ART_PROG_STEPS;
+    p->next_tick = current_tick + ART_PROG_TICKS;
+}
 
 static int run_pass_impl(void)
 {
@@ -9101,6 +9219,7 @@ static int run_pass_impl(void)
     const struct artalb_rec *t;
     struct artcache_rec rec;
     long t0 = current_tick;
+    struct art_prog prog;
     bool err;
     int ev, rc = 1;
 
@@ -9124,6 +9243,10 @@ static int run_pass_impl(void)
     syncart_pass(w);                /* #225 S3 (may set w->sweep) */
     status.total = w->thdr.n_albums;
     status.done = 0;
+    prog.t0 = t0;
+    prog.next_tick = t0 + ART_PROG_TICKS;
+    prog.next_done = (status.total + ART_PROG_STEPS - 1) / ART_PROG_STEPS;
+    prog.n = 0;
     build_phase(ARTCACHE_BUILD_PHASE_PREPARE, 0);
     status.running = true;
     UPDATE_TRACE("art build start total=%lu sweep=%d",
@@ -9263,6 +9386,7 @@ static int run_pass_impl(void)
             && io_ok())
             commit(w, false);
         status.done++;
+        prog_log(&prog);
 #ifdef SIMULATOR
         sim_syn_cut(w);
 #endif
@@ -9292,9 +9416,10 @@ finish:
     UPDATE_TRACE("art build done albums=%d ms=%ld", status.done,
                  (current_tick - t0) * (1000 / HZ));
 #endif
-    ui_log("art", "pass done albums=%d s=%ld up=%lu play=%d", status.done,
-           (current_tick - t0) / HZ, (unsigned long)(current_tick / HZ),
-           (int)playing());
+    ui_log("art", "pass done albums=%d s=%ld up=%lu play=%d wp=%lu wc=%lu",
+           status.done, (current_tick - t0) / HZ,
+           (unsigned long)(current_tick / HZ), (int)playing(),
+           walk_probes, walk_cold);    /* #332: probes held / not */
     maintenance = false;
     return 0;
 }
@@ -9302,7 +9427,15 @@ finish:
 static int run_pass(void)
 {
     bw->context = NULL;
+    walk_probes = walk_cold = 0;
+    walk_ok = true;                 /* #332: find_file() may hold it */
     int result = run_pass_impl();
+    walk_ok = false;
+    walk_drop(!result ? "done" : (result & EV_USB) ? "usb"
+              : (result & EV_OFF) ? "off" : (result & EV_REQ) ? "req"
+              : "retry");
+    UPDATE_TRACE("art walk pass ev=%d probes=%lu cold=%lu held=%d", result,
+                 walk_probes, walk_cold, (int)walk_held);
     slice_report();
     if (bw->context)
         tagcache_context_release_passive(bw->context);

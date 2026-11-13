@@ -1,0 +1,84 @@
+# 0.8.3 scope (owner 2026-11-12, "do 24 bit now audiophile later"):
+# IPODUI_AUDIOPHILE and IPODUI_NP_INFO (firmware/export/config/ipodvideo.h)
+# build Settings > Audiophile (#270) and the Now Playing info page (#277)
+# out; 24-bit output (#268) stays on. This script shows all three:
+#   - Settings: Sound Check (row 10) is followed by Clicker, no Audiophile
+#     row drawn anywhere in the list (shots sound_check, after_sound_check,
+#     sort_by: the inline values sit on their own rows);
+#   - a 96 kHz 24-bit FLAC (tests/ui/fixtures/rate96k-24bit.flac, 6 s of
+#     digital silence: the depth and rate are in its header) plays at
+#     48 kHz 24-bit: the rated clock, the full depth;
+#   - Now Playing's SELECT cycle goes Shuffle -> Visualizer: no Info page
+#     (nothing with "kHz" drawn through the cycle).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p083-scope.script
+# needs: library
+# trace: np
+# golden: skip np_normal np_shuffle
+# reset: mainmenu
+# log: audio output 48000 Hz 24-bit for 96000 Hz 24-bit
+# log: np mode shuffle -> visualizer ev=0
+# log: np mode visualizer -> normal ev=0
+# nolog: -> info
+# nolog: output 96000 Hz
+# nolog: output 88200 Hz
+# nolog: audiophile
+# np: viz-full
+
+wait 1000
+wait_db 30000
+sim_clock 15:08
+wheel +3            # Settings
+wait 400
+text_mark
+key SELECT
+wait 1500
+wheel +10 300       # Sound Check (row 10)
+wait 900
+shot sound_check
+wheel +1 300        # the next row: Clicker (no Audiophile)
+wait 900
+shot after_sound_check
+wheel +2 300        # Sort By (row 13): its inline value is the right row's
+wait 900
+shot sort_by
+expect_drawn Sound Check   # every row from About to Sort By has been on screen
+expect_drawn Clicker
+expect_not_drawn Audiophile
+key MENU
+wait 1000
+
+repeat all
+copy fixtures/rate96k-24bit.flac /Music/scope96k24.flac
+wait 500
+play_files /Music/scope96k24.flac
+wait 2000
+expect_playing 1000
+key SELECT          # Music (the menu re-reads "Now Playing" after a push/pop)
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 1200
+shot np_normal
+text_mark
+key SELECT          # Scrubber
+wait 500
+key SELECT          # Rating
+wait 500
+key SELECT          # Shuffle
+wait 500
+shot np_shuffle
+key SELECT          # Visualizer (0.9.0 has Info here)
+wait 1200
+key SELECT          # Normal
+wait 800
+expect_not_drawn kHz
+key MENU
+wait 700
+audio_stop
+wait 500
+repeat off
+rm_file /Music/scope96k24.flac
+quit

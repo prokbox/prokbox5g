@@ -9,6 +9,7 @@
 # refused take leaves the job owed, so the regrow is not held off; the
 # floor holds throughout. At the stop it loads and publishes.
 # golden: skip
+# env: IPODUI_SIM_RAM=32
 wait 300
 floor_watch begin
 wait_commit 300000  # the re-sort's commit, then PLAY at once

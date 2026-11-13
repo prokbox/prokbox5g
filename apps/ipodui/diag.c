@@ -203,10 +203,10 @@ static void put_system(struct diag_ctx *c)
                 "release"
 #endif
                 );
-    /* storage-ram-battery-connector-haptics, as configure named it */
+    /* the build's name (ipodvideo-variant.h; one build since 0.8.3) */
     diag_printf(b, "variant: %s\n", IPOD_VARIANT);
 #ifdef SIMULATOR
-    diag_printf(b, "hardware: simulator ram=%d MB\n", MEMORYSIZE);
+    diag_printf(b, "hardware: simulator ram=%u MB\n", (unsigned)probed_ramsize);
 #else
     diag_printf(b, "hardware: rev %08lx ram=%u MB\n",
                 (unsigned long)IPOD_HW_REVISION, (unsigned)probed_ramsize);
@@ -227,12 +227,10 @@ static void put_system(struct diag_ctx *c)
     diag_printf(b, "battery: %d%% %d mV charger=%s charging=%s",
                 battery_level(), battery_voltage(),
                 yesno(charger_inserted()), yesno(charging_state()));
-#ifdef IPOD_BATTERY_MAH
-    if (IPOD_BATTERY_MAH > 0)
-        diag_printf(b, " cell=%d mAh", (int)IPOD_BATTERY_MAH);
-    else
-        diag_printf(b, " cell=stock");
-#endif
+    /* one-build WP3: the first-start answer (0 not answered, 1 the
+     * original cell, 2 about 2,000 mAh, 3 3,000 mAh) and its capacity */
+    diag_printf(b, " cell=%d %d mAh", global_settings.ipodui_battery_cell,
+                get_battery_capacity());
     diag_printf(b, "\n");
 #ifdef HAVE_BATTERY_LEARN
     batcal_status(cal, sizeof(cal));

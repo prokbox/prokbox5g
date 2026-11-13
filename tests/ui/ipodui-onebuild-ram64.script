@@ -1,0 +1,39 @@
+# One build (#204, #236): ipodui-onebuild-ram32's walk as a 64 MB unit
+# (IPODUI_SIM_RAM=64, the default): the whole pool, the 64 MB floor
+# (39,000,000 B) and the #92 panel bank (3 covers a set). OUT2 is on at
+# boot here too. The two scripts' shots must be pixel-identical: the RAM
+# changes buffering and the bank's timing, never a screen.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-onebuild-ram64.script
+# needs: library
+# nolog: splash-pass
+# golden: skip
+# env: IPODUI_SIM_RAM=64
+# log: sim: ram 64 MB
+# nolog: sim: ram 32 MB
+# log: p9 lineout=1
+# nolog: p9 lineout=0
+# log: panel bank covers=3 music=1 books=1
+# logrange: 39000000 66060288 floor ram64 ram_mb=64 audio=(\d+)
+# log: expect_floor ok at ram64 ram_mb=64
+
+wait 5000           # boot to the main menu, "Music" selected
+wait_db 30000       # database built (shots.sh primes it if missing)
+shot main
+key SELECT          # Music
+wait 800
+wheel +1            # "Artists"
+wait 400
+key SELECT
+wait 800
+shot artists
+key SELECT          # the first artist
+wait 800
+key SELECT          # "All Songs"
+wait 800
+shot all_songs
+key SELECT          # its first song: Now Playing
+wait_pos 2000 30000 # playing: the audio session is up
+key PLAY            # pause
+wait 800
+floor ram64
+quit

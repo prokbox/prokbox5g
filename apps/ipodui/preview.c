@@ -33,7 +33,7 @@
  * 300 x 300 RGB565, 180,000 B) and the panel scratch (UI_PANEL_SCRATCH_SIZE,
  * 0 since 8b-3: nothing reserved); 8b-4a's second slot, and #92's
  * banks (PV_COVERS - 1 more covers per set, 360,448 B per set at 3
- * covers; none on 32 MB). The
+ * covers; none on a 32 MB unit, decided at shell start). The
  * next cover and a highlight fade's new panel borrow the strip (anim.h).
  * Nothing allocates afterwards. Statics: one small state struct, the
  * panel viewport and its frame buffer descriptor (< 200 B).
@@ -97,15 +97,12 @@
 /* #92 (Q5): covers per set kept resident: the slot (or the second one)
  * plus a bank of PV_COVERS - 1 more per set (music, books), taken at
  * shell start only. 64 MB: 3. 32 MB: 1 (the bank off, 8b's two slots):
- * the 32 MB library-commit margin cannot spare 360 KB (Q5's rule). */
-#ifndef PV_COVERS
-#if MEMORYSIZE >= 64
+ * the 32 MB library-commit margin cannot spare 360 KB (Q5's rule). One
+ * build (#204): the unit's RAM decides at shell start (PV_BANK_ON); a
+ * timing-only difference, the settled frames are the same. */
 #define PV_COVERS   3
-#else
-#define PV_COVERS   1
-#endif
-#endif
 #define PV_BANK     (PV_COVERS - 1)     /* covers in a set's bank */
+#define PV_BANK_ON  (probed_ramsize >= 64)
 #define PV_BANK_SETS 2                  /* music, books */
 #define PV_BANK_CAP (PV_BANK > 0 ? PV_BANK : 1)
 
@@ -274,6 +271,7 @@ static fb_data *claim(int owner, bool *kept)
  * (artcache.c, the "disk_active <ms>" script command) stands in. */
 #ifdef SIMULATOR
 extern long sim_disk_active_until;
+long sim_ata_hold_ticks(void);  /* #79: ata.c's idle hold, the sim's model */
 static bool disk_awake(void)
 {
     return sim_disk_active_until
@@ -476,6 +474,19 @@ static void shadow_lcd(void)
 {
     /* not ownable: preview.c is the panel's owner; every entry that draws settles first (drift_settle()) */
     ui_shadow_apply(lcd_panel(), LCD_WIDTH, UI_PANEL_H);
+}
+
+/* A band of the LCD panel (rows y .. y+h-1, panel coordinates) that a
+ * panel's owner repainted plain in place, outside ui_panel_compose(), and
+ * is about to push: shadowed once, as every composed panel image is (the
+ * Alarms caption, ui_x_alarms_caption()). The caller settles the band
+ * first (ui_fb_settle()). */
+void ui_panel_shadow_band(int y, int h)
+{
+    if (y < 0 || h <= 0 || y + h > UI_PANEL_H)
+        return;
+    /* not ownable: the caller settled this band (ui_fb_settle()) before it drew */
+    ui_shadow_apply(lcd_panel() + y * LCD_WIDTH, LCD_WIDTH, h);
 }
 
 /* Draws key k into the LCD panel ('off' NULL) or the 160 x 240 strip
@@ -970,11 +981,7 @@ static int load_first(int set)
 #ifdef SIMULATOR
         /* the read wakes storage, as on the device: awake for the ATA
          * idle hold after it (ata.c: 1 s on flash, 5 s on a hard disk) */
-#ifdef HAVE_FLASH_STORAGE
-        sim_disk_active_until = current_tick + HZ;
-#else
-        sim_disk_active_until = current_tick + 5 * HZ;
-#endif
+        sim_disk_active_until = current_tick + sim_ata_hold_ticks();
 #endif
     }
     /* every path that reads: a set read while awake must not leave an
@@ -1422,11 +1429,7 @@ static void np_io(uint64_t key)
         return;
     pv.np_woke = key;
 #ifdef SIMULATOR
-#ifdef HAVE_FLASH_STORAGE
-    sim_disk_active_until = current_tick + HZ;
-#else
-    sim_disk_active_until = current_tick + 5 * HZ;
-#endif
+    sim_disk_active_until = current_tick + sim_ata_hold_ticks();    /* #79 */
 #endif
 }
 
@@ -2640,8 +2643,8 @@ bool ui_preview_reserve(void)
     }
 #if PV_BANK > 0
     /* #92: the banks, at shell start only, after the second slot (the
-     * same rule); without them the drift is 8b's */
-    if (pv.slot2 > 0
+     * same rule), on a 64 MB unit; without them the drift is 8b's */
+    if (pv.slot2 > 0 && PV_BANK_ON
 #ifdef SIMULATOR
         && !getenv("IPODUI_NO_BANK")
 #endif

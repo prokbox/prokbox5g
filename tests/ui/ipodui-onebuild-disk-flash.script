@@ -1,0 +1,66 @@
+# #79 (one build): the storage kind changes drive timing, never what the
+# user sees. This script and ipodui-onebuild-disk-hdd.script have the same
+# body; this one runs the sim's flash model (the default), the other the
+# hard drive's (IPODUI_SIM_DISK=hdd). tests/onebuild/disk_cells.sh runs
+# both and requires every shot pixel-identical. Each checks its own
+# "if (solid)" rows (docs/storage-choices.md §2) in the log:
+#  - the kind at boot (the trace line);
+#  - spindown: settings_apply() leaves the driver's 1 s idle hold alone
+#    on a solid drive (no "sim disk spindown" line);
+#  - watermark: the power-up budget's lead, 6 s (stor_pwr_refill_secs(1,
+#    2, 200)), not the disk's formula;
+#  - prefill: sound starts after 0.25 s of PCM, not 1 s (level_ms at the
+#    start, with the decode's overshoot).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-onebuild-disk-flash.script
+# needs: music
+# needs: np
+# golden: skip
+# fulls-extra: 2   (the main menu gains and loses its Now Playing row)
+# timeout: 150
+# log: sim disk model=flash
+# log: unit storage=solid
+# nolog: sim disk spindown
+# log: watermark s=6 solid=1
+# nolog: solid=0
+# logrange: 200 700 pcm start prefill_ms=\d+ level_ms=(\d+)
+# nolog: pcm underrun
+# nolog: splash-pass
+
+wait 3000
+shot boot
+mkdir /OneBuild
+copy ../../build/np-fixtures/art_23.mp3 /OneBuild/a.mp3
+copy ../../build/np-fixtures/nolen.flac /OneBuild/b.flac
+update_db_wait 30000
+art_wait 60000
+play_files /OneBuild/a.mp3
+wait 3000
+expect_playing 500
+shot menu-playing
+audio_stop
+wait 500
+stor_buffer 150000  # the rest reserved: the FLAC fills to a watermark
+play_files /OneBuild/b.flac
+wait 8000
+expect_playing 500
+audio_stop
+wait 500
+stor_buffer 0
+wait 2000
+shot menu-stopped
+key SELECT          # Music
+wait 1000
+shot music
+key MENU
+wait 1000
+wheel +3            # Settings
+wait 500
+key SELECT
+wait 1000
+shot settings
+key MENU
+wait 1000
+remove /OneBuild/a.mp3
+remove /OneBuild/b.flac
+update_db_wait 30000
+quit

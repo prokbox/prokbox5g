@@ -110,6 +110,19 @@ expect('unlit exit key then non-full', True, 'unlit8', ['# trace: unlit'],
        UL[:5] + ['update band y=20 h=30'], 'not "update full"')
 expect('unlit bad exit value', True, 'unlit9', ['# trace: unlit'],
        UL[:4] + ['unlit exit bogus'], 'bogus')
+# #291: a wheel touch dismisses like a key, full redraw after it
+expect('unlit exit wheel', False, 'unlit13', ['# trace: unlit'],
+       UL[:4] + ['unlit exit wheel', 'update full menu'])
+expect('unlit exit wheel then non-full', True, 'unlit14', ['# trace: unlit'],
+       UL[:4] + ['unlit exit wheel', 'update band y=20 h=30'],
+       'not "update full"')
+# p083-wheelbound: the wheel swallow ends at its 0.5 s bound
+expect('unlit swallow-end wheel accepted', False, 'unlit15', ['# trace: unlit'],
+       UL[:4] + ['unlit swallow-end wheel bound', 'unlit exit wheel',
+                 'update full menu'])
+expect('unlit swallow-end bogus', True, 'unlit16', ['# trace: unlit'],
+       UL[:4] + ['unlit swallow-end bogus', 'unlit exit wheel',
+                 'update full menu'], 'unlit swallow-end bogus')
 expect('unlit skip-expired accepted', False, 'unlit11', ['# trace: unlit'],
        ['unlit skip sleep', 'unlit skip-expired'] + UL)
 expect('unlit skip bogus', True, 'unlit12', ['# trace: unlit'],

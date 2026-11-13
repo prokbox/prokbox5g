@@ -215,6 +215,9 @@ ipodui/np_scrub.c
 ipodui/np_draw.c
 ipodui/np_lyrics.c
 ipodui/np_pbcore.c
+#ifdef IPODUI_NP_INFO      /* 0.9.0 (ipodvideo.h scope switch) */
+ipodui/np_info.c
+#endif
 ipodui/np_playback.c
 ipodui/viz_tap.c
 ipodui/viz_tap_core.c
@@ -346,9 +349,16 @@ ipodui/diag.c
 ipodui/screens/legal.c
 #endif
 ipodui/screens/reset.c
+#ifdef IPODUI_AUDIOPHILE   /* 0.9.0 (ipodvideo.h scope switch) */
+ipodui/screens/audiophile.c     /* #270: Settings > Audiophile */
+#endif
 ipodui/notice.c
 ipodui/screens/newsw.c
 ipodui/screens/language.c
+ipodui/drum.c                   /* the drum picker */
+ipodui/battcurve.c              /* one-build WP3: the fitted cell's curve */
+ipodui/battcell.c               /* one-build WP3: the stored answer */
+ipodui/screens/battq.c          /* one-build WP3: the first-start question */
 #if !defined(IPODUI_MODULES) || defined(SIMULATOR) /* #106: module */
 ipodui/screens/datetime.c
 #endif
@@ -359,6 +369,8 @@ ipodui/volcurve.c
 ipodui/sc_hw.c
 ipodui/click.c
 ipodui/audio_out.c         /* P19 ucop-fix2: the DSP's settings, CPU */
+audiophile.c               /* #268/#270 Settings > Audiophile, CPU */
+audiophile_core.c
 ipodui/search_core.c
 ipodui/otg.c
 ipodui/npmark.c
@@ -577,6 +589,7 @@ codec_id3.c
 #endif
 #ifdef HAVE_IPOD_UI
 codec_place_core.c
+autoskip_core.c            /* #298 */
 #endif
 playback.c
 codecs.c

@@ -1,6 +1,6 @@
 # Plan: better sample-rate conversion
 
-*Status: R-1 and R-2 built and host-measured on branch `p19-resample`, 2026-10-25 (§8); R-0's device half, R-3, R-4 and R-5 are open. Planned 2026-10-24 as P19 package 19-13. It is independent of the BCM2722 work, so it can run in parallel with any other P19 package. Evidence tags as in `docs/process.md`.*
+*Status: R-1 and R-2 built and host-measured on branch `p19-resample`, 2026-10-25 (§8); every ratio band-limited, Hermite gone from the audio DSP, on branch `p083-resample`, 2026-11-10 (§9, #271); R-0's device half, R-3, R-4 and R-5 are open. Planned 2026-10-24 as P19 package 19-13. It is independent of the BCM2722 work, so it can run in parallel with any other P19 package. Evidence tags as in `docs/process.md`.*
 
 ## 1. What happens today
 
@@ -106,6 +106,8 @@ Where software remains: all of it, by necessity. The DAC tops out at 48 kHz and 
 
 ## 8. Results (R-1, R-2; branch `p19-resample`, 2026-10-25)
 
+*Partly superseded by §9 (#271, 2026-11-10). x3, x6 and 3:2 no longer use Hermite: §8.1's "half-bands then Hermite" path and `RESAMPLE_Q_ALL` are gone. The per-stage cycle figures in §8.3 are 8-16 cycles too high, because of a baseline error in the harness (§9.3).*
+
 ### 8.1 What was built, and where it departs from §3.1
 
 - **Half-band stages are polyphase IIR, not FIR** [host-measured]. Each half-band is two parallel chains of first-order allpass sections in z^-2 (Valenzuela and Constantinides 1983; elliptic closed-form design as in Laurent de Soras' HIIR). A linear-phase FIR that meets §2's spec at 44.1 kHz (flat to 20 kHz, 90 dB from 24.1 kHz) needs about 123 taps, 31 multiplies per output with symmetry; the IIR needs **7 multiplies** for 91 dB. On the ARM7TDMI that is the difference between roughly 300 and 52 cycles per output. The cost is non-linear phase close to the band edge (group delay varies only above about 18 kHz, inaudible) [design].
@@ -168,3 +170,71 @@ Per stage (ARM, instructions / cycles per output): x2 `hb_t44` 23.7 / 51.7, `hb_
 ### 8.5 State of the art (process.md brief item 7)
 
 `docs/algorithms-survey.md` (sample-rate conversion row, rank 1) names half-band polyphase filters as the established method for whole-number ratios. **Adopted, in its IIR form** (polyphase allpass half-bands), which the survey's FIR wording does not distinguish: same structure, 4-5x fewer multiplies at this spec on a CPU without SIMD. Not adopted: Farrow and soxr-style arbitrary-ratio resampling (this product's ratios are whole numbers, except the optional 3:2); polyphase FIR for x3/3:2 (2-4x the cost of oversampling plus Hermite for this quality).
+
+## 9. Every ratio band-limited (#271; branch `p083-resample`, 2026-11-10)
+
+Owner, 2026-11-10: "as high quality a converter as possible always working". b11's rs3 row heard Hermite's images (about 8 dB down) on the ratios §8 left to it. This step removes Hermite from the audio DSP for every ratio, and adds the rates #270 brings (352.8/384 kHz sources, 88.2/96 kHz outputs). §8.1's x3/x6 "half-bands then Hermite" and the `RESAMPLE_Q_ALL` 3:2 path are gone.
+
+### 9.1 Design
+
+- **Whole-number ratios** keep §8's half-band cascades, now up to /8 (352.8/384 kHz to 44.1/48). Each /2 stage's design follows its input rate: the last stage before a 44.1 or 48 kHz output is the tight design for that family (`hb_t44`/`hb_t48`); any other stage only has to stay flat to 20 kHz, so from 174 kHz up it is `hb_r` (3 multiplies). So 192 -> 96 and 176.4 -> 88.2 (#270 with native output on) run one `hb_r`, and 384 -> 96 two. The decisions for the ratios §8 already had are unchanged, and so is their output (the goldens did not move).
+- **Every other ratio** (x3, x6, 3:2, 44.1 <-> 48, 22.05/11.025 -> 48, cross-family hi-res, odd rates such as 37.8 kHz, pitch) takes the fractional path:
+  1. /2 half-band stages while the source is at least twice the output rate (at most three);
+  2. a half-band x2 (`hb_t44`), which leaves nothing above 0.2268 of its output rate A except its own residue, 91 dB down;
+  3. a polyphase FIR from A to B, where B is the output rate, or twice it when the source is faster than the output;
+  4. in that case one more /2 half-band, the tight design for the output's family.
+
+  The half-bands do all the sharp filtering, so the FIR only has to keep 0..0.2268 A flat and remove its own images within 0.2268 A of each multiple of A. Everything between is "don't care". That is why 10 taps per phase reach 110 dB, where a plain lowpass needs 12 or more and a direct 44.1 -> 48 converter about 60.
+- **The FIR** (`resample_fir.{c,h}`, `resample_fir_arm.S`, `resample_fir_coefs.h` from `tests/resample/fir_design.py`): weighted least squares over the continuous prototype, 10 taps x 64 phases (+1 row), Q31. The whole table is scaled once for unity DC gain; scaling each row on its own would cost 25 dB of rejection. A position between rows is linearly interpolated (`rs_fir_row`); the sinc² images of that interpolation sit 98 dB down at 20 kHz. A ratio with 16 phases or fewer (x3, x6, 3:2, 37.8 -> 44.1) computes its rows once at the rate change, so it pays only the dot product (`rs_fir_batch`, batches of 16 outputs; each output's row address carries its 0..2-sample advance in its low two bits).
+- **Exact phase.** The step A/B is kept as an exact fraction M/L, and the row position comes from `ph * ceil(2^40/L) >> 8` (error under 2^-20 of a sample). Unlike Hermite's 16.16 step, nothing drifts off pitch: the residual check now runs on every ratio.
+- **Formats.** In and out: the DSP's internal 32-bit fixed point, whatever `frac_bits` the format has (28 for 24-bit sources); 64-bit accumulation; peak gain +0.004 dB. Nothing here depends on the 16- or 24-bit output stage (#268).
+- **State.** All of it is in resample.c's own statics, touched only by the core that runs the audio DSP: `rs_bl` (128 B IBSS, was 216 B), the half-band states `rs_st` (400 B), FIR queue `rs_fbuf` (848 B), rows `rs_rows` (640 B), cascade scratch `rs_tmp_a/b` (2 x 768 B, as before). No globals are shared with the UI. `dsp_resample_set_quality()` keeps `RESAMPLE_Q_HERMITE` as the fallback for CPU starvation (#271); `_INTEGER` and `_ALL` now both mean "band-limited everywhere". A ratio of 16:1 or more that is not a power of two still falls to Hermite, with a DEBUGF note.
+
+### 9.2 Quality, measured (`tests/resample/run.sh`)
+
+Multitone in (24-bit WAV), Blackman-Harris DFT. Up to 48 kHz the signal goes through warble's real DSP with 16-bit dithered output. 88.2/96 kHz outputs, above warble's 48 kHz DSP limit, go through the resampler alone (`unit wav`, 32-bit output). Images and aliases are measured at every k * fin/8 ± f folded into 0..min(20 kHz, output Nyquist), so every stage's images are covered; the threshold is 88 dB. Residual = output minus the fitted tones (glitches, drift); threshold 65 dB.
+
+| Ratio | Path | Worst image/alias | Flatness | Hermite (rsq=0) |
+|---|---|---|---|---|
+| 88.2/96 -> 44.1/48 | /2 | -91.9 / -97.0 dB | 0.000 dB | alias 0 dB |
+| 176.4/192 -> 44.1/48 | /4 | -93.0 / -95.4 dB | 0.000 dB | alias 0 dB |
+| 352.8/384 -> 44.1/48 | /8 (new) | -94.1 / -95.7 dB | 0.000 dB | aliases at full level |
+| 192 -> 96, 176.4 -> 88.2 | /2 `hb_r` (new) | -95.5 / -95.3 dB | 0.000 dB | n/a (unit) |
+| 384 -> 96, 352.8 -> 88.2 | /4 `hb_r` x2 (new) | -101.6 / -104.3 dB | 0.000 dB | n/a (unit) |
+| 22.05/24 -> 44.1/48, 11.025/12 -> 44.1/48 | x2, x4 | -90.5 to -91.8 dB | 0.000 dB | image -8 dB, 4 dB droop |
+| 16 -> 48 (x3), 8 -> 48 (x6) | FIR, cached | -91.0, -93.0 dB | 0.004 dB | was -50 dB (§8) |
+| 32 -> 48 (3:2) | FIR, cached | -90.4 dB | 0.004 dB | was Hermite, -11 dB |
+| 44.1 -> 48 (stereo, mono) | FIR | -97.6, -98.6 dB | 0.003 dB | -15.5 dB, 3.7 dB droop |
+| 48 -> 44.1, 22.05 -> 48 | FIR | -92.0, -92.1 dB | 0.004 dB | |
+| 96 -> 44.1, 88.2 -> 48, 384 -> 44.1 | /2^n, FIR, /2 | -96.3, -97.9, -97.8 dB | 0.004 dB | |
+| 37.8 -> 44.1, 44.1 -> 96 | FIR | -98.3, -100.2 dB | 0.003 dB | |
+
+The FIR prototype alone (`fir_design.py --specs`, the quantised table read as one filter): passband ±0.0051 dB to 0.2268 fs, images 110.0 dB down, peak +0.0044 dB. So the half-bands' 91-96 dB set the end-to-end figure. Also checked: 54 ratio/channel cases give identical output in one block and in irregular 1..37-sample blocks (`unit.c`); the FIR's ARM code equals the C reference bit for bit under qemu (rows at every interpolation weight and the last row, batches of 1..16, every advance); golden output hashes. **The gates fail when broken** (2026-11-10): one prototype coefficient off by 2^21 fails the coefficient check, 44.1 -> 48's image limit (-86.5 dB) and the goldens; the ARM kernel without its last tap fails "FIR ARM == C"; the C kernel without its last tap fails every fractional ratio's image limit (-60 to -65 dB).
+
+### 9.3 Cost: cycles per output sample per channel
+
+Same model as §8.3 (`tests/resample/arm.sh`: qemu instruction trace, ARM7TDMI timings, zero-wait memory, worst-case multiplier) [model, not silicon]. Every figure in this section, old and new, uses the corrected baseline: the WL=99 run had let the compiler drop the input set-up, so §8.3's per-stage figures are about 16 (/2) or 8 (x2) cycles too high. Stage figures: x2 `hb_t44` 40.1 (was 44.2), x2 `hb_r` 18.0 (26.2), /2 `hb_t44` 85.3 (93.5), /2 `hb_t48` 74.8 (84.5), /2 `hb_r` 38.0 (57.5). The half-band ARM code now keeps the loop end in a register, runs two samples per pass, and runs `hb_r` in one pass. FIR: 140.8 per output with cached rows; 325.6 for row plus dot, mono; about 230 per channel in stereo, where the row is shared. Each FIR figure includes its C driver loop.
+
+| Ratio | Before (0.8.2 base) | Now | Hermite |
+|---|---|---|---|
+| 96 -> 48 / 88.2 -> 44.1 | 84.5 / 93.5 | 74.8 / 85.3 | 71.5 |
+| 192 -> 48 / 176.4 -> 44.1 | 199.5 / 208.5 | **150.8 / 161.3** | 70.0 |
+| 192 -> 96 / 176.4 -> 88.2 | n/a | **38.0** | |
+| 384 -> 48 / 352.8 -> 44.1 | n/a (Hermite) | 302.8 / 313.3 | about 70 |
+| 384 -> 96 | n/a | 114.0 | |
+| 22.05 -> 44.1 / 11.025 -> 44.1 | 44.2 / 48.3 | 40.1 / 38.0 | 46.4 / 42.1 |
+| 16 -> 48 (x3) | about 131 (x4 + Hermite 4:3) | 167.5 | 43.8 |
+| 8 -> 48 (x6) | about 82 (x4 + Hermite 2:3) | 154.2 | 40.7 |
+| 32 -> 48 (3:2) | 49.6 (Hermite) | 194.3 | 49.6 |
+| 44.1 -> 48 stereo | about 50 (Hermite) | 303.7 | about 50 |
+| 48 -> 44.1 stereo | about 50 (Hermite) | about 632 | about 50 |
+
+CPU share on the COP at 80 MHz, stereo: 192 -> 48 is 14.5 M cycles/s, 18 % (was 19.2 M); 192 -> 96 is 7.3 M, 9 %; 384 -> 48 is 29 M, 36 %. Cross-family ratios happen only at a fixed output rate (#270's rule keeps every file in its own family), and they are the expensive rows: 44.1 -> 48 is 29 M, 36 %; 48 -> 44.1 is 56 M, 70 %. That last one needs either a lower-cost path or the starvation fallback, so measure it on silicon before a fixed rate is offered to users.
+
+**Memory** (`fw-ui`, against rc-0.8.2 `b8ca912569`): `rockbox.elf` text +5,584 B (FIR prototype 2,600 B rodata, FIR ARM 356 B, half-band ARM +1,204 B, `resample.c` +1.4 KB); `.bss` +2,528 B (`rs_st` 400, `rs_fbuf` 848, `rs_rows` 640, `rs_bl` moved part); IRAM −96 B (`rs_bl` 216 -> 128 B). `_end` 0x16bea0 -> 0x16dea0 (+8,192 B after alignment) = 1,498,784 B, under the 1.75 MB cap.
+
+### 9.4 Open
+
+- **Silicon:** the cycle figures are a model; the emulator profile and a device run are the check (the fork's report gives the commands). The FIR's row interpolation multiplies by small row differences, which finish early on the ARM7TDMI's multiplier, so the silicon figure should come in under the model.
+- **Cheaper cross-family conversion** if a fixed output rate ever reaches users: cache all L rows of 44.1 <-> 48 (L = 80/147/160, 3.2-6.4 KB from `core_alloc` while such a ratio plays), which halves the FIR's cost.
+- **A b12/b13 listening row** against a native-rate reference (issue #271's C arm).

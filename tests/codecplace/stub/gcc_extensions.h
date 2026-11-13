@@ -24,4 +24,6 @@
 #ifndef STUB_GCC_EXT_H
 #define STUB_GCC_EXT_H
 #define ATTRIBUTE_PRINTF(a, b) __attribute__((format(printf, a, b)))
+#define FORCE_INLINE inline __attribute__((always_inline))
+#define NO_INLINE __attribute__((noinline))
 #endif

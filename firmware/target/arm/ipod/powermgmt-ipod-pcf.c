@@ -32,16 +32,22 @@
 #endif
 #include "audiohw.h"
 
+/* The owner's measured rows (2026-10-22 rundown) for the large cell, and
+ * in the shell build for every cell: one build, the fitted cell is asked
+ * at first start and its curve scaled from these rows
+ * (apps/ipodui/battcell.h, one-build WP3); IPOD_BATTERY_MAH then no
+ * longer picks anything here */
+#if defined(IPOD_VIDEO) && (IPOD_BATTERY_MAH > 600 || defined(HAVE_IPOD_UI))
+#define IPODVIDEO_MEASURED_ROWS
+#endif
+
 unsigned short battery_level_disksafe =
 #if   defined(IPOD_NANO)
     3330;
-#elif defined(IPOD_VIDEO) && !defined(IPOD_STORAGE_HDD)
-    /* Phase 9 flash variant: the owner's 2026-10-22 rundown played and
-     * logged normally down to 3,362 mV (reads to 3,368, the log flushed
-     * at the shutdown), and flash has no spin-up surge: 100 mV lower
-     * than the disk's floor (P10 H3, V6; docs/storage-choices.md) */
-    3400;
 #elif defined(IPOD_VIDEO)
+    /* #79 (one build): the disk's floor until storage_init() tells the
+     * kind (the safe side); a solid drive's 3,400 is set by
+     * powermgmt_storage_init() below */
     3500;
 #elif defined(IPOD_COLOR)
     3300;
@@ -72,20 +78,19 @@ unsigned short percent_to_volt_discharge[11] =
 #if   defined(IPOD_NANO)
     /* measured values */
     3230, 3620, 3700, 3730, 3750, 3780, 3830, 3890, 3950, 4030, 4160
-#elif defined(IPOD_VIDEO) && IPOD_BATTERY_MAH > 600
+#elif defined(IPODVIDEO_MEASURED_ROWS)
     /* Phase 9 large cell (e.g. 3000 mAh): fitted to the owner's 2026-10-22
      * rundown (docs/hardware.md "Measured discharge curve", tools/batcurve.py).
      * 0 % = flash disk-safe + 20 mV ("about to switch off"), 100 % = the
      * plateau after the surface charge. batcal still replaces it with
      * the unit's own fit. */
-#ifdef IPOD_STORAGE_HDD
-    /* 0 % = the disk's floor (3,500) + 20: the same rundown fitted with
-     * 0 % there (11de3b6fe1), so the steps stay equal in charge and the
-     * table rises (the flash row's 10 % is 3,500, under this 0 %) */
+    /* #79 (one build): the rotating row until storage_init() tells the
+     * kind; a solid drive's row (discharge_solid[] below) is copied in by
+     * powermgmt_storage_init(). 0 % = the disk's floor (3,500) + 20: the
+     * same rundown fitted with 0 % there (11de3b6fe1), so the steps stay
+     * equal in charge and the table rises (the solid row's 10 % is 3,500,
+     * under this 0 %) */
     3520, 3570, 3605, 3635, 3665, 3725, 3810, 3900, 3975, 4060, 4170
-#else
-    3420, 3500, 3565, 3605, 3635, 3675, 3750, 3865, 3955, 4045, 4170
-#endif
 #elif defined(IPOD_VIDEO)
     /* iPod Video 30GB Li-Ion 400mAh */
     3600, 3720, 3750, 3780, 3810, 3840, 3880, 3950, 4020, 4100, 4180
@@ -102,6 +107,43 @@ unsigned short percent_to_volt_discharge[11] =
 #endif
 };
 
+#if defined(IPOD_VIDEO) && defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+#ifdef IPODVIDEO_MEASURED_ROWS
+/* the large cell's row on a solid drive: 0 % = its floor (3,400) + 20 */
+static const unsigned short discharge_solid[11] =
+{
+    3420, 3500, 3565, 3605, 3635, 3675, 3750, 3865, 3955, 4045, 4170
+};
+#endif
+
+/* ProkBox #79 (one build): the storage's battery rows, called once by
+ * apps/main.c right after storage_init() with ata_disk_isssd(), before
+ * the first reader that needs them (bootbatt_latch_check(), batcal's
+ * seed at shell start); earlier readers (the boot guard, the power
+ * thread's first samples) see the rotating defaults above, the safe
+ * side. Only the disk-safe floor and the curve's base row depend on the
+ * storage (docs/storage-choices.md §4). The fitted cell's sag scaling
+ * (one-build WP3) is applied on top of this row after settings_load()
+ * (apps/ipodui/battcell.c battcell_boot_apply(), through batcal's
+ * IRQ-masked table copy). */
+void powermgmt_storage_init(bool solid)
+{
+    if (!solid)
+        return;                 /* the compiled rows are the rotating ones */
+    int old = disable_irq_save();   /* the power thread may be reading */
+    /* flash has no spin-up surge: the owner's 2026-10-22 rundown played
+     * and logged normally down to 3,362 mV (reads to 3,368, the log
+     * flushed at the shutdown), 100 mV under the disk's floor (P10 H3,
+     * V6) */
+    battery_level_disksafe = 3400;
+#ifdef IPODVIDEO_MEASURED_ROWS
+    for (int i = 0; i < 11; i++)
+        percent_to_volt_discharge[i] = discharge_solid[i];
+#endif
+    restore_irq(old);
+}
+#endif
+
 #if CONFIG_CHARGING
 /* voltages (millivolt) of 0%, 10%, ... 100% when charging enabled */
 unsigned short percent_to_volt_charge[11] =
@@ -109,7 +151,7 @@ unsigned short percent_to_volt_charge[11] =
 #if   defined(IPOD_NANO)
     /* measured values */
     3230, 3620, 3700, 3730, 3750, 3780, 3830, 3890, 3950, 4030, 4160
-#elif defined(IPOD_VIDEO) && IPOD_BATTERY_MAH > 600
+#elif defined(IPODVIDEO_MEASURED_ROWS)
     /* Phase 9 large cell: uncalibrated, see percent_to_volt_discharge */
     3600, 3720, 3750, 3780, 3810, 3840, 3880, 3950, 4020, 4100, 4180
 #elif defined(IPOD_VIDEO)

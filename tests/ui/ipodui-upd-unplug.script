@@ -3,6 +3,8 @@
 # Disconnect" with the ejected pictogram and the bar stays up while the
 # library takes them in (keys do nothing), then the main menu, and the new
 # songs are in the library. A session that changed nothing shows no page.
+# #315: the page is up on the first frame after the release (no second's
+# grace when files changed).
 # Red on 0.8.0's code: no page (no "upd push"), the menu at once.
 #   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-upd-unplug.script
 # needs: library
@@ -11,8 +13,8 @@
 # nolog: upd bar back
 # logbetween: s0 s1 no upd show
 # logbetween: s0 s1 no upd draw
-# logbetween: l0 l1 upd push mode=unplug
-# logbetween: l0 l1 upd show ms=
+# logbetween: l0 l1 upd push mode=unplug shown=1
+# logbetween: l0 l1 update screen shown ms=0 n=
 # logbetween: l0 l1 upd draw bar=([1-9]\d*) step=
 # logbetween: l0 l1 upd key ignored
 # logbetween: l0 l1 no upd done

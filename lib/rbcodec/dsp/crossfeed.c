@@ -9,6 +9,7 @@
  * Copyright (C) 2006 Thom Johansen
  * Copyright (C) 2010 Bertrik Sikken
  * Copyright (C) 2012 Michael Sevakis
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -137,7 +138,17 @@ static void crossfeed_custom_update_filter(struct crossfeed_state *state,
 /** DSP interface **/
 
 /* Set the type of crossfeed to use */
+static void dsp_set_crossfeed_type_locked(int type);
+
+/* ProkBox #282 step 4: under the DSP's cross-core lock (dsp_core.c) */
 void dsp_set_crossfeed_type(int type)
+{
+    dsp_xcore_lock();
+    dsp_set_crossfeed_type_locked(type);
+    dsp_xcore_unlock();
+}
+
+static void dsp_set_crossfeed_type_locked(int type)
 {
     if (type == crossfeed_type)
         return; /* No change */
@@ -149,7 +160,17 @@ void dsp_set_crossfeed_type(int type)
 }
 
 /* Set the gain of the dry mix */
+static void dsp_set_crossfeed_direct_gain_locked(int gain);
+
+/* ProkBox #282 step 4: under the DSP's cross-core lock (dsp_core.c) */
 void dsp_set_crossfeed_direct_gain(int gain)
+{
+    dsp_xcore_lock();
+    dsp_set_crossfeed_direct_gain_locked(gain);
+    dsp_xcore_unlock();
+}
+
+static void dsp_set_crossfeed_direct_gain_locked(int gain)
 {
     uint32_t gain32 = get_replaygain_int(gain * 10);
     crossfeed_state.gain =
@@ -157,7 +178,17 @@ void dsp_set_crossfeed_direct_gain(int gain)
 }
 
 /* Both gains should be below 0 dB */
+static void dsp_set_crossfeed_cross_params_locked(long lf_gain, long hf_gain, long cutoff);
+
+/* ProkBox #282 step 4: under the DSP's cross-core lock (dsp_core.c) */
 void dsp_set_crossfeed_cross_params(long lf_gain, long hf_gain, long cutoff)
+{
+    dsp_xcore_lock();
+    dsp_set_crossfeed_cross_params_locked(lf_gain, hf_gain, cutoff);
+    dsp_xcore_unlock();
+}
+
+static void dsp_set_crossfeed_cross_params_locked(long lf_gain, long hf_gain, long cutoff)
 {
     crossfeed_lf_gain = lf_gain;
     crossfeed_hf_gain = hf_gain;

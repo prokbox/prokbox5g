@@ -320,7 +320,7 @@ static void usb_glyph_over(usb_px *dst, int stride, const unsigned char *rle,
 
 USB_ARM_ENTRY static void usb_idle_glyph(usb_px *dst, int stride, int glyph)
 {
-#if defined(HAVE_IPOD_DOCK30) || defined(USB_BOTH_GLYPHS)
+#ifdef USB_BOTH_GLYPHS     /* the 30-pin glyph: sim and host test only */
     if (glyph == 0)     /* UI_USB_GLYPH_DOCK30 */
     {
         usb_glyph_over(dst, stride, usb_glyph_dock30, USB_DOCK30_W,
@@ -328,9 +328,7 @@ USB_ARM_ENTRY static void usb_idle_glyph(usb_px *dst, int stride, int glyph)
         return;
     }
 #endif
-#if !defined(HAVE_IPOD_DOCK30) || defined(USB_BOTH_GLYPHS)
     usb_glyph_over(dst, stride, usb_glyph_usbc, USB_USBC_W, USB_USBC_H, 0);
-#endif
     (void)glyph;
 }
 
@@ -361,7 +359,7 @@ static void usb_eject_arrow(usb_px *dst, int stride, int y0)
 
 USB_ARM_ENTRY static void usb_eject_glyph(usb_px *dst, int stride, int glyph)
 {
-#if defined(HAVE_IPOD_DOCK30) || defined(USB_BOTH_GLYPHS)
+#ifdef USB_BOTH_GLYPHS     /* the 30-pin glyph: sim and host test only */
     if (glyph == 0)     /* UI_USB_GLYPH_DOCK30 */
     {
         usb_glyph_over(dst, stride, usb_glyph_dock30, USB_DOCK30_W,
@@ -371,12 +369,10 @@ USB_ARM_ENTRY static void usb_eject_glyph(usb_px *dst, int stride, int glyph)
         return;
     }
 #endif
-#if !defined(HAVE_IPOD_DOCK30) || defined(USB_BOTH_GLYPHS)
     usb_glyph_over(dst, stride, usb_glyph_usbc, USB_USBC_W, USB_USBC_H,
                    USB_EJ_UP);
     usb_eject_arrow(dst, stride, (USB_N - USB_USBC_H) / 2 - USB_EJ_UP
                                  + USB_USBC_H + 1);
-#endif
     (void)glyph;
 }
 #endif /* !USB_PURE_ONLY */
@@ -1252,13 +1248,26 @@ void ui_usb_screen_loop(bool early)
     ui_log("usb", "release tick=%ld scan_pending=0", current_tick);
 #endif
 #if defined(HAVE_USB_STATS) && !defined(SIMULATOR)
-    {   /* #157: a session with no WRITE leaves nothing to update */
+    {   /* #157: a session with no WRITE leaves nothing to update; #314:
+         * nor one whose WRITEs all stayed out of the FAT data area (the
+         * host's dirty flag in the FATs, FSInfo): no file changed */
         struct usb_storage_stats ws;
         usb_storage_get_stats(&ws);
-        usb_wrote = ws.wr_cmds != 0;
+        usb_wrote = ws.wr_data != 0;
+        ui_log("usb", "host wrote cmds=%lu data=%lu",
+               (unsigned long)ws.wr_cmds, (unsigned long)ws.wr_data);
+    }
+#elif defined(SIMULATOR)
+    {   /* #314: the script's own copies, removals and folders while the
+         * computer had the disk (filesystem-sim.c); the simulator's disk
+         * has no FAT layout, so every one counts as a file change */
+        extern int sim_usb_host_changes(void);
+        int n = sim_usb_host_changes();
+        usb_wrote = n != 0;
+        ui_log("usb", "host wrote cmds=%d data=%d", n, n);
     }
 #else
-    usb_wrote = true;   /* the simulator's disk is host files: no count */
+    usb_wrote = true;   /* no count: assume the host changed files */
 #endif
     ui_usbbusy_begin();                 /* #84: the glyph while the scan runs */
     if (powermgmt_poweroff_blocked() != blocked0)

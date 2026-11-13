@@ -1,0 +1,33 @@
+# #270: the High Sample Rate self-test with 96 kHz failing
+# (PROKBOX_HIRATE_FAULT=test96, the back end's simulator switch): the
+# result says only 88.2 kHz passed, and the setting is On (88.2 kHz plays
+# as recorded, 96 kHz is converted to 48 kHz).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-audiophile-test96.script
+# Starts from an untested unit only (see ipodui-audiophile.script).
+# env: PROKBOX_HIRATE_FAULT=test96
+# golden: skip
+# reset: mainmenu
+# log: audiophile test mask=0x81 on=1
+wait 4000
+
+wheel +3 300            # Settings
+wait 400
+key SELECT 50
+wait 1200
+wheel +11 300           # Audiophile
+wait 1000
+key SELECT 50
+wait 1200
+key SELECT 50           # High Sample Rate: the warning
+wait 1000
+wheel -1 300            # Continue
+wait 300
+key SELECT 50
+wait 3800
+shot result_88          # only 88.2 kHz passed
+key SELECT 50
+wait 1500
+shot menu_on
+key SELECT 50           # Off (leave the disk as found)
+wait 3000
+quit

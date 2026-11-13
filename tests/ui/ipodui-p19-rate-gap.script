@@ -9,6 +9,7 @@
 # golden: skip
 # fulls-extra: 1          (the Now Playing row appears: play_files)
 # log: pcm rate gap n=1 sampr=44100
+# log: pcm underrun mid n=1 all=1 level_ms=0
 
 wait 4000
 copy fixtures/rate48k.flac /Music/rate48k.flac
@@ -18,9 +19,12 @@ wait 9000               # the 4 s 48 kHz track ends; the switch; the next
 expect_playing 1000
 expect_rate_gaps 1      # the planned drain at 48 -> 44.1
 expect_underruns 0      # (before: counted as an underrun)
+expect_underrun_lines 0 # the planned drain writes no underrun line
 pcm_starve 6000         # mid-track: the decoder gets no buffer for 6 s
 wait 8000
 expect_underruns 1      # a real underrun still counts as one
+expect_underrun_lines 1 # and always leaves a line in the log (0.8.3:
+                        # the restart's prefill used to swallow it)
 expect_rate_gaps 1
 shot end
 rm_file /Music/rate48k.flac

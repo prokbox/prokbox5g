@@ -48,10 +48,19 @@ void batcal_poweroff(void);
 void batcal_status(char *buf, size_t size);
 void batcal_run_status(char *buf, size_t size);
 void batcal_reset(void);
+/* The fitted cell's curve as batcal's seed (battcell.c, one-build WP3).
+ * Before batcal_boot(): copied into the table in use, which
+ * batcal_boot() then takes as its seed. After: it becomes the seed (the
+ * table a reset restores) and the table in use while no learned fit is;
+ * discard (the answer changed) drops the learned fits first. A
+ * battery_levels.cfg loaded at boot keeps its table either way. */
+void batcal_seed(const unsigned short *t, bool discard);
 #else
 static inline void batcal_boot(void) {}
 static inline void batcal_service(void) {}
 static inline void batcal_poweroff(void) {}
+static inline void batcal_seed(const unsigned short *t, bool discard)
+{ (void)t; (void)discard; }
 #endif
 
 #endif /* _IPODUI_BATCAL_H_ */

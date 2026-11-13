@@ -21,11 +21,13 @@
 #ifndef _DSP_RESAMPLE_H
 #define _DSP_RESAMPLE_H
 
-/* Conversion quality (P19 19-13). Takes effect at the next rate change.
- *   HERMITE: 4-point Hermite for every ratio (the upstream behaviour);
- *   INTEGER: half-band filters for /2, /4, x2, x4, x3 and x6 (default);
- *   ALL:     INTEGER plus 32 -> 48 kHz (3:2), which costs about three
- *            times Hermite. */
+/* Conversion quality (P19 19-13, #271). Takes effect at the next rate
+ * change.
+ *   HERMITE: 4-point Hermite for every ratio (the upstream behaviour; kept
+ *            only as the fallback for CPU starvation);
+ *   INTEGER, ALL: band-limited for every ratio (default): half-band
+ *            cascades for /2, /4, /8, x2 and x4, the polyphase FIR path for
+ *            the rest. Both names are kept for existing callers. */
 #define RESAMPLE_Q_HERMITE 0
 #define RESAMPLE_Q_INTEGER 1
 #define RESAMPLE_Q_ALL     2

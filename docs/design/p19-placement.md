@@ -99,7 +99,7 @@ Wake rates are per second unless marked. Costs are a share of one core at the cl
 | P15 | Power log (devmode) | 4 Hz sub-sample timeout; ring flush at storage idle | CPU timeout | 4 while on (ISR only) | tiny | drive (piggybacked) | [code] `powerlog.c:765` |
 | P16 | uilog flush | log ring → file at storage idle | CPU, storage idle | at storage idle | small | drive (piggybacked) | [code] |
 | P17 | P18 soft sleep | `power_sleep()`: both cores asleep, timer polls 60 s, RTC | CPU, UI thread | 1/60 s asleep | — | PMU, RTC, wheel (wake) | [code] `power_sleep.h`; [silicon] sleeplab-1632 |
-| P18 | iAP | dock serial (compiled out on this unit, `HAVE_IPOD_DOCK30` off) | CPU, `iap`, 100 ms timeout | — | — | serial | [code] |
+| P18 | iAP | dock serial (resident on every unit since 0.8.3, #236; dormant: the `iap` thread is made at an accessory's first sync pair) | CPU, `iap`, 100 ms timeout | 0 while dormant | — | serial | [code] |
 
 ### 1.3 Front end: UI and display
 

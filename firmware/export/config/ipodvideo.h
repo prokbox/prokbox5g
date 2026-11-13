@@ -35,13 +35,41 @@
 #endif /* else config_caps.h: playback only */
 
 /* define the bitmask of hardware sample rates */
-#define HW_SAMPR_CAPS   (SAMPR_CAP_48 | SAMPR_CAP_44 | SAMPR_CAP_32 | \
+#define HW_SAMPR_CAPS_STD (SAMPR_CAP_48 | SAMPR_CAP_44 | SAMPR_CAP_32 | \
                          SAMPR_CAP_24 | SAMPR_CAP_22 | SAMPR_CAP_16 | \
                          SAMPR_CAP_12 | SAMPR_CAP_11 | SAMPR_CAP_8)
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+/* ProkBox #268: 24-bit output for sources deeper than 16 bits (PP I2S
+ * FIFO format 3, WM8758 R4 24-bit word; b11 i2s24 [silicon]).  Always on;
+ * no setting.  apps/audiophile.h */
+#define HAVE_PCM_24BIT_OUT
+/* Scope switches (owner, 2026-11-12: "do 24 bit now audiophile later"):
+ * both features are written and stay in the tree, compiled out of 0.8.3
+ * and every build of it; 0.9.0 defines them here.
+ *   IPODUI_AUDIOPHILE (#270): Settings > Audiophile (native 88.2/96 kHz,
+ *     its self-test and fallback, the 64x DAC oversampling above 48 kHz,
+ *     stereo width) and its saved settings.  Off: no row, no settings
+ *     (a road-test config.cfg's lines are unknown keys, dropped at the
+ *     next save), output at 44.1/48 kHz, still 24-bit.
+ *   IPODUI_NP_INFO (#277): Now Playing's format/output page in the
+ *     SELECT cycle.  Off: the cycle is the stock one. */
+/* #define IPODUI_AUDIOPHILE */
+/* #define IPODUI_NP_INFO */
+#endif
+#if defined(IPODUI_AUDIOPHILE)
+/* #270: native 88.2/96 kHz output, opt-in and gated by a per-unit
+ * self-test: the driver's 44.1/48 PLL with R6 MCLKDIV 1, the codec's
+ * SYSCLK at 2x its rating (b11 hr96: 88.2 kHz [silicon]; 96 kHz
+ * untested) */
+#define HAVE_HIRATE_OUT
+#define HW_SAMPR_CAPS   (HW_SAMPR_CAPS_STD | SAMPR_CAP_96 | SAMPR_CAP_88)
+#else
+#define HW_SAMPR_CAPS   HW_SAMPR_CAPS_STD
+#endif
 
 #ifndef IPODUI_TRIM_RECORDING
 /* define the bitmask of recording sample rates */
-#define REC_SAMPR_CAPS  HW_SAMPR_CAPS
+#define REC_SAMPR_CAPS  HW_SAMPR_CAPS_STD
 #endif
 
 
@@ -126,13 +154,15 @@
 #define ACTION_WPSAB_SINGLE ACTION_WPS_BROWSE
 #endif
 
-#ifdef IPOD_STORAGE_HDD
-/* define this if you have a disk storage, i.e. something
-   that needs spinups and can cause skips when shaked */
+#ifndef BOOTLOADER
+/* ProkBox (#79, one build): a hard drive or a flash adapter, told apart
+ * at runtime by ata_disk_isssd() (IDENTIFY). The disk's code is compiled
+ * in; on a solid drive the drive-timing rows of
+ * docs/storage-choices.md take their flash values ("if (solid)"). */
 #define HAVE_DISK_STORAGE
 #else
-/* Flash-modded iPod Video: use flash storage semantics.
-   No spinup delays, no anti-skip buffer, no disk spindown timer. */
+/* The bootloader keeps its flash build unchanged (built once, reads no
+ * storage kind) */
 #define HAVE_FLASH_STORAGE
 #endif
 
@@ -169,9 +199,17 @@
 /* Define this if you can detect headphones */
 #define HAVE_HEADPHONE_DETECTION
 
-/* Type of mobile power (Phase 9: IPOD_BATTERY_MAH, configure --battery;
- * 0 = the stock cell, picked by model at runtime) */
-#if IPOD_BATTERY_MAH > 0
+/* Type of mobile power (Phase 9: IPOD_BATTERY_MAH, ipodvideo-variant.h:
+ * the stock build's fixed 3,000 mAh; 0 would be the stock cell, picked by
+ * model at runtime; no configure flag since 0.8.3). The shell build asks
+ * the fitted cell at first start (one-build WP3, apps/ipodui/battcell.h);
+ * its defaults are the original cell: 650 mAh on 32 MB units, 850 mAh
+ * on 64 MB units (apps/ipodui/battcurve.c) */
+#ifdef HAVE_IPOD_UI
+#define BATTERY_CAPACITY_DEFAULT  650  /* only for variable initialisation */
+#define BATTERY_CAPACITY_DEFAULT_THIN  650  /* 32 MB (30 GB) */
+#define BATTERY_CAPACITY_DEFAULT_THICK 850  /* 64 MB (60/80 GB) */
+#elif IPOD_BATTERY_MAH > 0
 #define BATTERY_CAPACITY_DEFAULT IPOD_BATTERY_MAH /* fitted cell; only for
                                                      variable initialisation */
 #define BATTERY_CAPACITY_DEFAULT_THIN IPOD_BATTERY_MAH /* both models */
@@ -184,7 +222,7 @@
                                               60/80GB model */
 #endif
 #define BATTERY_CAPACITY_MIN      300 /* min. capacity selectable */
-#if IPOD_BATTERY_MAH > 3000
+#if IPOD_BATTERY_MAH > 3000 && !defined(HAVE_IPOD_UI)
 #define BATTERY_CAPACITY_MAX IPOD_BATTERY_MAH /* max. capacity selectable */
 #else
 #define BATTERY_CAPACITY_MAX     3000 /* max. capacity selectable --
@@ -226,18 +264,14 @@
 /* Define this if you want to use the PP5020 i2c interface */
 #define CONFIG_I2C I2C_PP5020
 
-#ifdef IPOD_STORAGE_HDD
-/* We're able to shut off power to the HDD */
+#ifndef BOOTLOADER
+/* We're able to shut off power to the HDD (#79: both kinds; on a solid
+ * drive the stor_pwr policy times the cut, ata.c spw_off_due()) */
 #define HAVE_ATA_POWER_OFF
 
-/* Turn on SMART support */
+/* Turn on SMART support (#79: issued only when IDENTIFY word 82 bit 0
+ * says the drive has it, ata_read_smart()) */
 #define HAVE_ATA_SMART
-#else
-/* Flash-modded: no HDD power cycling needed */
-/* #define HAVE_ATA_POWER_OFF */
-
-/* SMART not applicable to flash adapters */
-/* #define HAVE_ATA_SMART */
 #endif
 
 /* define this if the hardware can be powered off while charging */
@@ -472,11 +506,11 @@
 
 #define ICODE_ATTR_TREMOR_NOT_MDCT
 
-#ifndef IPODUI_TRIM_IAP
 #define IPOD_ACCESSORY_PROTOCOL
 #define HAVE_SERIAL
 #if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
-/* ProkBox: the iap thread is made at an accessory's first sync pair, on
+/* ProkBox: iAP is resident on every unit and dormant until an accessory
+ * speaks (#236): the iap thread is made at an accessory's first sync pair, on
  * the USB thread, and the 100 ms tick stops at a USB unplug. The buffers
  * stay static, sized for this player: RX 4 KB holds eight of the
  * largest inbound packets the lingoes expect (SetDisplayImage: 500 B of
@@ -488,7 +522,6 @@
 #define IAP_LAZY_THREAD
 #define IAP_RX_BUFLEN 4096
 #define IAP_STACK_SIZE (DEFAULT_STACK_SIZE*8)
-#endif
 #endif
 
 #if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
@@ -518,20 +551,12 @@
 #if defined(HAVE_IPOD_UI_DEVMODE) || PWRAW_TOKEN_I2SGATE
 #define HAVE_PWR_I2SGATE        /* AW-5: the codec clock gate in standby */
 #endif
-/* AW-3, a per-unit fact (CLAUDE.md rule 7; docs/hardware.md): the unit's
- * mod board may draw from the accessory supply (D2REGC1, 3.3 V). The USB-C
- * mod (no 30-pin dock) powers its audio multiplexer from a "PMIC 4 V"
- * rail that may be this one [hypothesis until T-D2REG], so it stays on
- * there; a 30-pin unit keeps it on for its accessories (no accessory
- * manager switches it yet). A unit with neither may default it off. */
-#ifndef HAVE_IPOD_DOCK30
-#define HAVE_ACCESSORY_RAIL_LOAD
-#endif
-#if defined(HAVE_ACCESSORY_RAIL_LOAD) || defined(HAVE_IPOD_DOCK30)
+/* AW-3: the accessory supply (D2REGC1, 3.3 V) is on by default on every
+ * unit, for a dock's accessories and any mod board that draws from it
+ * (owner, 2026-11-11, #236: one build, no dock dimension). Sitting 4gh's
+ * awd2/awd2c found the test unit's USB-C audio multiplexer is not on it
+ * [silicon]. */
 #define ACCESSORY_SUPPLY_DEFAULT true
-#else
-#define ACCESSORY_SUPPLY_DEFAULT false
-#endif
 #endif
 
 /* DMA is used only for reading on PP502x because although reads are ~8x faster
@@ -539,12 +564,11 @@
  */
 #ifndef BOOTLOADER
 #define HAVE_ATA_DMA
-#ifndef IPOD_STORAGE_HDD
-/* Flash-modded: PP5022 supports UDMA4 (66 MB/s). Stock disk was limited to
-   UDMA2 because the ~10% gain wasn't worth the CPU boost requirement.
-   Flash adapters benefit significantly from the higher transfer rate. */
+/* PP5022 supports UDMA4 (66 MB/s). #79 one build: the ceiling for a
+   solid drive; a rotating one is held at upstream's UDMA2 at runtime
+   (ata.c set_features(): the ~10% gain isn't worth the CPU boost), and a
+   solid one reporting no UDMA words (w76/w93) at UDMA2 too. */
 #define ATA_MAX_UDMA 4
-#endif
 #endif
 
 #ifndef IPODUI_TRIM_QUICKSCREEN

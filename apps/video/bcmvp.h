@@ -67,6 +67,9 @@ struct bvp_port
                                    VPC_STILL_MAX restarts (dev33) */
 #define BVP_E_CHECK     (-6)    /* vplayer: the unit's first-use check
                                    (vcheck.h) passed at no band */
+#define BVP_E_NOAUDIO   (-7)    /* vplayer: the audio never reached the
+                                   video's file within VPLAYER_AUDIO_GRACE
+                                   (#340) */
 
 #define BVP_MAX_PKTS    64      /* packets in the FIFO (pushed, not consumed) */
 #define BVP_REPLIES     8       /* replies kept until collected */

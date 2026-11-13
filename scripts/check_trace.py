@@ -829,7 +829,7 @@ def check_p8a(lines, script, script_lines, ok, bad):
                    usb:frame y=53 h=92 and usb:header y=0 h=22; a usb:frame needs the latest
                    `usb io=` since the enter to be 1; no `update usb:`
                    outside a pair
-      p8a-unlit    `unlit enter` / `unlit exit <key|holdoff|usb|alarm>` paired
+      p8a-unlit    `unlit enter` / `unlit exit <key|wheel|holdoff|usb|alarm>` paired
                    (alarm: a ring leaves the face, ui_unlit_dismiss(), P12),
                    at least one pair; between them only `update unlit:*`
                    (full once at most per pair, digits y=62 h=68, status
@@ -993,12 +993,13 @@ def check_p8a(lines, script, script_lines, ok, bad):
         if m:
             if not inside:
                 problems.append('unlit exit without an unlit enter')
-            if m.group(1) not in ('key', 'holdoff', 'usb', 'alarm'):
-                problems.append('unlit exit %s (want key|holdoff|usb|alarm)'
+            # #291: a wheel touch dismisses like a key (`unlit exit wheel`)
+            if m.group(1) not in ('key', 'wheel', 'holdoff', 'usb', 'alarm'):
+                problems.append('unlit exit %s (want key|wheel|holdoff|usb|alarm)'
                                 % m.group(1))
             inside = False
             exits += 1
-            after_exit = m.group(1) in ('key', 'holdoff')
+            after_exit = m.group(1) in ('key', 'wheel', 'holdoff')
             continue
         m = RE_P8A_UNLIT_SKIP.search(l)
         if m and not m.group(2) and m.group(1) not in ('sleep', 'usb',
@@ -1008,7 +1009,9 @@ def check_p8a(lines, script, script_lines, ok, bad):
         if m:
             skips += 1
         m = RE_P8A_SWALLOW_END.search(l)
-        if m and m.group(1) not in ('release', 'buttons-up', 'timeout'):
+        # 'wheel': #291's swallow ends at its 0.5 s bound (p083-wheelbound,
+        # `unlit swallow-end wheel bound`)
+        if m and m.group(1) not in ('release', 'buttons-up', 'timeout', 'wheel'):
             problems.append('unlit swallow-end %s' % m.group(1))
         if RE_P8A_ANYUPD.search(l):
             um = RE_P8A_UNLIT_UPD.search(l)
@@ -3222,8 +3225,8 @@ def main():
     # appears or goes away without a key press)
     extra = sum(int(m.group(1)) for l in open(a.script)
                 for m in [re.match(r'#\s*fulls-extra:\s*(\d+)', l)] if m)
-    # every dismissed unlit face (`unlit exit key|holdoff|usb|alarm`; a wheel
-    # dismiss logs `key`) redraws the screen under it in full once
+    # every dismissed unlit face (`unlit exit key|wheel|holdoff|usb|alarm`;
+    # a step dismiss logs `key`, a wheel touch `wheel`, #291) redraws the screen under it in full once
     unlit_exits = sum(1 for l in lines if re.search(r'\bunlit exit \w', l))
     allowed = boots + presses + extra + unlit_exits
     if fulls > allowed:

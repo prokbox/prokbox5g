@@ -1,0 +1,77 @@
+# #295 (road test 2026-11-11): the Visualizer must open while music plays,
+# after a codec change. On the device it logged "viz ring outside the
+# arena need=8239 free=8640" and "viz tap open rc=-3": 96 kHz output
+# (#268/#270) doubled the tap's ring to 8,239 B, the screen arena still
+# held the 48 kHz 4,143 B for it, and the tap's fallback core_alloc is
+# refused while audio plays (it would shrink the audio buffer). The arena
+# now holds the 96 kHz ring (screen_stack.h, viz.c's _Static_assert from
+# the tap's formula). The simulator's fallback allocation happens to
+# succeed, so the line that must never appear is the arena miss itself:
+# the device's path is the ring in the arena.
+# A 96 kHz FLAC, then an MP3 (the codec and the rate change at the
+# boundary), and the Visualizer opened over the MP3; then again over the
+# FLAC after a skip back. 0.8.3 (IPODUI_AUDIOPHILE off) plays the FLAC at
+# 48 kHz 24-bit (the depth change still remakes the buffer at the
+# boundary); the arena keeps the 96 kHz ring for 0.9.0.
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p19-viz-playing.script
+# golden: skip
+# reset: viz
+# np: viz-full
+# fulls-extra: 1          (the Now Playing row appears: play_files)
+# timeout: 120
+# log: np mode shuffle -> visualizer ev=0
+# log: viz start style=0 path=bcm n=512
+# nolog: viz ring outside the arena
+# nolog: viz tap open rc=
+# nolog: audio shrink
+
+wait 3000
+repeat off
+copy fixtures/rate96k.flac /Music/viz96k.flac
+wait 500
+play_files /Music/viz96k.flac /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait 7000           # the FLAC (5 s) ends: the MP3 plays (a codec change)
+expect_playing 1000
+expect_pos 500 6000
+key SELECT          # Music (the menu re-reads "Now Playing" after a push/pop)
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 1200
+key SELECT          # Scrubber
+wait 400
+key SELECT          # Rating
+wait 600
+key SELECT          # Shuffle
+wait 600
+key SELECT          # Visualizer
+wait 1500
+expect_playing 1000
+shot bars_mp3
+key SELECT          # back to Normal: the view's part goes back
+wait 1200
+key LEFT            # back to the start of the MP3
+wait 300
+key LEFT            # the FLAC again (96 kHz, another codec change)
+wait 2000
+expect_playing 1000
+key SELECT          # Scrubber
+wait 400
+key SELECT          # Rating
+wait 600
+key SELECT          # Shuffle
+wait 600
+key SELECT          # Visualizer
+wait 1500
+expect_playing 1000
+shot bars_flac
+key SELECT          # Normal
+wait 1000
+key MENU
+wait 800
+audio_stop
+rm_file /Music/viz96k.flac
+quit

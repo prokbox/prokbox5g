@@ -5,8 +5,9 @@
 # ~7.9 MB peak would leave it under 7,500,000 B: the window opens but
 # refuses ("maint job=commit wait floor"), takes nothing, and the update
 # waits for the stop, where it commits as today. Run by
-# tests/perf/floor_gate.sh on the 32 MB build only.
+# tests/perf/floor_gate.sh on the 32 MB unit only.
 # golden: skip waited
+# env: IPODUI_SIM_RAM=32
 wait 4000
 wait_db 300000
 repeat all

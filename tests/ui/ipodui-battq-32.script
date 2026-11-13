@@ -1,0 +1,38 @@
+# One build (WP3 on WP1): the first-start battery question on the 32 MB
+# unit, the same binary as ipodui-battq.script with IPODUI_SIM_RAM=32.
+# The original cell is 650 mAh with a 35 mV sag on a 32 MB unit (850 and
+# 30 on a 64 MB one; apps/ipodui/battcurve.c), so the original cell
+# (the drum's "Stock") answered here must read RAM at run time, not MEMORYSIZE.
+# The sim's own linear row (3,300 .. 4,300 mV, powermgmt-sim.c) is the
+# base; sag 35: 3300 + ((v - 3300) * 965 + 500) / 1000 =
+# 3300 3397 3783 4169 4265 (by hand).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-battq-32.script
+# env: IPODUI_SIM_RAM=32
+# env: IPODUI_SIM_BATTQ=clear
+# env: IPODUI_SIM_NOTICE=clear
+# golden: skip
+# log: sim: ram 32 MB
+# log: battq shown
+# log: boot unit battery cell=unset mah=650 ram=32
+# log: boot battery curve 3300 3400 3800 4200 4300 3200
+# log: battq answered cell=stock
+# log: battq unit battery cell=stock mah=650 ram=32
+# log: battq battery curve 3300 3397 3783 4169 4265 3200
+# log: boot unit battery cell=stock mah=650 ram=32
+# log: boot battery curve 3300 3397 3783 4169 4265 3200
+# nolog: ram=64
+# expect-file: /.rockbox/config.cfg ipodui battery cell: 1
+
+# boot 1: nothing stored; the notice first, the question under it
+wait 4500
+key SELECT           # the notice's Select (past its 3 s guard)
+wait 1200
+shot battq           # Stock in the box
+key SELECT           # answers Stock, the original cell
+wait 1500
+shot menu
+reboot
+# boot 2: answered; the Main Menu is the first frame
+wait 4000
+shot menu-next-boot
+quit

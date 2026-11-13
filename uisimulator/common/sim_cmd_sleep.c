@@ -96,6 +96,37 @@ int sim_cpu_boost_counter(void)
     return sim_boost_count;
 }
 
+/* #326: a thread's own boost (trigger_cpu_boost()/cancel_cpu_boost(),
+ * firmware/kernel/include/thread.h), as the device's scheduler keeps it
+ * (kernel/thread.c boost_thread()): one flag per thread, one count while
+ * it is set */
+static bool sim_thread_boosted[MAXTHREADS];
+
+void sim_thread_boost(bool boost)
+{
+    unsigned int slot = thread_self() & 0xff;   /* THREAD_ID_SLOT() */
+
+    if (slot >= MAXTHREADS || sim_thread_boosted[slot] == boost)
+        return;
+    sim_thread_boosted[slot] = boost;
+    sim_cpu_boost(boost);
+}
+
+void sim_buffering_stall(size_t ahead);  /* apps/buffering.c */
+
+/* expect_boost's failure line: the threads that hold their own boost */
+static void thread_boosts_print(int lineno)
+{
+    for (unsigned int i = 0; i < MAXTHREADS; i++)
+    {
+        struct thread_debug_info info;
+
+        if (sim_thread_boosted[i] && thread_get_debug_info(i, &info) > 0)
+            fprintf(stderr, "sim_script:%d: boost held by thread %s\n",
+                    lineno, info.name);
+    }
+}
+
 static void post(struct sev e)
 {
     if (ring_wr - ring_rd < RING)
@@ -480,7 +511,7 @@ bool sim_cmd_sleep(const char *cmd, char *argv[], int argc, int lineno)
         && strcmp(cmd, "sleep_expect") && strcmp(cmd, "alarm_in")
         && strcmp(cmd, "idle_poweroff") && strcmp(cmd, "sleep_mode")
         && strcmp(cmd, "power_cut") && strcmp(cmd, "pll_hold")
-        && strcmp(cmd, "expect_boost"))
+        && strcmp(cmd, "expect_boost") && strcmp(cmd, "buf_stall"))
         return false;
 #ifndef HAVE_IPOD_UI
     (void)argv; (void)argc;
@@ -572,6 +603,17 @@ bool sim_cmd_sleep(const char *cmd, char *argv[], int argc, int lineno)
         else
             fprintf(stderr, "sim_script:%d: expect_boost failed: want %s, "
                     "count %d\n", lineno, argv[1], sim_boost_count);
+        if (!ok)
+            thread_boosts_print(lineno);
+    }
+    else if (!strcmp(cmd, "buf_stall") && argc >= 2)
+    {
+        /* #326: "buf_stall <bytes>|off": a background buffer fill keeps
+         * only that much ahead of the reader (apps/buffering.c), so a
+         * fill is under way when the sleep starts */
+        sim_buffering_stall(strcmp(argv[1], "off") ? strtoul(argv[1], NULL, 0)
+                                                   : 0);
+        fprintf(stderr, "sim_script: buf_stall %s\n", argv[1]);
     }
     else if (!strcmp(cmd, "pll_hold"))
     {

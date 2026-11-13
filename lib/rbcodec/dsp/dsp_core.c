@@ -8,6 +8,7 @@
  *
  * Copyright (C) 2005 Miika Pekkarinen
  * Copyright (C) 2012 Michael Sevakis
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -21,6 +22,7 @@
 #include "rbcodecconfig.h"
 #include "platform.h"
 #include "dsp_core.h"
+#include "core_alloc.h"     /* ProkBox #282: dsp_buflib_ops */
 #include "dsp_sample_io.h"
 
 #include "tdspeed.h"
@@ -228,8 +230,61 @@ static void dsp_empty_process(struct dsp_proc_entry *this, struct dsp_buffer **b
     logf("%s", __func__);
 }
 
+/* ProkBox #282 step 4: the DSP's state belongs to whichever core runs
+ * dsp_process(); on the iPod Video that is the COP, next to the decode,
+ * while settings arrive from the CPU's threads. Every entry that changes
+ * a DSP's state takes the cross-core lock, which also does the cache
+ * hand-off (apps/codec_cop.c, docs/data-paths.md "DSP state across the
+ * cores"). Weak no-ops here keep every other build (and warble) as it
+ * was; the lock is recursive for its holder, so a stage that reconfigures
+ * itself inside dsp_process() passes straight through */
+void __attribute__((weak)) dsp_xcore_lock(void)
+{
+}
+
+void __attribute__((weak)) dsp_xcore_unlock(void)
+{
+}
+
+/* The stages' own buffers (compressor, surround, PBE) were plain movable
+ * allocations: buflib could move one under a dsp_process() on the other
+ * core. A move now waits for the lock; the stages fetch their pointer
+ * from the handle at every call, so the move itself needs nothing else */
+static int dsp_buf_move(int handle, void *current, void *new)
+{
+    (void)handle; (void)current; (void)new;
+    return BUFLIB_CB_OK;
+}
+
+static void dsp_buf_sync(int handle, bool lock)
+{
+    (void)handle;
+    if (lock)
+        dsp_xcore_lock();
+    else
+        dsp_xcore_unlock();
+}
+
+struct buflib_callbacks dsp_buflib_ops =
+{
+    .move_callback = dsp_buf_move,
+    .shrink_callback = NULL,
+    .sync_callback = dsp_buf_sync,
+};
+
+static void proc_enable_locked(struct dsp_config *dsp, enum dsp_proc_ids id,
+                               bool enable);
+
 void dsp_proc_enable(struct dsp_config *dsp, enum dsp_proc_ids id,
                      bool enable)
+{
+    dsp_xcore_lock();
+    proc_enable_locked(dsp, id, enable);
+    dsp_xcore_unlock();
+}
+
+static void proc_enable_locked(struct dsp_config *dsp, enum dsp_proc_ids id,
+                               bool enable)
 {
     const uint32_t mask = BIT_N(id);
     bool enabled = dsp->proc_mask_enabled & mask;
@@ -277,9 +332,20 @@ bool dsp_proc_enabled(struct dsp_config *dsp, enum dsp_proc_ids id)
     return (dsp->proc_mask_enabled & BIT_N(id)) != 0;
 }
 
+static void proc_activate_locked(struct dsp_config *dsp,
+                                 enum dsp_proc_ids id, bool activate);
+
 /* Activate or deactivate a stage */
 void dsp_proc_activate(struct dsp_config *dsp, enum dsp_proc_ids id,
                        bool activate)
+{
+    dsp_xcore_lock();
+    proc_activate_locked(dsp, id, activate);
+    dsp_xcore_unlock();
+}
+
+static void proc_activate_locked(struct dsp_config *dsp,
+                                 enum dsp_proc_ids id, bool activate)
 {
     const uint32_t mask = BIT_N(id);
 
@@ -477,6 +543,11 @@ void dsp_process(struct dsp_config *dsp, struct dsp_buffer *src,
         /* Advance buffers by what output consumed and produced */
         dsp_advance_buffer32(buf, outcount);
         dsp_advance_buffer_output(dst, outcount);
+#ifdef DSP_OUT_S24
+        /* ProkBox #268: 24-bit frames are two int32: twice as far */
+        if (dsp->io_data.output_depth > 16)
+            dst->p16out += 2 * outcount;
+#endif
 
         DSP_PROCESS_LOOP(thread_yield);
     } /* while */
@@ -487,7 +558,12 @@ void dsp_process(struct dsp_config *dsp, struct dsp_buffer *src,
 intptr_t dsp_configure(struct dsp_config *dsp, unsigned int setting,
                        intptr_t value)
 {
-    return proc_broadcast(dsp, setting, value);
+    intptr_t ret;
+
+    dsp_xcore_lock();
+    ret = proc_broadcast(dsp, setting, value);
+    dsp_xcore_unlock();
+    return ret;
 }
 
 struct dsp_config *dsp_get_config(unsigned int dsp_id)

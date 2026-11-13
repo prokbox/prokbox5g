@@ -1,0 +1,44 @@
+# Site preview image (scripts/docs_shots.sh; its row in tests/ui/docs/images.tsv):
+# Settings > Audiophile (#270, planned for 0.9.0) with High Sample Rate on,
+# after the per-unit test passes both rates. 0.8.3 compiles the menu out
+# (IPODUI_AUDIOPHILE), so this runs on the preview sim, the release shape
+# with the 0.9.0 switches on: build it first with tests/ui/docs/preview_sim.sh.
+# In tests/ui/docs/, so the gate's tests/ui/*.script sweep leaves it alone.
+# Synthetic library and video fixtures only (tests/ui/setup_library.py,
+# tests/fixtures/videos/mkvideos.sh): no owner media. Leaves the setting
+# off again, so the disk is as found.
+#   sh tests/ui/docs/preview_sim.sh
+#   SIM_BUILD=build/sim-rel-preview scripts/shots.sh tests/ui/docs/preview-audiophile.script
+# needs: library
+# needs: video
+# golden: skip
+# timeout: 180
+# reset: mainmenu
+# log: audiophile test mask=0x83 on=1
+# nolog: cfg save failed
+wait 4500
+
+wheel +4 300            # Settings
+wait 400
+key SELECT 50
+wait 1200
+wheel +11 300           # Audiophile
+wait 1500
+shot settings_row
+key SELECT 50
+wait 1500
+shot menu
+key SELECT 50           # High Sample Rate: the warning (Cancel preselected)
+wait 1200
+wheel -1 300            # Continue
+wait 500
+shot warning
+key SELECT 50           # the per-unit test (about 2 s)
+wait 4000
+shot result             # both rates pass in the simulator
+key SELECT 50           # back to the menu, now On
+wait 1500
+shot menu_on
+key SELECT 50           # Off again, no prompt: the disk as found
+wait 3000
+quit

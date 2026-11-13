@@ -311,6 +311,16 @@ struct ui_screen *ui_top(void)
     return depth ? &stack[depth - 1] : NULL;
 }
 
+struct ui_screen *ui_under(const struct ui_screen *s)
+{
+    int i;
+
+    for (i = 1; i < depth; i++)
+        if (s == &stack[i])
+            return &stack[i - 1];
+    return NULL;
+}
+
 void ui_invalidate(unsigned dirty)
 {
     if (depth)

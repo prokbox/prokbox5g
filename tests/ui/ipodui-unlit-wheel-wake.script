@@ -1,0 +1,66 @@
+# #291: on the idle clock face (the unlit face) a click-wheel turn wakes it
+# like a button press, and the waking wheel input itself does nothing: the
+# list underneath does not move. Three wheel cases: a touch too short for
+# any step (wheel_touch: the driver lights the backlight and counts the
+# touch but posts no step), a touch with one step, and the same touch's
+# later steps; then a fresh turn acts. The old case (first SELECT only
+# wakes) is kept. The swallow is bounded (0.5 s from the wake): a finger
+# that never lifts (touch id unchanged) and keeps turning moves the list
+# once the bound has passed.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-unlit-wheel-wake.script
+# needs: library
+# trace: unlit
+# same: before_face after_touch
+# same: before_face after_wheel
+# same: before_face after_more
+# same: before_face after_select
+# log: unlit exit wheel
+# log: unlit swallow wheel touch
+# same: before_face after_neverlift
+# log: unlit swallow-end wheel bound
+# nolog: splash-pass
+
+wait 4000
+sim_clock 04:01
+clock_format 12
+wheel +1                # main menu, second row selected
+wait 500
+shot before_face
+backlight_expire
+wait 3500
+shot face
+wheel_touch             # a touch with no step: wakes
+wait 1000
+shot after_touch        # == before_face (face gone)
+backlight_expire
+wait 3500
+wheel_touch             # the touch ...
+wheel +1                # ... and its step: swallowed
+wait 200
+shot after_wheel        # == before_face
+wheel +1                # the same touch goes on: still swallowed
+wait 100
+shot after_more         # == before_face
+wheel_touch             # a new touch (finger lifted between)
+wheel +1                # acts
+wait 600
+shot after_second       # one row further
+wheel -1
+wait 600
+backlight_expire
+wait 3500
+key SELECT              # the old case: only wakes
+wait 1000
+shot after_select       # == before_face
+backlight_expire
+wait 3500
+wheel_touch             # wakes; the finger never lifts
+wheel +1                # swallowed (inside the bound)
+wait 700                # past the bound
+wheel +1                # same touch id, still turning: acts
+wait 600
+shot after_neverlift_move   # one row further
+wheel -1
+wait 600
+shot after_neverlift    # == before_face
+quit

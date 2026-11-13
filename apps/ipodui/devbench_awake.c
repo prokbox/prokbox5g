@@ -500,14 +500,6 @@ int devbench_aw_lcdldo(void)
 #define I2_WAIT_S   12          /* DAC_IDLE_MS (5 s) plus the mixer's tail
                                    and a few seconds gated */
 
-static bool dac_in_standby(void)
-{
-    struct dac_stats ds;
-
-    dac_get_stats(&ds);
-    return ds.standby;
-}
-
 int devbench_aw_i2s(void)
 {
     static const unsigned long variant[2] =

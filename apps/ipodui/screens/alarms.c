@@ -29,6 +29,7 @@
 #include "config.h"
 #include <stdio.h>
 #include <string.h>
+#include "string-extra.h"
 #include "system.h"
 #include "kernel.h"
 #include "lcd.h"
@@ -36,6 +37,7 @@
 #include "settings.h"
 #include "timefuncs.h"
 #include "powermgmt.h"
+#include "backlight.h"
 #include "ipodui/anim.h"
 #include "ipodui/theme.h"
 #include "ipodui/paint.h"
@@ -49,7 +51,7 @@
 #include "ipodui/alarm.h"
 #include "ipodui/panelart.h"
 #include "ipodui/preview.h"
-#include "ipodui/extras.h"           /* ui_preview_x_alarms */
+#include "ipodui/extras.h"           /* ui_x_alarms_panel(), _caption() */
 #include "ipodui/screens/screens.h"
 
 /* Behaviour. The list: Create Alarm (while there is room), Sleep Timer,
@@ -92,6 +94,7 @@ static const unsigned char sleep_min[] = { 0, 15, 30, 60, 90, 120 };
 
 #define L_ROWS_MAX  (2 + ALARM_MAX)
 #define ROLLER_Y    104                 /* the fields' row (datetime.c) */
+#define CAP_LEN     40                  /* a panel caption line (#329) */
 
 /* one working block per visit */
 struct al_wk {
@@ -108,6 +111,11 @@ struct al_wk {
     uint32_t missed_at[ALARM_MAX];
     struct ui_roller r;                     /* the Date and Time pickers */
     uint8_t rwhich;
+    char cap[2][CAP_LEN];                   /* #329: the panel's lines as
+                                               drawn ("": none) */
+    int cap_row;                            /* ... for this row */
+    bool cap_timed;                         /* ... until cap_due (a tick) */
+    long cap_due;
 };
 static struct al_wk *wk;                    /* per visit (.bss) */
 
@@ -800,6 +808,9 @@ static bool list_chev(int row, void *data)
     return true;
 }
 
+static uint32_t panel_caption(char l[2][CAP_LEN], int *trace_left);
+static void cap_mark(uint32_t secs);
+
 static int list_enter(struct ui_screen *s, const void *arg)
 {
     const struct ui_theme *t = ui_theme;
@@ -843,6 +854,9 @@ static int list_enter(struct ui_screen *s, const void *arg)
     ui_list_set_style(&wk->list, &st);
     wk->list.get_sublabel = list_sub;
     wk->list.has_chevron = list_chev;
+    /* #329: the lines the first panel draw shows, so the first tick
+     * pushes no band of its own (over the way in) */
+    cap_mark(panel_caption(wk->cap, &i));
     ui_panel_select_screen(s);
     UPDATE_TRACE("alarms open count=%d missed=%d", n, (int)any);
     return 0;
@@ -863,6 +877,11 @@ static void list_draw(struct ui_screen *s, unsigned dirty)
     {
         ui_list_set_count(&wk->list, rows_total());  /* an edit came back */
         ui_list_draw(&wk->list, wk->list.vp.y, wk->list.vp.height);
+        /* #329: key the panel on this list again before drawing it. A
+         * split child (the Sleep Timer or Repeat values) keyed it on
+         * itself, and its pop leaves that panel on screen for the parent
+         * to replace (preview.c screen_gone()), as menu.c does */
+        ui_panel_select_screen(s);
         ui_panel_draw_now();
     }
     else if (dirty & UI_DIRTY_BAND)
@@ -873,10 +892,165 @@ static void list_draw(struct ui_screen *s, unsigned dirty)
     }
 }
 
+/* -- the panel's caption for the highlighted row (#329) ------------------ */
+
+/* "3 hours": one unit of a time span, singular or plural */
+static void fmt_unit(char *buf, size_t len, int n, int one, int many)
+{
+    if (n == 1)
+        strlcpy(buf, str(one), len);
+    else
+        snprintf(buf, len, str(many), n);
+}
+
+/* "In 18 hours 42 minutes", "In 2 days 3 hours", "In 5 minutes": the
+ * largest unit, then the next one down unless it is 0, in whole minutes
+ * rounded up (as the clock reads: 7:00 at 6:58:30 is 2 minutes off);
+ * under a minute, "In less than a minute" */
+static void fmt_in(char *buf, size_t len, uint32_t secs)
+{
+    static const short one[3] = {
+        LANG_IPODUI_X_ALARM_PANEL_ONE_DAY, LANG_IPODUI_X_ALARM_PANEL_ONE_HOUR,
+        LANG_IPODUI_X_ALARM_PANEL_ONE_MINUTE,
+    };
+    static const short many[3] = {
+        LANG_IPODUI_X_ALARM_PANEL_DAYS, LANG_IPODUI_X_ALARM_PANEL_HOURS,
+        LANG_IPODUI_X_ALARM_PANEL_MINUTES,
+    };
+    char u[2][20];
+    uint32_t mins = (secs + 59) / 60;
+    int v[3], k;
+
+    if (secs < 60)
+    {
+        strlcpy(buf, str(LANG_IPODUI_X_ALARM_PANEL_SOON), len);
+        return;
+    }
+    v[0] = mins / (24 * 60);
+    v[1] = mins / 60 % 24;
+    v[2] = mins % 60;
+    k = v[0] ? 0 : v[1] ? 1 : 2;        /* mins >= 1, so v[2] if not */
+    fmt_unit(u[0], sizeof(u[0]), v[k], one[k], many[k]);
+    if (k < 2 && v[k + 1])
+    {
+        fmt_unit(u[1], sizeof(u[1]), v[k + 1], one[k + 1], many[k + 1]);
+        snprintf(buf, len, str(LANG_IPODUI_X_ALARM_PANEL_IN_TWO), u[0], u[1]);
+    }
+    else
+        snprintf(buf, len, str(LANG_IPODUI_X_ALARM_PANEL_IN_ONE), u[0]);
+}
+
+/* "Fri 13 Nov, 7:00 AM": the ring's weekday, day, month and time, in the
+ * shell's 12/24-hour format */
+static void fmt_when(char *buf, size_t len, uint32_t t)
+{
+    char hm[16];
+    int y, mo, d, h, m, s;
+
+    alarm_rtc_split(t, &y, &mo, &d, &h, &m, &s);
+    fmt_time(hm, sizeof(hm), h, m);
+    snprintf(buf, len, str(LANG_IPODUI_X_ALARM_PANEL_WHEN),
+             str(day_lang[alarm_rtc_wday(t) % 7]), d,
+             str(LANG_MONTH_JANUARY + (mo - 1) % 12), hm);
+}
+
+/* The highlighted row's lines into l ("": none). Create Alarm: "Create
+ * New Alarm". The running Sleep Timer: "Sleep Timer Active" over the
+ * minutes left (rounded up, as the row's subtitle); stopped: nothing. An
+ * alarm: its next ring and how far off, from alarm_next(), the rule the
+ * engine arms with (snooze included); off (or nothing to ring): "Alarm
+ * Off". Returns the seconds left of what is counted down (0: nothing
+ * changes by itself); *trace_left: the Sleep Timer's minutes, else -1 */
+static uint32_t panel_caption(char l[2][CAP_LEN], int *trace_left)
+{
+    int row = wk->list.selected, left;
+    const struct alarm *a;
+    uint32_t now, t;
+
+    memset(l, 0, 2 * CAP_LEN);          /* whole: list_tick() compares */
+    *trace_left = -1;
+    if (row_is_create(row))
+    {
+        strlcpy(l[0], str(LANG_IPODUI_X_ALARM_PANEL_CREATE), CAP_LEN);
+        return 0;
+    }
+    if (row_is_sleep(row))
+    {
+        left = get_sleep_timer_active() ? get_sleep_timer() : 0;
+        *trace_left = left > 0 ? (left + 59) / 60 : 0;
+        if (left <= 0)
+            return 0;
+        strlcpy(l[0], str(LANG_IPODUI_X_SLEEP_PANEL_ACTIVE), CAP_LEN);
+        if (*trace_left == 1)
+            strlcpy(l[1], str(LANG_IPODUI_X_SLEEP_PANEL_ONE_MINUTE), CAP_LEN);
+        else
+            snprintf(l[1], CAP_LEN, str(LANG_IPODUI_X_SLEEP_MINUTES),
+                     *trace_left);
+        return left;
+    }
+    a = alarm_get(row - rows_fixed());
+    if (!a)
+        return 0;
+    now = now_rtc();
+    t = alarm_next(a, 1, now, NULL);
+    if (!t)
+    {
+        strlcpy(l[0], str(LANG_IPODUI_X_ALARM_PANEL_OFF), CAP_LEN);
+        return 0;
+    }
+    fmt_when(l[0], CAP_LEN, t);
+    fmt_in(l[1], CAP_LEN, t - now);
+    return t - now;
+}
+
+/* The lines in wk->cap now stand for this row until (if timed) the
+ * rounded-up minute of 'secs' drops, a tick late */
+static void cap_mark(uint32_t secs)
+{
+    wk->cap_row = wk->list.selected;
+    wk->cap_timed = secs != 0;
+    wk->cap_due = current_tick + (long)((secs + 59) % 60 + 1) * HZ + 1;
+}
+
+/* The countdown: when another row is highlighted or the minute shown is
+ * gone, the lines are made again (no formatting on other passes, the
+ * list's glide included); if they changed, the panel's caption band is
+ * redrawn and pushed, and on the Sleep Timer the row too (its subtitle).
+ * While lit, a wake at the next minute change. Dark: no wake; the next
+ * lit pass catches up. A change made elsewhere (the timer, an alarm, the
+ * clock's format) comes back through the full draw (list_panel()). */
 static int list_tick(struct ui_screen *s)
 {
+    int wake = ui_list_tick(&wk->list), due, y, h, left;
+    char l[2][CAP_LEN];
+    uint32_t secs;
+
     (void)s;
-    return ui_list_tick(&wk->list);
+    if (!is_backlight_on(true))
+        return wake;
+    if (wk->list.selected != wk->cap_row
+        || (wk->cap_timed && !TIME_BEFORE(current_tick, wk->cap_due)))
+    {
+        secs = panel_caption(l, &left);
+        cap_mark(secs);
+        if (memcmp(l, wk->cap, sizeof(l)))
+        {
+            memcpy(wk->cap, l, sizeof(l));
+            ui_x_alarms_caption(l[0], l[1]);
+            if (left >= 0
+                && ui_list_row_band(&wk->list, wk->list.selected, &y, &h))
+                ui_invalidate_band(y, h);
+            if (left >= 0)
+                UPDATE_TRACE("alarms panel left=%d", left);
+            else
+                UPDATE_TRACE("alarms panel row=%d in=%lu",
+                             wk->list.selected, (unsigned long)secs);
+        }
+    }
+    if (!wk->cap_timed)
+        return wake;
+    due = MAX(wk->cap_due - current_tick, 1);
+    return wake == TIMEOUT_BLOCK || wake > due ? due : wake;
 }
 
 static enum ui_result list_input(struct ui_screen *s, const struct ui_input *in)
@@ -890,6 +1064,8 @@ static enum ui_result list_input(struct ui_screen *s, const struct ui_input *in)
             n = ui_list_move(&wk->list, in->wheel_steps, y, h);
             for (i = 0; i < n; i++)
                 ui_invalidate_band(y[i], h[i]);
+            /* #329: the panel's line comes or goes in list_tick(), on
+             * this pass: a band, as the highlight moves (no fade) */
             return UI_HANDLED;
         case UI_KEY_SELECT:
             if (!in->release || in->long_press)
@@ -909,11 +1085,15 @@ static enum ui_result list_input(struct ui_screen *s, const struct ui_input *in)
     }
 }
 
-/* the panel: the same alarm clock on every row (photo `extras-alarms`) */
+/* the panel: the same alarm clock on every row (photo `extras-alarms`);
+ * #329: under it, the highlighted row's caption (panel_caption()) */
 static void list_panel(struct ui_screen *s, const struct ui_panel *p)
 {
+    int left;
+
     (void)s;
-    ui_preview_x_alarms.draw(p, NULL, 0);
+    cap_mark(panel_caption(wk->cap, &left));
+    ui_x_alarms_panel(p, wk->cap[0], wk->cap[1]);
 }
 
 const struct ui_screen_ops ui_x_alarms_screen = {

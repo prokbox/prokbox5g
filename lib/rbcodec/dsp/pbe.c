@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2014 by Chiwen Chang
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -48,7 +49,7 @@ static int handle = -1;
 
 static int pbe_buffer_alloc(void)
 {
-    handle = core_alloc(PBE_BUFSIZE);
+    handle = core_alloc_ex(PBE_BUFSIZE, &dsp_buflib_ops);
     return handle;
 }
 

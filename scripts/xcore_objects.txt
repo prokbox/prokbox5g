@@ -90,7 +90,7 @@ allow tagcache.c:command_queue       # not a kernel object: the tagcache command
 allow tagcache.c:wakeup_tick         # not a kernel object: do_timed_yield()'s tick stamp, CPU only (tagcache.c runs on CPU threads; the shell's tagcache_* calls, #154's tagcache_ui_save_spot too, cross by remote call; febe_reach_check.py reaches no tagcache.o code from the ui thread)
 allow modload.c:done                 # not a kernel object: rt_init_once()'s flag (UI thread)
 allow modload.c:work                 # not a kernel object: the module arena's working-block table (UI thread; module builds)
-allow iap-core.c:iap_queue           # the dock's iAP queue (stock, --dock30), CPU only: posted by its timeout (CPU tick), the serial IRQ, iap_reset_state (usb thread) and queue_broadcast (CPU threads; the shell's power/storage calls cross by remote call); read by the iap thread (IF_COP(, CPU)). Its stack and RX/TX buffers are the iap thread's and the serial IRQ's, CPU only too
+allow iap-core.c:iap_queue           # the dock's iAP queue (resident on every unit since #236), CPU only: posted by its timeout (CPU tick), the serial IRQ, iap_reset_state (usb thread) and queue_broadcast (CPU threads; the shell's power/storage calls cross by remote call); read by the iap thread (IF_COP(, CPU)). Its stack and RX/TX buffers are the iap thread's and the serial IRQ's, CPU only too
 
 # ---- the visualizer's PCM tap (p19-pcm-tap): the hook the FIQ loads, set
 # by an opener on either core.  viz_tap.c:vt_ring (XCORE_BSS) joins as

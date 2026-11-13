@@ -8,6 +8,7 @@
  *
  * Copyright (C) 2005 Dave Chapman
  * Copyright (C) 2010 Yoshihisa Uchida
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -395,6 +396,11 @@ static bool read_header(int fd, struct mp3entry* id3, const unsigned char *chunk
         DEBUGF("metadata error: frequency or bitrate is 0\n");
         return false;
     }
+
+    /* ProkBox #268/#277: linear PCM and float only (ADPCM's 4 bits are
+       not a depth) */
+    id3->bits_per_sample = (fmt.formattag == 0x0001 ||
+                            fmt.formattag == 0x0003) ? fmt.bitspersample : 0;
 
     /* Calculate track length (in ms) and estimate the bitrate (in kbit/s) */
     id3->length = (fmt.formattag != WAVE_FORMAT_ATRAC3)?

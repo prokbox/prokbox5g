@@ -170,7 +170,7 @@ Guards for every row: the R2 standing guards (§1), plus Batch A's baseline for 
 |---|---|---|---|---|---|---|---|
 | HX-X1 | PP#21, BCM#39 | Scope the WM8758's DACDAT net with each chip driving (after 8a-1) | R0 | scope; opening the unit | Selector, gate or merge: how BCM audio reaches the codec | dev45 8a-1 | X |
 | HX-X2 | PP#22, PP#1 (32 MB) | Batch A's dump on a 5G (and a 32 MB unit if available) | R0 | second unit | The 5G's chip ID; SDRAM controller values for 32 MB | HX-A3, HX-A6 | X |
-| HX-X3 | Storage fold (#79) | Batch A's IDE rows, HX-A17, HX-B6 and spin-up timing on an HDD unit | R0 | HDD unit | `--storage=hdd` measured instead of [rockbox-derived] | HX-B6 | X |
+| HX-X3 | Storage fold (#79) | Batch A's IDE rows, HX-A17, HX-B6 and spin-up timing on an HDD unit | R0 | HDD unit | the one build's rotating rows (`unit storage=rotating` in the log; storage detected at start-up since 0.8.3, #79) measured instead of [rockbox-derived] | HX-B6 | X |
 | HX-X4 | PP#19 (exact) | Scope SCL during HX-A11's reads | R0 | scope | The exact bus rate | HX-A11 | X |
 | HX-X5 | BCM#15, #60–#62 (TV out) | TV-out block bring-up with a composite AV cable, for when videos return. Now specified step by step as PB-6–PB-9 in `bcm2722-reference/brief-map-peripherals.md` §11 (Apple's full register sequence is known) | R2 | AV cable, a TV; owner's go | The FIFO format, the field bit, scaling; keeps the TV-out door open | PB-1 (read-only census, with PB-2–PB-4 the first wave) | X |
 | HX-X6 | BCM#17 | Log the panel ID our driver detects on a second unit | R0 | second unit | Another panel variant [silicon] | HX-A18 | X |
@@ -296,7 +296,7 @@ Note: logging the UART traffic **while Apple's firmware runs** is impossible wit
 | If the mod… | The kernel needs | Status |
 |---|---|---|
 | takes analog audio | Nothing beyond audio; optionally a line-out mode and presence detection (BT-2) | [unknown] until BT-1/BT-2 |
-| speaks iAP on the dock | UART 0 (16550-style at `0x7000_6000` per Rockbox's header [rockbox-derived]) with autobaud between 19,200 and 57,600; an iAP subset (general lingo identify, simple remote, perhaps extended interface); `HAVE_IPOD_DOCK30` builds already carry Rockbox's iAP | [rockbox-derived]; BT-3 decides the subset |
+| speaks iAP on the dock | UART 0 (16550-style at `0x7000_6000` per Rockbox's header [rockbox-derived]) with autobaud between 19,200 and 57,600; an iAP subset (general lingo identify, simple remote, perhaps extended interface); every shell build carries Rockbox's iAP, resident and dormant until an accessory speaks (0.8.3, #236) | [rockbox-derived]; BT-3 decides the subset |
 | draws power from the dock | The accessory supply (`D2REGC1` on/off, `clocks-power.md` §6), switched with sleep | [rockbox-derived] |
 | taps I2S | Fixed-rate playback, or nothing if it follows the clocks (BT-5) | [unknown] |
 

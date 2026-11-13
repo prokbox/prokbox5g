@@ -69,7 +69,9 @@
 #ifndef IPODUI_HW_EQ
 /* On: device spike S1 (2026-10-11, owner) heard EQ3 (1.1 kHz) and EQ2
  * (385 Hz) at +12 dB with M128ENB off, at 44.1 and 48 kHz, undistorted
- * at a middling volume. EQ1/EQ5 are the bands upstream already drives as
+ * at a middling volume; EQ4 is silent there (bench b11 row m128), so
+ * dac_eq_set() turns M128ENB on while band 4 has a gain (#265).
+ * EQ1/EQ5 are the bands upstream already drives as
  * bass and treble. -DIPODUI_HW_EQ=0 brings back the software EQ only. */
 #define IPODUI_HW_EQ 1
 #endif

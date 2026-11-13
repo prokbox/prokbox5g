@@ -77,6 +77,9 @@
 #endif
 #include "thread.h"
 #include "kernel.h"
+#ifdef HAVE_IPOD_UI
+#include "button.h"              /* button_boost_release() (#272) */
+#endif
 #include "system.h"
 #include "logf.h"
 #include "string-extra.h"
@@ -690,6 +693,12 @@ static bool ui_scan_pending, ui_deleted_owed;
  * session: the post-USB check (Q_START_SCAN) and a cut's owed update
  * have nothing left to find */
 static bool ui_fresh_walked;
+/* #314: the post-USB check after a session that changed no file skips
+ * its walk, unless a check or a build was owed when the session began
+ * (ui_usb_walk_owed, set at the connect) */
+static bool ui_usb_walk_owed;
+static bool ui_usb_owed_seen;           /* the same, kept for the UI */
+static bool ui_rescan_unchanged;
 static bool ui_generation_unresolved;
 static bool ui_generation_fresh; /* definitively unusable selected data, keep old files */
 static bool ui_boot_stats_replayed;
@@ -2086,6 +2095,13 @@ static long ui_walk_total = -1;         /* #157: the last whole walk's entries *
  * progress (NULL: none running) */
 static struct boot_digest *volatile ui_count_dg;
 static volatile signed char ui_boot_state; /* 0 pending, 1 walk, 2 done */
+/* #237: a first build ended inside the boot check but its library is not
+ * published yet (its lists, then the publication, follow on this thread's
+ * next pass): the boot window holds on for it (tagcache_boot_check()
+ * says 1), so the shell's library-page check (ui_upd_boot()) never finds
+ * "no library" for a build that is already done. Inert once the
+ * candidate publishes or is dropped (ui_build == ui_active) */
+static volatile bool ui_boot_publish_owed;
 #ifdef HAVE_IPOD_UI_DEVMODE
 #define UI_BS_LOG(...) ui_log("boot", __VA_ARGS__)
 #else
@@ -6061,6 +6077,11 @@ static bool ui_candidate_readback(void)
 
 /* the last ui_candidate_begin() failed only for audio's memory */
 static bool ui_begin_mem_wait;
+/* the last ui_candidate_begin() found the retired generation still held
+ * (a background pass's passive pin): the candidate needs that context,
+ * so tagcache_ui_library_busy() must not park its holder (a deadlock
+ * until the holder's wait ends, fb-stall) */
+static volatile bool ui_begin_held;
 
 static bool ui_candidate_begin(void)
 {
@@ -6089,9 +6110,15 @@ static bool ui_candidate_begin(void)
     int level = disable_irq_save();
     bool unavailable = next->readers || next->operations || next->reserved
         || next->writer_count || next->reader_count;
+    int readers = next->readers;
     if (!unavailable)
         next->reserved = true;
     restore_irq(level);
+    if (unavailable != ui_begin_held)
+        ui_log("db", "begin %s gen=%d readers=%d", unavailable
+               ? "waits for the retired library" : "free", next->generation,
+               readers);
+    ui_begin_held = unavailable;
     if (unavailable)
         return false;
     lib_generation_pool_abandon(next);
@@ -6322,6 +6349,10 @@ static bool ui_candidate_publish(void)
     ui_publish_busy = busy;
     if (busy)
         goto unlock;
+#ifdef SIMULATOR
+    sim_commit_hold(101);       /* commit_hold 101: inside the publication
+                                 * (tagcache_context_acquire() waits) */
+#endif
     if (!ui_candidate_stats_finish(io.buffer, io.size))
     {
         ui_publish_end();
@@ -6594,7 +6625,8 @@ long sim_tagcache_commits_ended(void)
  * commit waits at one point so USB or a power-off's cancel can be raised
  * exactly there. 0: before the USB check (nothing changed yet), 1: just
  * after the dirty mark, k + 1: after build_index() of commit step k;
- * 100: a candidate's publication, before its view pool (P16). */
+ * 100: a candidate's publication, before its view pool (P16); 101: inside
+ * it, readers held off (#272). */
 static volatile int sim_hold = -1, sim_held = -1;
 
 void sim_tagcache_commit_hold(int point)
@@ -11277,9 +11309,15 @@ again:
         && ui_boot_entries <= 0)
         ui_first_count((const char *const *)vect);
     const bool from_nothing = !probe && !ui_active->stat.ready;
+    const long walk_t0 = current_tick;
 #endif
     do_tagcache_build((const char**)vect);
 #ifdef UI_COMMIT
+    /* #315: each walk's time and size on the device (the post-USB
+     * check's cost; ent: as the digest counts) */
+    ui_log("db", "walk ms=%ld ent=%ld probe=%d",
+           (current_tick - walk_t0) * (1000 / HZ),
+           (long)ui_walk_dg.entries, (int)ui_probe);
     ui_probe = false;
     ui_scan_pending = ui_commit_cancel || tagcache_usb_quiescing;
     if (from_nothing && !ui_scan_pending && !ui_sleep_cut)
@@ -11785,6 +11823,8 @@ struct tagcache_context *tagcache_context_active(void)
 
 struct tagcache_context *tagcache_context_acquire(void)
 {
+    bool waited = false;
+
     while (true)
     {
         int level = disable_irq_save();
@@ -11797,6 +11837,13 @@ struct tagcache_context *tagcache_context_acquire(void)
             return ctx;
         }
         restore_irq(level);
+        /* #272: a key's boost isn't held through the wait (the key
+         * reader's own; another thread's call does nothing) */
+        if (!waited)
+        {
+            waited = true;
+            button_boost_release();
+        }
         /* a publication's window can span a disk spin-up (fsync, the
          * manifest rename): sleep, never spin the UI thread (F1) */
         sleep(1);
@@ -12346,6 +12393,19 @@ int tagcache_boot_check(int *permille)
 {
     int st = ui_boot_state;
 
+    /* a first build done but not yet published: still the check's work;
+     * its walk is whole (999 permille), so the window's projection holds
+     * on, at most to its cap (maint_boot_window()) */
+    if (st == 2 && ui_boot_publish_owed)
+    {
+        if (ui_build != ui_active)
+        {
+            if (permille)
+                *permille = 999;
+            return 1;
+        }
+        ui_boot_publish_owed = false;
+    }
     if (permille)
     {
         long n = ui_boot_entries;
@@ -12857,6 +12917,13 @@ static void tagcache_thread(void)
             case Q_START_SCAN:
                 check_done = false;
 #ifdef UI_COMMIT
+                /* #314: data 1: the computer changed no file */
+                ui_rescan_unchanged = ev.data == 1 && !ui_usb_walk_owed;
+                ui_log("db", "post-usb check changed=%d owed=%d",
+                       ev.data != 1, ui_usb_walk_owed);
+                ui_usb_walk_owed = false;
+#endif
+#ifdef UI_COMMIT
                 ui_win_scan = current_tick;     /* lib window: scan */
 #endif
 #ifdef HAVE_IPOD_UI
@@ -13044,6 +13111,34 @@ static void tagcache_thread(void)
                     ui_log("db", "check skipped: first build walked it all");
                     break;
                 }
+                /* #314: the computer wrote no folder and no file, and no
+                 * check or build was owed when it took the disk: the
+                 * library still matches the tree (no walk: ~32 s for 274
+                 * albums on the device, minutes at 60k songs) */
+                if (ui_rescan_unchanged && !built)
+                {
+                    ui_rescan_unchanged = false;
+                    ui_rescan = false;
+                    ui_load_missing();
+                    check_done = true;
+                    ui_boot_state = 2;
+                    ui_busy = false;
+                    /* the walk the stamp rested on still vouches */
+                    mutex_lock(&ui_stamp_mtx);
+                    if (ui_walk_ok && ui_usb_since_walk)
+                    {
+                        ui_usb_since_walk = false;
+                        ui_stamp_due = true;
+                    }
+                    mutex_unlock(&ui_stamp_mtx);
+                    /* the check has ended, as a scan's end would say
+                     * (#157): the post-USB moment (usbbusy.c) closes on
+                     * its short gap, not its 2 s grace for a scan never
+                     * seen, so no busy glyph spins for work never done */
+                    ui_scans_ended++;
+                    ui_log("db", "check skipped: no file changed");
+                    break;
+                }
 #endif
 #else
                 if (check_done || !tc_stat.ready)
@@ -13065,6 +13160,7 @@ static void tagcache_thread(void)
                     {
                         check_done = true;
 #ifdef UI_COMMIT
+                        ui_boot_publish_owed = ui_build != ui_active;
                         ui_boot_state = 2;
 #endif
                         break;
@@ -13160,6 +13256,15 @@ static void tagcache_thread(void)
                 ui_shutdown_intent = false;
                 memset(ui_retry, 0, sizeof(ui_retry));
                 ui_fresh_walked = false;    /* #237: the host may write */
+                /* #314: a check or build not finished now is owed after
+                 * the session, whatever the host does */
+                ui_rescan_unchanged = false;
+                if (!check_done || ui_rescan || ui_scan_pending
+                    || ui_deleted_owed || ui_probe_owed || ui_commit_pending
+                    || ui_rebuild_again || ui_build != ui_active
+                    || !tc_stat.ready)
+                    ui_usb_walk_owed = true;
+                ui_usb_owed_seen = ui_usb_walk_owed;
                 ui_master_dirty = false;
                 /* A candidate still being built (a cut commit or scan:
                  * not ready) is dropped, RAM only, so the host waits for
@@ -13609,6 +13714,22 @@ struct tagcache_stat* tagcache_get_stat(void)
     return &tc_stat;
 }
 
+#ifdef HAVE_IPOD_UI
+bool tagcache_ui_usb_owed(void)
+{
+#ifdef UI_COMMIT
+    return ui_usb_owed_seen;
+#else
+    return true;
+#endif
+}
+
+void tagcache_start_scan_usb(bool host_changed)
+{
+    queue_post(&tagcache_queue, Q_START_SCAN, host_changed ? 0 : 1);
+}
+#endif
+
 void tagcache_start_scan(void)
 {
     queue_post(&tagcache_queue, Q_START_SCAN, 0);
@@ -13676,8 +13797,16 @@ bool tagcache_ui_library_busy(void)
         || tc_stat.commit_step > 0)
         return true;
 #ifdef UI_COMMIT
+    /* an owed scan whose candidate waits for the retired generation's
+     * last reader is not busy: that reader (the art pass's passive pin)
+     * parks on this test, and would hold the scan off until its wait
+     * ended (USB, power-off). Let it run on to its generation check,
+     * which ends the pass and drops the pin; the begin's retry follows */
+    struct tagcache_context *retired =
+        ui_active == &ui_context_a ? &ui_context_b : &ui_context_a;
+    bool held = ui_begin_held && retired->readers;
     if (ui_in_commit || ui_upd_jobs != 0
-        || (ui_scan_pending && audio_status() == 0))
+        || (ui_scan_pending && audio_status() == 0 && !held))
         return true;
 #endif
     return tagcache_ui_count() < 0;
@@ -13749,6 +13878,18 @@ int tagcache_ui_progress(int *permille)
         k = ui_walk_dg.entries;     /* as the digest counts (#237) */
         if (n > 0)
             *permille = (int)MIN(999L, k * 1000L / n);
+        else
+        {
+            /* #315: no scale yet (no whole walk this boot: a session
+             * soon after it): a fill that slows towards the end, as the
+             * count's, so the bar moves from the first entry. Its knee
+             * from the library's size (a walk counts its folders too:
+             * ~80 % at the end), else the count's */
+            long songs = ui_active->master.tch.entry_count;
+            long knee = songs > 0 ? MAX(songs / 4, 250L) : 4000L;
+
+            *permille = (int)(k * 1000L / (k + knee));
+        }
         return ui_probe ? TC_UI_PROG_PROBE : TC_UI_PROG_WALK;
     }
     if (ui_upd_jobs)

@@ -342,15 +342,17 @@ static int ata_get_phys_sector_mult(void)
 
 void ata_set_phys_sector_mult(unsigned int mult)
 {
-#if defined(HAVE_USB_SECTOR_XLATE) && defined(HAVE_FLASH_STORAGE)
-    /* ProkBox (#63): keep the drive's own multiplier. Raising it to the
-     * 2048-byte virtual sector only pays on a disk with large physical
-     * sectors (it saves the drive's internal read-modify-write); a flash
-     * adapter takes 512-byte I/O natively, and the 512-byte USB view would
-     * turn every single-sector host write into a 1024-byte RMW here. The
+#ifdef HAVE_USB_SECTOR_XLATE
+    /* ProkBox (#63; #79 one build, decided at runtime): a solid drive
+     * keeps its own multiplier. Raising it to the 2048-byte virtual sector
+     * only pays on a disk with large physical sectors (it saves the
+     * drive's internal read-modify-write); a flash adapter takes 512-byte
+     * I/O natively, and the 512-byte USB view would turn every
+     * single-sector host write into a 1024-byte RMW here. The
      * filesystem's own I/O is whole 2048-byte sectors either way. */
-    (void)mult;
-#else
+    if (ata_disk_isssd())
+        return;
+#endif
     unsigned int max = MAX_PHYS_SECTOR_SIZE/log_sector_size;
     /* virtual sector could be larger than pyhsical sector */
     if (!mult || mult > max)
@@ -358,7 +360,6 @@ void ata_set_phys_sector_mult(unsigned int mult)
     /* It needs to be at _least_ the size of the real multiplier */
     if (mult > phys_sector_mult)
         phys_sector_mult = mult;
-#endif
 }
 
 #endif  /* MAX_PHYS_SECTOR_SIZE */

@@ -3,6 +3,8 @@
 Status: **Phase 1 (analysis and plan).** No tooling has changed yet.
 Branch `gate-speed` (from `p12`). Owner of the work: the `tooling` agent. Written 2026-10-23.
 
+> **Since then (0.8.3, one build, #204/#79):** the `sim-ui32` build is gone (the 32 MB half of the floor gate runs `build/sim-ui` with `IPODUI_SIM_RAM=32`), and so is the compile-only `fw-alt` (the `--storage=hdd` corner; storage is detected at start-up). The timings below are the 2026-10-23 measurements and still name them.
+
 ## 1. Goal
 
 Bring the **full gate** (`scripts/gate-run --full`, i.e. plain `validate.sh`) from

@@ -43,6 +43,9 @@
 struct xlate_part {
     uint64_t start;         /* 0: not a FAT32 partition we translate */
     uint64_t backup;        /* the backup boot sector; 0: none */
+    /* #314: the FAT data area (folders and file contents), from its first
+     * sector to the partition's end; data 0: not learned */
+    uint64_t data, end;
 };
 
 struct xlate_state {
@@ -77,5 +80,16 @@ void xlate_read_run(const struct xlate_state *s, uint64_t lba,
                     unsigned int count, unsigned char *buf);
 int xlate_write_run(const struct xlate_state *s, uint64_t lba,
                     unsigned int count, unsigned char *buf);
+
+/* #314: whether a run of 'count' host sectors from 'lba' may change a
+ * folder or a file: it overlaps a FAT32 partition's data area. A write
+ * before it (the boot sectors, FSInfo, the FATs: a host's "dirty" flag
+ * at mount and unmount) or outside every FAT32 partition (the firmware
+ * partition) changes no file. No change to the tree without a write to
+ * the data area: a new, removed, renamed or rewritten file changes its
+ * folder's entry, which is in the data area. Inactive, or a partition
+ * not learned: true (unknown counts as a change). */
+bool xlate_run_in_data(const struct xlate_state *s, uint64_t lba,
+                       unsigned int count);
 
 #endif /* USB_STORAGE_XLATE_H */

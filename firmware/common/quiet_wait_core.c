@@ -45,8 +45,8 @@ long qw_audio_wait(const struct qw_audio_in *in, long hz)
 {
     if (qw_legacy)
         return in->skip_pending ? hz / 10 : hz / 2;
-    if (in->skip_pending)
-        return hz / 10;         /* unchanged: the FIQ's notice is polled */
+    if (in->skip_pending)       /* #298: kicked, a 1 s backstop only */
+        return in->kicked ? hz : hz / 10;
     /* paused: dac_idle_poll() counts the codec's idle time from here */
     if (in->paused && in->dac_pending)
         return hz / 2;

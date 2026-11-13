@@ -37,6 +37,10 @@
 direct: audio_status
 direct: pcm_is_playing
 direct: mixer_channel_status
+# #345: a posted PLAY press (fe_audio_status(), each UI pass): two
+# uncached words (XCORE_BSS), written on the CPU only (playback.c);
+# audio_pause_post itself runs in be_dispatch, on the CPU
+direct: audio_pause_pending
 # #137 (developer builds): the indexer's ops table takes the Apple
 # fallback job's address; it is only ever called on the storage worker
 direct: afb_job
@@ -44,6 +48,16 @@ direct: afb_job
 # .rodata; it reads no heap and nothing any core writes (the walk itself,
 # core_heap_walk, crosses)
 direct: buflib_walk_why
+# #270: Settings > Audiophile's popup poll (each UI pass) reads one
+# uncached word (XCORE_BSS) with one writer, playback on the CPU
+# (audiophile.c); audiophile_hirate_allowed crosses (battery_level()
+# and global_settings are the CPU's cached memory)
+direct: audiophile_fallback_pending
+audiophile_hirate_allowed
+# #277: the Now Playing info page's output line (pcm_get_frequency() is
+# the CPU's cached state)
+audio_output_bits
+audio_output_rate
 ab_store_get
 ab_store_idle
 ab_store_load
@@ -106,10 +120,18 @@ audio_pre_ff_rewind
 audio_prev
 audio_resume
 audio_stop
+audiophile_fallback_ack
+audiophile_selftest
+audiophile_set_hirate
+audiophile_set_width
 batcal_boot
 batcal_poweroff
 batcal_reset
 batcal_run_status
+# one-build WP3 (2026-11-12): the battery question's answer re-seeds
+# batcal (its table under an IRQ mask, its files) and sets powermgmt's
+# capacity (set_battery_capacity, below), both on the CPU
+batcal_seed
 batcal_status
 bootbatt_usb_exit
 clockpol_enabled
@@ -167,6 +189,15 @@ mixer_channel_play_data
 mixer_channel_stop
 mixer_get_frequency
 mixer_set_tap
+# p083-gatefix (2026-11-12): three calls the shell made straight into the
+# CPU's cached statics. pcm_set_fault_log (#312) stores the shell's trace
+# hook in pcm.c, which the PCM driver later calls on the CPU, in thread
+# context (pcm_report_waits), never on the COP's behalf;
+# pcmbuf_pause_tick/_clear (the codec's time to standby after a pause,
+# dac_trace) read and clear pcmbuf.c's pause_tick, which playback writes
+pcm_set_fault_log
+pcmbuf_pause_tick
+pcmbuf_pause_tick_clear
 pcmbuf_underruns
 playlist_amount
 playlist_create
@@ -220,6 +251,7 @@ rbfs_write
 read_line
 rolo_load
 settings_apply
+set_battery_capacity
 sound_set_pitch
 sound_set_volume
 status_save
@@ -281,6 +313,9 @@ tagcache_ui_sleep_woke
 tagcache_ui_str
 tagcache_ui_str_ctx
 tagcache_ui_update_stats
+# p083-gatefix (#314): the update page's "walk owed after USB" flag,
+# tagcache.c's cached ui_usb_owed_seen (written by the storage worker)
+tagcache_ui_usb_owed
 tagcache_ui_updating
 tagcache_ui_walk
 tagcache_ui_walk_ctx

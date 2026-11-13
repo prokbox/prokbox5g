@@ -1,3 +1,9 @@
+-Wl,--wrap=audiophile_hirate_allowed
+-Wl,--undefined=audiophile_hirate_allowed
+-Wl,--wrap=audio_output_bits
+-Wl,--undefined=audio_output_bits
+-Wl,--wrap=audio_output_rate
+-Wl,--undefined=audio_output_rate
 -Wl,--wrap=ab_store_get
 -Wl,--undefined=ab_store_get
 -Wl,--wrap=ab_store_idle
@@ -122,6 +128,14 @@
 -Wl,--undefined=audio_resume
 -Wl,--wrap=audio_stop
 -Wl,--undefined=audio_stop
+-Wl,--wrap=audiophile_fallback_ack
+-Wl,--undefined=audiophile_fallback_ack
+-Wl,--wrap=audiophile_selftest
+-Wl,--undefined=audiophile_selftest
+-Wl,--wrap=audiophile_set_hirate
+-Wl,--undefined=audiophile_set_hirate
+-Wl,--wrap=audiophile_set_width
+-Wl,--undefined=audiophile_set_width
 -Wl,--wrap=batcal_boot
 -Wl,--undefined=batcal_boot
 -Wl,--wrap=batcal_poweroff
@@ -130,6 +144,8 @@
 -Wl,--undefined=batcal_reset
 -Wl,--wrap=batcal_run_status
 -Wl,--undefined=batcal_run_status
+-Wl,--wrap=batcal_seed
+-Wl,--undefined=batcal_seed
 -Wl,--wrap=batcal_status
 -Wl,--undefined=batcal_status
 -Wl,--wrap=bootbatt_usb_exit
@@ -244,6 +260,12 @@
 -Wl,--undefined=mixer_get_frequency
 -Wl,--wrap=mixer_set_tap
 -Wl,--undefined=mixer_set_tap
+-Wl,--wrap=pcm_set_fault_log
+-Wl,--undefined=pcm_set_fault_log
+-Wl,--wrap=pcmbuf_pause_tick
+-Wl,--undefined=pcmbuf_pause_tick
+-Wl,--wrap=pcmbuf_pause_tick_clear
+-Wl,--undefined=pcmbuf_pause_tick_clear
 -Wl,--wrap=pcmbuf_underruns
 -Wl,--undefined=pcmbuf_underruns
 -Wl,--wrap=playlist_amount
@@ -350,6 +372,8 @@
 -Wl,--undefined=rolo_load
 -Wl,--wrap=settings_apply
 -Wl,--undefined=settings_apply
+-Wl,--wrap=set_battery_capacity
+-Wl,--undefined=set_battery_capacity
 -Wl,--wrap=sound_set_pitch
 -Wl,--undefined=sound_set_pitch
 -Wl,--wrap=sound_set_volume
@@ -472,6 +496,8 @@
 -Wl,--undefined=tagcache_ui_str_ctx
 -Wl,--wrap=tagcache_ui_update_stats
 -Wl,--undefined=tagcache_ui_update_stats
+-Wl,--wrap=tagcache_ui_usb_owed
+-Wl,--undefined=tagcache_ui_usb_owed
 -Wl,--wrap=tagcache_ui_updating
 -Wl,--undefined=tagcache_ui_updating
 -Wl,--wrap=tagcache_ui_walk

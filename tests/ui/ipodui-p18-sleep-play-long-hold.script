@@ -1,0 +1,32 @@
+# #272's question: hold PLAY to sleep and keep holding it past the entry's
+# wait for its release (SLEEP_QUIESCE_MS): the sleep starts with PLAY
+# still down (Rev 4 N6). Every repeat of the held key re-armed the key's
+# boost (button_queue.c, HAVE_GUI_BOOST), read by the entry's own slices,
+# so power_sleep() refused it twice ("sleep refused why=2") and the unit
+# stayed awake and dark. Now each entry slice gives the input boosts back
+# (the key's and the lit input hold's): the sleep is taken, nothing
+# boosted asleep.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p18-sleep-play-long-hold.script
+# needs: library
+# golden: skip
+# timeout: 180
+# fulls-extra: 1          (the wake pushes the left screen in full)
+# log: sim_sleep: sleep enter
+# nolog: sleep refused
+# nolog: sleep deep
+# nolog: tier=off
+# nolog: splash-pass
+
+sleep_mode soft       # soft sleep is off by default (developer switch)
+wait 4000
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait_pos 3000 60000
+hold PLAY 16000       # pause, dark; PLAY still down well past the entry
+expect_sleep asleep 12000
+expect_boost 0        # nothing boosted asleep
+expect_paused 500
+key SELECT            # wakes; swallowed
+expect_sleep button 3000
+wait 1000
+shot woken
+quit

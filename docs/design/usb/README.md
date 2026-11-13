@@ -6,8 +6,8 @@ The PNGs show the screen **without its text, header title and battery**. The fir
 
 | File | Content |
 |---|---|
-| `usb-idle-usbc.png` | idle, USB-C plug pictogram (this unit: `HAVE_IPOD_DOCK30` unset) |
-| `usb-idle-dock30.png` | idle, 30-pin dock pictogram (`HAVE_IPOD_DOCK30`) |
+| `usb-idle-usbc.png` | idle, USB-C plug pictogram: every unit since 0.8.3 (one build, no dock dimension, #236; owner 2026-11-11: "today's picture") |
+| `usb-idle-dock30.png` | idle, 30-pin dock pictogram: kept in the art kit, drawn only by the sim's `usb_glyph dock30` and the host test (`HAVE_IPOD_DOCK30` is gone) |
 | `usb-io-f00.png` … `usb-io-f05.png` | the sync arrows at 0°, 30° … 150°. Frame k + 6 is bit-identical to frame k (the arrows have two-fold symmetry), so these six give all 12 positions |
 | `usb-sheet-3x.png` | the disc box of every frame above, magnified 3× |
 

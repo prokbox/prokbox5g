@@ -48,6 +48,8 @@ static bool mode_applies(const struct np_state *st, enum np_mode m)
         return st->has_lyrics;
     case NP_VIZ:
         return st->viz_ok && !st->is_audiobook;
+    case NP_INFO:
+        return st->info_ok;
     case NP_NORMAL:
     case NP_RATING:
     default:
@@ -57,8 +59,12 @@ static bool mode_applies(const struct np_state *st, enum np_mode m)
 
 static enum np_mode next_mode(const struct np_state *st, enum np_mode m)
 {
+    /* NP_INFO sits before NP_VIZ in the cycle, after it in the enum */
     do
-        m = (m == NP_VIZ) ? NP_NORMAL : (enum np_mode)(m + 1);
+        m = (m == NP_VIZ)     ? NP_NORMAL
+          : (m == NP_LYRICS)  ? NP_INFO
+          : (m == NP_INFO)    ? NP_VIZ
+          :                     (enum np_mode)(m + 1);
     while (!mode_applies(st, m));
     return m;
 }
@@ -114,6 +120,7 @@ static void commit_mode(struct np_state *st, struct np_result *r,
     case NP_NORMAL:
     case NP_LYRICS:
     case NP_VIZ:
+    case NP_INFO:
     default:
         break;
     }
@@ -165,6 +172,7 @@ void np_init(struct np_state *st, long hz, enum np_shuffle shuffle)
     st->is_audiobook = false;
     st->has_lyrics = false;
     st->viz_ok = false;
+    st->info_ok = false;
     st->scrub.length_ms = 0;
     st->scrub.ch.start = 0;
     st->scrub.ch.stride = sizeof(uint32_t);
@@ -222,6 +230,11 @@ struct np_result np_set_track(struct np_state *st, bool is_audiobook,
 void np_set_viz(struct np_state *st, bool ok)
 {
     st->viz_ok = ok;
+}
+
+void np_set_info(struct np_state *st, bool ok)
+{
+    st->info_ok = ok;
 }
 
 struct np_result np_show_viz(struct np_state *st, long tick)
@@ -322,6 +335,8 @@ static void on_wheel(struct np_state *st, struct np_result *r,
         }
         break;
     }
+    case NP_INFO:
+        break;                  /* nothing to turn; the timeout runs on */
     case NP_LYRICS:
     {
         int v = clampi(st->lyrics_top + ev->clicks, 0, st->lyrics_max);

@@ -90,8 +90,9 @@ static const long usb_arrow_hp[USB_BASES][10] = {
 };
 
 /* connector glyphs: 4-bit alpha, (alpha << 4) | (run - 1); the
- * target compiles only its own (USB_BOTH_GLYPHS: sim, host test) */
-#if defined(HAVE_IPOD_DOCK30) || defined(USB_BOTH_GLYPHS)
+ * target shows USB-C on every unit (#236); the 30-pin one is
+ * kept for the sim and host test (USB_BOTH_GLYPHS) */
+#ifdef USB_BOTH_GLYPHS
 #define USB_DOCK30_W 50
 #define USB_DOCK30_H 41
 static const unsigned char usb_glyph_dock30[183] = {
@@ -113,7 +114,6 @@ static const unsigned char usb_glyph_dock30[183] = {
     0xc0, 0x0f, 0x03,
 };
 #endif
-#if !defined(HAVE_IPOD_DOCK30) || defined(USB_BOTH_GLYPHS)
 #define USB_USBC_W 36
 #define USB_USBC_H 43
 static const unsigned char usb_glyph_usbc[203] = {
@@ -135,6 +135,5 @@ static const unsigned char usb_glyph_usbc[203] = {
     0x0b, 0xf7, 0x0f, 0x0b, 0xf7, 0x0f, 0x0b, 0xf7, 0x0f, 0x0b, 0xf7, 0x0f,
     0x0b, 0xf7, 0x0f, 0x0b, 0xf7, 0x0f, 0x0b, 0xc0, 0xf5, 0xc0, 0x0d,
 };
-#endif
 
 #endif /* _IPODUI_USBSCREEN_DATA_H_ */

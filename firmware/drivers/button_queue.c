@@ -33,71 +33,17 @@
 static struct event_queue button_queue SHAREDBSS_ATTR;
 static intptr_t button_data; /* data value from last message dequeued */
 
-#ifdef HAVE_ADJUSTABLE_CPU_FREQ
-static bool button_boosted = false;
-static long button_unboost_tick;
-#define BUTTON_UNBOOST_TMO HZ
+/* ProkBox (#272): the shell's simulator boosts on a key as the device
+ * does, so its boost count (firmware/export/system.h) sees a key's boost
+ * held through a handler */
+#if defined(SIMULATOR) && defined(HAVE_IPOD_UI) \
+        && !defined(HAVE_ADJUSTABLE_CPU_FREQ)
+#define BUTTON_BOOST_SIM
+#endif
 
-static void button_boost(bool state)
-{
-    if (state)
-    {
-        /* update the unboost time each button_boost(true) call */
-        button_unboost_tick = current_tick + BUTTON_UNBOOST_TMO;
-
-        if (!button_boosted)
-        {
-            button_boosted = true;
-            cpu_boost(true);
-        }
-    }
-    else if (button_boosted && TIME_AFTER(current_tick, button_unboost_tick))
-    {
-        button_boosted = false;
-        cpu_boost(false);
-    }
-}
-
-static void button_queue_wait(struct queue_event *evp, int timeout)
-{
-    /* Loop once after wait time if boosted in order to unboost and wait the
-       full remaining time */
-    do
-    {
-        int ticks = timeout;
-
-        if (ticks == TIMEOUT_NOBLOCK)
-            ;
-        else if (ticks > 0)
-        {
-            if (button_boosted && ticks > BUTTON_UNBOOST_TMO)
-                ticks = BUTTON_UNBOOST_TMO;
-
-            timeout -= ticks;
-        }
-        else if (button_boosted) /* TIMEOUT_BLOCK (ticks < 0) */
-        {
-            ticks = BUTTON_UNBOOST_TMO;
-        }
-
-        queue_wait_w_tmo(&button_queue, evp, ticks);
-        if (evp->id != SYS_TIMEOUT)
-        {
-            /* GUI boost build gets immediate kick, otherwise at least 3
-               messages had to be there */
-        #ifndef HAVE_GUI_BOOST
-            if (queue_count(&button_queue) >= 2)
-        #endif
-                button_boost(true);
-
-            break;
-        }
-        button_boost(false);
-    }
-    while (timeout);
-}
-#else /* ndef HAVE_ADJUSTABLE_CPU_FREQ */
-static inline void button_queue_wait(struct queue_event *evp, int timeout)
+#ifndef HAVE_ADJUSTABLE_CPU_FREQ
+/* the wait itself (the simulator pumps SDL's events on macOS) */
+static inline void button_queue_wait_raw(struct queue_event *evp, int timeout)
 {
 #if defined(__APPLE__) && (CONFIG_PLATFORM & PLATFORM_SDL)
     unsigned long initial_tick = current_tick;
@@ -125,6 +71,100 @@ static inline void button_queue_wait(struct queue_event *evp, int timeout)
     sdl_window_adjust(); /* Window may have been resized */
 #endif
 #endif
+}
+#endif
+
+#if defined(HAVE_ADJUSTABLE_CPU_FREQ) || defined(BUTTON_BOOST_SIM)
+static bool button_boosted = false;
+static long button_unboost_tick;
+#define BUTTON_UNBOOST_TMO HZ
+#ifdef HAVE_IPOD_UI
+static unsigned int button_reader;  /* the thread that reads the keys */
+#endif
+
+static void button_boost(bool state)
+{
+    if (state)
+    {
+        /* update the unboost time each button_boost(true) call */
+        button_unboost_tick = current_tick + BUTTON_UNBOOST_TMO;
+
+        if (!button_boosted)
+        {
+            button_boosted = true;
+            cpu_boost(true);
+        }
+    }
+    else if (button_boosted && TIME_AFTER(current_tick, button_unboost_tick))
+    {
+        button_boosted = false;
+        cpu_boost(false);
+    }
+}
+
+static void button_queue_wait(struct queue_event *evp, int timeout)
+{
+#ifdef HAVE_IPOD_UI
+    button_reader = thread_self();
+#endif
+    /* Loop once after wait time if boosted in order to unboost and wait the
+       full remaining time */
+    do
+    {
+        int ticks = timeout;
+
+        if (ticks == TIMEOUT_NOBLOCK)
+            ;
+        else if (ticks > 0)
+        {
+            if (button_boosted && ticks > BUTTON_UNBOOST_TMO)
+                ticks = BUTTON_UNBOOST_TMO;
+
+            timeout -= ticks;
+        }
+        else if (button_boosted) /* TIMEOUT_BLOCK (ticks < 0) */
+        {
+            ticks = BUTTON_UNBOOST_TMO;
+        }
+
+#ifdef HAVE_ADJUSTABLE_CPU_FREQ
+        queue_wait_w_tmo(&button_queue, evp, ticks);
+#else
+        button_queue_wait_raw(evp, ticks);
+#endif
+        if (evp->id != SYS_TIMEOUT)
+        {
+            /* GUI boost build gets immediate kick, otherwise at least 3
+               messages had to be there */
+        #ifndef HAVE_GUI_BOOST
+            if (queue_count(&button_queue) >= 2)
+        #endif
+                button_boost(true);
+
+            break;
+        }
+        button_boost(false);
+    }
+    while (timeout);
+}
+
+#ifdef HAVE_IPOD_UI
+/* ProkBox (#272): a key's boost given back before its handler waits on
+ * storage, a lock or a sleep (the next key boosts again). The boost is
+ * the key reader's: only that thread changes it, so a call from any
+ * other thread does nothing */
+void button_boost_release(void)
+{
+    if (!button_boosted || thread_self() != button_reader)
+        return;
+    button_boosted = false;
+    cpu_boost(false);
+}
+#endif
+#else /* ndef HAVE_ADJUSTABLE_CPU_FREQ */
+static inline void button_queue_wait(struct queue_event *evp, int timeout)
+{
+    button_queue_wait_raw(evp, timeout);
 }
 #endif /* HAVE_ADJUSTABLE_CPU_FREQ */
 

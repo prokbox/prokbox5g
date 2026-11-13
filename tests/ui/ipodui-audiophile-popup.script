@@ -1,0 +1,49 @@
+# #270: the fallback popup. PROKBOX_HIRATE_FAULT=run makes the first
+# high-rate track fall back about 2 s after it starts. With High Sample
+# Rate On (the test passes here), fixtures/rate96k.flac (5 s, 96 kHz)
+# plays while Settings > Audiophile is up; the popup comes over the split
+# screen, playback carries on (expect_playing), SELECT closes it with no
+# slide, and it does not come back this session.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-audiophile-popup.script
+# Starts from an untested unit only (see ipodui-audiophile.script).
+# env: PROKBOX_HIRATE_FAULT=run
+# needs: library
+# golden: skip
+# reset: mainmenu
+# timeout: 120
+# log: audiophile test mask=0x83 on=1
+# log: audiophile popup shown
+# log: audiophile popup acked
+wait 4000
+copy fixtures/rate96k.flac /Music/rate96k.flac
+wait 500
+
+wheel +3 300            # Settings
+wait 400
+key SELECT 50
+wait 1200
+wheel +11 300           # Audiophile
+wait 1000
+key SELECT 50
+wait 1200
+key SELECT 50           # High Sample Rate: the warning
+wait 1000
+wheel -1 300            # Continue
+wait 300
+key SELECT 50
+wait 3800
+key SELECT 50           # the result: OK
+wait 1500
+play_files /Music/rate96k.flac
+wait 3500               # the fallback ~2 s in
+shot popup              # over Settings > Audiophile
+expect_playing 500
+key SELECT 50           # closed, no slide
+wait 1200
+shot after
+wait 1500
+shot still_gone
+key SELECT 50           # High Sample Rate Off (leave the disk as found)
+wait 3000
+rm_file /Music/rate96k.flac
+quit

@@ -1,0 +1,41 @@
+# One build (#204, #236): a 32 MB unit on the one 64 MB binary. With
+# IPODUI_SIM_RAM=32 the core pool ends 32 MB lower (core_alloc.c, as
+# probed_ramsize does on the device), the audio file buffer is under
+# 31 MB and is held to the 32 MB floor (7,500,000 B), and the #92 panel
+# bank is not taken (360 KB a set the 32 MB unit cannot spare). OUT2, the
+# dock's line-out, is on at boot on every unit. ipodui-onebuild-ram64 is
+# the same walk as a 64 MB unit; their shots must be pixel-identical.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-onebuild-ram32.script
+# needs: library
+# nolog: splash-pass
+# golden: skip
+# env: IPODUI_SIM_RAM=32
+# log: sim: ram 32 MB
+# nolog: sim: ram 64 MB
+# log: p9 lineout=1
+# nolog: p9 lineout=0
+# nolog: panel bank covers
+# logrange: 7500000 32505856 floor ram32 ram_mb=32 audio=(\d+)
+# log: expect_floor ok at ram32 ram_mb=32
+
+wait 5000           # boot to the main menu, "Music" selected
+wait_db 30000       # database built (shots.sh primes it if missing)
+shot main
+key SELECT          # Music
+wait 800
+wheel +1            # "Artists"
+wait 400
+key SELECT
+wait 800
+shot artists
+key SELECT          # the first artist
+wait 800
+key SELECT          # "All Songs"
+wait 800
+shot all_songs
+key SELECT          # its first song: Now Playing
+wait_pos 2000 30000 # playing: the audio session is up
+key PLAY            # pause
+wait 800
+floor ram32
+quit

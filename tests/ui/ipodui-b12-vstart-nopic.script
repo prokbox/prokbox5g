@@ -1,0 +1,53 @@
+# #340: no picture after a decode error is a failure, not an end
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-b12-vstart-nopic.script
+# needs: video
+#
+# b12: the first decode after a boot failed and no picture ever came. When
+# the audio then stops, a session that showed nothing and had a decode
+# error failed: the error page shows ("Video didn't start"), never a quiet
+# way back to the list.
+#
+# Here "video_fault decode 3" makes the model take every packet with no
+# picture and report 3 decode errors (STATUS word 8); the audio is stopped
+# 2.5 s in, before the player's still watchdog gives up on its own (3
+# restarts of 2 s), so the screen's own rule is what shows the page.
+#
+# Audio First (/Misc, no chapters; listed under Movies).
+# Each play starts from 0 with video_screen (ui_video_play(path, -1): no
+# resume point), over the Movies list as the list's own play is: a
+# leftover per-file resume spot (#154) from an earlier script on the
+# same disk would otherwise start Audio First near its end.
+
+# golden: skip
+# trace: video
+# logbetween: nopic nopic_out video failed: no picture, decode errors
+# logbetween: nopic nopic_out video error page=other audio=0
+# logbetween: nopic nopic_out no video failed why=
+# logbetween: nopic nopic_out no video end hold=
+# nolog: splash
+wait 4000
+wait_db 45000
+art_wait 60000
+rm_file /.rockbox/.sim_vaudio_late
+rm_file /.rockbox/.sim_vaudio_never
+rm_file /.rockbox/.sim_vaudio_nofile
+wheel +1 300
+wait 600
+key SELECT          # Videos
+wait 900
+key SELECT          # Movies
+wait 1200
+
+video_fault decode 3
+ab_mark nopic
+video_screen /Misc/Audio%20First.m4v  # nothing decodes
+wait 2500
+audio_stop
+wait 1500
+shot nopic_error
+expect_video 0 none
+key SELECT          # OK
+wait 1200
+shot nopic_list
+ab_mark nopic_out
+video_fault decode 0

@@ -21,6 +21,7 @@
  ****************************************************************************/
 #include "config.h"
 #include "system.h"
+#include <stdio.h>
 #include <time.h>
 #include "kernel.h"
 #include "powermgmt.h"
@@ -256,6 +257,17 @@ static void battery_status_update(void)
 
 unsigned short battery_level_disksafe = 3200;
 unsigned short battery_level_shutoff = 3200;
+
+#ifdef HAVE_IPOD_UI
+/* #79: the target's storage rows (powermgmt-ipod-pcf.c) move the floor
+ * and the curve's base by 100 mV; the sim's battery model keeps its own
+ * values for both disk models, so flash and hdd runs draw the same */
+void powermgmt_storage_init(bool solid)
+{
+    fprintf(stderr, "sim battery rows: storage=%s (sim values kept)\n",
+            solid ? "solid" : "rotating");
+}
+#endif
 
 /* make the simulated curve nicely linear */
 unsigned short percent_to_volt_discharge[11] =

@@ -43,6 +43,9 @@
 #include "ipodui/fe_be.h"        /* fe_settings_save (P19) */
 #include "ipodui/viz.h"
 #include "ipodui/viz_core.h"
+#include "xcore.h"
+#include "pcm_sampr.h"
+#include "pcm_mixer.h"
 #include "ipodui/viz_tap.h"
 #include "ipodui/uilat.h"     /* the views' CPU split */
 #include "jviz.h"
@@ -107,11 +110,13 @@ struct viz_arena {
     uint8_t  pad;
 };
 #define VIZ_ARENA_STATE ((sizeof(struct viz_arena) + 31u) & ~31u)
-#ifndef SIMULATOR
-/* the arena bound (tests/arena sums it): the state and the device's ring
- * (viz_tap_bytes(512) = 4,143 B: visualizer.md 11.2) */
-_Static_assert(VIZ_ARENA_STATE + 4143 <= UI_ARENA_B_VIZ, "viz: arena bound");
-#endif
+/* the arena bound (tests/arena sums it): the state and the ring at the
+ * top rate, from the tap's own formula (#295: a pinned 4,143 B stayed
+ * while 96 kHz doubled the ring to 8,239 B, and the view stopped opening
+ * while music played); the simulator's arena holds its larger ring too,
+ * so it takes the device's path */
+_Static_assert(VIZ_ARENA_STATE + VIZ_TAP_BYTES_C(N_BCM) <= UI_ARENA_B_VIZ,
+               "viz: arena bound");
 
 /* the bars' rect is the panel (heights are uint8_t: at most 255 rows) */
 _Static_assert(VIZ_Y == 0 && VIZ_H == LCD_HEIGHT && VIZ_H <= 255,

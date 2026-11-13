@@ -86,6 +86,8 @@ FIQ_ROOTS = [
     'mixer_buffer_callback', 'mixer_pcm_callback',
     'pcmbuf_pcm_callback', 'beep_get_more', 'voice_pcm_callback',
     'al_more', 'sink_dma_stop', 'ac_get_more', 'ac_status',
+    # mixer_set_tap() targets (pcm_mixer.c calls mixer_tap from the mix)
+    'vt_tap', 'ap_tap',
 ]
 
 # kernel and blocking calls a FIQ must never make: the COP's thread it

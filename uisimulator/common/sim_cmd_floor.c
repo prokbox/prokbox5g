@@ -33,6 +33,7 @@
 #include "config.h"
 #include "core_alloc.h"
 #include "kernel.h"
+#include "system.h"           /* probed_ramsize */
 #include "thread.h"
 #include "sim_cmd_floor.h"
 
@@ -40,12 +41,15 @@ extern size_t audio_buffer_size(void);
 extern size_t audio_get_filebuflen(void);
 
 /* docs/hardware.md budget rule (owner, 2026-10-20): the playing/paused
- * audio file buffer, measured at 65k tracks. */
-#if MEMORYSIZE <= 32
-#define FLOOR_BYTES 7500000UL
+ * audio file buffer, measured at 65k tracks. The literals, not
+ * maint_floor(): the gate checks the shell against the budget. One build
+ * (#204): the unit's RAM is IPODUI_SIM_RAM (system-sdl.c). */
+#if defined(IPOD_VIDEO) && defined(HAVE_IPOD_UI)
+#define RAM_MB      ((int)probed_ramsize)
 #else
-#define FLOOR_BYTES 39000000UL
+#define RAM_MB      MEMORYSIZE
 #endif
+#define FLOOR_BYTES (RAM_MB <= 32 ? 7500000UL : 39000000UL)
 
 /* slots 0-3: the scripts' reservations; slot 4: the release line's
  * resident BCM image, held for the whole run (floor_gate.sh puts it
@@ -110,14 +114,14 @@ static bool verdict(const char *what, const char *label, size_t n,
     {
         fprintf(stderr, "sim_script: expect_floor ok %s %s ram_mb=%d "
                 "audio=%lu floor=%lu margin=%lu\n", what, label,
-                MEMORYSIZE, (unsigned long)n, FLOOR_BYTES,
+                RAM_MB, (unsigned long)n, FLOOR_BYTES,
                 (unsigned long)n - FLOOR_BYTES);
         return true;
     }
     fprintf(stderr, "sim_script:%d: expect_floor failed: %s %s: audio file "
             "buffer %lu B < floor %lu B (%d MB unit, %lu B short; "
             "docs/hardware.md budget rules)\n", lineno, what, label,
-            (unsigned long)n, FLOOR_BYTES, MEMORYSIZE,
+            (unsigned long)n, FLOOR_BYTES, RAM_MB,
             FLOOR_BYTES - (unsigned long)n);
     return false;
 }
@@ -129,7 +133,7 @@ bool sim_cmd_floor(const char *cmd, char *argv[], int argc, int lineno)
         /* floor <label>: the buffer now, checked against the floor */
         size_t n = audio_buffer_size();
         fprintf(stderr, "sim_script: floor %s ram_mb=%d audio=%lu "
-                "filebuflen=%lu\n", argv[1], MEMORYSIZE, (unsigned long)n,
+                "filebuflen=%lu\n", argv[1], RAM_MB, (unsigned long)n,
                 (unsigned long)audio_get_filebuflen());
         if (n == 0)
             fprintf(stderr, "sim_script:%d: expect_floor failed: %s: no "
@@ -153,7 +157,7 @@ bool sim_cmd_floor(const char *cmd, char *argv[], int argc, int lineno)
                                          IF_PRIO(, PRIORITY_BACKGROUND)
                                          IF_COP(, CPU));
             fprintf(stderr, "sim_script: floor_watch begin ram_mb=%d "
-                    "floor=%lu\n", MEMORYSIZE, FLOOR_BYTES);
+                    "floor=%lu\n", RAM_MB, FLOOR_BYTES);
         }
         else if (!strcmp(argv[1], "end") && watch_run && argc >= 3)
         {
@@ -161,7 +165,7 @@ bool sim_cmd_floor(const char *cmd, char *argv[], int argc, int lineno)
             thread_wait(watch_thread);
             fprintf(stderr, "sim_script: floor_watch %s ram_mb=%d "
                     "min=%lu free_min=%lu samples=%ld no_session=%ld\n",
-                    argv[2], MEMORYSIZE, watch_min == (size_t)-1 ? 0UL :
+                    argv[2], RAM_MB, watch_min == (size_t)-1 ? 0UL :
                     (unsigned long)watch_min, (unsigned long)watch_avail_min,
                     watch_samples, watch_zero);
             if (argc >= 4 && !strcmp(argv[3], "free"))
@@ -197,6 +201,43 @@ bool sim_cmd_floor(const char *cmd, char *argv[], int argc, int lineno)
         reserve_n[s] = n;
         fprintf(stderr, "sim_script: floor_reserve %d %lu %s\n", s,
                 (unsigned long)n, reserve_h[s] > 0 ? "ok" : "refused");
+        return true;
+    }
+    if (!strcmp(cmd, "floor_reserve_to") && argc >= 3)
+    {
+        /* floor_reserve_to <slot 0-3> <over> [keep]: the free heap but
+         * <keep> bytes (default 0), and enough of the audio file buffer
+         * that it is left <over> bytes above the floor (#309: the short
+         * buffer a play between the boot library's commit and its
+         * publication leaves at 50k, on the small library) */
+        int s = atoi(argv[1]);
+        size_t over = (size_t)strtoul(argv[2], NULL, 0);
+        size_t keep = argc >= 4 ? (size_t)strtoul(argv[3], NULL, 0) : 0;
+        size_t audio = audio_buffer_size(), avail = core_allocatable(), n;
+
+        if (s < 0 || s >= RESERVE_SLOTS - 1 || reserve_h[s] > 0
+            || audio <= FLOOR_BYTES + over)
+        {
+            fprintf(stderr, "sim_script:%d: floor_reserve_to <0-3> <over> "
+                    "[keep] (slot free, audio %lu over the floor + over)\n",
+                    lineno, (unsigned long)audio);
+            return true;
+        }
+        /* the whole room, then <keep> given back at the block's end (the
+         * playing buffer takes all the free heap: a smaller allocation
+         * would leave nothing free) */
+        n = avail + (audio - FLOOR_BYTES - over);
+        reserve_h[s] = core_alloc(n);
+        if (reserve_h[s] > 0 && keep && keep < n
+            && core_shrink(reserve_h[s], core_get_data(reserve_h[s]),
+                           n - keep))
+            n -= keep;
+        reserve_n[s] = n;
+        fprintf(stderr, "sim_script: floor_reserve_to %d %lu %s audio=%lu "
+                "free=%lu\n", s, (unsigned long)n,
+                reserve_h[s] > 0 ? "ok" : "refused",
+                (unsigned long)audio_buffer_size(),
+                (unsigned long)core_allocatable());
         return true;
     }
     if (!strcmp(cmd, "floor_release") && argc >= 2)

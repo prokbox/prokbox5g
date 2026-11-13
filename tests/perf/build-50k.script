@@ -1,0 +1,10 @@
+# The 50k library build from nothing: run through tests/perf/build50k_ab.sh
+# (its own disk per run), not validate.sh. Boots on a disk with the
+# synthetic 50,000-track library and no database; the shell's silent
+# first build runs; "wait_db" logs "wait_db ready after <ms> ms". The
+# runner checks the flash arm's "unit storage=solid" line itself.
+# golden: skip
+
+wait 3000
+wait_db 2000000     # the whole 50k build (minutes)
+quit

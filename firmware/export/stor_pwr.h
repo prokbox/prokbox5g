@@ -160,6 +160,12 @@ void sim_stor_usb(bool connected);
 void sim_stor_pwrup(long ms);
 void sim_stor_ui_thread(unsigned int id);
 void sim_stor_watch_ui(bool on);
+#ifdef HAVE_IPOD_UI
+/* #79: the disk model, flash or hdd (IPODUI_SIM_DISK, "disk model"); its
+ * idle hold, as ata.c's sleep_timeout. sim_disk_solid() is in ata.h */
+void sim_disk_set_model(bool solid);
+long sim_ata_hold_ticks(void);
+#endif
 #endif
 
 /* P19 19-1a (review M1): called (any thread, the drive's lock held; it

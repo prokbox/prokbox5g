@@ -229,6 +229,15 @@ static void bcmfw_note(const char *why);
 #define BCM_WAIT_BOUNDS
 #include <stdio.h>
 #include "button.h"                 /* button_queue_post: the owner's kick */
+/* ProkBox #324: no port access with the BCM unpowered (bcm-port-gate.h).
+ * Every lowest-level accessor here, in bcm-devtest-hal.c and in
+ * e2-port.c checks GPO32 bit 14 first; the waits on the port lock are
+ * bounded (lcd_port_lock_tmo).  The stock build is unchanged. */
+#define BCM_PORT_GATE
+#include "bcm-port-gate.h"
+#define BCM_PORT_OK(fn) bcm_port_on(fn)
+#define LCD_PORT_LOCK_T (2 * HZ)    /* the holders keep it for one piece
+                                       (milliseconds): 2 s never lets go */
 #define BCM_AWAKE_WAIT  (3 * HZ)    /* the first update: the tick re-kicks
                                        a stall every 50 ms and calls an
                                        image stopped after 2 s */
@@ -246,6 +255,9 @@ enum
     BW_TICK,
     BW_TICK_JOBS,
     BW_TICK_VMCS,
+    BW_LOCK_UPDATE,             /* #324: the port lock's bounded waits */
+    BW_LOCK_AWAKE,
+    BW_LOCK_VIDEO,
     BW_N
 };
 #ifdef HAVE_BCM_JOBS
@@ -258,6 +270,9 @@ static const char *const bw_name[BW_N] =
     "lcd_tick wait=update image=ours",
     "lcd_tick wait=update image=ours-jobs",
     "lcd_tick wait=update image=vmcs",
+    "lcd_update_rect wait=port-lock",
+    "lcd_awake wait=port-lock",
+    "bcm_video wait=port-lock",
 };
 static void (*bw_trace)(const char *line) XCORE_BSS;  /* the job driver's */
 #endif
@@ -283,6 +298,45 @@ static void bcm_wait_fault(int k, long ticks)
 #endif
 }
 
+/* #324: the port gate's refusals (bcm-port-gate.h).  Counted from any
+ * context; the first after each power-up is recorded for one log line
+ * (bcm_port_powered_up() re-arms).  Diagnostics: the count is not exact
+ * across cores. */
+static volatile uint32_t bpg_n XCORE_BSS;       /* refusals this boot */
+static volatile bool bpg_armed XCORE_DATA = true;
+static volatile bool bpg_pend XCORE_BSS;        /* recorded, not logged */
+static const char *volatile bpg_fn XCORE_BSS;   /* its accessor */
+
+void bcm_port_refuse(const char *fn)
+{
+    int oldlevel = disable_irq_save();
+    bool first = bpg_armed;
+
+    bpg_n++;
+    if (first)
+    {
+        bpg_armed = false;
+        bpg_fn = fn;
+        bpg_pend = true;
+    }
+    restore_irq(oldlevel);
+#ifdef HAVE_BCM_JOBS
+    if (first)
+        button_queue_post(SYS_BCMJOB_REQ, 0);   /* the owner logs it now */
+#endif
+}
+
+uint32_t bcm_port_refused_count(void)
+{
+    return bpg_n;
+}
+
+/* A power-up (GPO32 bit 14 set): the next refusal is logged again */
+static inline void bcm_port_powered_up(void)
+{
+    bpg_armed = true;
+}
+
 #ifdef HAVE_BCM_JOBS
 /* Thread context, the job owner's pump: the recorded causes' lines
  * (without the job driver they stay recorded, unlogged) */
@@ -292,6 +346,15 @@ static void bcm_wait_faults_log(void)
     uint32_t p;
     int k, oldlevel;
 
+    if (bpg_pend)
+    {
+        bpg_pend = false;
+        snprintf(line, sizeof(line),
+                 "bcm port refused: chip unpowered (n=%lu, from %s)",
+                 (unsigned long)bpg_n, bpg_fn);
+        if (bw_trace)
+            bw_trace(line);
+    }
     if (!bw_pend)
         return;
     oldlevel = disable_irq_save();
@@ -354,6 +417,16 @@ static bool flash_get_section(const unsigned int imageid,
 }
 #endif /* HAVE_LCD_SLEEP */
 
+#ifdef BCM_PORT_GATE
+/* #324: the doorbell, gated as every other port access */
+#define BCM_DOORBELL(fn) \
+    do { if (BCM_PORT_OK(fn)) BCM_CONTROL = 0x31; } while (0)
+#else
+#define BCM_PORT_OK(fn) true
+#define bcm_port_powered_up() do { } while (0)
+#define BCM_DOORBELL(fn) (BCM_CONTROL = 0x31)
+#endif
+
 #ifdef HAVE_BCMFW_L1
 /* Wait for (reg & mask) to be set (or clear), at most BCM_PORT_US */
 static bool bcm_port_wait(volatile unsigned short *reg, unsigned mask, bool set)
@@ -362,6 +435,10 @@ static bool bcm_port_wait(volatile unsigned short *reg, unsigned mask, bool set)
 
     if (bcm_port_dead)
         return false;
+#ifdef BCM_PORT_GATE
+    if (!BCM_PORT_OK("bcm_port_wait"))
+        return false;           /* unpowered: not dead, nothing touched */
+#endif
     t0 = USEC_TIMER;
     while (((*reg & mask) != 0) != set)
         if (USEC_TIMER - t0 > BCM_PORT_US)
@@ -377,6 +454,10 @@ static bool bcm_port_wait(volatile unsigned short *reg, unsigned mask, bool set)
 
 static inline void bcm_write_addr(unsigned address)
 {
+#ifdef BCM_PORT_GATE
+    if (!BCM_PORT_OK("bcm_write_addr"))
+        return;
+#endif
     BCM_WR_ADDR32 = address;       /* write destination address */
 
 #ifdef HAVE_BCMFW_L1
@@ -388,6 +469,10 @@ static inline void bcm_write_addr(unsigned address)
 
 static inline void bcm_write32(unsigned address, unsigned value)
 {
+#ifdef BCM_PORT_GATE
+    if (!BCM_PORT_OK("bcm_write32"))
+        return;
+#endif
 
     bcm_write_addr(address);       /* set destination address */
 
@@ -396,6 +481,10 @@ static inline void bcm_write32(unsigned address, unsigned value)
 
 static inline unsigned bcm_read32(unsigned address)
 {
+#ifdef BCM_PORT_GATE
+    if (!BCM_PORT_OK("bcm_read32"))
+        return 0xFFFF;          /* reads as busy: nothing is kicked */
+#endif
 #ifdef HAVE_BCMFW_L1
     /* a dead port reads as busy: nothing is kicked into it */
     if (!bcm_port_wait(&BCM_RD_ADDR, 1, true))
@@ -448,7 +537,7 @@ static void bcm_kick(bool rekick)
     }
     lcd_state.x0 = lcd_state.x1 = 0;    /* sent (or covered): none pending */
     bcm_write32(BCMA_COMMAND, cmd);
-    BCM_CONTROL = 0x31;
+    BCM_DOORBELL("bcm_kick");
 }
 
 /* Add a rectangle just written to the pending union.  Called with the
@@ -567,7 +656,7 @@ static void lcd_tick(void)
             bcm_kick(bcm_is_busy);  /* UPDATERECT with our image */
 #else
             bcm_write32(BCMA_COMMAND, BCMCMD_LCD_UPDATE);  /* Kick off update */
-            BCM_CONTROL = 0x31;
+            BCM_DOORBELL("lcd_tick");
 #endif
             lcd_state.update_timeout = current_tick + BCM_UPDATE_TIMEOUT;
             lcd_state.state = LCD_UPDATING;
@@ -640,7 +729,7 @@ static void lcd_unblock_and_update(void)
         bcm_kick(bcm_is_busy && lcd_state.state != LCD_INITIAL);
 #else
         bcm_write32(BCMA_COMMAND, BCMCMD_LCD_UPDATE);  /* Kick off update */
-        BCM_CONTROL = 0x31;
+        BCM_DOORBELL("lcd_unblock_and_update");
 #endif
         lcd_state.update_timeout = current_tick + BCM_UPDATE_TIMEOUT;
         lcd_state.state = LCD_UPDATING;
@@ -766,6 +855,30 @@ static void lcd_port_unlock(bool locked)
         mutex_unlock(&lcd_port_mtx);
 }
 
+#ifdef BCM_PORT_GATE
+/* #324: lcd_port_lock(), bounded: 1 locked, 0 no lock to take (as
+ * lcd_port_lock() returning false), -1 still another thread's after t
+ * ticks (nothing taken) */
+static int lcd_port_lock_tmo(long t)
+{
+    long end;
+
+    if (!lcd_port_ready || !irq_enabled())
+        return 0;
+    if (mutex_trylock(&lcd_port_mtx))
+        return 1;
+    end = current_tick + t;
+    do
+    {
+        sleep(1);
+        if (mutex_trylock(&lcd_port_mtx))
+            return 1;
+    }
+    while (TIME_BEFORE(current_tick, end));
+    return -1;
+}
+#endif
+
 /* As much of a contiguous push as the engine moved (whole pieces); the
  * caller copies the rest by CPU.  The tick is blocked and the port lock
  * held.  min: smaller pushes are the CPU's (LCD_E2_MIN for the screen;
@@ -821,6 +934,23 @@ out:
 #else
 #define lcd_port_lock()     false
 #define lcd_port_unlock(l)  ((void)(l))
+#define lcd_port_lock_tmo(t) 0
+#endif
+
+#ifdef BCM_PORT_GATE
+/* The port lock for one of the bounded holders: as lcd_port_lock_tmo(),
+ * a timeout recorded as cause k (one FAULT line a boot) */
+static int lcd_port_lock_bounded(int k)
+{
+    long t0 = current_tick;
+    int lk = lcd_port_lock_tmo(LCD_PORT_LOCK_T);
+
+    if (lk < 0)
+        bcm_wait_fault(k, current_tick - t0);
+    return lk;
+}
+#else
+#define lcd_port_lock_bounded(k) (lcd_port_lock() ? 1 : 0)
 #endif
 
 /* LCD init */
@@ -938,7 +1068,17 @@ void lcd_update_rect(int x, int y, int width, int height)
 
     /* before the display_on test: a take or sleep that waited for this
        lock has turned the display off meanwhile */
+#ifdef BCM_PORT_GATE
+    {
+        int lk = lcd_port_lock_bounded(BW_LOCK_UPDATE);
+
+        if (lk < 0)
+            return;             /* this frame dropped, the next one pushes */
+        locked = lk > 0;
+    }
+#else
     locked = lcd_port_lock();
+#endif
 #ifdef HAVE_BCMFW
     if (bcmfw_hung && irq_enabled())    /* never from a panic screen */
         bcmfw_fallback("stopped (fault word, or one update busy 2 s)");
@@ -977,6 +1117,13 @@ void lcd_update_rect(int x, int y, int width, int height)
         lcd_port_unlock(locked);
         return; /* Nothing left to do. */
     }
+#ifdef BCM_PORT_GATE
+    if (!BCM_PORT_OK("lcd_update_rect"))
+    {
+        lcd_port_unlock(locked);
+        return;
+    }
+#endif
 
     /* Ensure x and width are both even. The BCM doesn't like small unaligned
      * writes and would just ignore them. */
@@ -1122,6 +1269,13 @@ void lcd_blit_yuv(unsigned char * const src[3],
     }
 #endif
 
+#ifdef BCM_PORT_GATE
+    if (!BCM_PORT_OK("lcd_blit_yuv"))
+    {
+        lcd_port_unlock(locked);
+        return;
+    }
+#endif
     z = stride * src_y;
     yuv_src[0] = src[0] + z + src_x;
     yuv_src[1] = src[1] + (z >> 2) + (src_x >> 1);
@@ -1161,9 +1315,13 @@ static void bcm_command(unsigned cmd)
     long t0 = current_tick;
 #endif
 
+#ifdef BCM_PORT_GATE
+    if (!BCM_PORT_OK("bcm_command"))
+        return;                 /* the 0xFFFF it would read: no wait */
+#endif
     bcm_write32(BCMA_COMMAND,  cmd);
 
-    BCM_CONTROL = 0x31;
+    BCM_DOORBELL("bcm_command");
 
     while (1)
     {
@@ -1288,6 +1446,7 @@ static void bcm_init(void)
 #ifdef HAVE_BCM_JOBS
     bcmjob_gen++;               /* a new power-up: the job driver rediscovers */
 #endif
+    bcm_port_powered_up();      /* #324: a refusal after it is logged */
 
 #ifdef HAVE_BCMFW
     /* stopped before the panel slept: this wake loads Apple's vmcs, so the
@@ -1423,7 +1582,23 @@ void lcd_awake(void)
     if (!lcd_state.display_on && flash_vmcs_length != 0 && irq_enabled())
         lcd_fb_fence_noted(0, 0, LCD_WIDTH, LCD_HEIGHT);
 #endif
+#ifdef BCM_PORT_GATE
+    {
+        int lk = lcd_port_lock_bounded(BW_LOCK_AWAKE);
+
+        if (lk < 0)
+        {
+#ifdef HAVE_PP_GOV_DVS
+            if (!lcd_state.display_on)
+                pgov_port_cap(false);   /* the port stays quiet: dark */
+#endif
+            return;             /* still dark: the next wake tries again */
+        }
+        locked = lk > 0;
+    }
+#else
     locked = lcd_port_lock();
+#endif
 
     if (!lcd_state.display_on && flash_vmcs_length != 0)
     {
@@ -1458,7 +1633,7 @@ void lcd_awake(void)
             bcmfw_woke();
 #endif
             bcm_write32(BCMA_COMMAND, BCMCMD_LCD_POWERON);
-            BCM_CONTROL = 0x31;
+            BCM_DOORBELL("lcd_awake");
             bcmfw_poweron = true;
         }
 #endif

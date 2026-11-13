@@ -390,7 +390,17 @@ void dsp_timestretch_enable(bool enabled)
 }
 
 /* Set the timestretch ratio */
+static void dsp_set_timestretch_locked(int32_t percent);
+
+/* ProkBox #282 step 4: under the DSP's cross-core lock (dsp_core.c) */
 void dsp_set_timestretch(int32_t percent)
+{
+    dsp_xcore_lock();
+    dsp_set_timestretch_locked(percent);
+    dsp_xcore_unlock();
+}
+
+static void dsp_set_timestretch_locked(int32_t percent)
 {
     struct tdspeed_state_s *st = &tdspeed_state;
 

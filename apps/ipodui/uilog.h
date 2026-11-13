@@ -33,7 +33,11 @@
 
 #define UI_LOG_RING  768                    /* static; 12 x 64 B lines */
 #define UI_LOG_FILE  ROCKBOX_DIR "/ipodui.log"
-#define UI_LOG_MAX   16384                  /* then the generations move on */
+/* 0.8.2 road test: 64 KB generations (the bench's size), ~384 KB in all,
+ * so a day of real use (~200-300 B a track) fits before the oldest goes.
+ * Free per write: lines are appended (O_APPEND, a 72 B stack buffer),
+ * rotation renames, and nothing in RAM is sized by it. Release: 16384 */
+#define UI_LOG_MAX   65536                  /* then the generations move on */
 #define UI_LOG_KEEP  5                      /* .log.1 to .log.5: older boots */
 #define UI_LOG_LINE  64
 /* While the bench session runs (ui_log_bench): a step holds its lines in
@@ -46,8 +50,8 @@
  * tail before each hang included; 64 lines (4 KB, core_alloc'd and pinned
  * once, runtime heap, not _end) hold a busy moment.  The static ring
  * stays as the fallback when the allocation fails */
-#define UI_LOG_BOOT_LINES   64
-#define UI_LOG_BENCH_MAX    65536
+#define UI_LOG_BOOT_LINES   256  /* road test: a day of per-track lines between flushes (release: 64) */
+#define UI_LOG_BENCH_MAX    131072  /* road test: stays above UI_LOG_MAX (bench 65536) */
 
 struct ui_log_line {
     unsigned short seq;                     /* writer's sequence number */

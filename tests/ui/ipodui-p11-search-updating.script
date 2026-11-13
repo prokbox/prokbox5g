@@ -4,9 +4,17 @@
 # line, never "No Search Results"); typing waits; once the library is ready
 # the search runs on its own (no key needed) and the results show.
 #   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p11-search-updating.script
+# Since #237 a first build that outlasts the boot hold shows the library
+# page (keys ignored) instead of the menu, so this script runs only when the
+# test library's build ends inside the hold: the window holds on until that
+# build is published (tagcache_boot_check()), never a page flashed up for a
+# build already done (it failed this script under parallel load, the menu
+# keys landing on the page).
 # needs: library
 # fresh-db
 # golden: skip
+# log: db library page at boot: library
+# nolog: upd push mode=boot
 
 wait 1500           # the main menu, the shell building the database
 key SELECT          # Music

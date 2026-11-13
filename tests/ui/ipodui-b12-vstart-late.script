@@ -1,0 +1,56 @@
+# #340 (b12 bench, row holdv): a slow audio start must not stop the video
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-b12-vstart-late.script
+# needs: video
+#
+# On silicon the audio took over a second to reach the video's file (a busy
+# disk). The player's thread read that as "the audio left the file" and
+# stopped the video after 1 s; the audio then started and played on under
+# a blank screen. The rule now waits until the audio has been on the file
+# once (apps/video/vplayer.c, VPLAYER_AUDIO_GRACE).
+#
+# Here /.rockbox/.sim_vaudio_late makes the video screen start the audio
+# 2 s after the player (apps/ipodui/screens/video.c, simulator only). The
+# video still plays: pictures go up, no error page, no quiet stop. MENU
+# then leaves as always.
+#
+# Audio First (/Misc, no chapters; listed under Movies).
+# Each play starts from 0 with video_screen (ui_video_play(path, -1): no
+# resume point), over the Movies list as the list's own play is: a
+# leftover per-file resume spot (#154) from an earlier script on the
+# same disk would otherwise start Audio First near its end.
+
+# golden: skip
+# trace: video
+# logbetween: late late_out video sim: audio late
+# logbetween: late late_out video sim: the late audio starts
+# logbetween: late late_out video leave audio=0
+# logbetween: late late_out no audio left the file
+# logbetween: late late_out no video error page
+# logbetween: late late_out no ipodui: video failed
+# nolog: splash
+wait 4000
+wait_db 45000
+art_wait 60000
+rm_file /.rockbox/.sim_vaudio_late
+rm_file /.rockbox/.sim_vaudio_never
+rm_file /.rockbox/.sim_vaudio_nofile
+video_fault decode 0
+wheel +1 300
+wait 600
+key SELECT          # Videos
+wait 900
+key SELECT          # Movies
+wait 1200
+
+copy fixtures/refresh.mp3 /.rockbox/.sim_vaudio_late
+ab_mark late
+video_screen /Misc/Audio%20First.m4v  # the audio 2 s late
+wait 6000
+expect_video 10 playing     # pictures went up, no decode errors
+shot late_playing
+key MENU
+wait 1500
+expect_video 0 none
+shot late_list
+ab_mark late_out
+rm_file /.rockbox/.sim_vaudio_late

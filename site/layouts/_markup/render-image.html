@@ -3,7 +3,9 @@
 {{- $src := .Destination -}}
 {{- $u := urls.Parse $src -}}
 {{- if and (not $u.IsAbs) (not (hasPrefix $src "/")) -}}
-  {{- $src = path.Join .Page.File.Dir $src | path.Clean | relURL -}}
+  {{- /* a page at the top of docs/user/ (Features) has the folder "/": trim it,
+         or relURL would keep the path absolute and drop the site's base path */ -}}
+  {{- $src = path.Join .Page.File.Dir $src | path.Clean | strings.TrimPrefix "/" | relURL -}}
 {{- end -}}
 {{- if .Title -}}
 <figure><img src="{{ $src }}" alt="{{ .Text }}" loading="lazy"><figcaption>{{ .Title }}</figcaption></figure>

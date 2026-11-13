@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/ 
  *
  * Copyright (C) 2007 by Michael Sevakis
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -61,5 +62,12 @@ extern bool background;  /* True if the background image is enabled */
 extern bool showremote;
 extern double display_zoom;
 extern long start_tick;
+
+#if defined(IPOD_VIDEO) && defined(HAVE_IPOD_UI)
+/* ProkBox one build (#204): the unit's RAM in MB, 32 or 64, as the
+ * device's crt0 probe gives it (system-pp502x.c); the simulator takes it
+ * from IPODUI_SIM_RAM=32|64 at system_init(), default 64 */
+extern unsigned char probed_ramsize;
+#endif
 
 #endif /* _SYSTEM_SDL_H_ */

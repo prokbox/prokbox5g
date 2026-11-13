@@ -176,6 +176,8 @@ static void present(void *ctx, const uint8_t *pkt, uint32_t len,
 
 /* ---- the calls vplayer.c makes ---- */
 
+static uint32_t decode_fault;       /* sim_video_set_decode_fault's */
+
 int bcm_video_take(void)
 {
     if (!sram)
@@ -195,6 +197,11 @@ int bcm_video_take(void)
     /* the image's clock bands (HP_OP_VCLK) for the first-use check's
        scripts only: the rest keep today's model */
     model.vclk = getenv("SIM_VCHECK") != NULL;
+    if (decode_fault)
+    {
+        model.no_pic = true;            /* #340: nothing decodes ... */
+        model.st_errors = decode_fault; /* ... and the image says so */
+    }
     frames = errors = 0;
     memset(panel, 0, sizeof(panel));
     sim_lcd_panel_owned = true;
@@ -416,6 +423,11 @@ void sim_video_set_window(uint32_t records)
 uint32_t sim_video_window(void)
 {
     return window_records;
+}
+
+void sim_video_set_decode_fault(uint32_t errors)
+{
+    decode_fault = errors;
 }
 
 /* FEEDs refused as a full queue since video_fault (the refusal itself:

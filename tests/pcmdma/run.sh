@@ -78,6 +78,10 @@ cp firmware/export/pcm_sampr.h "$TMP/"
 { echo '#ifndef HOST_CONFIG_H'; echo '#define HOST_CONFIG_H'
   awk '/^#define HW_SAMPR_CAPS/ { on = 1 } on { print } on && !/\\$/ { exit }' \
       firmware/export/config/ipodvideo.h
+  # p083-audiophile: the stock list is HW_SAMPR_CAPS_STD (the shell build
+  # adds 88.2/96); this host model is the stock path
+  echo '#ifndef HW_SAMPR_CAPS'; echo '#define HW_SAMPR_CAPS HW_SAMPR_CAPS_STD'
+  echo '#endif'
   echo '#endif'; } >"$TMP/config.h"
 for f in dma_defs.h align_audiobuf.h config.h; do
     grep -q define "$TMP/$f" || { echo "FAIL: $f extracted empty"; fail=1; }
@@ -92,3 +96,34 @@ if ! "$HOSTCC" $CFLAGS -include "$TMP/config.h" -o "$TMP/t" \
     cat "$TMP/cc.log"; exit 1
 fi
 "$TMP/t" || { echo "FAIL: PCM DMA lengths/addresses (issue #191)"; exit 1; }
+
+# 0.8.3 fifo96: the two-channel queue (test_pcmq.c).  The block between
+# the pcm-queue markers in pcm-pp.c, run against an engine, FIFO and mixer
+# model; its red arms run in the same binary
+Q=$TMP/q
+mkdir -p "$Q"
+awk '/pcm-queue: begin/ { on = 1; next } /pcm-queue: end/ { on = 0 } on' \
+    "$SRC" >"$Q/pcmq_parts.c"
+grep -q 'pq_fiq' "$Q/pcmq_parts.c" && grep -q 'pq_start' "$Q/pcmq_parts.c" \
+    || { echo "FAIL: the pcm-queue block not found in $SRC"; exit 1; }
+awk '/^#define DMA_PLAY_CONFIG/ { on = 1 } on { print } on && !/\\$/ { exit }' \
+    "$SRC" >"$Q/dma_play_config.h"
+awk '/^static inline unsigned long dma_tx_buf_prepare/ { on = 1 } on { print }
+     on && /^}/ { exit }' "$SRC" >"$Q/dma_tx_buf_prepare.c"
+awk '/^static inline void dma_tx_start[(]bool begin[)]$/ { on = 1 } on { print }
+     on && /^}/ { exit }' "$SRC" >"$Q/dma_tx_start.c"
+awk '/^void fiq_playback[(]void[)]$/ { on = 1 } on { print }
+     on && /^}/ { exit }' "$SRC" >"$Q/fiq_playback.c"
+grep -q 'DMA0_STATUS' "$Q/fiq_playback.c" \
+    || { echo "FAIL: the one-channel fiq_playback not found in $SRC"; exit 1; }
+grep -E '^[[:space:]]*#define (DMA_CMD_|DMA_STATUS_|DMA_REQ_IIS)' \
+    firmware/export/pp5020.h >"$Q/dma_defs_q.h"
+for f in dma_play_config.h dma_tx_buf_prepare.c dma_defs_q.h dma_tx_start.c; do
+    [ -s "$Q/$f" ] || { echo "FAIL: $f extracted empty"; exit 1; }
+done
+# shellcheck disable=SC2086
+if ! "$HOSTCC" $CFLAGS -I"$Q" -o "$Q/t" "$T/test_pcmq.c" 2>"$Q/cc.log"; then
+    echo "FAIL: compiling test_pcmq.c with the queue block of $SRC ($HOSTCC)"
+    cat "$Q/cc.log"; exit 1
+fi
+"$Q/t" || { echo "FAIL: the two-channel PCM DMA queue (0.8.3 fifo96)"; exit 1; }

@@ -33,26 +33,26 @@
 @word	Disk Mode	a mode in which the player shows up on your computer as a drive, even when its main software cannot start.
 @word	Sample rate	how many times a second the sound is measured, such as 44.1 kHz or 96 kHz.
 @word	Bit depth	how finely each of those measurements is stored, such as 16-bit or 24-bit.
-300				Smoother playback of demanding files, and less battery used on easy ones: the player now watches both of its processor cores to choose its speed.		Speed matched to how hard the music is
-284				A rare fault with very loud 24-bit FLAC files is fixed: they play correctly.		Very loud 24-bit FLAC fixed
-285				32-bit FLAC files are skipped cleanly instead of playing back wrongly. They stay in your library.		32-bit FLAC skipped cleanly
-298				Skipping a song the player cannot play no longer leaves a short silence.		No silence when skipping unplayable songs
-282				A new playback engine: all of the audio work moves to the player's second processor core, so the menus stay smooth while music plays.		New playback engine on the second core
-278				24-bit, 192 kHz FLAC files play without drop-outs.		24-bit, 192 kHz FLAC without drop-outs
-205				One download for every player: original or modded, hard drive or flash, 32 or 64 MB. It asks you once which battery your player has.		One download for every player
-205				Dock support is built into every download, and stays idle until you connect a dock. Work on how docks behave comes in 0.9.5.		Dock support in every download
+300				-		Speed matched to how hard the music is
+284				-		Very loud 24-bit FLAC fixed
+285				-		32-bit FLAC skipped cleanly
+298				-		No silence when skipping unplayable songs
+282				-		New playback engine on the second core
+278				-		24-bit, 192 kHz FLAC without drop-outs
+205				-		One download for every player
+205				-		Dock support in every download
 204				-	
 79				-	
-271				Cleaner sound for songs at sample rates the player has to convert: it always uses its best-quality converter.		Best-quality sample rate converter, always
-259				The video chip does the drawing for the visualiser and album art, which leaves the main processor free.		Video chip draws the visualiser and art
-262				Turning Hold off during a video no longer blanks the screen for a few seconds.		No blank screen after Hold in a video
+271				-		Best-quality sample rate converter, always
+259				-		Video chip draws the visualiser and art
+262				-		No blank screen after Hold in a video
 264				-	
-265				All of the equaliser's bands will work: one of the upper bands has no effect today. The fix ships once we have checked its battery cost.		Every equaliser band works
-272				Button presses no longer keep the player at full speed for longer than needed, which saves battery.		Buttons no longer hold full speed
-295				The visualiser always opens while music plays. Today it sometimes fails to.		Visualiser always opens
-291				Turning the wheel wakes the player from the clock screen, like a button press, without scrolling or changing the volume.		Wheel wakes the clock screen
-156				The visualiser runs smoothly, without the stutter you may see with MP3 files.		Smooth visualiser with MP3 files
-268				24-bit playback: 24-bit FLAC and WAV files play at their full depth.		24-bit playback
+265				-		Every equaliser band works
+272				-		Buttons no longer hold full speed
+295				-		Visualiser always opens
+291				-		Wheel wakes the clock screen
+156				-		Smooth visualiser with MP3 files
+268				-		24-bit playback
 289				MP3 and AAC files use the 24-bit output too, keeping more of their detail.		24-bit output for MP3 and AAC
 270				A new Settings › Audiophile menu with optional 88.2 and 96 kHz output. It is off by default. It runs the audio chip beyond its official range, so it comes with a warning. Your player tests itself first and offers only the rates that pass. If anything goes wrong, it drops back to a safe rate.		Optional 88.2 and 96 kHz output
 277				An extra info page in Now Playing shows a song's format, bit depth and sample rate, for example FLAC, 24-bit, 96 kHz.		Format and sample rate page in Now Playing
@@ -146,3 +146,4 @@
 @notplanned	other-ipod-models	Other iPod models	ProkBox5g is tuned only for the iPod Video (5th generation and 5.5G). Support for other players would be a separate project, not a setting in this firmware.
 327		Considering		We are looking at letting the sound chip mute itself during silent stretches, to cut faint hiss in quiet passages and while paused.		Quieter silence
 330				Spoken menus: the player can read out menu items and song, artist and album names.		Spoken menus
+346				Photos: browse your pictures by album, view them full screen, and play slideshows with music. Copy photos over by drag-and-drop, with no app.		Photos

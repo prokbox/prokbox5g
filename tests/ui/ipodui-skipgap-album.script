@@ -1,0 +1,50 @@
+# #298: the skip over an unplayable track is gapless. An album of three
+# (playable, broken, playable; 3 s each) with Repeat All plays about five
+# laps. Before, the broken track's silent failure deferred the next
+# track's start until the first track's PCM had played out and the audio
+# thread's 100 ms poll had seen it: the buffer ran dry for the poll phase
+# plus the next start (dry=1, by=poll, lag up to ~100 ms in the trace).
+# Now the next codec starts at the failure, behind the playing PCM, and
+# the tick kicks the thread on the PCM's notice. Checked from the trace
+# line each change writes (apps/playback.c audio_on_track_changed()):
+# every change, skips included, has dry=0 (the next track's PCM was
+# queued behind the last chunk: no silence), and every switch was woken
+# by the tick's kick, never the poll (by=kick; typically 10-20 ms in the
+# sim; the 150 ms bound leaves room for the host's load, the sim's
+# kernel letting one thread run at a time, and catches the 1 s backstop
+# poll). #281 kept:
+# no queue stop (only one of three fails).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-skipgap-album.script
+# disk: bare
+# needs: unplayable
+# disk-file: build/unplayable-fixtures/skipgap1.flac Music/skipgap1.flac
+# disk-file: build/unplayable-fixtures/skipgap2.flac Music/skipgap2.flac
+# disk-file: build/unplayable-fixtures/skipgap3.flac Music/skipgap3.flac
+# log: audio unplayable skip early run=1 skipped=1
+# log: dry=0 skipped=1 by=kick
+# log: dry=0 skipped=0 by=kick
+# logrange: 0 0 audio tc lag_ms=\d+ fin_ms=\d+ dry=(\d+)
+# logrange: 0 150 audio tc lag_ms=(\d+)
+# nolog: by=poll
+# nolog: : stop
+# nolog: pcm underrun
+# log: expect_playing ok
+# golden: skip album
+# timeout: 150
+
+wait 1000
+wait_db 30000
+repeat all
+key SELECT          # Music
+wait 800
+wheel +2            # Albums
+wait 300
+key SELECT
+wait 800
+key SELECT          # "Skip Gap"
+wait 800
+key SELECT          # its first track: the album plays from it
+wait 2000           # the first track starts
+expect_playing 18000    # about three laps, never stopped
+shot album
+quit

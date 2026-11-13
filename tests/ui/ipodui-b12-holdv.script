@@ -1,0 +1,86 @@
+# #262 (b11, owner's log 2026-11-10): Hold switched on and off while a video
+# plays with Repeat All gave about 3 s with no new picture ("audio stands
+# still", "thread late 2078 ms", "audio jumped", "seek's first picture
+# 973 ms"). Cause: the Hold change flushed playback's queue ahead
+# (audio_flush_and_reload_tracks()), and the reload of the wrap (the same
+# file again) read its metadata on the audio thread while holding the id3
+# lock (playback.c audio_load_track(), the buffer-full branch: a long
+# video never fits, so it always takes that branch), through a storage
+# power-up. The video thread reads the playing track through that lock
+# every turn (vplayer.c audio_us()/audio_handle()), so it stood still for
+# the whole wake and the parse.
+#
+# Here: a 12 min episode (the soak fixture) with Repeat All and an audio
+# buffer smaller than the file (stor_buffer: as on the device, where a
+# long video never fits), storage that powers off after a short hold and
+# wakes in 2 s (a disk's typical wake). Hold goes on and off three times,
+# each time after the storage powered off.
+#  h0-h1  each Hold change is logged with its time and its flush; the
+#         wrap's tags are never read from the file again (no "Read
+#         metadata" for it: the refetch copies them from the buffered
+#         file, so nothing slow runs under the lock); the video thread is
+#         never late by a wake (1500 ms or more) and the audio clock never
+#         stands still.
+# What the simulator can't show: the 2 s itself. Its open() powers the
+# storage up before the lock is taken and host reads are instant, so the
+# old code was not late here either; the "Read metadata" lines are the
+# old code's read under the lock (seen with a temporary trace in the
+# buffer-full branch, 2026-11-10). The device row holdv measures the time.
+# Repeat semantics (Hold on: the end is the end; off: the wrap) stay with
+# ipodui-p19-video-hold.script.
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-b12-holdv.script
+# needs: video
+# needs: soak
+# golden: skip
+# timeout: 240
+# fulls-extra: 3   (the menu under the video at play_files, video_screen and the stop)
+# logbetween: h0 h1 video hold on t=\d+ ms flush=1
+# logbetween: h0 h1 video hold off t=\d+ ms flush=1
+# logbetween: h0 h1 no Read metadata for /.rockbox/soak/holdv.m4v
+# logbetween: h0 h1 no video: thread late \(ms past its wait, audio ms\) \((1[5-9]\d\d|[2-9]\d{3}|\d{5,}),
+# logbetween: h0 h1 no video: audio stands still
+# nolog: video error page
+# nolog: video: stopped, BCM given back
+# nolog: CPU FALLBACK
+wait 4000
+mkdir /.rockbox/soak    # hidden: never in the library
+copy ../../build/soak-fixtures/soak.m4v /.rockbox/soak/holdv.m4v
+play_files /.rockbox/soak/holdv.m4v   # playback's buffer exists only after a first play
+wait 1500
+audio_stop
+wait 500
+stor_buffer 3000000     # smaller than the file, as any long video on the unit
+stor_tune 1500 500      # off 1.5 s after the last access
+stor_pwrup 2000         # a disk's wake
+repeat all
+video_screen /.rockbox/soak/holdv.m4v
+wait 6000
+expect_video 20 playing
+ab_mark h0
+stor_expect off 15000
+hold_switch on
+wait 3000
+stor_expect off 15000
+hold_switch off
+wait 4000
+stor_expect off 15000
+hold_switch on
+wait 3000
+stor_expect off 15000
+hold_switch off
+wait 4000
+stor_expect off 15000
+hold_switch on
+wait 3000
+stor_expect off 15000
+hold_switch off
+wait 5000
+expect_video 200 playing
+ab_mark h1
+key MENU
+wait 2000
+repeat off
+stor_buffer 0
+stor_pwrup 300
+shot after              # the list again (shots.sh wants one)
+rm_file /.rockbox/soak/holdv.m4v

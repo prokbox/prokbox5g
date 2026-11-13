@@ -33,7 +33,9 @@
 #define CPU_FREQ (-1)
 #endif
 
-long cpu_frequency SHAREDBSS_ATTR = CPU_FREQ;
+/* ProkBox #313: initialised, so the loaded uncached section (.ncdata);
+ * .ncbss is zeroed at boot and dropped CPU_FREQ */
+long cpu_frequency SHAREDDATA_ATTR = CPU_FREQ;
 
 #ifdef HAVE_ADJUSTABLE_CPU_FREQ
 static int boost_counter SHAREDBSS_ATTR = 0;

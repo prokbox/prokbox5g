@@ -36,11 +36,10 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 TMPS=
 trap 'for t in $TMPS; do rm -rf "$t"; done' EXIT
 for RAM in ${*:-32 64}; do
-    case "$RAM" in
-        32) BUILD=$ROOT/build/sim-ui32 ;;
-        64) BUILD=$ROOT/build/sim-ui ;;
-        *) exit 2 ;;
-    esac
+    case "$RAM" in 32|64) ;; *) exit 2 ;; esac
+    # one binary for both units (#204): the unit's RAM is IPODUI_SIM_RAM
+    BUILD=$ROOT/build/sim-ui
+    export IPODUI_SIM_RAM=$RAM
     SOURCE=$(stress_disk "$RAM")
     "$ROOT/tests/perf/ensure65k.sh" "$SOURCE" || exit 1
     # #47: measure the steady state, not the one-time re-sort (settle65k.sh)
@@ -57,6 +56,8 @@ for RAM in ${*:-32 64}; do
         "$ROOT/scripts/shots.sh" "$ROOT/tests/perf/commit-peak.script" "$OUT" \
         >"$RUN/shots.out" 2>&1 || echo "commit peak ${RAM} MB: script failed ($RUN/shots.out)" >&2
     echo "== commit peak, ${RAM} MB unit at $(stress_k "$RAM")k (log $OUT/sim.log)"
+    grep -q "^sim: ram $RAM MB" "$OUT/sim.log" \
+        || echo "commit peak ${RAM} MB: the simulator did not run as a ${RAM} MB unit ($OUT/sim.log)" >&2
     grep -E "floor_tl|floor_watch commit_peak|tagcache: (scan|probe|commit|numeric|RAM cache)|snapshot stress" \
         "$OUT/sim.log" | sed 's/^sim_script: //'
     rm -rf "$RUN"

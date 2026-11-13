@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2005 Dave Chapman
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -128,6 +129,8 @@ bool get_aiff_metadata(int fd, struct mp3entry* id3)
             /* sampleRate */
             id3->frequency = get_long_be(&buf[10]);
             id3->frequency >>= (16+14-buf[9]);
+            /* ProkBox #268/#277: sampleSize */
+            id3->bits_per_sample = ((buf[6]<<8)|buf[7]) < 255 ? buf[7] : 0;
 
             /* save format infos */
             id3->bitrate = ((buf[6]<<8)|buf[7]) * numChannels * id3->frequency;

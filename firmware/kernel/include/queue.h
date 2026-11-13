@@ -82,6 +82,10 @@
 /* Phase 18: a soft sleep is asked for (any thread posts it to the button
  * queue; the UI thread sleeps); data = enum ui_sleep_reason */
 #define SYS_SLEEP_REQUEST         MAKE_SYS_EVENT(SYS_EVENT_CLS_MISC, 8)
+/* #291: a finger touched the click wheel (the first touch after it was
+ * lifted); posted by the wheel driver, which also lights the backlight,
+ * so the idle clock face learns of a turn too short for a step */
+#define SYS_IPODUI_WHEEL_TOUCH    MAKE_SYS_EVENT(SYS_EVENT_CLS_MISC, 9)
 /* its data: why the sleep is asked for (apps/ipodui/sleep.h) */
 enum ui_sleep_reason {
     SLEEP_HOLD_PLAY,    /* global_hold() */

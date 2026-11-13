@@ -75,6 +75,11 @@ void button_clear_pressed(void);
 long button_get(bool block);
 long button_get_w_tmo(int ticks);
 intptr_t button_get_data(void);
+#ifdef HAVE_IPOD_UI
+/* ProkBox (#272): the last key's boost released now, before a handler
+ * waits on I/O (the key reader's thread only) */
+void button_boost_release(void);
+#endif
 
 #ifdef HAVE_HEADPHONE_DETECTION
 bool headphones_inserted(void);

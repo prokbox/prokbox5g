@@ -65,12 +65,19 @@ static void xlate_learn(int lun);
     xlate_write_run(&xlate[cur_cmd.lun], cur_cmd.sector, \
         MIN(WRITE_BUFFER_SIZE/cur_cmd.block_size, cur_cmd.count), \
         cur_cmd.data[cur_cmd.data_select])
+/* #314: the piece may change a file (xlate_run_in_data()) */
+#define USTATS_WR_DATA() \
+    xlate_run_in_data(&xlate[cur_cmd.lun], cur_cmd.sector, \
+        MIN(WRITE_BUFFER_SIZE/cur_cmd.block_size, cur_cmd.count))
 /* #81: the prefetch ring holds the host's view, rewritten when it lands */
 #define USBSTOR_PF_FILTER(lun, start, n, buf) \
     xlate_read_run(&xlate[lun], start, n, buf)
 #endif
 #ifndef USBSTOR_PF_FILTER
 #define USBSTOR_PF_FILTER(lun, start, n, buf) ((void)0)
+#endif
+#ifndef USTATS_WR_DATA
+#define USTATS_WR_DATA() 1          /* no layout known: any write counts */
 #endif
 
 /* These defaults allow the operation */
@@ -1581,6 +1588,10 @@ static void usb_storage_transfer_complete(int ep,int dir,int status,int length)
                         MIN(WRITE_BUFFER_SIZE/cur_cmd.block_size, cur_cmd.count)*cur_cmd.block_size);
 #else
                 if(ubot_wr_should_write(&wr_fail)) {
+#ifdef HAVE_USB_STATS
+                    /* #314: before the filter rewrites the sectors */
+                    ustats.wr_data += USTATS_WR_DATA();
+#endif
                     int result = USBSTOR_WRITE_SECTORS_FILTER();
 
                     if (result == 0) {

@@ -61,6 +61,16 @@
  *                         open refused or every read flagged as a book;
  *                         "quiet" (stopped) an open tap and no fresh read
  *                         (every one silent or stale).
+ *   load_hold <ms>        (shell builds, #345) each track load in the
+ *                         audio thread first waits ms (0 ends it): the
+ *                         thread is busy, as behind a slow disk.
+ *   expect_shown paused|playing <ms>
+ *                         (shell builds, #345) the header's play icon is
+ *                         drawn in that state within ms (polled each tick;
+ *                         the time taken is printed).
+ *   expect_pcm paused|playing <ms>
+ *                         (shell builds, #345) the playback PCM channel is
+ *                         in that state within ms (paused: not playing).
  *
  * Returns false for any other command. */
 bool sim_cmd_audio(const char *cmd, char *argv[], int argc, int lineno);

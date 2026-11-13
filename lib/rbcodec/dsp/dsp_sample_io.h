@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2012 Michael Sevakis
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -53,6 +54,10 @@ struct sample_io_data
     uint8_t format_dirty;         /* Format change set, avoids superfluous
                                      increments before carrying it out */
     uint8_t output_version;       /* Format version of src buffer at output */
+#ifdef DSP_OUT_S24
+    uint8_t output_depth;         /* ProkBox #268: 16, or 24 (int32 words,
+                                     24 bits at the top) */
+#endif
 };
 
 void dsp_sample_input_init(struct sample_io_data *this, unsigned int dsp_id) INIT_ATTR;

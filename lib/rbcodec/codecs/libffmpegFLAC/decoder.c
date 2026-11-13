@@ -1,6 +1,7 @@
 /*
  * FLAC (Free Lossless Audio Codec) decoder
  * Copyright (c) 2003 Alex Beregszaszi
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -46,6 +47,54 @@
 #include "coldfire.h"
 #elif defined(CPU_ARM)
 #include "arm.h"
+#endif
+
+/* get_bits() and get_sbits() always inline here: GCC's inlining budget
+   otherwise makes out-of-line copies of them in .text, out of IRAM, which
+   the verbatim and escaped-partition loops would call once per sample. */
+static av_always_inline unsigned int flac_get_bits(GetBitContext *s, int n)
+{
+    register int tmp;
+    OPEN_READER(re, s)
+    UPDATE_CACHE(re, s)
+    tmp= SHOW_UBITS(re, s, n);
+    LAST_SKIP_BITS(re, s, n)
+    CLOSE_READER(re, s)
+    return tmp;
+}
+
+static av_always_inline int flac_get_sbits(GetBitContext *s, int n)
+{
+    register int tmp;
+    OPEN_READER(re, s)
+    UPDATE_CACHE(re, s)
+    tmp= SHOW_SBITS(re, s, n);
+    LAST_SKIP_BITS(re, s, n)
+    CLOSE_READER(re, s)
+    return tmp;
+}
+#define get_bits flac_get_bits
+#define get_sbits flac_get_sbits
+
+/* The bit reader (ffmpeg_get_bits.h, ALT_BITSTREAM_READER) returns at most
+   MIN_CACHE_BITS (25) bits a read; a wider one comes back wrong.  FLAC has
+   wider fields: escaped Rice partitions up to 31 bits, and sample widths
+   (warm-up, constant and verbatim samples) of bps + 1 on a side channel,
+   up to 33 in the format.  Those reads go through here, in two parts above
+   25 bits.  n is 1..32. */
+static av_always_inline int flac_get_sbits_wide(GetBitContext *s, int n)
+{
+    if (n <= MIN_CACHE_BITS)
+        return get_sbits(s, n);
+    int hi = get_sbits(s, n - 16);
+    return (int)(((unsigned)hi << 16) | get_bits(s, 16));
+}
+
+/* arm.S's Rice reader (decode_residuals) and stereo decorrelation
+   (flac_decode_frame); FLAC_NO_RICE_ASM keeps the C ones, for an A/B */
+#if defined(CPU_ARM_CLASSIC) && !defined(FLAC_NO_RICE_ASM)
+#define FLAC_RICE_ASM
+#define FLAC_DECORRELATE_ASM
 #endif
 
 static const int sample_rate_table[] ICONST_ATTR =
@@ -161,12 +210,36 @@ static int decode_residuals(FLACContext *s, int32_t *decoded, int pred_order)
         tmp = get_bits(&gb, rice_bits);
         if (tmp == rice_esc) {
             tmp = get_bits(&gb, 5);
-            /* An escape width of 0 means all residuals are zero. */
-            for (; i < samples; i++)
-                *decoded++ = tmp ? get_sbits(&gb, tmp) : 0;
+            /* An escape width of 0 means all residuals are zero; widths
+               above 25 bits need two reads (flac_get_sbits_wide), chosen
+               once a partition so the common loop keeps one. */
+            if (tmp > MIN_CACHE_BITS)
+                for (; i < samples; i++)
+                    *decoded++ = flac_get_sbits_wide(&gb, tmp);
+            else
+                for (; i < samples; i++)
+                    *decoded++ = tmp ? get_sbits(&gb, tmp) : 0;
         } else {
             unsigned lim = tmp ? (UINT_MAX >> tmp) + 2 : INT_MAX;
             int real_limit = lim > INT_MAX ? INT_MAX : lim;
+#ifdef FLAC_RICE_ASM
+            /* The assembler takes every code that fits 32 bits and stops in
+               front of any other; the C reader below decodes that one, with
+               its limits and checks, and hands the rest back. */
+            for (;;) {
+                int n = flac_rice_arm(&gb, decoded, samples - i, tmp);
+                decoded += n;
+                i += n;
+                if (i >= samples)
+                    break;
+                int v = get_sr_golomb_flac(&gb, tmp, real_limit, 0);
+                if ((unsigned) v == 0x80000000){
+                    return -3;
+                }
+                *decoded++ = v;
+                i++;
+            }
+#endif
             for (; i < samples; i++) {
                 int v = get_sr_golomb_flac(&gb, tmp, real_limit, 0);
                 if ((unsigned) v == 0x80000000){
@@ -184,7 +257,8 @@ static int decode_residuals(FLACContext *s, int32_t *decoded, int pred_order)
     return 0;
 }
 
-//static int decode_subframe_fixed(FLACContext *s, int32_t* decoded, int pred_order, int bps) ICODE_ATTR_FLAC;
+/* In IRAM too: fixed predictors are what an encoder picks at transients */
+int decode_subframe_fixed(FLACContext *s, int32_t* decoded, int pred_order, int bps) ICODE_ATTR_FLAC;
 int decode_subframe_fixed(FLACContext *s, int32_t* decoded, int pred_order, int bps)
 {
     const int blocksize = s->blocksize;
@@ -194,7 +268,7 @@ int decode_subframe_fixed(FLACContext *s, int32_t* decoded, int pred_order, int 
     /* warm up samples */
     for (i = 0; i < pred_order; i++)
     {
-        decoded[i] = get_sbits(&s->gb, bps);
+        decoded[i] = flac_get_sbits_wide(&s->gb, bps);
     }
 
     if (decode_residuals(s, decoded, pred_order) < 0)
@@ -270,8 +344,13 @@ static void lpc_analyze_remodulate(int32_t *decoded, int coeffs[],
     int ebps = 1 << (bps-1);
     unsigned sigma = 0;
 
+#ifdef FLAC_RICE_ASM
+    /* arm.S: four samples an ldm, 4.5 cycles a sample against 9 */
+    sigma = flac_range_or_arm(decoded + order, len - order, ebps);
+#else
     for (i = order; i < len; i++)
         sigma |= decoded[i] + ebps;
+#endif
 
     if (sigma < 2U*ebps)
         return;
@@ -301,7 +380,7 @@ static int decode_subframe_lpc(FLACContext *s, int32_t* decoded, int pred_order,
     /* warm up samples */
     for (i = 0; i < pred_order; i++)
     {
-        decoded[i] = get_sbits(&s->gb, bps);
+        decoded[i] = flac_get_sbits_wide(&s->gb, bps);
     }
 
     coeff_prec = get_bits(&s->gb, 4) + 1;
@@ -325,7 +404,21 @@ static int decode_subframe_lpc(FLACContext *s, int32_t* decoded, int pred_order,
     if (decode_residuals(s, decoded, pred_order) < 0)
         return -8;
 
-    if ((s->bps + coeff_prec + av_log2(pred_order)) <= 32) {
+    /* The 32-bit filter is exact when no prediction sum can leave 32 bits:
+       every history sample fits bps bits (the warm-up by construction, the
+       outputs in any valid stream), so |sum| <= sum(|c|) * 2^(bps-1), and
+       that is below 2^31 when sum(|c|) < 2^(32-bps).  This is the bound
+       libFLAC's decoder uses, a bit less conservative; it holds wherever
+       the old test (bps + coeff_prec + log2(order) <= 32) did, now with
+       this channel's own bps (a side channel has one more), and also for
+       many subframes that test sent to the 64-bit filter.  For bps <= 16
+       the result is also what the 64-bit filter plus
+       lpc_analyze_remodulate gives, valid stream or not: that pass hands
+       back the 32-bit wrapping decode whenever an output leaves bps bits,
+       and until one does the two filters agree.  Ask tests/flacarm. */
+    for (sum = 0, j = 0; j < pred_order; j++)
+        sum += coeffs[j] < 0 ? -coeffs[j] : coeffs[j];
+    if (bps >= 1 && bps <= 31 && (unsigned)sum < (1u << (32 - bps))) {
         #if defined(CPU_COLDFIRE)
         (void)sum;
         lpc_decode_emac(s->blocksize - pred_order, qlevel, pred_order,
@@ -397,6 +490,8 @@ static inline int decode_subframe(FLACContext *s, int channel, int32_t* decoded)
         while (!get_bits1(&s->gb))
             wasted++;
         bps -= wasted;
+        if (bps < 1)
+            return -19;     /* malformed: no bits left to read a sample */
         //fprintf(stderr,"%d wasted bits\n", wasted);
     }
 
@@ -404,15 +499,19 @@ static inline int decode_subframe(FLACContext *s, int channel, int32_t* decoded)
     if (type == 0)
     {
         //fprintf(stderr,"coding type: constant\n");
-        tmp = get_sbits(&s->gb, bps);
+        tmp = flac_get_sbits_wide(&s->gb, bps);
         for (i = 0; i < s->blocksize; i++)
             decoded[i] = tmp;
     }
     else if (type == 1)
     {
         //fprintf(stderr,"coding type: verbatim\n");
-        for (i = 0; i < s->blocksize; i++)
-            decoded[i] = get_sbits(&s->gb, bps);
+        if (bps > MIN_CACHE_BITS)
+            for (i = 0; i < s->blocksize; i++)
+                decoded[i] = flac_get_sbits_wide(&s->gb, bps);
+        else
+            for (i = 0; i < s->blocksize; i++)
+                decoded[i] = get_sbits(&s->gb, bps);
     }
     else if ((type >= 8) && (type <= 12))
     {
@@ -653,7 +752,7 @@ int flac_decode_frame(FLACContext *s,
                       void (*yield)(void))
 {
     int tmp;
-    int i;
+    int i, done;
     int framesize;
     int scale;
 
@@ -680,7 +779,7 @@ int flac_decode_frame(FLACContext *s,
     yield();
     
 #define DECORRELATE(left, right)\
-             for (i = 0; i < s->blocksize; i++) {\
+             for (i = done; i < s->blocksize; i++) {\
                 int32_t a = s->decoded[0][i];\
                 int32_t b = s->decoded[1][i];\
                 s->decoded[0][i] = (left)  << scale;\
@@ -688,6 +787,12 @@ int flac_decode_frame(FLACContext *s,
              }\
 
     scale=FLAC_OUTPUT_DEPTH-s->bps;
+    done = 0;
+#ifdef FLAC_DECORRELATE_ASM
+    if (s->channels <= 2)   /* arm.S: four samples a pass; C does the rest */
+        done = flac_decorrelate_arm(s->decoded[0], s->decoded[1],
+                                    s->blocksize, s->ch_mode, scale);
+#endif
     switch(s->ch_mode)
     {
         case INDEPENDENT:

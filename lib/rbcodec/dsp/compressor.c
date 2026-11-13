@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2009 Jeffrey Goode
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -153,7 +154,8 @@ static bool compressor_update(struct dsp_config *dsp,
 
     if (threshold < 0 && labuf_handle <= 0)
     {
-        labuf_handle = core_alloc(sizeof(int32_t[MAX_CH][MAX_DLY]));
+        labuf_handle = core_alloc_ex(sizeof(int32_t[MAX_CH][MAX_DLY]),
+                                     &dsp_buflib_ops);
         if (labuf_handle < 0)
         {
             logf("%s Failed to allocate %d bytes",

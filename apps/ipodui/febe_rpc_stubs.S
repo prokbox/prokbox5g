@@ -97,6 +97,9 @@ febe_invoke:
     bx      lr
     .size febe_invoke, . - febe_invoke
 
+    FEBE_STUB audiophile_hirate_allowed
+    FEBE_STUB audio_output_bits
+    FEBE_STUB audio_output_rate
     FEBE_STUB ab_store_get
     FEBE_STUB ab_store_idle
     FEBE_STUB ab_store_load
@@ -159,10 +162,15 @@ febe_invoke:
     FEBE_STUB audio_prev
     FEBE_STUB audio_resume
     FEBE_STUB audio_stop
+    FEBE_STUB audiophile_fallback_ack
+    FEBE_STUB audiophile_selftest
+    FEBE_STUB audiophile_set_hirate
+    FEBE_STUB audiophile_set_width
     FEBE_STUB batcal_boot
     FEBE_STUB batcal_poweroff
     FEBE_STUB batcal_reset
     FEBE_STUB batcal_run_status
+    FEBE_STUB batcal_seed
     FEBE_STUB batcal_status
     FEBE_STUB bootbatt_usb_exit
     FEBE_STUB clockpol_enabled
@@ -220,6 +228,9 @@ febe_invoke:
     FEBE_STUB mixer_channel_stop
     FEBE_STUB mixer_get_frequency
     FEBE_STUB mixer_set_tap
+    FEBE_STUB pcm_set_fault_log
+    FEBE_STUB pcmbuf_pause_tick
+    FEBE_STUB pcmbuf_pause_tick_clear
     FEBE_STUB pcmbuf_underruns
     FEBE_STUB playlist_amount
     FEBE_STUB playlist_create
@@ -273,6 +284,7 @@ febe_invoke:
     FEBE_STUB read_line
     FEBE_STUB rolo_load
     FEBE_STUB settings_apply
+    FEBE_STUB set_battery_capacity
     FEBE_STUB sound_set_pitch
     FEBE_STUB sound_set_volume
     FEBE_STUB status_save
@@ -334,6 +346,7 @@ febe_invoke:
     FEBE_STUB tagcache_ui_str
     FEBE_STUB tagcache_ui_str_ctx
     FEBE_STUB tagcache_ui_update_stats
+    FEBE_STUB tagcache_ui_usb_owed
     FEBE_STUB tagcache_ui_updating
     FEBE_STUB tagcache_ui_walk
     FEBE_STUB tagcache_ui_walk_ctx

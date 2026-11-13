@@ -7,6 +7,7 @@
 # trace: usb
 # same: before after
 # nolog: splash-pass
+# log: upd push mode=unplug shown=1
 # golden: skip io0 io3 io6 io9
 #
 # The io* shots are one 10 fps frame apart while the arrows spin: they
@@ -59,6 +60,9 @@ record 2000 10 usb-io
 wait 1500           # I/O stops: back to the idle glyph 0.5 s later
 shot idle_after_io
 usb_disconnect
-wait 1500
-shot after_io
+wait 3500           # disk_active counts as the host's writes (#314): the
+                    # library page is up at once (#315, the log line
+                    # above), then the check, its quiet second, the full
+                    # bar and the slide back
+shot after_io       # the menu again (the golden)
 quit

@@ -203,18 +203,11 @@ void piezo_init(void)
             IF_COP(, CPU));
 }
 
-/* Click pulse (Phase 9, #23): the haptic clicker mod gets its own
- * constants, equal to the piezo's until a device check sets them
- * (P10 H8, V4). */
-#ifdef HAVE_IPOD_HAPTICS
+/* Click pulse (Phase 9, #23): one pulse drives the piezo and the haptic
+ * clicker mod alike, so haptics are no build dimension (#236) */
 #define HAPTIC_TICK_INV_FREQ  91
 #define HAPTIC_TICK_FORM      0x80
 #define HAPTIC_TICK_USEC      4000
-#else
-#define HAPTIC_TICK_INV_FREQ  91
-#define HAPTIC_TICK_FORM      0x80
-#define HAPTIC_TICK_USEC      4000
-#endif
 
 void piezo_button_beep(bool beep, bool force)
 {

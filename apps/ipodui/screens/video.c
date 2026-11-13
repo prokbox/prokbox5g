@@ -49,7 +49,10 @@
  * The raw reason is logged ("failed why=%d", or the open probe's code).
  * A refusal at vplayer_start() is classified by vplayer_info()'s open_why
  * (dev32) where the player has one, and by a cold probe of the file's
- * boxes and avcC (verr_probe()) for the stream's own faults.
+ * boxes and avcC (verr_probe()) for the stream's own faults. A start
+ * that never gets going is a failure too (#340): no PLAY within
+ * START_GRACE, the player's own no-audio grace (BVP_E_NOAUDIO), or the
+ * sound running out with no picture ever shown after a decode error.
  *
  * While the picture plays this screen draws nothing, pushes nothing, takes
  * no boost and reads no disk: the BCM owns the panel, the LCD driver's
@@ -134,6 +137,7 @@
 #include "ipodui/screens/video.h"
 #include "ipodui/unlit_core.h"     /* the padlock (#184) */
 #include "backlight.h"
+#include "ata.h"            /* ata_disk_isssd(): the #340 grace */
 
 /* the overlay strip, full width at the bottom */
 #define STRIP_H     44
@@ -145,7 +149,13 @@
 
 #define VOL_SHOW    (2 * HZ)    /* the volume bar's life after a click */
 #define OV_SHOW     (4 * HZ)    /* playing: the overlay's life after a key */
-#define START_GRACE (4 * HZ)    /* the audio may not report PLAY at once */
+/* The audio may not report PLAY at once: how long it may take before the
+ * video has failed (#340). Storage-aware tuning (docs/storage-choices.md,
+ * one build): 4 s on flash, 10 s on a rotating drive (spin-up). What the
+ * user sees is the same; only the wait before the error page differs. */
+#define START_GRACE_SOLID   (4 * HZ)
+#define START_GRACE_DISK    (10 * HZ)
+#define START_GRACE (ata_disk_isssd() ? START_GRACE_SOLID : START_GRACE_DISK)
 #define SCRUB_REST  (HZ / 6)    /* the wheel at rest: seek */
 #define SLIDE_MS    220         /* the strip slides up / down this long */
 #define LOCK_SHOW   (3 * HZ / 2)  /* Hold: the lock's life (#184) */
@@ -180,8 +190,15 @@ static struct {
     long lock_until;            /* ST_LOCK hides (#184) */
 #ifdef SIMULATOR
     short sim_fail;             /* tests: a fail_why to fake, 0 none */
+    bool sim_never;             /* tests: the audio never starts */
+    long sim_audio_at;          /* tests: the audio starts then, 0 done */
 #endif
 } vs;
+
+#ifdef SIMULATOR
+static char sim_path[MAX_PATH]; /* tests: the late audio's file, */
+static unsigned long sim_at[2]; /* its elapsed and offset */
+#endif
 
 /* -- the failure prompt (cold) -------------------------------------------- */
 
@@ -229,6 +246,11 @@ static int verr_of(int why)
 #ifdef BVP_E_CHECK
         case BVP_E_CHECK:               /* the first-use check failed */
             return VE_CHECK;
+#endif
+#ifdef BVP_E_NOAUDIO
+        case BVP_E_NOAUDIO:             /* #340: the audio never reached
+                                         * the file: it didn't start */
+            return VE_OTHER;
 #endif
         default:                        /* port, timeout, protocol, ... */
             return VE_OTHER;
@@ -698,6 +720,23 @@ static void scrub_apply(void)
         vplayer_seek(vs.scrub_ms);
 }
 
+/* #262: what a Hold change asks of playback, logged with its time in ms
+ * (a bench log ties a stall to the switch). What playback buffered after
+ * this video was picked under the old rule (the wrap of Repeat One /
+ * All): fetched again under the new one (playlist.c get_next_index()).
+ * The refetch copies the wrap's tags from the buffered file (playback.c
+ * audio_load_track()), so nothing reads the file under the lock the
+ * video thread polls. Also the bench row holdv's call (devbench_fix.c) */
+void ui_video_hold_queue(bool on)
+{
+    bool flush = global_settings.repeat_mode != REPEAT_OFF;
+
+    ui_log("video", "hold %s t=%lu ms flush=%d", on ? "on" : "off",
+           (unsigned long)(current_tick * (1000 / HZ)), (int)flush);
+    if (flush)
+        audio_flush_and_reload_tracks();
+}
+
 void ui_video_hold_changed(bool on)
 {
     if (!vs.owned || vs.err)
@@ -705,11 +744,7 @@ void ui_video_hold_changed(bool on)
     UPDATE_TRACE("video hold %s", on ? "on: lit, keys locked" : "off");
     if (vs.hold_dir)
         hold_land();                    /* its release won't come */
-    /* what playback buffered after this video was picked under the old
-     * rule (the wrap of Repeat One / All): fetched again under the new
-     * one (playlist.c get_next_index()) */
-    if (global_settings.repeat_mode != REPEAT_OFF)
-        audio_flush_and_reload_tracks();
+    ui_video_hold_queue(on);
     if (on)
         lock_show();
     else if (vs.strip == ST_LOCK)
@@ -762,6 +797,25 @@ void ui_video_play(const char *path, int tc_idx)
     }
     vs.owned = true;
     backlight_hold_lit(true);               /* #184: Hold never darkens it */
+#ifdef SIMULATOR
+    /* tests (ipodui-340-vstart): /.rockbox/.sim_vaudio_late starts the
+     * audio 2 s after the player (b12: a busy disk), .sim_vaudio_never
+     * not at all (the tick starts the late one) */
+    vs.sim_never = file_exists(ROCKBOX_DIR "/.sim_vaudio_never");
+    if (!vs.sim_never && (file_exists(ROCKBOX_DIR "/.sim_vaudio_late") ||
+                          file_exists(ROCKBOX_DIR "/.sim_vaudio_late7")))
+    {
+        snprintf(sim_path, sizeof(sim_path), "%s", path);
+        sim_at[0] = elapsed;
+        sim_at[1] = offset;
+        /* .sim_vaudio_late7: 7 s, between flash's and a drive's grace */
+        vs.sim_audio_at = current_tick +
+            (file_exists(ROCKBOX_DIR "/.sim_vaudio_late7") ? 7 : 2) * HZ;
+    }
+    if (vs.sim_never || vs.sim_audio_at)
+        UPDATE_TRACE("video sim: audio %s", vs.sim_never ? "never" : "late");
+    else
+#endif
     if (playlist_play_video_ipodui(path, elapsed, offset) < 0)
     {
         video_end();                        /* logged; nothing plays */
@@ -1041,6 +1095,15 @@ static int video_tick(struct ui_screen *s)
         ui_pop_request(s);              /* back on top after a failure */
         return TIMEOUT_BLOCK;
     }
+#ifdef SIMULATOR
+    if (vs.sim_audio_at && TIME_AFTER(current_tick, vs.sim_audio_at))
+    {
+        vs.sim_audio_at = 0;
+        UPDATE_TRACE("video sim: the late audio starts at %ld", current_tick);
+        playlist_play_video_ipodui(sim_path, sim_at[0], sim_at[1]);
+        st = audio_status();
+    }
+#endif
     if (st & AUDIO_STATUS_PLAY)
         vs.seen_play = true;
     vs.paused = (st & AUDIO_STATUS_PAUSE) != 0;
@@ -1061,9 +1124,27 @@ static int video_tick(struct ui_screen *s)
             return TIMEOUT_BLOCK;
         }
     }
-    if (!(st & AUDIO_STATUS_PLAY)
-        && (vs.seen_play || TIME_AFTER(current_tick, vs.start + START_GRACE)))
+    if (!(st & AUDIO_STATUS_PLAY) && !vs.seen_play
+        && TIME_AFTER(current_tick, vs.start + START_GRACE))
     {
+        /* #340: the audio never started: the video failed (the owner's
+         * rule: a failed video stops the sound and says so), never a
+         * quiet way back */
+        ui_log("video", "failed: the audio never played");
+        verr_show(s, VE_OTHER);
+        return TIMEOUT_BLOCK;
+    }
+    if (!(st & AUDIO_STATUS_PLAY) && vs.seen_play)
+    {
+        if (!vi.pictures && (vi.decode_err || vi.errors))
+        {
+            /* #340 (b12): the sound ran out and no picture ever came,
+             * after a decode error: it failed, it didn't end */
+            ui_log("video", "failed: no picture, decode errors %lu",
+                   (unsigned long)vi.errors);
+            verr_show(s, VE_OTHER);
+            return TIMEOUT_BLOCK;
+        }
         UPDATE_TRACE("video end hold=%d", (int)button_hold());
         video_end();                    /* the track ended */
         ui_pop_request(s);

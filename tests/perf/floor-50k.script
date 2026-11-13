@@ -1,9 +1,10 @@
 # The audio-buffer floor gate (Phase 16-A, #105): the audio file buffer
 # at the worst cases named in docs/phase16-brief.md 4.0a, at 50k tracks.
-# Floor: 7,500,000 B (32 MB unit), 39,000,000 B (64 MB unit); MEMORYSIZE
-# picks it (uisimulator/common/sim_cmd_floor.c). Run through
-# tests/perf/floor_gate.sh (the 32 MB unit, build/sim-ui32, a cloned 50k
-# disk: the 32 MB stress ceiling, #229; the 64 MB unit runs
+# Floor: 7,500,000 B (32 MB unit), 39,000,000 B (64 MB unit); the unit's
+# RAM picks it (IPODUI_SIM_RAM, uisimulator/common/sim_cmd_floor.c). Run
+# through tests/perf/floor_gate.sh (the 32 MB unit: build/sim-ui with
+# IPODUI_SIM_RAM=32, the gate sets it; a cloned 50k disk: the 32 MB
+# stress ceiling, #229; the 64 MB unit runs
 # floor-65k.script at 65k), not
 # validate.sh directly. "floor ..." lines in sim.log are the receipts.
 # The USB prefetch ring is not measured: it is taken only while audio is

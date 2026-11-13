@@ -83,6 +83,9 @@ extern const struct ui_screen_ops ui_search_screen, ui_otg_screen,
     ui_legal_screen, ui_reset_screen, ui_language_screen, ui_eq_screen,
     ui_newsw_screen;     /* newsw.c: #68, pushed by ui_bootfile_changed() */
 
+/* the first-start battery question (screens/battq.c, battcell.h) */
+extern const struct ui_screen_ops ui_battq_screen;
+
 /* -- U1 shared helpers (P11) -------------------------------------------- */
 
 /* A screen's state (browse.c): from the screen arena (screen_stack.h),
@@ -164,5 +167,13 @@ extern const struct ui_vlist ui_language_after_reset;
  * Settings EQ caption, U2a) */
 void ui_eq_apply(void);
 const char *ui_eq_name(void);
+
+/* #270 (screens/audiophile.c): Settings > Audiophile > High Sample Rate's
+ * first turn-on (the warning, the self-test, its result) */
+extern const struct ui_screen_ops ui_ap_hirate_screen;
+/* #270: the main loop's poll, each lit pass at rest: a high-rate
+ * fallback's popup pushed over the top screen, once per fallback. True
+ * when it pushed (the pass starts again with the new top) */
+bool ui_ap_popup_poll(void);
 
 #endif /* _IPODUI_SCREENS_H_ */

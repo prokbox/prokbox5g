@@ -52,6 +52,9 @@ void ui_seg_draw(const short *lang, int n, int sel, bool shelf);
  * lines). The caller then draws the control with ui_seg_draw(.., true).
  * Draw only. */
 void ui_prompt_draw(int head_lang, int body_lang);
+/* The same with up to max_lines body lines (Settings > Audiophile's
+ * warning, #270: 6 lines fit above the shelf) */
+void ui_prompt_draw_n(int head_lang, int body_lang, int max_lines);
 /* Greedy left-aligned word wrap in the current font, baselines from
  * y_base 'pitch' apart, at most max_lines; returns the lines drawn. */
 int  ui_wrap_text(int x, int y_base, int pitch, int max_w, int max_lines,

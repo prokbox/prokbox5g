@@ -24,6 +24,7 @@
 
 #include <sys/types.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include "config.h"
 #include "appevents.h"
 
@@ -66,6 +67,8 @@ bool buffering_post_job(void (*fn)(void));
 /* ProkBox P18: sleep entry holds background fills (true), the wake or an
  * abandoned entry releases them (false); UI thread */
 void buffering_sleep_hold(bool hold);
+/* #326: true from sleep entry to the wake (any thread) */
+bool buffering_fill_held(void);
 #endif
 
 
@@ -130,6 +133,36 @@ size_t buf_used(void);
 void buf_set_base_handle(int handle_id);
 void buf_set_watermark(size_t bytes);
 size_t buf_get_watermark(void);
+
+#ifdef HAVE_COP_CODEC
+/* ProkBox (0.8.3 colocate, docs/data-paths.md R7 item 11): a reader of one
+ * audio handle on the other core, with no call per read. The reader's
+ * side reads the ring itself (through its uncached alias) inside
+ * [pos, end) and stores pos as it consumes; buffering applies pos to the
+ * handle when it next looks (a fill decision, the level watch, a detach)
+ * and publishes end after each fill chunk, its cache written back first.
+ * The words are single 32-bit stores, one writer each, and the struct
+ * must live in uncached memory (SHAREDBSS). File offsets fit 32 bits
+ * (FAT32). Only the CPU calls these. */
+struct buf_remote_reader {
+    volatile uint32_t pos;       /* reader: consumed up to (file offset) */
+    volatile uint32_t end;       /* buffering: readable up to, written back */
+    volatile uint32_t filesize;  /* buffering: the handle's (may shrink) */
+    volatile uint32_t map_pos;   /* this file offset ...                   */
+    volatile uint32_t map_idx;   /* ... is at this ring index (fixed while
+                                  * attached: audio data never moves) */
+    volatile uint32_t len;       /* the ring's length */
+    char *volatile base;         /* the ring (cached address) */
+    volatile int32_t hid;
+    volatile uint8_t live;       /* attached; cleared by a detach or close */
+};
+/* Attaches r to the handle (one reader at a time), pos = the handle's read
+ * position. False: no such handle, or it is not audio data */
+bool buf_remote_attach(int handle_id, struct buf_remote_reader *r);
+/* Applies the reader's pos to the handle and detaches it. Returns the
+ * position applied (the handle's), or -1 when nothing was attached */
+off_t buf_remote_detach(struct buf_remote_reader *r);
+#endif
 
 /* Debugging */
 struct buffering_debug {

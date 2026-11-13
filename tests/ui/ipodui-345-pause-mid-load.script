@@ -1,0 +1,45 @@
+# #345: PLAY to pause while the audio thread is busy loading a track.
+# The shell's PLAY went be_post -> be_dispatch (inline on the ui thread in
+# release builds) -> audio_pause(), a synchronous queue send: the ui
+# thread waited until the audio thread finished its load (2.3-5.9 s on
+# the emulator). Now the press is posted (audio_pause_post()) and the
+# header draws the wish at once (fe_audio_status()); the pause itself is
+# taken when the audio thread reaches it.
+# load_hold makes every track load wait 4 s first, so a load is under way
+# whenever PLAY is pressed. Checked: the icon within 150 ms of the
+# release, the PCM really paused after the load, a quick resume-then-pause
+# landing paused, and a resume landing playing.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-345-pause-mid-load.script
+# needs: music
+# golden: skip
+# timeout: 150
+# fulls-extra: 1          (the main menu's Now Playing row appears)
+# log: load held ms=4000
+
+wait 3000
+repeat off
+wait_db 30000
+load_hold 4000      # every track load waits 4 s first
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3 /Music/Tone%20Collective/Sine%20Studies/02%20Low%20E.mp3 /Music/Tone%20Collective/Sine%20Studies/03%20Warble.mp3
+wait_pos 300 30000  # playing; the next track's load is under way
+expect_shown playing 2000
+key PLAY            # pause, mid-load
+expect_shown paused 150
+expect_pcm paused 10000     # taken once the load is done
+expect_paused 1000
+wait 300
+key PLAY            # resume, then pause again at once (a load under way)
+expect_shown playing 150
+key PLAY
+expect_shown paused 150
+expect_pcm paused 10000
+expect_paused 1000
+wait 500
+expect_pcm paused 100       # stays paused: the resume did not win late
+key PLAY            # resume
+expect_shown playing 150
+expect_pcm playing 10000
+expect_playing 1000
+load_hold 0
+shot resumed
+quit

@@ -55,6 +55,8 @@
 #endif
 #ifdef HAVE_DAC_STANDBY
 #include "dac_ext.h"
+#include "pcmbuf.h"           /* 0.8.3: the pause tick (dac_trace) */
+#include "pcm_sink.h"         /* #312: pcm_set_fault_log() */
 #endif
 #include "ipodui/dbqueue_core.h"    /* #109: dbq_resume_refused() */
 #include "ipodui/ipodui.h"
@@ -78,6 +80,7 @@
 #include "ipodui/uilat.h"           /* np-lag probe */
 #include "codec_cop.h"               /* np-lag: the decode's core */
 #include "ipodui/batcal.h"
+#include "ipodui/battcell.h"   /* one-build WP3 */
 #include "ipodui/bootbatt.h"
 #include "ipodui/unlit.h"
 #include "ipodui/devmode.h"
@@ -107,13 +110,16 @@
 #include "ipodui/alarm_ring.h"
 #if defined(HAVE_DEVSTATS) && !defined(SIMULATOR)
 #include "storage.h"                /* Fit-3b: the boot storage line */
-#include "ata.h"
+#endif
+#ifdef HAVE_DISK_STORAGE
+#include "ata.h"                    /* #79: ata_disk_isssd() */
 #endif
 #include "ipodui/sdk/sdk_int.h"     /* P12 W4-0: sdk_takes_long_menu() */
 #ifdef SIMULATOR
 #include "stor_pwr.h"               /* sim_stor_ui_thread() (npfix) */
 #endif
 #include "hang_watch.h"             /* the hang watcher's heartbeat */
+#include "audiophile.h"             /* #270: audiophile_init() */
 #if defined(HAVE_BCMFW_RESIDENT) && defined(HAVE_BCMFW_DEVTEST) && \
     !defined(SIMULATOR)
 #define UI_VCPWR_WATCH
@@ -276,6 +282,18 @@ static void usb_buf_trace(const char *line)
     ui_log("usb", "%s", line);
 }
 
+#ifdef HAVE_PCM_WAIT_REPORT
+/* #312: a bounded wait of the PCM driver that reached its bound (pcm.c) */
+static void pcm_fault_trace(const char *fmt, ...)
+{
+    va_list ap;
+
+    va_start(ap, fmt);
+    ui_log_va("pcm", fmt, ap);
+    va_end(ap);
+}
+#endif
+
 #if defined(HAVE_BCM_JOBS) || defined(HAVE_BCM_JOBS_MODEL)
 /* P19 W0-6: the job driver's lines ("bcmjob ...", "bcm power ...") into
  * the shell's log, the first word as the tag */
@@ -303,11 +321,22 @@ bool ui_now_playing_visible(void)
     bool v;
 
     (void)fe_now_get(&now);         /* a failure logs; the last good copy */
-    /* #154: a video session's audio is never Now Playing; the music's
-     * stopped state below holds through it (no row flip, and no full
-     * menu redraw, between the video's audio start and its screen) */
-    v = (audio_status() && !ui_video_session())
-        || (!(now.flags & FE_NOW_STOPPED) && global_status.resume_index != -1);
+    /* #154: a video session's audio is never Now Playing, and the music
+     * is stopped for the whole session (ui_video_play() stops it), so no
+     * row while one is owned: no row flip, and no full menu redraw,
+     * between the video's audio start and its screen. The video's first
+     * track change clears the back end's stopped flag (fe_be.c
+     * playback_event()) and the music's resume_index is kept, so the
+     * flag alone does not hold through it (the gate's p19-audio-resume
+     * caught the row back for one frame when the audio thread got there
+     * before ui_push()'s repaint of the menu). video_end() stops the
+     * video's sound, which sets the flag again, before the session ends. */
+    if (ui_video_session())
+        v = false;
+    else
+        v = audio_status()
+            || (!(now.flags & FE_NOW_STOPPED)
+                && global_status.resume_index != -1);
 
     UPDATE_TRACE("np row visible=%d", (int)v);  /* menu builds only */
     return v;
@@ -335,7 +364,7 @@ void ui_shuffle_songs(void)
 
 static void toggle_pause(void)
 {
-    int status = audio_status();
+    int status = fe_audio_status();     /* #345: a press still posted */
 
     if (status & AUDIO_STATUS_PAUSE)
         be_post(BE_AUDIO_RESUME, 0);
@@ -450,10 +479,26 @@ static void refresh(struct ui_screen *s)
          * asked meanwhile (an abandoned sleep's) is the page's own full
          * draw when it shows, or the menu's after it leaves */
         ui_clear_dirty();
+        /* #315: the post-USB moment still advances (its grace and its
+         * cap end it), nothing drawn */
+        {
+            struct ui_header_state quiet = { 0 };
+
+            header_wake = ui_usbbusy_poll(&quiet, false);
+        }
         return;
     }
     if ((dirty & UI_DIRTY_BODY) && !ui_screen_is_split(s))
         ui_panel_hide();            /* no panel: nothing may claim for it */
+    if ((dirty & UI_DIRTY_BODY) && s->ops->overlay)
+    {
+        /* #270: a box over the screen beneath (the high-rate fallback
+         * popup): that screen first, in full, then the box */
+        struct ui_screen *u = ui_under(s);
+
+        if (u && !u->hidden)
+            (void)draw_dirty(u, UI_DIRTY_ALL);
+    }
     header = draw_dirty(s, dirty);
 #ifdef SIMULATOR
     if (band_only && panel_band_hash(s) != before)
@@ -1303,9 +1348,7 @@ static bool sleep_on_release;
 
 static void charging_sleep_prepare(void)
 {
-    if ((audio_status() & (AUDIO_STATUS_PLAY | AUDIO_STATUS_PAUSE))
-        == AUDIO_STATUS_PLAY)
-        audio_pause();
+    fe_audio_pause_sure();          /* #345: a posted press included */
     if (audio_status())             /* the resume point, as a stop would */
         playlist_update_resume_info(audio_current_track());
     status_save(true);              /* resume point + settings */
@@ -1420,6 +1463,15 @@ static void dac_trace(void)
         last_wakes = st.wakes;
         UPDATE_TRACE("dac standby=%d sleeps=%u wakes=%u wake_us=%u",
                      st.standby, st.sleeps, st.wakes, st.last_wake_us);
+        /* 0.8.3: how long the codec stayed awake after a pause (the
+         * mixer's silence tail, then DAC_IDLE_MS): one line a pause */
+        if (st.standby && pcmbuf_pause_tick())
+        {
+            ui_log("dac", "standby after pause ms=%ld",
+                   (long)(current_tick - pcmbuf_pause_tick()) *
+                   (1000 / HZ));
+            pcmbuf_pause_tick_clear();
+        }
 #ifndef SIMULATOR
         log_owed = true;
 #endif
@@ -1557,7 +1609,17 @@ void ipodui_main(void)
     fe_be_init();                   /* the now record, the playback events */
     ui_log_init();                  /* the log's idle flush (idempotent) */
     usb_buf_set_log(usb_buf_trace); /* before any USB configuration */
+#ifdef HAVE_PCM_WAIT_REPORT
+    pcm_set_fault_log(pcm_fault_trace);     /* #312, before any PCM start */
+#endif
     ui_log("boot", "variant %s", IPOD_VARIANT);    /* Phase 9 (7.8) */
+#ifdef HAVE_DISK_STORAGE
+    /* #79 (one build): the storage kind every "if (solid)" row follows
+     * (docs/storage-choices.md); the performance gate's flash arm must
+     * show storage=solid */
+    ui_log("boot", "unit storage=%s",
+           ata_disk_isssd() ? "solid" : "rotating");
+#endif
 #ifdef HAVE_PANIC_RECORD
     ui_log_panic_record();          /* the last boot's panic, if any */
 #endif
@@ -1596,7 +1658,11 @@ void ipodui_main(void)
     powermgmt_set_sleep_handler(true);
     batcal_boot();                  /* #70: a run's end, the learned table
                                      * (be_svc's: P19 S2) */
+    battcell_log();                 /* one-build WP3: the cell, its curve */
     clockpol_init();                /* Fit-1 C6: 24 MHz idle, PLL off */
+#ifdef IPODUI_AUDIOPHILE
+    audiophile_init();              /* #270: the saved stereo width (CPU) */
+#endif
     ui_usb_host_markers();          /* no Spotlight on the library */
 #ifdef HAVE_BCMFW
     /* #60: our VideoCore image in place of Apple's when the toggle and a
@@ -1725,6 +1791,9 @@ static void shell_main(void)
     (void)ui_lock_gate();
     /* the first-boot legal notice, once per build (notice.h): over the
      * menu and a locked screen; the boot work above is already done */
+    /* one-build WP3: the battery question once, under the notice (so
+     * the notice comes first); nothing stored until it is answered */
+    battcell_ask();
     ui_notice_boot();
     /* #237: no library yet: the library page over all of it until the
      * build is done (an alarm's ring comes first) */
@@ -1828,6 +1897,13 @@ static void shell_main(void)
             continue;
         }
         ui_panel_phase_poll();      /* lit time only */
+#ifdef IPODUI_AUDIOPHILE
+        /* #270: a high-rate fallback's popup, over whatever is up, once
+         * per fallback; lit only, never mid-slide */
+        if (!slide.dir && !ui_notice_up() && !battcell_question_up()
+            && ui_ap_popup_poll())
+            continue;
+#endif
         if (slide.dir)
         {
             slide_frame(false);
@@ -1862,6 +1938,8 @@ static void shell_main(void)
                 }
             }
             refresh(s);
+            /* #315: the post-USB moment's checks, after the frame */
+            ui_usbbusy_after_draw();
             /* the panel: arrivals, drift, animated providers; only at
              * rest on a split screen (D15) */
             if (!animating && ui_screen_is_split(s))
@@ -1952,7 +2030,7 @@ static void shell_main(void)
             r = UI_HANDLED;
         else
 #endif
-        if (!ui_notice_up() && global_hold(&in))
+        if (!ui_notice_up() && !battcell_question_up() && global_hold(&in))
             r = UI_HANDLED;
         else
             r = s->ops->input ? s->ops->input(s, &in) : UI_IGNORED;

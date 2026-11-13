@@ -80,6 +80,10 @@ static enum pcm_dma_status pcm_play_dma_status_callback(enum pcm_dma_status s)
 static void audiohw_set_frequency(int f) { (void)f; }
 static inline void dma_tx_setup(void) {}
 static void sink_dma_stop(void);
+/* p083-audiophile: the high-rate stall watch's piece counter (shell builds) */
+#define PCM_PP_PIECE_DONE() do { } while (0)
+/* 0.8.3 fifo96: the lateness model's start (shell builds) */
+#define PCM_PP_ARMED(size) do { (void)(size); } while (0)
 
 #include "align_audiobuf.h"                  /* the real ALIGN_AUDIOBUF */
 #include "pcmpp_parts.c"

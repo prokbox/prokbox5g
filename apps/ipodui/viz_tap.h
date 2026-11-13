@@ -33,8 +33,9 @@
  *
  * Closed, it costs nothing: the mixer's tap pointer is NULL (one load and
  * a not-taken branch per mixer frame, as before) and no memory is held.
- * Open, a ring of 1,024 stereo frames (4 KB on the device; the simulator's
- * mixer frames are 4x longer, so 16 KB there) takes a copy of every mixer
+ * Open, a ring of 2,048 stereo frames (8 KB on the device, sized for the
+ * 96 kHz top rate; the simulator's mixer frames are 4x longer, so 32 KB
+ * there) takes a copy of every mixer
  * frame in the callback; the downmix, decimation and split order are the
  * reader's.  Stereo is kept so the XY scope (styles doc) can read L and R.
  *
@@ -75,6 +76,23 @@
 /* The memory a tap for windows of n samples needs (the ring, its header
  * and the cache-line alignment) */
 size_t viz_tap_bytes(unsigned n);
+/* The same as a constant expression, for a budget's _Static_assert (the
+ * arena's: viz.c; #295: a literal there went stale when the top rate
+ * doubled). Needs xcore.h, pcm_sampr.h and pcm_mixer.h; tests/viztap
+ * checks it against viz_tap_bytes() */
+#define VIZ_TAP_DEC_C(rate)  ((rate) > 128000 ? 4 : (rate) > 64000 ? 2 : 1)
+#define VIZ_P2_1_(v)         ((v) | ((v) >> 1))
+#define VIZ_P2_2_(v)         (VIZ_P2_1_(v) | (VIZ_P2_1_(v) >> 2))
+#define VIZ_P2_4_(v)         (VIZ_P2_2_(v) | (VIZ_P2_2_(v) >> 4))
+#define VIZ_P2_8_(v)         (VIZ_P2_4_(v) | (VIZ_P2_4_(v) >> 8))
+#define VIZ_P2_16_(v)        (VIZ_P2_8_(v) | (VIZ_P2_8_(v) >> 16))
+#define VIZ_POW2_C(x)        (VIZ_P2_16_((uint32_t)(x) - 1) + 1)
+#define VIZ_TAP_BYTES_C(n)                                                  \
+    ((XCORE_LINE - 1)                                                       \
+     + ((sizeof(struct viz_ring) + XCORE_LINE - 1) & ~(size_t)(XCORE_LINE - 1)) \
+     + 4 * (size_t)VIZ_POW2_C((n) * VIZ_TAP_DEC_C(HW_SAMPR_MAX)          \
+                              + 2 * MIX_FRAME_SAMPLES                       \
+                                  * VIZ_TAP_DEC_C(HW_SAMPR_MAX)))
 /* Starts the tap for windows of n samples (256 or 512), in mem (bytes,
  * pinned, in SDRAM: the tap reaches it through the uncached alias, which
  * IRAM has none of; not touched by anyone else until viz_tap_close()) or,

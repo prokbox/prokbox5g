@@ -75,8 +75,28 @@ static void vt_tap(const void *frames, size_t size)
 {
     struct viz_ring *r = vt_ring;
 
-    if (r)
-        viz_ring_write(r, (const uint32_t *)frames, size / 4);
+    if (!r)
+        return;
+#ifdef HAVE_PCM_24BIT_OUT
+    /* #268: 24-bit frames (two int32, 24 bits at the top): the ring keeps
+       16-bit frames (left in the low half), 32 at a time */
+    if (mixer_output_s24())
+    {
+        const int32_t *s = frames;
+        uint32_t n = size / 8, buf[32];
+
+        while (n)
+        {
+            uint32_t k = n < 32 ? n : 32;
+            for (uint32_t i = 0; i < k; i++, s += 2)
+                buf[i] = ((uint32_t)s[0] >> 16) | ((uint32_t)s[1] & 0xffff0000u);
+            viz_ring_write(r, buf, k);
+            n -= k;
+        }
+        return;
+    }
+#endif
+    viz_ring_write(r, (const uint32_t *)frames, size / 4);
 }
 
 static bool vt_playing_book(void)

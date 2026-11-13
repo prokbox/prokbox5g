@@ -118,6 +118,9 @@ struct vplayer_info
     bool vclk_on;
     uint32_t errors, concealed; /* the image's decode errors, blocks
                                    concealed (STATUS words 8, 9) */
+    uint32_t pictures;          /* shown this play (vpc_stats) */
+    bool decode_err;            /* the image logged a decode error (its
+                                   guard block: vpcore.c error_said) */
     uint32_t vclk_mhz, vclk_lvl10, vclk_idle_pm, vclk_ms;
     uint32_t vclk_changes, vclk_lvl_changes, vclk_fails, vclk_misses;
     uint32_t vclk_clock_changes;    /* band moves are vclk_changes */

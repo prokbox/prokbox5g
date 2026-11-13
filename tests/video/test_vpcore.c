@@ -1896,6 +1896,25 @@ int main(int argc, char **argv)
     check(W.handbacks == 0 && W.releases == 1 && !M.powered,
           "resident: a stop whose CLOSE fails cuts and releases");
     M.hang = M.hang_port = false;
+    /* #325: a play whose OPEN ran the developer self-test (bench s6's
+       first pass) never keeps the image: the self-test's scratch is the
+       job block, which only the image's start writes again (b12 silicon:
+       jobs off for the boot after it) */
+    setup();
+    vbm_boot(&M);
+    fast = HP_OPEN_SELFTEST;
+    st = run(30000, NULL);
+    fast = 0;
+    vpc_stop(&V);
+    check(st == VPC_DONE && W.handbacks == 0 && W.releases == 1 &&
+          !M.powered && M.cuts == 1,
+          "resident: a self-test play cuts and releases, image not kept");
+    setup();
+    vbm_boot(&M);
+    st = run(30000, NULL);
+    vpc_stop(&V);
+    check(st == VPC_DONE && W.handbacks == 1 && M.cuts == 0,
+          "resident: the next plain play hands back again");
     resident = false;
     preroll = false;
     boot_extra_us = 0;

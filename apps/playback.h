@@ -117,6 +117,16 @@ int audio_buffer_give(struct audio_give *g);
  * that as the resume failing). Another thread's allocation that needs
  * the paused buffer is refused (shrink_callback) and a give is posted. */
 bool audio_quiet_restart(void);
+/* #345: the shell's PLAY press. Posts a pause (or resume) and returns at
+ * once, never waiting behind a track load or fill; presses that come
+ * before the audio thread reaches it fold into one event that applies
+ * the last. Any thread on the CPU. audio_pause()/audio_resume() still
+ * wait, and run after it. */
+void audio_pause_post(bool pause);
+/* #345: what a posted press asked for while the audio thread has not
+ * taken it yet: 1 pause, 0 resume, -1 nothing pending. A dropped event
+ * (a stop that clears the queue) reads -1. Lock-free, any core. */
+int audio_pause_pending(void);
 /* P6: the chapter-table slot (0..NP_AB_SLOTS-1) a table pointer (an
  * mp3entry's audiobook) refers to, or -1. RAM only, no lock, any thread. */
 int audio_ab_slot_of(const void *ab);
@@ -133,4 +143,18 @@ struct mp3entry* get_temp_mp3entry(struct mp3entry *free);
 void allocate_playback_log(void);
 void add_playbacklog(struct mp3entry *id3);
 
+#ifdef HAVE_IPOD_UI
+/* 0.8.3: the track start's timeline (playback.c): mark 1 the fill begins,
+ * 2 the codec load is asked for, 3 the first samples ask for room; the
+ * PCM start writes the "audio start" line */
+void audio_start_trace_mark(int k);
+void audio_start_trace_pcm(void);
+/* p083-codecload: the codec phase's steps ("start t" line) and the input
+ * calls the CPU serves the codec before its first samples ("start in") */
+enum { STS_UNLOAD = 0, STS_LOAD, STS_GO, STS_RUN, STS_POST, STS_IN,
+       STS_COUNT };
+void audio_start_trace_step(int step);
+uint32_t audio_start_trace_in_begin(void);
+void audio_start_trace_in_end(uint32_t t0);
+#endif
 #endif /* _PLAYBACK_H */

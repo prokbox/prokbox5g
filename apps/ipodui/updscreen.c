@@ -63,6 +63,7 @@
 #define STUCK_TICKS (10 * HZ)           /* boot: no work and no library */
 
 enum { MODE_BOOT, MODE_UNPLUG };
+#define PUSH_SHOWN  0x10                /* upd_push(): up from the start */
 
 /* The phases (TC_UI_PROG_*) and where each one's share of the bar ends
  * (permille), per mode. A first build (#237): the count of the tree,
@@ -323,18 +324,23 @@ static int upd_enter(struct ui_screen *s, const void *arg)
     s->header_w = UI_HEADER_DARK;
     s->title = ui_header_time_in_title() ? ui_header_clock(NULL)
                      : (const char *)str(LANG_IPODUI_DEVICE_NAME);
-    u->mode = (unsigned char)(intptr_t)arg;
+    u->mode = (unsigned char)((intptr_t)arg & ~PUSH_SHOWN);
     u->t0 = u->quiet = u->next = current_tick;
     u->usb = ui_usb_sessions();
     u->scans = tagcache_ui_scans_ended();
     u->drawn = -1;
     u->step = -1;
-    u->shown = u->mode == MODE_BOOT;    /* unplug: a second's grace */
+    /* #315: after an unplug that changed files, up at once (the step
+     * and the bar on the first frame after the release); after one that
+     * changed none, with work owed anyway, a second's grace first */
+    u->shown = u->mode == MODE_BOOT || ((intptr_t)arg & PUSH_SHOWN);
     s->hidden = !u->shown;              /* nothing drawn or pushed meanwhile */
     upd_live = u;
     upd_hold_sync(u, "enter");
-    UPDATE_TRACE("upd push mode=%s", u->mode == MODE_BOOT ? "boot"
-                                                           : "unplug");
+    UPDATE_TRACE("upd push mode=%s shown=%d", u->mode == MODE_BOOT ? "boot"
+                 : "unplug", u->shown);
+    if (u->shown)
+        ui_log("usb", "update screen shown ms=0 n=%u", u->usb);
     return 0;
 }
 
@@ -488,6 +494,8 @@ static int upd_tick(struct ui_screen *s)
             u->shown = true;
             s->hidden = false;
             UPDATE_TRACE("upd show ms=%ld", (now - u->t0) * (1000 / HZ));
+            ui_log("usb", "update screen shown ms=%ld n=%u",
+                   (now - u->t0) * (1000 / HZ), u->usb);
             ui_invalidate(UI_DIRTY_ALL);
         }
         else if (ph == PH_NONE && (!ui_usbbusy_moment()
@@ -581,13 +589,14 @@ bool ui_upd_up(void)
     return top && top->ops == &upd_screen;
 }
 
-static void upd_push(int mode)
+static void upd_push(int mode, bool shown)
 {
-    if (ui_push_t(&upd_screen, (const void *)(intptr_t)mode,
+    if (ui_push_t(&upd_screen,
+                  (const void *)(intptr_t)(mode | (shown ? PUSH_SHOWN : 0)),
                   UI_T_SYSTEM) < 0)
         return;
     (void)ui_take_transition();     /* no slide: a cut from what shows */
-    if (mode == MODE_UNPLUG)
+    if (mode == MODE_UNPLUG && !shown)
         ui_top()->dirty = 0;        /* the USB frame stays: no draw yet */
 }
 
@@ -604,7 +613,7 @@ void ui_upd_boot(void)
     ui_log("db", "library page at boot: %s",
            none > 0 ? "no library" : none < 0 ? "unknown" : "library");
     if (none > 0)
-        upd_push(MODE_BOOT);
+        upd_push(MODE_BOOT, true);
 }
 
 void ui_upd_after_usb(void)
@@ -620,13 +629,22 @@ void ui_upd_after_usb(void)
      * removed it): the boot page again, at once */
     if (tagcache_ui_no_library() > 0)
     {
-        upd_push(MODE_BOOT);
+        upd_push(MODE_BOOT, true);
         return;
     }
-    if (!ui_usb_host_wrote())
+    /* #315: the computer changed files: the page now */
+    if (ui_usb_host_wrote())
+    {
+        upd_push(MODE_UNPLUG, true);
+        return;
+    }
+    /* #314: none changed and nothing was owed: no check runs, no page.
+     * A check or build cut by the session runs anyway: the page if it
+     * lasts (the second's grace) */
+    if (!tagcache_ui_usb_owed())
     {
         UPDATE_TRACE("upd skip nowrite%s", "");
         return;
     }
-    upd_push(MODE_UNPLUG);
+    upd_push(MODE_UNPLUG, false);
 }

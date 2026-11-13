@@ -78,6 +78,9 @@ enum {
     /* A fill ended and storage is told to sleep (about 200 ms later on
        ATA): the shell's art builder works inside this wake-up */
     BUFFER_EVENT_FILL_DONE,
+    /* #326: sleep entry holds the fills (buffering_sleep_hold()): a fill
+       under way stops at its next chunk; its boost is given back */
+    BUFFER_EVENT_FILL_HELD,
 #endif
 };
 

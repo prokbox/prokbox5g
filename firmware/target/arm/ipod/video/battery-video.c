@@ -26,8 +26,14 @@
 
 int battery_default_capacity(void)
 {
-#if IPOD_BATTERY_MAH > 0
-    /* Phase 9: the fitted cell is a build fact (configure --battery),
+#ifdef HAVE_IPOD_UI
+    /* one build (WP3): the fitted cell is asked at first start and set
+     * by apps/ipodui/battcell.c; this default (and an unanswered unit)
+     * is the original cell by RAM, as battcurve_mah() has it */
+    return probed_ramsize == 64 ? BATTERY_CAPACITY_DEFAULT_THICK
+                                : BATTERY_CAPACITY_DEFAULT_THIN;
+#elif IPOD_BATTERY_MAH > 0
+    /* Phase 9: the stock build's fitted cell (ipodvideo-variant.h),
      * the same for both models */
     return IPOD_BATTERY_MAH;
 #else

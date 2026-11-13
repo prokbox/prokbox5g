@@ -664,6 +664,8 @@ static void script_relative(char *buf, size_t size, const char *name)
         snprintf(buf, size, "%.*s%s", dir, sim_script_file, name);
 }
 
+void sim_usb_host_changed(const char *path);   /* filesystem-sim.c */
+
 static void copy_host_file(const char *src, const char *dst, int lineno)
 {
     char from[PATH_MAX], to[PATH_MAX];
@@ -691,6 +693,7 @@ static void copy_host_file(const char *src, const char *dst, int lineno)
         fwrite(buf, 1, n, out);
     fclose(in);
     fclose(out);
+    sim_usb_host_changed(dst);      /* #314: a host write in a session */
     fprintf(stderr, "sim_script: copied %s to %s\n", src, dst);
 }
 
@@ -975,7 +978,10 @@ static void copy_file(char *src, char *dst, int lineno)
     if (out && fclose(out) != 0)
         ok = false;
     if (ok)
+    {
+        sim_usb_host_changed(dst);  /* #314 */
         fprintf(stderr, "sim_script: copy_file %s -> %s\n", src, dst);
+    }
     else
         fprintf(stderr, "sim_script:%d: copy_file %s -> %s failed\n",
                 lineno, src, dst);
@@ -990,7 +996,10 @@ static void rm_file(char *path, int lineno)
          && remove(ospath) == 0)
         || (!strncmp(path, "/.rockbox/database_", 19)
             && sim_db_remove_active(path + 10)))
+    {
+        sim_usb_host_changed(path); /* #314 */
         fprintf(stderr, "sim_script: rm_file %s\n", path);
+    }
     else
         fprintf(stderr, "sim_script:%d: rm_file %s: not removed\n",
                 lineno, path);

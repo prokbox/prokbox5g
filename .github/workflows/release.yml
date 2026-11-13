@@ -3,7 +3,7 @@
 # Pushing a tag vX.Y.Z (or vX.Y.Z-beta.N for post-1.0 feature betas) builds
 # every release asset from that tag and publishes them together on one
 # GitHub release, as a draft for the owner to review and publish:
-#   ProkBox5g-<ver>-{stock,modded}-{flash,hdd}-{64,32}MB.zip   firmware (8 zips)
+#   ProkBox5g-<ver>.zip                                  firmware (one zip for every unit, 0.8.3)
 #   ProkBox5g-<ver>-source.tar.gz                        corresponding source
 #   ProkBox5g-<ver>-User-Guide.pdf                       the user guide
 #   ProkBox5g-<ver>-ipodpatcher-{macos-universal,linux-x86_64,windows-x86_64.exe}
@@ -30,7 +30,7 @@
 # The owner's Linux host has the same image for the local side of
 # scripts/release_compare.py. The BCM2722
 # images are prebuilt in bcmfw/video/ (their sources are in bcmfw/ and ship
-# in the source tarball). The zips themselves: scripts/release_build.sh.
+# in the source tarball). The zip itself: scripts/release_build.sh.
 name: release
 
 on:
@@ -110,10 +110,6 @@ jobs:
   firmware:
     needs: check
     runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: true
-      matrix:
-        ram: [64, 32]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -122,14 +118,19 @@ jobs:
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
           docker pull -q "$TOOLCHAIN_IMAGE"
-      - name: build the four zips
+      - name: build the zip
         run: |
+          # one image for every unit since 0.8.3 (RAM and storage read at
+          # start-up, the battery asked once); a tag before it built
+          # {stock,modded} x {flash,hdd} and takes the RAM first
+          set -- out
+          grep -q '^RAM=' scripts/release_build.sh && set -- 64 out
           docker run --rm -u "$(id -u):$(id -g)" -v "$PWD":/w -w /w \
-            -e RELEASE_BUILD=1 \
-            "$TOOLCHAIN_IMAGE" scripts/release_build.sh ${{ matrix.ram }} out
+            -e VERSION="${{ needs.check.outputs.ver }}" -e RELEASE_BUILD=1 \
+            "$TOOLCHAIN_IMAGE" scripts/release_build.sh "$@"
       - uses: actions/upload-artifact@v4
         with:
-          name: fw-${{ matrix.ram }}
+          name: fw
           path: out/*.zip
           if-no-files-found: error
 

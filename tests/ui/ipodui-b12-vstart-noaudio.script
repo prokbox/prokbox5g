@@ -1,0 +1,83 @@
+# #340: a video whose audio never starts fails with the error page
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-b12-vstart-noaudio.script
+# needs: video
+# timeout: 150
+#
+# The owner's rule: a failed video stops the audio and shows the styled
+# error page; it never ends quietly or leaves a blank screen. Two ways the
+# audio can fail to arrive (simulator-only switches):
+#   never:  /.rockbox/.sim_vaudio_never: the video screen never starts the
+#           audio (apps/ipodui/screens/video.c). The screen's START_GRACE
+#           (4 s) without PLAY shows the page ("Video didn't start").
+#   nofile: /.rockbox/.sim_vaudio_nofile: the audio plays but never on the
+#           video's file (apps/video/vplayer.c audio_handle(): b12's slow
+#           start, held). The player's own start grace (6 s) fails the
+#           session (BVP_E_NOAUDIO, -7); the screen shows the page and the
+#           audio stops (audio=0).
+#
+# Audio First (/Misc, no chapters; listed under Movies).
+# Each play starts from 0 with video_screen (ui_video_play(path, -1): no
+# resume point), over the Movies list as the list's own play is: a
+# leftover per-file resume spot (#154) from an earlier script on the
+# same disk would otherwise start Audio First near its end.
+
+# golden: skip
+# trace: video
+# logbetween: never never_out video sim: audio never
+# logbetween: never never_out video failed: the audio never played
+# logbetween: never never_out video error page=other audio=0
+# logbetween: never never_out video error dismiss key=select
+# logbetween: never never_out no audio left the file
+# logbetween: nofile nofile_out audio never reached the file: video failed
+# logbetween: nofile nofile_out video failed why=-7
+# logbetween: nofile nofile_out video error page=other audio=0
+# logbetween: nofile nofile_out video error dismiss key=select
+# logbetween: nofile nofile_out no audio left the file
+# logafter: home np row visible=0
+# nolog: splash
+wait 4000
+wait_db 45000
+art_wait 60000
+rm_file /.rockbox/.sim_vaudio_late
+rm_file /.rockbox/.sim_vaudio_never
+rm_file /.rockbox/.sim_vaudio_nofile
+video_fault decode 0
+wheel +1 300
+wait 600
+key SELECT          # Videos
+wait 900
+key SELECT          # Movies
+wait 1200
+
+# -- the audio never starts ------------------------------------------------
+copy fixtures/refresh.mp3 /.rockbox/.sim_vaudio_never
+ab_mark never
+video_screen /Misc/Audio%20First.m4v
+wait 6000
+shot never_error
+expect_video 0 none
+key SELECT          # OK
+wait 1200
+shot never_list
+ab_mark never_out
+rm_file /.rockbox/.sim_vaudio_never
+
+# -- the audio plays, never on the file --------------------------------------
+copy fixtures/refresh.mp3 /.rockbox/.sim_vaudio_nofile
+ab_mark nofile
+video_screen /Misc/Audio%20First.m4v
+wait 9000
+shot nofile_error
+expect_video 0 none
+key SELECT          # OK
+wait 1200
+shot nofile_list
+ab_mark nofile_out
+rm_file /.rockbox/.sim_vaudio_nofile
+
+ab_mark home
+key MENU            # Videos
+wait 1000
+key MENU            # main menu
+wait 1200
+shot main_menu      # no Now Playing row: nothing plays

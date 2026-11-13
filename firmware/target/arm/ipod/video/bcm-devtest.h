@@ -445,8 +445,10 @@ struct bcm_alt_result
 bool bcm_video_took_ours(void);
 void bcm_video_pp_regs(uint32_t out[5]);
 /* PW5: GPO32 bits 14 and 15 (bcmdt_hib_hal's gpo and gpo_enable); PW6:
- * the port's registers read raw (DATA x4, CONTROL, ALT_DATA x4,
- * ALT_CONTROL), no address written */
+ * the port's CONTROL register read raw, no address written: out[4].
+ * Every other slot is always 0xFFFF: b12's vcdark froze in the raw reads
+ * of DATA/ALT_DATA/ALT_CONTROL with the chip on (#324); only CONTROL is
+ * proven safe raw */
 uint32_t bcm_video_gpo32(uint32_t clear, uint32_t set);
 uint32_t bcm_video_gpo32_enable(void);
 void bcm_video_port_raw(uint16_t out[10]);

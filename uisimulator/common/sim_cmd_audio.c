@@ -97,8 +97,83 @@ static void viz_tap_cmd(char *argv[], int argc, int lineno)
 }
 #endif
 
+#ifdef HAVE_IPOD_UI
+#include <stdlib.h>
+#include "kernel.h"
+#include "pcm_mixer.h"
+#include "ipodui/header.h"
+
+void sim_audio_load_hold(long ms);      /* apps/playback.c */
+int sim_header_play_drawn(void);        /* apps/ipodui/header.c */
+
+/* #345: waits up to ms for done(); returns the ms it took, -1 if never */
+static long wait_for(bool (*done)(int), int arg, long ms)
+{
+    long start = current_tick, t = 0;
+
+    while (!done(arg))
+    {
+        if (t >= ms)
+            return -1;
+        sleep(1);
+        t = (current_tick - start) * 1000 / HZ;
+    }
+    return t;
+}
+
+static bool shown_is(int want)
+{
+    return sim_header_play_drawn() == want;
+}
+
+/* paused: the channel no longer plays (paused, or stopped by the
+ * pause-to-standby path) */
+static bool pcm_is(int want)
+{
+    enum channel_status st = mixer_channel_status(PCM_MIXER_CHAN_PLAYBACK);
+
+    return want == CHANNEL_PLAYING ? st == CHANNEL_PLAYING
+                                   : st != CHANNEL_PLAYING;
+}
+
+/* "expect_shown|expect_pcm paused|playing <ms>" */
+static void expect_state(const char *cmd, char *argv[], int lineno)
+{
+    bool paused = !strcmp(argv[1], "paused");
+    bool shown = !strcmp(cmd, "expect_shown");
+    long t = wait_for(shown ? shown_is : pcm_is,
+                      shown ? (paused ? UI_PLAY_PAUSED : UI_PLAY_PLAYING)
+                            : (paused ? CHANNEL_PAUSED : CHANNEL_PLAYING),
+                      atol(argv[2]));
+
+    if (t >= 0)
+        fprintf(stderr, "sim_script: %s ok %s after %ld ms\n", cmd, argv[1],
+                t);
+    else
+        fprintf(stderr, "sim_script:%d: %s failed: not %s within %s ms "
+                "(%s %d)\n", lineno, cmd, argv[1], argv[2],
+                shown ? "drawn" : "pcm",
+                shown ? sim_header_play_drawn()
+                      : (int)mixer_channel_status(PCM_MIXER_CHAN_PLAYBACK));
+}
+#endif /* HAVE_IPOD_UI */
+
 bool sim_cmd_audio(const char *cmd, char *argv[], int argc, int lineno)
 {
+#ifdef HAVE_IPOD_UI
+    if (!strcmp(cmd, "load_hold") && argc >= 2)
+    {
+        sim_audio_load_hold(atol(argv[1]));
+        fprintf(stderr, "sim_script: load_hold %s\n", argv[1]);
+        return true;
+    }
+    if ((!strcmp(cmd, "expect_shown") || !strcmp(cmd, "expect_pcm"))
+        && argc >= 3)
+    {
+        expect_state(cmd, argv, lineno);
+        return true;
+    }
+#endif
     if (!strcmp(cmd, "audio_stop"))
     {
         audio_stop();

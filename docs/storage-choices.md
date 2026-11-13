@@ -4,7 +4,24 @@
 
 **Rule:** storage may change *tuning* (timeouts, read sizes, waits, boosts), chosen at runtime from what the drive reports. It never changes what the user sees, except where physics makes a difference unavoidable (§9). Every choice made because the test unit is flash goes in this file, in the same commit as the code.
 
-Today the split is a configure option, `--storage=flash|hdd`. `hdd` defines `IPOD_STORAGE_HDD`, which gives upstream's `HAVE_DISK_STORAGE`, `HAVE_ATA_POWER_OFF`, `HAVE_ATA_SMART` and UDMA2. Flash keeps `HAVE_FLASH_STORAGE` and UDMA4 as the ceiling (`tools/configure:4983-4987`, `firmware/export/config/ipodvideo.h:128-136, 228-237, 331-338`; `docs/hardware.md`). The audit of 2026-10-15 (read-only, HEAD `4f1ee2812b`) is the source of every row below.
+**One build (0.8.3 WP2, #79, 2026-11-12):** the configure split is gone from the firmware. Every build that runs the shell compiles the disk's code (`HAVE_DISK_STORAGE`, `HAVE_ATA_POWER_OFF`, `HAVE_ATA_SMART`, `ATA_MAX_UDMA 4`; `firmware/export/config/ipodvideo.h`); the bootloader keeps its flash build unchanged. The kind is read once from IDENTIFY by upstream's `ata_disk_isssd()` (no new accessor), and each row that differs is a plain `if (solid)` where it acts. The rows marked **runtime** below are that table; `ipodvideo.h` no longer reads `IPOD_STORAGE_HDD`, and WP5 removed `--storage` from `tools/configure` (0.8.3: one zip, no storage flag). The simulator follows the same rows from its disk model (§8). The audit of 2026-10-15 (read-only, HEAD `4f1ee2812b`) is the source of the rows' history.
+
+**The `if (solid)` table as built** (each row's test in brackets):
+
+| Row | Solid (flash) | Rotating (hard drive) | Where |
+|---|---|---|---|
+| Idle hold before standby | 1 s, set at `storage_init` | 5 s, then the `disk_spindown` setting | `ata.c` `ata_init()`; `settings.c` skips `storage_spindown()` when solid [sim: `nolog: sim disk spindown` / `log: hold_ms=5000`] |
+| Anti-skip margin setting | not applied | applied | `settings.c` skips `audio_set_buffer_margin()` when solid [covered by the watermark row; the skip alone has no test of its own: the formula branch decides] |
+| Refill watermark | `stor_pwr_refill_secs(1, 2 s, speed ≥ 2×)`: 6 s | spin-up + 5 s + 2 × `buffer_margin` (15 s with the defaults, spin-up 0) | `playback.c` `audio_update_filebuf_watermark()` [sim: `watermark s=6 solid=1` / `s=15 solid=0`] |
+| Prefill before sound | 0.25 s | 1 s | `pcmbuf.c` `pcmbuf_init()` [sim: `pcm start ... level_ms` 200-700 / 900-1600] |
+| CPU boost during fills | off | on | `buffering.c` `buffer_handle()` [compile and review only: the sim's boost count can't tell the fill's boost from the codec's] |
+| UDMA ceiling | 4, or 2 when words 76/93 are 0 | 2 | `ata.c` `set_features()` [device: the developer UDMA line] |
+| Forced UDMA experiment | applied | ignored | `ata.c` `set_features()` |
+| SMART | when IDENTIFY word 82 bit 0 says so (either kind) | the same | `ata.c` `ata_read_smart()` |
+| Sector multiplier under USB | the drive's own | raised to the 1,024-byte cap | `ata-common.c` [host: `tests/usb/run.sh`, both kinds] |
+| Disk-safe floor, curve base row | 3,400 mV; 0 % = 3,420 | 3,500 mV; 0 % = 3,520 (the compiled defaults) | `powermgmt-ipod-pcf.c` `powermgmt_storage_init()`, right after `storage_init` [device: the boot line; the sim keeps its own battery model] |
+| Save at critical battery | saves | skipped (§9) | `misc.c` |
+| Already runtime before WP2 (`spw_solid`) | power-cut policy, linger, warm drain, 3 s ready wait | upstream's spin-down and power-off, 30 s | `ata.c` |
 
 Status values: **flag** (decided by the configure split today), **runtime** (decided at runtime already), **agnostic** (same code, but the result depends on the storage), **open** (needs a decision or a measurement).
 
@@ -13,18 +30,18 @@ Status values: **flag** (decided by the configure split today), **runtime** (dec
 | Item | Today | Plan | Status |
 |---|---|---|---|
 | Is the drive solid? | `ata_disk_isssd()` reads IDENTIFY word 217 (`firmware/export/ata.h:169`); `ata-common.c:30` measures `spinup_time` | `storage_is_solid()`: true if word 217 == 1, **or** the CFA signature (word 0 = `0x848A`, or word 83 bit 2), **or** words 76 and 93 both zero **and** a measured wake under ~100 ms. Unsure means rotating (safe: tuning conservative, behaviour the same) | **Measured (S37, owner's iFlash adapter):** `w0=045a w76=0000 w83=7404 w93=0000 w163=0012 w168=0000 w217=0000 ssd=1 spinup_ms=0`. So word 217 is "not reported" (as feared), the CFA signature in word 0 is absent, but **word 83 bit 2 (CFA feature set) is set** and `ata_disk_isssd()` says solid (word 163). Detection for this adapter: word 83 bit 2 or `ssd`; the timed-wake fallback is not needed here. Still open: what a stock hard drive reports (#79) |
-| Where it is shown | `usbscreen.c:636` prints word 217 (developer) | the boot log line, the developer list | open |
+| Where it is shown | `usbscreen.c:636` prints word 217 (developer) | the boot log line, the developer list | the boot log line `boot unit storage=solid\|rotating` (`ui_main.c`, WP2); the developer list: open |
 
 ## 2. Driver
 
 | Choice | Why | Flash | Hard drive | Single-build plan | Status |
 |---|---|---|---|---|---|
-| Idle hold before sleep (`ata.c:100-107`) | flash wakes are cheap | 1 s | 5 s | set at init from `storage_is_solid()`; it drives every "while the disk is awake" rule (§5) | flag |
-| ATA power-off, SMART (`HAVE_ATA_POWER_OFF`, `HAVE_ATA_SMART`; `ata.c`, `panic.c:140`, `powermgmt.c:242`, `usb_storage.c`) | upstream hdd features | absent | present | compile both in; power-off is a pin action, harmless on flash; SMART only when IDENTIFY word 82 bit 0 says supported | flag |
-| UDMA ceiling (`ATA_MAX_UDMA`) | the adapter may offer more | 4 (falls back to 2 when words 76/93 are 0, `ata.c:1080`) | 2 (`ata-target.h:75`) | 4 for both: already safe at runtime; above mode 2 boosts per transfer (`ata-pp5020.c:153`) | flag; S36c: UDMA4 gives no speed on this adapter (`data-paths.md` D3) |
-| Forced UDMA test (`HAVE_ATA_UDMA_FORCE`, `udmatest.c`, `devmode.c:344`) | developer experiment | offered | absent | offer only when solid | flag |
-| Sector multiplier under USB (`ata-common.c:331`) | 2048-byte virtual sectors made read-modify-write | the drive's own | raised | the drive's when solid, raised otherwise | flag |
-| Sleep before the FireWire reboot (`firmware/usb.c:132`) | park heads | no | yes | always | flag |
+| Idle hold before sleep (`ata.c:100-107`) | flash wakes are cheap | 1 s | 5 s | set at init from `ata_disk_isssd()`; it drives every "while the disk is awake" rule (§5) | runtime (WP2) |
+| ATA power-off, SMART (`HAVE_ATA_POWER_OFF`, `HAVE_ATA_SMART`; `ata.c`, `panic.c:140`, `powermgmt.c:242`, `usb_storage.c`) | upstream hdd features | absent | present | compile both in; power-off is a pin action, harmless on flash; SMART only when IDENTIFY word 82 bit 0 says supported | runtime (WP2) |
+| UDMA ceiling (`ATA_MAX_UDMA`) | the adapter may offer more | 4 (falls back to 2 when words 76/93 are 0, `ata.c:1080`) | 2 (`ata-target.h:75`) | ceiling 4 compiled; solid: the w76/w93 rule (this adapter: 2); rotating 2, as 0.8.2 (every unit keeps its mode); above mode 2 boosts per transfer (`ata-pp5020.c:153`) | runtime (WP2); S36c: UDMA4 gives no speed on this adapter (`data-paths.md` D3) |
+| Forced UDMA test (`HAVE_ATA_UDMA_FORCE`, `udmatest.c`, `devmode.c:344`) | developer experiment | offered | absent | the developer row shows on both; the driver applies it only when solid | runtime (WP2) |
+| Sector multiplier under USB (`ata-common.c:331`) | 2048-byte virtual sectors made read-modify-write | the drive's own | raised | the drive's when solid, raised otherwise | runtime (WP2) |
+| Sleep before the FireWire reboot (`firmware/usb.c` `try_reboot()`) | park heads | – | – | not compiled for the iPod Video: `USB_FIREWIRE_HANDLING` is defined only for the Color, 4G and Minis (`firmware/export/usb.h`); nothing to do | n/a (dead code here) |
 | Write-order barriers: FLUSH CACHE at each file-layer ordering point (`fat.c` `FAT_WRITE_BARRIER`, `file.c`; #91 H2, `data-paths.md` R11) | the drive's volatile write cache can reorder writes at a power cut | same barriers; a few ms each [hypothesis] | same barriers; ~10-20 ms each [hypothesis] | identical: not a flash choice. The conservative choice (flush, not trust the order) holds for both; only the cost differs. Measured by the `usb ata … flush` log line | done (sim); device cost open |
 
 ### 2.1 Drive power-off when idle (#114, 2026-10-22)
@@ -43,11 +60,11 @@ Status values: **flag** (decided by the configure split today), **runtime** (dec
 
 | Choice | Why | Flash | Hard drive | Single-build plan | Status |
 |---|---|---|---|---|---|
-| Prefill before sound (`pcmbuf.c:86-93`) | **user-visible**: tap to sound | 0.25 s | 1 s | from `storage_spinup_time()` at runtime: the same look (sound after a wait), the wait as short as the drive allows | flag |
-| Buffer watermark (`playback.c:298, 1169-1199`, `audio_thread.c:88`, `audio.h:69`) | a skip is user-visible | fixed 1 s | spin-up + 5 s + anti-skip margin | always the formula; with the spin-up measured near 0 it lands near the flash value | flag |
-| CPU boost during fills (`buffering.c:662`) | battery | no boost | boost | a runtime test | flag |
+| Prefill before sound (`pcmbuf.c:86-93`) | **user-visible**: tap to sound | 0.25 s | 1 s | `if (solid)` in `pcmbuf_init()`: the same look (sound after a wait), the wait as short as the drive allows | runtime (WP2) |
+| Buffer watermark (`playback.c:298, 1169-1199`, `audio_thread.c:88`, `audio.h:69`) | a skip is user-visible | the power-up budget's lead: `stor_pwr_refill_secs(1, STOR_PWR_PWRUP_BUDGET_S, speed)`, speed counted as at least 2×: 6 s at normal speed (since #114; "fixed 1 s" was the pre-#114 flash value) | spin-up + 5 s + the anti-skip margin, counted twice (upstream: 15 s with the defaults and the spin-up unmeasured) | `if (solid)` in `audio_update_filebuf_watermark()`: the flash lead when solid, the disk's formula otherwise | runtime (WP2) |
+| CPU boost during fills (`buffering.c:662`) | battery | no boost | boost | `if (!solid)` | runtime (WP2) |
 | Fill chunk 256 KB (`buffering.c:72`, `FAT_MAX_TRANSFER_BYTES` `ipodvideo-variant.h:144`) | bulk I/O | yes | yes (untested on a disk) | measure on a disk | agnostic |
-| `disk_spindown`, `buffer_margin` settings (`settings.h:537`, `settings_list.c:1732-1742`) | upstream hdd settings | absent | present (never surfaced in the shell) | keep both, ignore when solid, never surface | flag |
+| `disk_spindown`, `buffer_margin` settings (`settings.h:537`, `settings_list.c:1732-1742`) | upstream hdd settings | absent | present (never surfaced in the shell) | kept and hidden; `settings_apply()` applies neither when solid | runtime (WP2) |
 
 ### 2.2 Two storage profiles from Apple's disk policy (proposed, 2026-11-06)
 
@@ -68,10 +85,10 @@ From [`pp5022-reference/apple-disk.md`](pp5022-reference/apple-disk.md) §8–§
 
 | Choice | Why | Flash | Hard drive | Single-build plan | Status |
 |---|---|---|---|---|---|
-| Disk-safe floor (`powermgmt-ipod-pcf.c:32-37`) | a spin-up can brown out a sagging cell | **3400 mV** (owner rundown 2026-10-22: played and read to 3,362 mV, log flushed there; flash has no spin-up surge). 0 % = 3420 = "about to switch off" | 3500 mV, 0 % = 3520 (same meaning, higher voltage) | a variable set from the solid flag; battery learning already reads it at runtime (`batcal_core.c:62, 289`) | flag (same value today) |
-| Save bookmark and settings at critical battery (`misc.c:579, 614`) | **user-visible**: resume after a critical shutdown | always saves | skips | gate on solid; on a disk this stays a real difference (§9) | flag |
-| +5 % voltage correction at boot (`powermgmt.c:272`) | the disk's draw | no | yes | a runtime test | flag |
-| Power log forced write and flush below disk-safe (`hardware.md`, powerlog) | logs' last rows | written | lost | gate on solid | flag |
+| Disk-safe floor (`powermgmt-ipod-pcf.c:32-37`) | a spin-up can brown out a sagging cell | **3400 mV** (owner rundown 2026-10-22: played and read to 3,362 mV, log flushed there; flash has no spin-up surge). 0 % = 3420 = "about to switch off" | 3500 mV, 0 % = 3520 (same meaning, higher voltage) | `powermgmt_storage_init()` right after `storage_init`, with the curve's base row; battery learning already reads it at runtime (`batcal_core.c:62, 289`) | runtime (WP2) |
+| Save bookmark and settings at critical battery (`misc.c:579, 614`) | **user-visible**: resume after a critical shutdown | always saves | skips | `if (batt_safe || solid)`; on a disk this stays a real difference (§9) | runtime (WP2) |
+| +5 % voltage correction at boot (`powermgmt.c:272`) | the disk's draw | no | yes | dropped: dead in the shell build (`average_init()` seeds from the boot guard's resting reading under `HAVE_IPOD_UI`) | n/a |
+| Power log forced write and flush below disk-safe (`hardware.md`, powerlog) | logs' last rows | written | lost | one rule for both; it follows the runtime disk-safe floor above | runtime |
 
 ## 5. Piggyback policy ("do it while the disk is awake")
 
@@ -79,7 +96,7 @@ The code is the same on both, but the awake window follows the idle hold (§2): 
 
 | Site | Effect | Status |
 |---|---|---|
-| `preview.c` `load_first()` / `storage_ok()`: the main-menu panel | #73 fixed (Fit-3a, `9634a68f69`): a set change reads the other set's cover **at once on both**, waking storage once if needed; the flash and `--storage=hdd` sims are pixel-identical (0 of 76,800 differ, 7 shots). Cost differs only: one 180 KB read on flash; on a disk a spin-up of ~1–3 s, **and the read runs on the UI thread**, so the UI would stall that long while playing. Follow-up for the single build: move the set-change read off the UI thread (keep showing the slide-in once ready) before a disk unit ships. **8b-4a:** a second drift slot (+180,000 B, `preview.c` `slot_for_set()`) keeps the other set's last cover, so a set switch after the first visit is a handle swap with no read and no wake: the disk unit's UI-thread spin-up stall on a switch is gone except for the first visit to each set after boot (and on a unit without the second slot). Also fixed: `pv.woke_set` is set on every read, so Books (wake) -> Music (awake) -> Books no longer defers for ever while paused | runtime (same behaviour); hdd stall: first visit per set only |
+| `preview.c` `load_first()` / `storage_ok()`: the main-menu panel | #73 fixed (Fit-3a, `9634a68f69`): a set change reads the other set's cover **at once on both**, waking storage once if needed; the flash and `--storage=hdd` sims were pixel-identical (0 of 76,800 differ, 7 shots; since 0.8.3 the one sim's `IPODUI_SIM_DISK` model, `tests/onebuild/disk_cells.sh`). Cost differs only: one 180 KB read on flash; on a disk a spin-up of ~1–3 s, **and the read runs on the UI thread**, so the UI would stall that long while playing. Follow-up for the single build: move the set-change read off the UI thread (keep showing the slide-in once ready) before a disk unit ships. **8b-4a:** a second drift slot (+180,000 B, `preview.c` `slot_for_set()`) keeps the other set's last cover, so a set switch after the first visit is a handle swap with no read and no wake: the disk unit's UI-thread spin-up stall on a switch is gone except for the first visit to each set after boot (and on a unit without the second slot). Also fixed: `pv.woke_set` is set on every read, so Books (wake) -> Music (awake) -> Books no longer defers for ever while paused | runtime (same behaviour); hdd stall: first visit per set only |
 | `nowplaying.c:866`: Now Playing art deferral | **user-visible** | open |
 | `preview.c` `np_cover_read` / thumbnail fallback (8b-4a, :1109-1119, :1155): the main-menu Now Playing row's still cover | **user-visible on HDD**: a user highlight may wake storage once per cover and reads 180,000 B (or the 55 px thumbnail) on the UI thread, a spin-up stall on a sleeping disk; background track changes never wake (they show plain or the kept cover until the next natural wake). Flash: ~40 ms, invisible. Fix candidates: #104 predictive spin-up, read on the loader's worker (module-loader.md) | open (measure on a disk) |
 | `lib_shuffle.c:527`, `uilog.c:293, 302`, `batcal.c:376`, `powerlog.c:469`, `ab_store.c:840`, `bcmfw-boot.c:512` | tuning | agnostic |
@@ -116,7 +133,7 @@ Prefetch ring (#81, `HAVE_USB_PREFETCH`): **the same on both**, same sizes (8 MB
 
 ## 8. Simulator
 
-The sim copies the 1 s / 5 s hold (`artcache.c:160`, `filesystem-sim.c:428`, `SIM_SPINDOWN` / `SIM_ATA_HOLD`). Plan: a script switch (`disk model flash|hdd`) instead of a build flag, and every storage-sensitive script runs under both. Until then: a `--storage=hdd` sim beside the default one.
+**Done (WP2, 2026-11-12):** one sim binary, two disk models. `# env: IPODUI_SIM_DISK=flash|hdd` picks the model before boot (default flash, the owner's unit); the script command `disk model flash|hdd` changes it later (only rows read at their use follow a later change; the boot-time ones need the env). The model answers `ata_disk_isssd()` (`firmware/export/ata.h`), keeps the idle hold as the driver does (1 s solid, 5 s rotating, then `storage_spindown()`'s value: `sim_ata_hold_ticks()`, read by the sim's wake counts, the art builder's and the panel's "disk awake"), and cuts a rotating drive's power at the hold + 2 s instead of the stor_pwr policy (`filesystem-sim.c`). The power-up wait (`SIM_PWRUP`, `stor_pwrup`) and the sim's battery values are the same for both, so only timing differs. The two cells: `tests/onebuild/disk_cells.sh` (`ipodui-onebuild-disk-flash` and `-hdd`, pixel-identical shots). Still open: running every storage-sensitive script under both models (WP5's pipeline).
 
 ## 9. What cannot be identical (aim for the same look, not the same timing)
 
@@ -174,3 +191,10 @@ Migration needs a verified file backup and a recovery path. Do not change cluste
 | Choice | Why | Flash | Hard drive | Single-build plan | Status |
 |---|---|---|---|---|---|
 | When the queued Now Playing cover renders into `npcover.pak` (`apps/ipodui/artcache.c` `npr_place()`, `docs/design/artcache.md` section 13) | it must never cost a power-up of its own | storage is awake briefly after a refill (about 1 s): the render waits for one of those wakes with the user idle | the disk spins for longer after a refill (about 5 s), so the window comes sooner and lasts longer; the render's ~360 KB of writes ride a spin that is happening anyway | the same rule on both: only with `storage_disk_is_active()` already true, never a wake of its own. Only how often a window opens differs. What the user sees is the same: the thumbnail until the render lands | agnostic |
+
+## Video start grace (#340, 2026-11-12)
+
+| Choice | Why | Flash | Hard drive | Single-build plan | Status |
+|---|---|---|---|---|---|
+| How long a video's sound may take to start before the video has failed and shows "Can't Play Video" (`apps/ipodui/screens/video.c` `START_GRACE`, `apps/video/vplayer.c` `VPLAYER_AUDIO_GRACE`) | b12's flash unit took over a second on a busy disk; a rotating drive adds its spin-up before the first read | 4 s for the sound to report PLAY (screen), 6 s to reach the video's file (player) | 10 s and 12 s | chosen at runtime from `ata_disk_isssd()` (IDENTIFY; `IPODUI_SIM_DISK` in the simulator). Tuning only: the same screens and the same error page on both; only the wait before the page differs. Sim tests: `ipodui-b12-vstart-late7-hdd` (a 7 s start plays) and `-late7-flash` (the same start fails), each proven red with the other kind's grace forced | runtime (hdd values unmeasured on a stock drive [hypothesis]) |
+

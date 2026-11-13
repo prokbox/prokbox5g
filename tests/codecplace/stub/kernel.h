@@ -26,4 +26,6 @@
 #include "config.h"
 extern long current_tick;
 void yield(void);
+void sleep(long ticks);      /* 0.8.3: the lease's full slices */
+int tick_add_task(void (*f)(void));   /* p083-copclock: the demand tick */
 #endif

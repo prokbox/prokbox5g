@@ -50,6 +50,8 @@ struct qw_audio_in {
                              * the PCM side's notice is only polled */
     bool paused;            /* playback paused */
     bool dac_pending;       /* a codec standby is still to come */
+    bool kicked;            /* #298: the tick wakes the thread on the PCM
+                             * side's notice; the poll is only a backstop */
 };
 long qw_audio_wait(const struct qw_audio_in *in, long hz);
 

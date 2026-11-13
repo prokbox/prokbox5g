@@ -344,7 +344,7 @@ def raster(w, h, ink, holes):
     return a
 
 
-# 30-pin dock pictogram (HAVE_IPOD_DOCK30), 50 x 41: the connector's
+# 30-pin dock pictogram (simulator and host test only since #236), 50 x 41: the connector's
 # head with its pin groove, a 1 px gap, the wide body with a small port
 # outline, then the strain relief and the cable.
 DOCK30 = (50, 41, [
@@ -521,17 +521,18 @@ def write_header(path, hdr, tab, params, lim, g_dock, g_usbc, d_dock, d_usbc,
         s += '    { ' + ', '.join('%d' % v for v in p) + ' },\n'
     o.append(s + '};\n')
     o.append('\n/* connector glyphs: 4-bit alpha, (alpha << 4) | (run - 1); the\n'
-             ' * target compiles only its own (USB_BOTH_GLYPHS: sim, host test) */\n')
-    o.append('#if defined(HAVE_IPOD_DOCK30) || defined(USB_BOTH_GLYPHS)\n')
+             ' * target shows USB-C on every unit (#236); the 30-pin one is\n'
+             ' * kept for the sim and host test (USB_BOTH_GLYPHS) */\n')
+    o.append('#ifdef USB_BOTH_GLYPHS\n')
     o.append('#define USB_DOCK30_W %d\n#define USB_DOCK30_H %d\n'
              % (g_dock[0], g_dock[1]))
     o.append(c_array('usb_glyph_dock30', 'unsigned char', d_dock, 12,
                      '0x%02x'))
-    o.append('#endif\n#if !defined(HAVE_IPOD_DOCK30) || defined(USB_BOTH_GLYPHS)\n')
+    o.append('#endif\n')
     o.append('#define USB_USBC_W %d\n#define USB_USBC_H %d\n'
              % (g_usbc[0], g_usbc[1]))
     o.append(c_array('usb_glyph_usbc', 'unsigned char', d_usbc, 12, '0x%02x'))
-    o.append('#endif\n\n#endif /* _IPODUI_USBSCREEN_DATA_H_ */\n')
+    o.append('\n#endif /* _IPODUI_USBSCREEN_DATA_H_ */\n')
     with open(path, 'w') as fp:
         fp.write(''.join(o))
     prokbox_header.stamp(path)

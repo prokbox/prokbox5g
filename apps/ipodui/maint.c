@@ -59,6 +59,9 @@ static long active_tick, job_tick[MAINT__N];
 static volatile bool taking, play_during, hooked;
 /* paused_since, refused (GCC range: every tenant starts at -2, none) */
 static long declined[MAINT__N] = { [0 ... MAINT__N - 1] = -2 };
+/* #309: 1 << job, declined for the floor (not a failed restart): the
+ * pause's one regrow gives each one retry on the larger buffer */
+static unsigned char floor_refused;
 static bool was_open;
 static volatile bool sleep_open;    /* P18: the sleep-entry window */
 static volatile bool sleep_hold;    /* P18: sleep entry after the window */
@@ -211,11 +214,8 @@ bool maint_window_due(long *at)
 
 size_t maint_floor(void)
 {
-#if MEMORYSIZE <= 32
-    return MAINT_FLOOR_32MB;
-#else
-    return MAINT_FLOOR_64MB;
-#endif
+    /* one build (#204): the unit's RAM, read at boot */
+    return probed_ramsize <= 32 ? MAINT_FLOOR_32MB : MAINT_FLOOR_64MB;
 }
 
 bool maint_fits(size_t bytes)
@@ -305,6 +305,7 @@ bool maint_take(enum maint_job j, size_t bytes)
     enum maint_why why;
     size_t before;
     bool ok;
+    int rc;
 
     if (audio_status() == 0)
         return true;                    /* stopped: callers as today */
@@ -334,6 +335,7 @@ bool maint_take(enum maint_job j, size_t bytes)
             {
                 /* Q11: the update waits for a stop or a smaller commit */
                 declined[j] = paused_since;
+                floor_refused |= 1u << j;
                 ui_log("maint", "job=%s wait floor need=%lu audio=%lu "
                        "floor=%lu", job_name[j], (unsigned long)bytes,
                        (unsigned long)before, (unsigned long)maint_floor());
@@ -344,14 +346,44 @@ bool maint_take(enum maint_job j, size_t bytes)
     }
     /* one front shrink on the audio thread, the floor checked again
      * there (H2); the paused song restarts silently, no regrow */
-    ok = give(bytes + GIVE_MARGIN, maint_floor(), job_name[j]) == 1
-         && core_allocatable() >= bytes + 64;
+    rc = give(bytes + GIVE_MARGIN, maint_floor(), job_name[j]);
+    ok = rc == 1 && core_allocatable() >= bytes + 64;
     if (ok)
         mark_active(j);
     else
+    {
         declined[j] = paused_since;     /* no retry loop this pause */
+        if (rc == 0)                    /* the audio thread's floor */
+            floor_refused |= 1u << j;
+    }
     mutex_unlock(&take_mtx);
     return ok;
+}
+
+/* #309: the pause's one regrow grew the buffer: each job the floor
+ * refused in this pause gets one retry on it (a play between the boot
+ * library's commit and its publication leaves a short buffer that the
+ * window regrows). Bounded: one regrow a pause, so one retry each; a
+ * second refusal declines it again. Called with take_lock() held;
+ * returns the jobs retried (1 << job), kicked after the unlock. */
+static unsigned retry_refused(size_t before)
+{
+    unsigned retried = 0;
+
+    if (audio_buffer_size() <= before)
+        return 0;
+    for (int j = 0; j < MAINT__N; j++)
+    {
+        if ((floor_refused & (1u << j)) && declined[j] == paused_since)
+        {
+            declined[j] = -2;
+            retried |= 1u << j;
+            ui_log("maint", "retry after regrow job=%s audio=%lu",
+                   job_name[j], (unsigned long)audio_buffer_size());
+        }
+    }
+    floor_refused = 0;
+    return retried;
 }
 
 bool maint_declined(enum maint_job j)
@@ -363,6 +395,7 @@ void maint_poll(void)
 {
     bool open;
     int st = audio_status();
+    unsigned retried = 0;
 
     if (!hooked)
     {
@@ -391,10 +424,19 @@ void maint_poll(void)
         if (audio_status() == (AUDIO_STATUS_PLAY | AUDIO_STATUS_PAUSE)
             && !active && !wanted && core_allocatable() >= REGROW_MIN)
         {
+            size_t before = audio_buffer_size();
+
             regrown = paused_since;
-            give(0, REGROW_MIN, "regrow");
+            if (give(0, REGROW_MIN, "regrow") == 1)
+                retried = retry_refused(before);
         }
         mutex_unlock(&take_mtx);
+    }
+    if (retried)
+    {
+        tagcache_quiet_kick();  /* the commit's once-a-second retry */
+        if (retried & (1u << MAINT_CHAPTERS))
+            artcache_maint_kick();
     }
     if (open && !was_open)
     {

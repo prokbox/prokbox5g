@@ -25,7 +25,8 @@
 # Run on cloned, disposable stress simdisks, never the golden or source
 # disk: each unit at its ceiling (#229: 32 MB build/sim-50k, 64 MB
 # build/sim-65k; SNAPSHOT_SOURCE overrides both).
-# Build sim-persist32/64 with --ipodui --ram=32/64 before invoking this.
+# Build build/sim-ui (--ipodui) before invoking this; each unit's RAM is
+# IPODUI_SIM_RAM on the one binary (#204).
 set -eu
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 . "$ROOT/tests/perf/stress_size.sh"
@@ -45,8 +46,9 @@ for RAM in ${*:-32 64}; do
         TMPS="$TMPS $(dirname "$SETTLED")"
         SOURCE=$SETTLED
     fi
-    BUILD=$ROOT/build/sim-persist$RAM
+    BUILD=$ROOT/build/sim-ui
     [ -x "$BUILD/rockboxui" ] || exit 2
+    export IPODUI_SIM_RAM=$RAM
     RUN=$(mktemp -d "$ROOT/build/snapshot-memory-$RAM.XXXXXX")
     mkdir -p "$RUN/simdisk"
     cp -cR "$SOURCE/." "$RUN/simdisk/"

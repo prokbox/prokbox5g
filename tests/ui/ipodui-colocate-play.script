@@ -1,0 +1,93 @@
+# 0.8.3 colocate: playback through every event the leases end at (the
+# COP's input lease on the ring, pcmbuf's write side leased to the COP;
+# docs/data-paths.md R7 items 11 and 12): a FLAC at 96 kHz into a gapless
+# boundary, a pause and resume, a seek back and forward, a USB plug mid-
+# track and its unplug, then a stop. The simulator has one core, so the
+# leases are not taken here (the host models tests/inring, tests/outlease
+# and tests/codecplace cover them); this proves buffering, pcmbuf and the
+# codec thread, which the change touches on every build, still play
+# through each event with no underrun.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-colocate-play.script
+# needs: library
+# golden: skip
+# fulls-extra: 1          (the Now Playing row appears: play_files)
+# timeout: 240
+
+wait 4000
+repeat off
+copy fixtures/rate96k.flac /Music/colo96k.flac
+wait 500
+play_files /Music/colo96k.flac /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3 /Music/Tone%20Collective/Sine%20Studies/02%20Low%20E.mp3
+wait 1000
+np_pin 2000 50
+key SELECT          # Music (the menu re-reads "Now Playing" after a push/pop)
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 1200
+expect_playing 1000
+expect_pos 1000 5000
+key PLAY            # pause
+wait 1500
+expect_paused 1000
+key PLAY            # resume
+wait 1500
+expect_playing 1000
+wait 6000           # the FLAC ends: the boundary (a rate switch)
+expect_playing 1000
+expect_pos 2000 12000  # into the next track (the FLAC is 5 s)
+key SELECT          # Scrubber
+wait 500
+wheel -20 300       # back
+wait 300
+key SELECT          # seek there
+wait 1500
+expect_pos 0 4000      # scrubbed back
+key SELECT          # Scrubber
+wait 500
+wheel +15 300       # forward
+wait 300
+key SELECT
+wait 1500
+expect_pos 8000 40000  # scrubbed forward
+expect_playing 1000
+key RIGHT           # a manual skip: the next track from its start
+wait 2000
+expect_playing 1000
+expect_pos 0 3500
+key PLAY            # a pause longer than the DAC standby (DAC_IDLE_MS 5 s)
+wait 8000
+expect_paused 1000
+key PLAY            # resume after the standby
+wait 2000
+expect_playing 1000
+expect_pos 3000 8000  # moved on 2 s, not the 8 s paused
+key PLAY            # a long pause: past the COP's 1 s lease give-back, the
+wait 30000          # DAC standby and the fade tail; nothing may restart it
+expect_paused 1000
+expect_pos 3000 9500  # where it stopped: not a second further
+key PLAY            # only Play resumes
+wait 2000
+expect_playing 1000
+expect_pos 3000 12000
+usb_connect             # mid-track: playback stops for the USB session
+wait 3000
+expect_stopped
+usb_disconnect
+wait 4000
+key MENU            # the screen back after the USB session
+wait 1000
+key PLAY            # resume: the queue plays again
+wait 3000
+expect_playing 1000
+expect_pos 500 20000
+expect_underruns 0      # no starvation through any of it
+audio_stop
+wait 1000
+expect_stopped
+shot end
+rm_file /Music/colo96k.flac
+quit

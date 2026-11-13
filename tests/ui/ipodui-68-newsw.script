@@ -1,12 +1,20 @@
 # Tracker #68: the native "New Software" prompt after USB. A new firmware
 # file copied over USB (its mtime changes while the computer has the disk)
 # shows the shell's own light prompt, Restart | Later, Restart preselected,
-# in place of the stock yes/no. Later leaves the shell as it was; Restart
-# traces the choice (the simulator has no second image to load).
+# in place of the stock yes/no. Later leaves the shell as it was. Restart
+# (#316) is a real restart: the choice is logged and flushed ("boot
+# restart chosen"), SYS_REBOOT runs the power-off's saves (input.c:
+# "power reboot"; clean_shutdown(): the settings, the database's stamp)
+# and system_reboot(), which ends the simulator here (the device resets
+# and its bootloader loads the new file). Red before #316: rolo_load(),
+# no SYS_REBOOT, nothing saved.
 #   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-68-newsw.script
 # needs: library
 # log: bootfile changed choice=later
 # log: bootfile changed choice=restart
+# logafter: restart boot restart chosen
+# logafter: restart power reboot batt=
+# logafter: restart Writing system_status to disk
 # nolog: splash
 # golden: skip
 #
@@ -49,9 +57,11 @@ rm_file /.rockbox/rockbox.ipod
 copy_file /.rockbox/rockbox.new /.rockbox/rockbox.ipod
 usb_disconnect
 wait 2000
+shot prompt_again
+rm_file /.rockbox/rockbox.ipod  # the stand-ins go first: the restart
+rm_file /.rockbox/rockbox.new   # ends the simulator
+ab_mark restart
 key SELECT           # Restart preselected
-wait 1500
-shot after_restart
-rm_file /.rockbox/rockbox.ipod
-rm_file /.rockbox/rockbox.new
+wait 8000            # the clean shutdown, then the simulator's reboot
+shot after_restart   # not reached: the simulator has restarted
 quit

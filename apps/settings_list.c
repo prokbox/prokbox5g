@@ -1345,6 +1345,23 @@ const struct settings_list settings[] = {
     OFFON_SETTING(0, ipodui_video_fit, LANG_IPODUI_FIT_TO_SCREEN, true,
                   "ipodui video fit", NULL),
 #endif
+#ifdef IPODUI_AUDIOPHILE   /* 0.9.0 (ipodvideo.h scope switch): off,
+                              * a saved line is an unknown key */
+    /* #270 Settings > Audiophile (apps/audiophile.h; the shell's own
+     * rows name them, so the Rockbox-menu name is a placeholder) */
+    OFFON_SETTING(0, ipodui_hirate, LANG_IPODUI_ABOUT, false,
+                  "ipodui high rate", NULL),
+    INT_SETTING(0, ipodui_hirate_ok, LANG_IPODUI_ABOUT, 0,
+                "ipodui high rate ok", UNIT_INT, 0, 255, 1,
+                NULL, NULL, NULL),
+    INT_SETTING(0, ipodui_width3d, LANG_IPODUI_ABOUT, 0,
+                "ipodui stereo width", UNIT_INT, 0, 3, 1,
+                NULL, NULL, NULL),
+#endif
+    /* one-build WP3: the fitted battery (ipodui/battcell.h; hidden) */
+    INT_SETTING(0, ipodui_battery_cell, LANG_IPODUI_BATTQ_TITLE, 0,
+                "ipodui battery cell", UNIT_INT, 0, 3, 1,
+                NULL, NULL, NULL),
 #endif
 
     CHOICE_SETTING(F_CB_ON_SELECT_ONLY|F_CB_ONLY_IF_CHANGED, repeat_mode,

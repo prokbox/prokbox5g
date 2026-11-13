@@ -1,7 +1,7 @@
 ---
 title: "What's coming"
 description: "What we are working on for ProkBox5g, release by release, and what has changed."
-roadmap_version: "0.8.2"
+roadmap_version: "0.8.3"
 page_class: "roadmap"
 ---
 
@@ -11,11 +11,10 @@ This page lists what we plan for each coming release of ProkBox5g, and where eac
 
 | Release | What it brings | Where it stands | Items under way |
 |---|---|---|---|
-| [0.8.3](#release-083) | A new playback engine, one download for every player, and fixes. | _Under way_ | 15 of 17 |
 | [0.9.0](#release-090) | Sound and languages: better audio, menus in more languages, better song details, and fixes. | _Under way_ | 11 of 20 |
 | [0.9.1](#release-091) | Album art, Album Flow and other screen improvements. | _Under way_ | 4 of 7 |
 | [0.9.2](#release-092) | Sleep and battery life, and the first kit for making your own games, with a Sudoku game. | _Under way_ | 3 of 6 |
-| [0.9.3](#release-093) | Video: more formats, a better video player, and fixes. | _Under way_ | 5 of 13 |
+| [0.9.3](#release-093) | Video: more formats, a better video player, and fixes. | _Under way_ | 5 of 14 |
 | [0.9.4](#release-094) | Your library and USB, and the second game kit, with a short role-playing game. | _Under way_ | 1 of 13 |
 | [0.9.5](#release-095) | Docks, cars and connections. | _Under way_ | 1 of 5 |
 | [0.9.6](#release-096) | Extras, games and more ways to shape your sound, and the third game kit, with an arcade racing game. | _Under way_ | 1 of 6 |
@@ -36,28 +35,6 @@ Each item has a status: **Considering** (an idea we are looking at, not designed
 > - **Disk Mode**: a mode in which the player shows up on your computer as a drive, even when its main software cannot start.
 > - **Sample rate**: how many times a second the sound is measured, such as 44.1 kHz or 96 kHz.
 > - **Bit depth**: how finely each of those measurements is stored, such as 16-bit or 24-bit.
-
-## Release 0.8.3
-
-A new playback engine, one download for every player, and fixes.
-
-- _In testing:_ Smoother playback of demanding files, and less battery used on easy ones: the player now watches both of its processor cores to choose its speed. [](#item-speed-matched-to-how-hard-the-music-is)
-- _In testing:_ A rare fault with very loud 24-bit FLAC files is fixed: they play correctly. [](#item-very-loud-24-bit-flac-fixed)
-- _In testing:_ 32-bit FLAC files are skipped cleanly instead of playing back wrongly. They stay in your library. [](#item-32-bit-flac-skipped-cleanly)
-- _In testing:_ Skipping a song the player cannot play no longer leaves a short silence. [](#item-no-silence-when-skipping-unplayable-songs)
-- _In development:_ A new playback engine: all of the audio work moves to the player's second processor core, so the menus stay smooth while music plays. [](#item-new-playback-engine-on-the-second-core)
-- _In development:_ 24-bit, 192 kHz FLAC files play without drop-outs. [](#item-24-bit-192-khz-flac-without-drop-outs)
-- _In development:_ One download for every player: original or modded, hard drive or flash, 32 or 64 MB. It asks you once which battery your player has. [](#item-one-download-for-every-player)
-- _In development:_ Dock support is built into every download, and stays idle until you connect a dock. Work on how docks behave comes in 0.9.5. [](#item-dock-support-in-every-download)
-- _In development:_ Cleaner sound for songs at sample rates the player has to convert: it always uses its best-quality converter. [](#item-best-quality-sample-rate-converter-always)
-- _In development:_ The video chip does the drawing for the visualiser and album art, which leaves the main processor free. [](#item-video-chip-draws-the-visualiser-and-art)
-- _In development:_ Turning Hold off during a video no longer blanks the screen for a few seconds. [](#item-no-blank-screen-after-hold-in-a-video)
-- _In development:_ All of the equaliser's bands will work: one of the upper bands has no effect today. The fix ships once we have checked its battery cost. [](#item-every-equaliser-band-works)
-- _In development:_ Button presses no longer keep the player at full speed for longer than needed, which saves battery. [](#item-buttons-no-longer-hold-full-speed)
-- _In development:_ The visualiser always opens while music plays. Today it sometimes fails to. [](#item-visualiser-always-opens)
-- _In development:_ 24-bit playback: 24-bit FLAC and WAV files play at their full depth. [](#item-24-bit-playback)
-- _Planned:_ Turning the wheel wakes the player from the clock screen, like a button press, without scrolling or changing the volume. [](#item-wheel-wakes-the-clock-screen)
-- _Planned:_ The visualiser runs smoothly, without the stutter you may see with MP3 files. [](#item-smooth-visualiser-with-mp3-files)
 
 ## Release 0.9.0
 
@@ -121,6 +98,7 @@ Video: more formats, a better video player, and fixes.
 - _Planned:_ A clearer message when a video is too large to play: it says what is wrong and how to convert it. [](#item-clearer-message-for-too-large-videos)
 - _Planned:_ Some videos no longer start with glitches and a pause of a few seconds. [](#item-clean-video-starts-no-glitches)
 - _Planned:_ The volume and progress bars respond straight away while a video plays. [](#item-quick-volume-and-progress-bars-in-video)
+- _Planned:_ Photos: browse your pictures by album, view them full screen, and play slideshows with music. Copy photos over by drag-and-drop, with no app. [](#item-photos)
 - _Considering:_ We are looking at playing MPEG-4 videos larger than 320 × 240. [](#item-mpeg-4-video-larger-than-320-240)
 - _Considering:_ We are looking at playing MPEG-1 and MPEG-2 videos (.mpg files). [](#item-mpeg-1-and-mpeg-2-video)
 - _Considering:_ We are looking at H.265 (HEVC) video, as an experiment. It ships only if it works well, and is marked experimental if it does. [](#item-h-265-video-as-an-experiment)

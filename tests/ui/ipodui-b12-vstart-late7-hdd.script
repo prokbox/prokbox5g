@@ -1,0 +1,49 @@
+# #340, storage-aware grace: an audio start of 7 s plays on a rotating drive
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-b12-vstart-late7-hdd.script
+# needs: video
+# timeout: 150
+#
+# The screen's error grace and the player's no-audio grace follow the
+# storage kind at runtime (ata_disk_isssd(); docs/storage-choices.md): 4 s
+# and 6 s on flash, 10 s and 12 s on a rotating drive (spin-up). Here the
+# sim's disk is a hard drive and /.rockbox/.sim_vaudio_late7 starts the
+# audio 7 s after the player: past flash's grace, inside the drive's. The
+# video plays: pictures go up, no error page, no quiet stop.
+# The flash twin (ipodui-b12-vstart-late7-flash) fails the same start.
+# Each play starts from 0 with video_screen (no #154 resume point).
+
+# env: IPODUI_SIM_DISK=hdd
+# golden: skip
+# trace: video
+# logbetween: late7 late7_out video sim: audio late
+# logbetween: late7 late7_out video sim: the late audio starts
+# logbetween: late7 late7_out no audio left the file
+# logbetween: late7 late7_out no video error page
+# logbetween: late7 late7_out no video failed
+# nolog: splash
+wait 4000
+wait_db 45000
+art_wait 60000
+rm_file /.rockbox/.sim_vaudio_late
+rm_file /.rockbox/.sim_vaudio_late7
+rm_file /.rockbox/.sim_vaudio_never
+rm_file /.rockbox/.sim_vaudio_nofile
+video_fault decode 0
+wheel +1 300
+wait 600
+key SELECT          # Videos
+wait 900
+key SELECT          # Movies
+wait 1200
+
+copy fixtures/refresh.mp3 /.rockbox/.sim_vaudio_late7
+ab_mark late7
+video_screen /Misc/Audio%20First.m4v  # the audio 7 s late
+wait 11000
+expect_video 10 playing     # pictures went up, no decode errors
+shot late7_playing
+key MENU
+wait 1500
+expect_video 0 none
+ab_mark late7_out
+rm_file /.rockbox/.sim_vaudio_late7

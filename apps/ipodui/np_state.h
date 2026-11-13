@@ -34,6 +34,8 @@
  * Cycle (docs/design/7g-spec.md, Now Playing, owner 2026-10-06):
  *   Normal -> Scrubber -> Rating -> Shuffle (music only)
  *          -> Lyrics (only if the track has lyrics)
+ *          -> Info (format / quality / output; #277, a deliberate extra,
+ *             only when the screen offers it: np_set_info(), 0.9.0)
  *          -> Visualizer (music only, when the screen offers it; #126)
  *          -> Normal
  * Scrubber is skipped when the length is unknown (0). SELECT after a
@@ -68,6 +70,8 @@ enum np_mode {
     NP_SHUFFLE,
     NP_LYRICS,
     NP_VIZ,                 /* #126: the visualizer view */
+    NP_INFO,                /* #277: format and output; cycle order is
+                             * Lyrics, Info, Visualizer (np_state.c) */
 };
 
 enum np_shuffle {           /* the shelf, left to right */
@@ -122,6 +126,7 @@ struct np_state {
     bool is_audiobook;
     bool has_lyrics;
     bool viz_ok;                /* the screen offers the Visualizer */
+    bool info_ok;               /* the screen offers the Info page */
     struct np_scrub_ctx scrub;  /* length + chapters (caller owns them) */
     /* Normal: volume bar (the screen reads volume_shown) */
     bool volume_shown;
@@ -157,6 +162,11 @@ struct np_result np_set_track(struct np_state *st, bool is_audiobook,
 /* The screen offers the Visualizer view (or no longer does: the next
  * SELECT skips it; a shown one is left by the screen with np_leave()) */
 void np_set_viz(struct np_state *st, bool ok);
+
+/* The screen offers the Info page (#277; off after np_init(): a build
+ * without IPODUI_NP_INFO never offers it, and the cycle is the stock 7G
+ * one) */
+void np_set_info(struct np_state *st, bool ok);
 
 /* Straight to the Visualizer (the charger's Visualizer face, #126):
  * commits what the current mode has pending; nothing if it isn't

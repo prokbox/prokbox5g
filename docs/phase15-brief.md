@@ -39,7 +39,7 @@
 ---
 
 ## 1. Out of scope
-- Line-out (OUT2) and the dock: already off without `HAVE_IPOD_DOCK30` (P9).
+- Line-out (OUT2) and the dock: already off without `HAVE_IPOD_DOCK30` (P9). *(2026-11-12, 0.8.3: no longer true. OUT2 and the accessory supply are on at boot on every unit and iAP is resident, #236; `docs/changes-from-rockbox.md` §2.92.)*
 - Bass, treble, 3D, the limiter and the notch filter as user settings. Stock 7G has none; they stay developer-only (and are forced neutral while a hardware preset runs, §3.1).
 - Recording and the ADC.
 - Changing the sample-rate or PLL plan, or DAC oversampling (`DACOSR128` stays on: fidelity first).

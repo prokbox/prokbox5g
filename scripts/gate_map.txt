@@ -29,7 +29,7 @@ apps/ipodui/screens/playlists.c    ipodui-p4-playlists
 apps/ipodui/fonts/*                ALL
 
 # Phase 4b art cache / rich rows cluster
-apps/ipodui/artcache.c    ipodui-p4b-* ipodui-p4b1-* ipodui-idle-*
+apps/ipodui/artcache.c    ipodui-p4b-* ipodui-p4b1-* ipodui-idle-* ipodui-art-walkcache
 apps/ipodui/artcache.h    ipodui-p4b-* ipodui-p4b1-* ipodui-idle-*
 tests/ui/ipodui-idle-*.script      ipodui-idle-*
 apps/ipodui/artfmt.c      ipodui-p4b-* ipodui-p4b1-*
@@ -201,7 +201,6 @@ scripts/risk/reach_gc_agree.py       ipodui-p9-smoke-boot
 scripts/risk/gc_check.sh             ipodui-p9-smoke-boot
 scripts/trim-revert.sh               ipodui-p9-smoke-boot
 scripts/trim-deps.txt                ipodui-p9-smoke-boot
-scripts/variants.sh                  ipodui-p9-smoke-boot
 
 # Phase 15 (docs/phase15-brief.md): hardware EQ, DAC standby, volume curve,
 # fades. The firmware-side files (mixer, playback, audio thread, pcmbuf, the
@@ -298,6 +297,7 @@ apps/ipodui/vclass_core.c            ipodui-relvideo-*
 # artcache.*, panels.c, filesystem-sim.c) keep their rules and gain these.
 tests/ui/ipodui-p12-*.script         ipodui-p12-*
 tests/trace/test_p12_rules.py        ipodui-p12-*
+tests/trace/test_panic_rules.py      ipodui-panic-record
 uisimulator/common/sim_cmd_extras.*  ipodui-p12-*
 uisimulator/common/filesystem-sim.c  ipodui-p12-modclass ipodui-p12-extras-* ipodui-p12-notes-* ipodui-p12-tooling-*
 uisimulator/common/stubs.c           ipodui-p12-alarm-* ipodui-p12-tooling-* ipodui-p18-sleep-*

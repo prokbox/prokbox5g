@@ -10,8 +10,8 @@
 # closure once. An empty need list is a leaf (as far as known: a leaf whose
 # revert fails to build is a missing edge, added here and to the header).
 #
-# Conditional lines (the header only sets them in some variants):
-#   IAP      only without --dock30 (reverting it == the dock30 build)
+# Conditional lines (the header only sets them in some variants; iAP is
+# no trim since #236, resident on every unit):
 #   PLUGINS and its closure (incl. TAGTREE) only without --ipodui-plugins
 # Edges measured by agent A (Part 1, single-trim revert builds of fw-ui
 # with every other trim on); mirrored by the header's #error checks.
@@ -20,8 +20,7 @@
 # ipodvideo.h wrapping must drop the FM source with RADIO. Not an edge
 # between trims; trim-revert reports it if the build fails.
 RECORDING:
-RADIO: IAP KEYBOARD BROWSER SKIN STOCK_MENUS
-IAP:
+RADIO: KEYBOARD BROWSER SKIN STOCK_MENUS
 USB_CLASSES:
 DIRCACHE:
 UTF8PROC:

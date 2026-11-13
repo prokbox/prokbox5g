@@ -35,6 +35,12 @@
 #       +/- PASS_DB of their input level. Also checks the residual (output
 #       minus the fitted tones) as a glitch detector: at most -RES_DB
 #       relative to one tone (0 = report only).
+#       KIND "frac" (any ratio, #271): passband tones are those at or below
+#       min(20 kHz, 0.45 of the lower rate); every other tone, and every
+#       k * IN_RATE / 8 +/- f of every tone, folded into the output band,
+#       is a spur when it lands in 20 Hz..min(20 kHz, output Nyquist) away
+#       from the passband tones. That covers images and aliases of every
+#       stage (the decimators before the FIR run at IN_RATE / 2^n).
 #       Prints one line; exit 1 on failure. REJECT_DB 0 = report only.
 import struct
 import sys
@@ -68,8 +74,11 @@ def read_wav(path):
             data = buf[pos + 8:pos + 8 + size]
         pos += 8 + size + (size & 1)
     ch, rate, bits = fmt[1], fmt[2], fmt[5]
-    assert bits == 16
-    x = np.frombuffer(data, '<i2').astype(float) / 32768.0
+    assert bits in (16, 32)
+    if bits == 16:
+        x = np.frombuffer(data, '<i2').astype(float) / 32768.0
+    else:
+        x = np.frombuffer(data, '<i4').astype(float) / 2147483648.0
     return rate, x.reshape(-1, ch)
 
 
@@ -118,12 +127,31 @@ def main():
     worst_pass, worst_rej, worst_res = 0.0, -999.0, -999.0
     for c in range(y.shape[1]):
         x = y[skip:skip + n, c]
-        passband = [f for f in fs if kind == 'up' or f <= 20000]
+        if kind == 'frac':
+            edge = min(20000.0, 0.45 * min(fin, rate))
+            passband = [f for f in fs if f <= edge]
+            # tones both rates carry (beyond the passband, in a stage's
+            # transition band) are content, not spurs: fitted, not checked
+            legit = [f for f in fs if f < min(fin, rate) / 2.0]
+        else:
+            passband = [f for f in fs if kind == 'up' or f <= 20000]
+            legit = passband
         for f in passband:
             g = db(tone_amp(x, rate, f) / LEVEL)
             worst_pass = max(worst_pass, abs(g))
         spurs = []
-        for f in fs:
+        top = min(20000.0, rate / 2.0 - 20)
+        for f in fs if kind == 'frac' else []:
+            base = fin / 8.0
+            for k in range(0, int(4 * max(fin, rate) / base) + 1):
+                for im in ((f,) if k == 0 else (k * base - f, k * base + f)):
+                    al = abs(im - round(im / rate) * rate)
+                    if k == 0 and f in legit:
+                        continue
+                    if 20 < al < top and min(abs(al - p) for p in legit) > 30:
+                        spurs.append(al)
+        spurs = sorted(set(round(v, 3) for v in spurs))
+        for f in fs if kind != 'frac' else []:
             if kind == 'down' and f > 20000:
                 al = abs(f - round(f / rate) * rate)
                 if al <= 20000:
@@ -140,7 +168,7 @@ def main():
         # residual: least-squares fit of the passband tones, then RMS
         t = np.arange(n) / float(rate)
         cols = []
-        for f in passband:
+        for f in legit:
             cols += [np.sin(2 * np.pi * f * t), np.cos(2 * np.pi * f * t)]
         m = np.array(cols).T
         coef, *_ = np.linalg.lstsq(m, x, rcond=None)

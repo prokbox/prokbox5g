@@ -267,7 +267,7 @@ This follows brief §3.3, M3.
 
 ## 6. Consumer table ("what else used this?")
 
-"Variant" means compiled only in the developer `--ipodui-plugins` or `--dock30` builds (`ipodvideo-variant.h:52-78`).
+"Variant" means compiled only in the developer `--ipodui-plugins` build (`ipodvideo-variant.h`). (Written when `--dock30` was a second such build; since #236, 0.8.3, iAP is resident in every build and `--dock30` is gone.)
 
 | # | Consumer | Where | Uses | How it keeps working |
 |---|---|---|---|---|
@@ -315,7 +315,7 @@ Per High finding:
 - **H2:** a rebase over a queue whose current position is in the middle, checking the history slots' values.
 - **H4:** a reserve with `keep` copying the words.
 
-**Sim scripts** (`tests/ui/`, `build/sim-ui` and `build/sim-ui32`, 50k library from `tests/perf/lib65k.sh` where noted). Traces:
+**Sim scripts** (`tests/ui/`, `build/sim-ui`, the 32 MB unit with `IPODUI_SIM_RAM=32` since #204, 50k library from `tests/perf/lib65k.sh` where noted). Traces:
 - `lib play n= us= cpu_us=` (`library.c:3324`);
 - new `dbq build n= bytes= us= reserve=ok|stop|window`;
 - `dbq rebase block= result=stamp|seek|lost n= us=`;
@@ -325,7 +325,7 @@ Per High finding:
 One script per High:
 - **H1 `ipodui-p16-dbq-miss-midqueue`:** queue 20 tracks, delete track 5 on the simdisk and run a commit (FLAG_DELETED), corrupt one slot (lost). Playback plays 1-4, skips 5, continues to 20 and stops normally; no splash.
 - **H2 `-dbq-rebase-history`:** play to track 30 of a 2,000-row queue, Rebuild Cache (renumbers). Previous ×3, a Repeat All wrap to track 1, then shelf Shuffle Off. Every file played matches the pre-commit path list (traced CRCs).
-- **H3 `-dbq-playall-from-playing` and `-dbq-playall-from-paused`** (`sim-ui32`, 50k): with another queue playing or paused, play-all Songs gives `reserve=stop`, n=50000, "1 of 50,000", no `shrink refused paused` line, and the floor receipts at or above the floors. A variant with a heap pre-filled forces `reserve=window`.
+- **H3 `-dbq-playall-from-playing` and `-dbq-playall-from-paused`** (the 32 MB unit, `IPODUI_SIM_RAM=32`, 50k): with another queue playing or paused, play-all Songs gives `reserve=stop`, n=50000, "1 of 50,000", no `shrink refused paused` line, and the floor receipts at or above the floors. A variant with a heap pre-filled forces `reserve=window`.
 - **H4 `-dbq-resume-65k`:** play-all at 50k, reboot the sim, PLAY resumes the same file and position with n=50000.
 
 Others:

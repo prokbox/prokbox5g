@@ -28,7 +28,7 @@
 #include <stdbool.h>
 
 /* The audio-buffer floor gate (Phase 16-A, #105). The floor is 7,500,000 B
- * on a 32 MB build and 39,000,000 B on a 64 MB build (MEMORYSIZE), the
+ * on a 32 MB unit and 39,000,000 B on a 64 MB unit (IPODUI_SIM_RAM), the
  * audio file buffer being audio_buffer_size() (playback.c: the buffer
  * minus AUDIO_BUFFER_RESERVE). Handles these sim_script.c commands:
  *
@@ -54,6 +54,11 @@
  *                           reservation: panel transient 785844, module
  *                           arena 65536, chap_bytes 77832; slot 4 the
  *                           resident BCM image (floor_gate.sh)
+ *   floor_reserve_to <slot> <over> [keep]
+ *                           core_alloc the free heap but <keep> bytes
+ *                           (default 0) plus enough of the audio file
+ *                           buffer that it is left <over> bytes above the
+ *                           floor (slot 0-3; #309)
  *   floor_release <slot>    free it again
  *
  * The USB prefetch ring is not modelled: it is taken only while audio is

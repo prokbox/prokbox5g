@@ -8,6 +8,7 @@
  *
  * Copyright (C) 2005 by Nick Lanham
  * Copyright (C) 2010 by Thomas Martitz
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -173,8 +174,44 @@ static void sink_set_freq(uint16_t freq)
     sink_unlock();
 }
 
+#ifdef HAVE_PCM_24BIT_OUT
+/* ProkBox #268: the sink takes 8-byte 24-bit frames as the iPod's does;
+   the host's card gets them as 16-bit (the top half of each word) through
+   a shadow, so the rest of this file stays 16-bit.  sim_pieces: the stall
+   watch's progress word, one a buffer */
+static int sim_bpf = 4;
+static unsigned long sim_pieces;
+static int16_t sim_shadow[16384];
+
+void pcm_builtin_set_depth(int bits)
+{
+    sim_bpf = bits > 16 ? 8 : 4;
+}
+
+unsigned long pcm_builtin_progress(void)
+{
+    return sim_pieces;
+}
+
+static void sim_s24_shadow(const void **addr, size_t *size)
+{
+    sim_pieces++;
+    if (sim_bpf == 4 || !*addr)
+        return;
+    const int32_t *src = *addr;
+    size_t n = MIN(*size / 4, ARRAYLEN(sim_shadow));
+    for (size_t i = 0; i < n; i++)
+        sim_shadow[i] = src[i] >> 16;
+    *addr = sim_shadow;
+    *size = n * 2;
+}
+#else
+#define sim_s24_shadow(a, s) do { } while (0)
+#endif
+
 static void sink_dma_start(const void *addr, size_t size)
 {
+    sim_s24_shadow(&addr, &size);
     pcm_data = addr;
     pcm_data_size = size;
 
@@ -310,6 +347,8 @@ static void sdl_audio_callback(void *handle, Uint8 *stream, int len)
     while (len > 0) {
         new_buffer = pcm_play_dma_complete_callback(PCM_DMAST_OK, &pcm_data,
                                                     &pcm_data_size);
+        if (new_buffer)
+            sim_s24_shadow(&pcm_data, &pcm_data_size);
 
         if (!new_buffer) {
             DEBUGF("sdl_audio_callback: No Data.\n");

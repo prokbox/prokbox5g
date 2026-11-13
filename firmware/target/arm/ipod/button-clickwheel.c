@@ -300,6 +300,7 @@ static inline int ipod_4g_button_read(void)
                     wheel_is_touched = true;
 #ifdef HAVE_IPOD_UI
                     wheel_touches++;
+                    button_queue_post(SYS_IPODUI_WHEEL_TOUCH, 0);
 #endif
                 }
             }

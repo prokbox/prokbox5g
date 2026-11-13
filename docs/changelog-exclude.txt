@@ -1,0 +1,12 @@
+# SHA reason: commits kept out of the changelog (scripts/changelog.py)
+15abd42912 duplicate line
+674167ed26 claim not yet seen on a device; the notes carry hedged wording
+9ce8a92547 claim not yet seen on a device; the notes carry hedged wording
+b677c5bfe7 claim not yet seen on a device; the notes carry hedged wording
+7d27e392fb claim not yet seen on a device; the notes carry hedged wording
+5e5fac8b54 claim worded too strongly; the notes say fewer chances
+a88412b8b0 developer log line
+786e7ba11d trailer is not exactly none
+6099cf2b66 trailer is not exactly none
+34f135da2c trailer is not exactly none
+7a17d0dd70 contains a raw <version> tag the site refuses; d6c8e6da6c says the same

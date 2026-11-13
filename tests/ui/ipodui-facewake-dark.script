@@ -1,0 +1,79 @@
+# Owner 2026-11-12: with the screen dark and the idle clock face (the unlit
+# face) behind it, exactly ONE press is swallowed: it lights the screen and
+# dismisses the face in the same step; the next press acts. Before the fix
+# a soft sleep entered from the face kept the face's state through the
+# wake: the sleep swallowed the waking press, then the (invisible) face
+# swallowed the next one too, so the third press was the first to act, and
+# a hold of PLAY meant for the sleep (the 5.5G's "off") was eaten.
+#   A  face, then dark with no sleep (the release path): MENU wakes and
+#      dismisses, SELECT opens Podcasts
+#   B  face, then the idle timer's soft sleep: MENU wakes (sleep swallow)
+#      and the face is gone with it, SELECT opens Podcasts
+#   C  as B, then PLAY held 3 s as the press after the wake: it sleeps
+#      again (sim's equivalent of the hold-PLAY power-off)
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-facewake-dark.script
+# needs: library
+# trace: unlit
+# golden: skip
+# timeout: 360
+# same: before after_menu
+# same: podcasts after_menu_select
+# same: before after_wake
+# same: podcasts after_wake_select
+# log: sleep: hold PLAY
+# log: sleep enter why=0
+# nolog: unlit swallow play
+# nolog: splash-pass
+
+wait 4000
+sim_clock 04:01
+clock_format 12
+wheel +1                # main menu, Podcasts selected
+wait 500
+shot before
+key SELECT              # what an acting SELECT shows
+wait 1500
+shot podcasts
+key MENU
+wait 1500
+
+# A: the face, then dark without a sleep (no soft sleep: the release)
+backlight_expire
+wait 3500
+shot face
+wait 15000              # the LCD's own sleep after the backlight
+key MENU                # lights and dismisses: swallowed
+wait 1000
+shot after_menu         # == before
+key SELECT              # acts
+wait 1500
+shot after_menu_select  # == podcasts
+key MENU
+wait 1500
+
+# B: the face, then the idle timer's soft sleep
+sleep_mode soft
+idle_poweroff 1
+backlight_expire
+wait 3500
+expect_sleep asleep 90000
+key MENU                # wakes: the only press swallowed
+expect_sleep button 3000
+wait 1000
+shot after_wake         # == before
+key SELECT              # acts
+wait 1500
+shot after_wake_select  # == podcasts
+key MENU
+wait 1500
+
+# C: as B, then PLAY held as the press after the wake: sleeps again
+backlight_expire
+wait 3500
+expect_sleep asleep 90000
+key MENU
+expect_sleep button 3000
+wait 1000
+hold PLAY 3000
+expect_sleep asleep 8000
+quit

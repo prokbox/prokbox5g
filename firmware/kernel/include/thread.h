@@ -155,6 +155,15 @@ unsigned int create_thread(void (*function)(void),
 #ifdef HAVE_SCHEDULER_BOOSTCTRL
 void trigger_cpu_boost(void);
 void cancel_cpu_boost(void);
+#elif defined(SIMULATOR) && defined(HAVE_IPOD_UI) && !defined(PLUGIN) \
+        && !defined(CODEC) && !defined(__PCTOOL__)
+/* ProkBox (#326): the shell's simulator counts a thread's boost as the
+ * device's scheduler does (one cpu_boost() per boosted thread), so a
+ * thread that keeps its boost refuses sleep there too
+ * (uisimulator/common/sim_cmd_sleep.c) */
+void sim_thread_boost(bool boost);
+#define trigger_cpu_boost() sim_thread_boost(true)
+#define cancel_cpu_boost() sim_thread_boost(false)
 #else
 #define trigger_cpu_boost() do { } while(0)
 #define cancel_cpu_boost() do { } while(0)

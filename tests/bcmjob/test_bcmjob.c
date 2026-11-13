@@ -233,6 +233,25 @@ static void publish(void)
 
 static void dec_kill(void);
 
+/* #325: the developer self-test of a video OPEN (bcmfw/video/selftest.c)
+ * uses 0xDDE00-0xDF000 as scratch; its display test's chroma rows (u[k] =
+ * 16 + (k % 16) * 14, video.h VIDEO_ST_AREA + 512) land on the job block.
+ * b12 silicon read their J_LAT words back (0x72645648: "22088, 29284").
+ * bad_start: an image whose start leaves the block like that (a restart
+ * that does not cure it) */
+static bool bad_start;
+static void selftest_scratch(void)
+{
+    uint32_t k;
+
+    for (k = 0; k < 512; k++)       /* the luma rows, below the block */
+        mem[0xDDE00 + k] = (uint8_t)(16 + (k % 32) * 7);
+    for (k = 0; k < 128; k++)       /* u: the block itself */
+        mem[BLOCK + k] = (uint8_t)(16 + (k % 16) * 14);
+    for (k = 0; k < 128; k++)       /* v: the slot table's start */
+        mem[BLOCK + 128 + k] = (uint8_t)(240 - (k / 16) * 28);
+}
+
 /* ---- the chip's overlay (the display-only image's stub: jobs_bcm.c) ------
  * ovl_offer: the image offers OVERLAY (J_OPS bit 21, J_OVL); stub_abi: its
  * __vc2_abi (what the stub compares the header's word with); image_abi:
@@ -386,6 +405,8 @@ static void chip_start(void)
     *w32(0x1F8) = 0x50420001;
     *w32(HP_VERSION) = HP_VERSION_WORD;
     *w32(BLOCK + J_VERSION) = J_VERSION_WORD;
+    if (bad_start)
+        selftest_scratch();
     memcpy(mem + FRONT, ppfb, sizeof(ppfb));
     memcpy(panel, ppfb, sizeof(ppfb));
     publish();
@@ -431,6 +452,28 @@ static bool dec_start(uint32_t *rec)
     uint32_t slot = rec[1] & 0xFF;
 
     dring_len = 0;
+    if (dec_lent)
+    {
+        /* the merged image has no decode_prepare() (jobs_bcm.c; dec_ovl.c):
+           nothing strips J_DEC_RING, so jref's surf() sees slot | 0x100
+           and answers J_E_SLOT.  The ring is the plain slot, J_DEC_LEN
+           the file's length (#302) */
+        if (HP_REC_LEN(rec[0]) < 2 || (rec[1] & J_DEC_RING) || !chip.decode ||
+            slot >= JREF_SLOTS || !jref_slot_px(&chip, slot) ||
+            !jdec_ring_ok(chip.slot[slot].bytes) ||
+            chip.slot[slot].cls != J_CLS_SCRATCH || !*w32(BLOCK + J_DEC_LEN))
+            return false;               /* jref answers it as it stands */
+        dring.bytes = chip.slot[slot].bytes;
+        lent_rec_len = rec[2];
+        lent_len_seen = dring_len = *w32(BLOCK + J_DEC_LEN);
+        if (rec[2] > dring.bytes)
+        {
+            rec[1] = 0xEF;
+            dring_len = 0;
+            return false;
+        }
+        goto run;
+    }
     if (HP_REC_LEN(rec[0]) < 2 || !(rec[1] & J_DEC_RING) || !chip.decode)
         return false;
     if (slot >= JREF_SLOTS || !jref_slot_px(&chip, slot) ||
@@ -457,6 +500,7 @@ static bool dec_start(uint32_t *rec)
     rec[1] = slot;
     if (rec[2] > dring.bytes)
         rec[2] = dring.bytes;
+run:
     memcpy(dj.rec, rec, sizeof(dj.rec));
     dj.on = dj.thr = true;
     dj.end = dj.kill = false;
@@ -1215,6 +1259,65 @@ static void t_stall_restart(void)
     }
     slow_until = 0;
     CHECK(restarts == 1, "slow but moving: no restart (%u)", restarts);
+}
+
+/* #325 (b12 silicon): a video play with the image kept.  The job driver
+ * suspends for it and finds the image again at the resume (HELLO, then
+ * the block).  A plain play leaves the block alone; one that ran the
+ * developer self-test leaves its scratch there, and the driver stayed on
+ * the CPU for the boot.  Now: the bad word logged, our image started
+ * again and found again, at most twice a boot. */
+static void t_block_bad(void)
+{
+    uint32_t seq;
+
+    fresh();
+    CHECK(bcmjob_have(J_OP_FILL), "up");
+    /* a plain play: suspended, the image runs on, resumed */
+    CHECK(bjc_suspend_request(true, 10) == BCMJOB_OK, "video: suspend");
+    CHECK(bjc_suspend_request(false, 10) == BCMJOB_OK, "video: resume");
+    CHECK(bcmjob_have(J_OP_FILL) && restarts == 0,
+          "a plain play: jobs again, no restart (%u)", restarts);
+
+    /* a play that ran the self-test */
+    nlines = 0;
+    CHECK(bjc_suspend_request(true, 10) == BCMJOB_OK, "self-test: suspend");
+    selftest_scratch();
+    CHECK(bjc_suspend_request(false, 10) == BCMJOB_OK, "self-test: resume");
+    CHECK(bcmjob_have(J_OP_FILL),
+          "after the self-test's play: jobs again (state %d)", bjc_state());
+    CHECK(restarts == 1, "one restart (%u)", restarts);
+    CHECK(logged("bcmjob job block bad word=version val=3a2c1e10"),
+          "the bad word and its value logged");
+    CHECK(logged("bcmjob restart why=job block n=1") &&
+          logged("bcmjob recovered after restart rc=0"),
+          "the restart and the recovery logged");
+    CHECK(!logged("bcmjob fault op=0x00"), "not a counted failure");
+    seq = fill_fence();
+    CHECK(seq && bcmjob_wait(seq, 500) == BCMJOB_OK, "the new ring runs");
+
+    /* a restart that doesn't cure it: the CPU path for this power-up,
+       logged; the next power-up tries once more, then never again */
+    bad_start = true;
+    nlines = 0;
+    (void)bjc_suspend_request(true, 10);
+    selftest_scratch();
+    (void)bjc_suspend_request(false, 10);
+    CHECK(!bcmjob_have(J_OP_FILL) && restarts == 2,
+          "still wrong after the restart: the CPU path (%u)", restarts);
+    CHECK(logged("bcmjob not recovered after restart") &&
+          logged("bcmjob cpu why=job block 000de000"),
+          "not recovered: logged");
+    powered = false;            /* dark, then lit: a new power-up */
+    (void)bcmjob_have(J_OP_FILL);
+    chip_start();
+    nlines = 0;
+    CHECK(!bcmjob_have(J_OP_FILL) && restarts == 2,
+          "the bound: no third restart in a boot (%u)", restarts);
+    CHECK(logged("bcmjob cpu why=job block 000de000 restarts=2"),
+          "the bound logged");
+    bad_start = false;
+    CHECK(bjc_state() == 2, "the CPU path, jobs not off (%d)", bjc_state());
 }
 
 static void t_dead_twice(void)
@@ -4521,6 +4624,7 @@ int main(void)
     t_death_mid_slide();
     t_ring_full();
     t_dead_twice();
+    t_block_bad();
     t_stall_restart();
     t_slow();
     t_dark_hour();

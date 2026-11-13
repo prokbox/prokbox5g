@@ -29,18 +29,21 @@
  * draws behind its screens or not at all. Now it calls
  * ui_bootfile_changed(), which pushes this prompt right after the USB
  * screen leaves: the light prompt shared with Reset Settings, a segmented
- * Restart | Later, Restart preselected. Restart loads the new image
- * (rolo_load() refuses a bad one and returns: logged, back to the shell);
- * Later does nothing, the new software starts at the next restart.
- * MENU is Later. */
+ * Restart | Later, Restart preselected. Restart is a real restart (#316):
+ * SYS_REBOOT, so clean_shutdown() saves and powers down as for a
+ * power-off (the drive, the video chip), then system_reboot() resets the
+ * whole chip and the bootloader loads the new file from the disk, the
+ * cold path. (It was rolo_load(), which copied the image over a running
+ * system and waited without bound for the second core: it froze on the
+ * device, 2026-11-12.) Later does nothing, the new software starts at the
+ * next restart. MENU is Later. */
 
 #include "config.h"
 #include <stdbool.h>
 #include "system.h"
 #include "kernel.h"
 #include "lang.h"
-#include "audio.h"
-#include "rolo.h"
+#include "powermgmt.h"
 #include "ipodui/anim.h"
 #include "ipodui/uilog.h"
 #include "ipodui/ipodui.h"
@@ -61,15 +64,11 @@ static int seg(const struct ui_screen *s)
 static void newsw_restart(void)
 {
     UPDATE_TRACE("bootfile changed choice=%s", "restart");
-#ifndef SIMULATOR                   /* the simulator has no second image */
-    audio_hard_stop();
-    if (rolo_load(BOOTDIR "/" BOOTFILE) < 0)
-    {
-        const char *why = rolo_error_text();
-
-        ui_log("boot", "restart refused: %s", why ? why : "bad image");
-    }
-#endif
+    /* on the disk before anything stops (input.c flushes the ring again
+     * with the SYS_REBOOT's own lines) */
+    ui_log("boot", "restart chosen");
+    ui_log_flush();
+    sys_reboot();                   /* broadcasts SYS_REBOOT */
 }
 
 static int newsw_enter(struct ui_screen *s, const void *arg)

@@ -309,6 +309,7 @@ void maint_boot_window(void)
     const long t0 = current_tick;
     const long end = t0 + BOOT_HOLD_MS * HZ / 1000;
     const char *how = "done";
+    long ws = -1;                       /* the walk's first sight */
     int st, pm;
 
 #ifdef SIMULATOR
@@ -326,7 +327,7 @@ void maint_boot_window(void)
     cpu_boost(true);
     for (;;)
     {
-        long el = current_tick - t0;
+        long wel;
 
         st = tagcache_boot_check(&pm);
         if (st == 2)
@@ -341,9 +342,15 @@ void maint_boot_window(void)
             how = "cap";
             break;
         }
-        /* a walk: hold on only if its projected end is inside the hold */
-        if (st == 1 && el >= HZ / 2
-            && (pm <= 0 ? el >= HZ : t0 + el * 1000 / pm > end))
+        /* a walk: hold on only if its projected end is inside the hold.
+         * Its rate counts from the walk's start, not the window's: the
+         * check's decision and the first build's count come before it,
+         * and a short walk that starts late is still inside the hold */
+        if (st == 1 && ws < 0)
+            ws = current_tick;
+        wel = st == 1 ? current_tick - ws : 0;
+        if (st == 1 && wel >= HZ / 2
+            && (pm <= 0 ? wel >= HZ : ws + wel * 1000 / pm > end))
         {
             how = "handover";
             break;

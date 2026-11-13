@@ -5,6 +5,60 @@ description: "Every change in each ProkBox5g release, built from the project his
 
 Every release, newest first. The [release notes](../releases/) say what matters most; this page lists what changed between versions. Numbers like #123 refer to the project tracker.
 
+## 0.8.3
+
+_Changes since 0.8.2._
+
+### Interface
+
+- Touching the wheel wakes the screen when it shows the clock face
+- Alarms: the alarm clock comes back on the right when you return to the Alarms list
+- Alarms: with the Sleep Timer running, its row shows the minutes left under the alarm clock
+- Alarms shows when each alarm next goes off and how long until then, and "Sleep Timer Active" with the minutes left
+- Cover art builds faster for music with embedded artwork
+- Waking the player from a dark screen with the clock face takes one press; the next press works at once
+- Fixed: the main menu no longer flashes a Now Playing row for a video's sound as the video starts
+- A first library build that finishes during the boot screen no longer flashes the library page
+
+### Playback and sound
+
+- FLAC files decode faster, most of all high-quality 24-bit ones
+- All music is now decoded on the player's second processor
+- FLAC, WAV and AIFF files recorded with more than 16 bits play at their full depth
+- Better-quality conversion for music that is not at 44.1 or 48 kHz
+- Some high-quality FLAC files that could play wrongly now play correctly
+- FLAC files wider than 29 bits are skipped cleanly instead of playing wrongly
+- Opus files need fewer hand-overs between the two processors when they start
+- When a song cannot be played, the next one now starts straight away
+- The EQ presets' upper-mid band (around 2-4 kHz) now takes effect
+- Pressing Play/Pause now shows the change at once, even while the next song is loading
+
+### Library
+
+- After you unplug from a computer that changed nothing, the busy sign in the header no longer spins for two seconds
+- Fixed a library update that could wait until power-off when it began while album art was being built
+
+### Video
+
+- A video that cannot start stops the sound and shows a message instead of a blank screen
+
+### Storage and USB
+
+- One build for flash and hard-drive players: the player finds out which it has
+- After you unplug from a computer that only read your music, the library is ready at once; when songs were added, the progress bar shows and moves straight away
+- Building album art no longer re-reads the whole Music folder for every cover it looks for
+
+### Power and start-up
+
+- The player watches both of its processors when it chooses its speed
+- The first start asks which battery is fitted
+
+### Other changes
+
+- Every player now uses the same download; the first start asks which battery is fitted
+- A library update that had to wait while music was paused now finishes in the same pause once memory frees up, instead of waiting for playback to stop
+- After watching a video, album art and the visualiser use the video chip again
+
 ## 0.8.2
 
 _Changes since 0.8.1._

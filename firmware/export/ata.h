@@ -183,10 +183,17 @@ int ata_spinup_time(void); /* ticks */
 bool ata_spinning_up(void); /* ProkBox: the hang watcher's grace */
 #endif
 
+#if defined(SIMULATOR) && defined(HAVE_IPOD_UI)
+/* ProkBox #79: the shell sim's disk model (filesystem-sim.c) */
+int sim_disk_solid(void);
+#endif
+
 /* Returns 1 if drive is solid-state */
 static inline int ata_disk_isssd(void)
 {
-#ifdef SIMULATOR
+#if defined(SIMULATOR) && defined(HAVE_IPOD_UI)
+    return sim_disk_solid();
+#elif defined(SIMULATOR)
     return 0;
 #else
     unsigned short *identify_info = ata_get_identify();

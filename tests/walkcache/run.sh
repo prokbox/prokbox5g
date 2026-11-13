@@ -36,6 +36,13 @@
 # 3. per library size: the scan's results and the opens with the cache
 #    and without it (-DFILE_NO_WALK_CACHE) are identical, line for line;
 #    the directory entries decoded and the host time of each are printed.
+# 4. the art builder's cover lookups (#332): the real
+#    search_albumart_files() (apps/recorder/albumart.c with misc.c's
+#    fix_path_part() and strip_extension(), against artshim/) for every
+#    album of a library volume with every candidate kind, the cache held
+#    across the pass: each album's expected file found, the results with
+#    and without the cache identical, and fewer entries decoded with it;
+#    a cache that ignores names (32) must change them.
 # Needs only cc. No device is touched.
 set -e
 here=$(cd "$(dirname "$0")" && pwd)
@@ -48,6 +55,17 @@ done
 cp "$top"/tests/fatcrash/shim/*.h "$out/inc/"
 fs=$top/firmware/common
 CFLAGS="-std=gnu99 -O2 -w -I$out/inc -I$top/tests/fatcrash"
+# art mode: apps/misc.c's two path helpers, as they are
+{
+    echo '#include <string.h>'
+    echo '#include <sys/types.h>'
+    echo '#include "misc.h"'
+    awk '/^void fix_path_part\(/,/^}/' "$top/apps/misc.c"
+    awk '/^char \*strip_extension\(/,/^}/' "$top/apps/misc.c"
+} >"$out/artmisc.c"
+grep -q fix_path_part "$out/artmisc.c" && grep -q strip_extension \
+    "$out/artmisc.c" || { echo "artmisc.c: helpers not found"; exit 1; }
+ARTFLAGS="-I$here/artshim -DHAVE_ALBUMART -DHAVE_JPEG"
 
 # build <name> <extra cflags>: file_internal.c counts every entry decoded
 build() {
@@ -64,7 +82,14 @@ build() {
     cc $CFLAGS "$@" -DWALK_CACHE_STATS -Dfat_readdir=wc_fat_readdir -c \
        -o "$o/file_internal.o" "$fs/file_internal.c"
     # shellcheck disable=SC2086
-    cc $CFLAGS "$@" -c -o "$o/walkcache.o" "$here/walkcache.c"
+    cc $CFLAGS $ARTFLAGS "$@" -c -o "$o/walkcache.o" "$here/walkcache.c"
+    # shellcheck disable=SC2086
+    cc $CFLAGS $ARTFLAGS "$@" -c -o "$o/albumart.o" \
+       "$top/apps/recorder/albumart.c"
+    # shellcheck disable=SC2086
+    cc $CFLAGS $ARTFLAGS "$@" -c -o "$o/artmisc.o" "$out/artmisc.c"
+    # shellcheck disable=SC2086
+    cc $CFLAGS "$@" -c -o "$o/strmemccpy.o" "$fs/strmemccpy.c"
     cc -o "$out/walkcache_$name" "$o"/*.o
 }
 
@@ -135,6 +160,48 @@ for n in "$@"; do
     echo "  cache:    $(grep "^stat" "$out/lib-on-$n.txt" | tr '\n' ' ')"
     echo "  no cache: $(grep "^stat" "$out/lib-off-$n.txt" | tr '\n' ' ')"
     sed 's/^/  cache: /' "$out/lib-on-$n.err"
+done
+# the art comparison below must see a wrong cache
+"$out/walkcache_break32" art 400 32 2048 2>/dev/null | grep -v "^stat" \
+    >"$out/a.txt" || true
+"$out/walkcache_off" art 400 32 2048 2>/dev/null | grep -v "^stat" \
+    >"$out/b.txt" || true
+if cmp -s "$out/a.txt" "$out/b.txt"; then
+    echo "WALKCACHE_BREAK=32: art results did NOT change"
+    rc=1
+else
+    echo "WALKCACHE_BREAK=32: art results differ (red, as they must)"
+fi
+
+[ -n "$WALKCACHE_ART" ] || WALKCACHE_ART="1000 6500"
+for n in $WALKCACHE_ART; do
+    echo "== art $n albums (16 KiB clusters, 2048-byte sectors)"
+    "$out/walkcache_on" art "$n" 32 2048 >"$out/art-on-$n.txt" \
+        2>"$out/art-on-$n.err" || rc=1
+    "$out/walkcache_off" art "$n" 32 2048 >"$out/art-off-$n.txt" \
+        2>"$out/art-off-$n.err" || rc=1
+    grep "FAIL" "$out/art-on-$n.txt" "$out/art-off-$n.txt" | head -5
+    grep -v "^stat" "$out/art-on-$n.txt" >"$out/a.txt" || true
+    grep -v "^stat" "$out/art-off-$n.txt" >"$out/b.txt" || true
+    if ! grep -q "^art: $n albums [1-9][0-9]* found 0 wrong" "$out/a.txt" \
+       || [ "$(grep -c "^art kind .*: [1-9][0-9]* of" "$out/a.txt")" != 12 ] \
+       || ! cmp -s "$out/a.txt" "$out/b.txt"; then
+        echo "art $n: wrong answers, a kind never found, or results DIFFER"
+        diff "$out/a.txt" "$out/b.txt" | head
+        rc=1
+    else
+        echo "art $n: identical, every kind found ($(grep "^art:" \
+             "$out/a.txt"))"
+    fi
+    on=$(sed -n 's/^stat art_decoded \([0-9]*\).*/\1/p' "$out/art-on-$n.txt")
+    off=$(sed -n 's/^stat art_decoded \([0-9]*\).*/\1/p' "$out/art-off-$n.txt")
+    if [ -z "$on" ] || [ -z "$off" ] || [ "$on" -ge "$off" ]; then
+        echo "art $n: the cache decoded no fewer entries ($on vs $off)"
+        rc=1
+    fi
+    echo "  cache:    $(grep "^stat" "$out/art-on-$n.txt")"
+    echo "  no cache: $(grep "^stat" "$out/art-off-$n.txt")"
+    sed 's/^/  cache: /' "$out/art-on-$n.err"
 done
 if [ $rc = 0 ]; then echo "walkcache: PASS"; else echo "walkcache: FAIL"; fi
 exit $rc

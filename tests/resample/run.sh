@@ -22,14 +22,17 @@
 #
 #***************************************************************************
 
-# Resampler host tests (P19 19-13, docs/design/resample-plan.md):
-#   1. the coefficient header equals a fresh tests/resample/hb_design.py run;
+# Resampler host tests (P19 19-13 and #271, docs/design/resample-plan.md):
+#   1. the coefficient headers equal a fresh tests/resample/hb_design.py and
+#      fir_design.py run (the FIR's within 2 LSB);
 #   2. ARM half-band code == C reference, bit for bit, under qemu
 #      (tests/resample/arm.sh; skipped with a note without the tools), plus
 #      its instruction and cycle counts;
 #   3. every converted ratio through warble's real DSP: multitone in,
 #      passband flatness and alias/image rejection out (measure.py), with
-#      today's Hermite (rsq=0) printed beside it for comparison;
+#      upstream's Hermite (rsq=0) printed beside it for comparison; the
+#      output rates above warble's 48 kHz limit (#270's 88.2/96 kHz) through
+#      the resampler alone (unit.c's wav mode, 32-bit output);
 #   4. mono, and the time-stretch chain in front of the resampler;
 #   5. golden output hashes (tests/resample/golden.txt). After a deliberate
 #      change, regenerate with: tests/resample/run.sh --update-golden
@@ -57,6 +60,12 @@ else
     echo "FAIL resample_hb_coefs.h differs from hb_design.py"; fail=1
 fi
 
+if python3 tests/resample/fir_design.py --check lib/rbcodec/dsp/resample_fir_coefs.h >/dev/null; then
+    echo "ok   resample_fir_coefs.h equals a fresh fir_design.py run ($(python3 tests/resample/fir_design.py --specs))"
+else
+    echo "FAIL resample_fir_coefs.h differs from fir_design.py"; fail=1
+fi
+
 # 2. ARM == C
 sh tests/resample/arm.sh || fail=1
 
@@ -68,7 +77,7 @@ I="-Ibuild/warble -Ilib/fixedpoint -Ilib/rbcodec/test -Iapps \
 # shellcheck disable=SC2086
 if ${CC:-cc} $I -DROCKBOX -DMEMORYSIZE=64 -DIPOD_VIDEO -DTARGET_ID=15 \
        -DWARBLE -D__PCTOOL__ -std=gnu99 -O2 -Wall -Wno-pointer-sign \
-       tests/resample/unit.c lib/rbcodec/dsp/resample_hb.c \
+       tests/resample/unit.c lib/rbcodec/dsp/resample_hb.c lib/rbcodec/dsp/resample_fir.c \
        -o "$T/unit" 2>"$T/unit.log" && "$T/unit" >"$T/unit.txt"; then
     echo "ok   block boundaries: $(grep -c '^ok' "$T/unit.txt") ratio/channel cases identical in one block and in 1..37-sample blocks"
 else
@@ -76,10 +85,11 @@ else
 fi
 
 # 3. ratios: name fin fout channels kind pass_db reject_db residual_db
-#    tones [rsq]. residual_db 0 skips the glitch check: the Hermite step's
-#    16.16 phase step makes x3/x6/3:2 run a few ppm off pitch (as upstream
-#    does for every non-integer ratio), which a whole-file fit reads as
-#    residual.
+#    tones [rsq]. Every ratio is band-limited (#271): images and aliases at
+#    least 88 dB down (designs: 91-110 dB), passband flat within 0.1 dB, and
+#    the residual (output minus the fitted tones: glitches, drift) 65 dB
+#    down. The fractional path's phase is exact, so x3, x6, 3:2 and 44.1 <->
+#    48 kHz no longer run off pitch.
 : >"$T/hash.txt"
 case_() {
     name=$1 fin=$2 fout=$3 ch=$4 kind=$5 pdb=$6 rdb=$7 res=$8 tones=$9
@@ -95,24 +105,54 @@ case_() {
     echo "     (Hermite: $($M check "$fin" "$T/$name.h.wav" "$tones" "$kind" 99 0 0))"
     echo "$name $(tail -c +45 "$T/$name.out.wav" | shasum | cut -c1-16)" >>"$T/hash.txt"
 }
+# the same through the resampler alone, for output rates above 48 kHz
+ucase_() {
+    name=$1 fin=$2 fout=$3 ch=$4 kind=$5 pdb=$6 rdb=$7 res=$8 tones=$9
+    $M gen "$T/$name.wav" "$fin" "$ch" 1.5 "$tones"
+    if ! "$T/unit" wav "$fout" "$T/$name.wav" "$T/$name.out.wav"; then
+        echo "FAIL $name: unit wav failed"; fail=1; return
+    fi
+    if r=$($M check "$fin" "$T/$name.out.wav" "$tones" "$kind" "$pdb" "$rdb" "$res"); then
+        echo "ok   $name: $r"
+    else
+        echo "FAIL $name: $r"; fail=1
+    fi
+    echo "$name $(tail -c +45 "$T/$name.out.wav" | shasum | cut -c1-16)" >>"$T/hash.txt"
+}
 # hi-res decimation: aliases must stay 88 dB down (designs: 91 / 96 dB)
 case_ d2_882 88200 44100 2 down 0.1 88 65 1000,10000,20000,24200,30000,40100
 case_ d2_96  96000 48000 2 down 0.1 88 65 1000,10000,20000,28500,35000,46300
 case_ d4_1764 176400 44100 2 down 0.1 88 65 1000,10000,20000,24200,60000,85000
 case_ d4_192 192000 48000 2 down 0.1 88 65 1000,10000,20000,28500,50000,90500
+# DXD and 384 kHz (#270): /8
+case_ d8_3528 352800 44100 2 frac 0.1 88 65 1000,10000,20000,24200,100000,170000
+case_ d8_384 384000 48000 2 frac 0.1 88 65 1000,10000,20000,28500,100000,185000
 # low-rate interpolation: images 88 dB down (whole band flat to 0.45 fin)
 case_ u2_2205 22050 44100 2 up 0.1 88 65 1000,5000,9000,10000
 case_ u2_24  24000 48000 2 up 0.1 88 65 1000,5000,9500,10800
 case_ u4_11025 11025 44100 2 up 0.1 88 65 500,2500,4500,5000
 case_ u4_12  12000 48000 2 up 0.1 88 65 500,2500,4500,5400
-# x3 / x6 (speech rates): x4 half-bands then Hermite, images 40 dB down
-case_ u3_16  16000 48000 2 up 0.1 40 0 500,2000,4000,6500
-case_ u6_8   8000 48000 2 up 0.1 40 0 300,1000,2000,3200
-# 3:2 is Hermite by default (rsq=1); rsq=2 measures the x2 + Hermite path
-# (Hermite 4:3 at 64 kHz droops 0.25 dB at 13 kHz)
-case_ r32_q2 32000 48000 2 up 0.3 40 0 1000,5000,10000,13000 2
+# x3, x6, 3:2 (speech, DAB, podcasts): the fractional path, cached rows
+case_ u3_16  16000 48000 2 frac 0.1 88 65 500,2000,4000,6500
+case_ u6_8   8000 48000 2 frac 0.1 88 65 300,1000,2000,3200
+case_ r32    32000 48000 2 frac 0.1 88 65 1000,5000,10000,13000
+# across the families (a fixed output rate), and odd rates
+case_ f441_48 44100 48000 2 frac 0.1 88 65 1000,5000,10000,15000,19000
+case_ f48_441 48000 44100 2 frac 0.1 88 65 1000,5000,10000,15000,19000
+case_ f2205_48 22050 48000 2 frac 0.1 88 65 1000,4000,8000,9500
+case_ f96_441 96000 44100 2 frac 0.1 88 65 1000,10000,19000,30000,40000
+case_ f882_48 88200 48000 2 frac 0.1 88 65 1000,10000,19000,30000,40000
+case_ f384_441 384000 44100 2 frac 0.1 88 65 1000,10000,19000,30000,100000
+case_ f378_441 37800 44100 2 frac 0.1 88 65 1000,5000,10000,16000
+# #270's high output rates (native 88.2/96 kHz on): 2:1 and 4:1 by hb_r
+ucase_ h192_96 192000 96000 2 frac 0.1 88 65 1000,10000,20000,30000,40000,80000,90000
+ucase_ h1764_882 176400 88200 2 frac 0.1 88 65 1000,10000,20000,70000,85000
+ucase_ h384_96 384000 96000 2 frac 0.1 88 65 1000,10000,20000,100000,170000,190000
+ucase_ h3528_882 352800 88200 2 frac 0.1 88 65 1000,10000,20000,100000,160000
+ucase_ h441_96 44100 96000 2 frac 0.1 88 65 1000,5000,10000,15000,19000
 # 4. mono (the usual audiobook) and time-stretch before the resampler
 case_ u2_mono 22050 44100 1 up 0.1 88 65 1000,5000,9000
+case_ f441_mono 44100 48000 1 frac 0.1 88 65 1000,5000,10000,19000
 # mono 24-bit WAV blocks are an odd number of samples: the /2 tail carries
 case_ d2_mono 96000 48000 1 down 0.1 88 65 1000,10000,20000,28500,35000,46300
 $M gen "$T/ts.wav" 22050 1 1.5 1000,4000

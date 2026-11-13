@@ -64,6 +64,7 @@
 #include "config.h"
 #include "system.h"
 #include "kernel.h"
+#include "button.h"              /* button_boost_release() (#272) */
 #include "file.h"
 #include "audio.h"
 #include "playback.h"               /* audio_unplayable_end() (#281) */
@@ -655,6 +656,9 @@ int lib_shuffle_start(enum np_shuffle mode, uint32_t first)
     unsigned long t0 = sim_clock_now_us(), c0 = sim_clock_cpu_us();
 #endif
 
+    /* #272: the record, the playlist's files and the refill's reads:
+     * the key's boost is not held through them */
+    button_boost_release();
     rec_load();
     ses.on = false;             /* a new queue: a refill under way ends */
     keep = rec;                 /* after the load: a failure restores it */

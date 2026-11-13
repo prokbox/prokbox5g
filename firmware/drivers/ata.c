@@ -132,13 +132,14 @@ static bool ata_led_enabled = true;
 static bool ata_led_on = false;
 #endif
 
-#if defined(HAVE_IPOD_UI) && defined(HAVE_FLASH_STORAGE)
-/* ProkBox (Fit-1 C1): flash has no spin-up, so the hard disk's 5 s of
- * hysteresis only keeps the adapter out of standby; 1 s covers a burst of
- * reads. Hard disk units keep 5 s and their spin-down setting. */
-#define ATA_SLEEP_TIMEOUT_DEFAULT (1*HZ)
-#else
 #define ATA_SLEEP_TIMEOUT_DEFAULT (5*HZ)
+#if defined(HAVE_IPOD_UI) && defined(HAVE_STORAGE_POWEROFF)
+/* ProkBox (Fit-1 C1; #79 one build): flash has no spin-up, so the hard
+ * disk's 5 s of hysteresis only keeps the adapter out of standby; 1 s
+ * covers a burst of reads. Set at init when the drive is solid
+ * (ata_disk_isssd()), and settings_apply() then leaves it alone; a hard
+ * disk keeps 5 s and its spin-down setting (docs/storage-choices.md) */
+#define ATA_SLEEP_TIMEOUT_SOLID (1*HZ)
 #endif
 static long sleep_timeout = ATA_SLEEP_TIMEOUT_DEFAULT;
 
@@ -1238,6 +1239,11 @@ static int ata_smart(uint16_t *buf, uint8_t cmd)
 }
 int ata_read_smart(struct ata_smart_values* smart_data, uint8_t cmd)
 {
+    /* ProkBox #79 (one build): only a drive that reports the SMART
+     * feature set (IDENTIFY word 82 bit 0); a flash adapter usually
+     * doesn't, and the command would only time out */
+    if (!(identify_info[82] & 1))
+        return -3;
     mutex_lock(&ata_mutex);
     int rc = ata_smart((uint16_t*)smart_data, cmd);
     mutex_unlock(&ata_mutex);
@@ -1520,12 +1526,18 @@ static int set_features(void)
     if (identify_info[53] & (1<<2)) {
         int max_udma = ATA_MAX_UDMA;
 #if ATA_MAX_UDMA > 2
-        if (!identify_info[76] && !(identify_info[93] & (1<<13))) /* w93b13 is only valid for PATA, w76 is 0 PATA */
+        /* ProkBox #79 (one build): a rotating drive stays at upstream's
+         * UDMA2 (the ~10% gain isn't worth the boost per transfer); a
+         * solid one gets the ceiling unless it reports no UDMA words */
+        bool solid = ata_disk_isssd();
+        if (!solid ||
+            (!identify_info[76] && !(identify_info[93] & (1<<13)))) /* w93b13 is only valid for PATA, w76 is 0 PATA */
             max_udma = 2;
 #endif
 #ifdef HAVE_ATA_UDMA_FORCE
-        /* C7: only a mode the adapter lists as supported */
-        if (udma_force > max_udma && udma_force <= ATA_MAX_UDMA
+        /* C7: only a mode the adapter lists as supported, and only on a
+         * solid drive (#79) */
+        if (solid && udma_force > max_udma && udma_force <= ATA_MAX_UDMA
             && (identify_info[88] & BIT_N(udma_force)))
             max_udma = udma_force;
 #endif
@@ -1716,6 +1728,10 @@ int STORAGE_INIT_ATTR ata_init(void)
 #ifdef HAVE_STORAGE_POWEROFF
         stor_pwr_init(&spw, current_tick, true);
         spw_solid = ata_disk_isssd();
+#ifdef ATA_SLEEP_TIMEOUT_SOLID
+        if (spw_solid)          /* #79: the drive-timing table's idle hold */
+            sleep_timeout = ATA_SLEEP_TIMEOUT_SOLID;
+#endif
 #endif
     }
 

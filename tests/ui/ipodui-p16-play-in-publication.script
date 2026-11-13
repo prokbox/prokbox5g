@@ -1,0 +1,40 @@
+# #272: a key's boost (button_queue.c, released only at a later key read)
+# is not held through a handler that waits on I/O. PLAY on a song while a
+# library update publishes its new database: lib_play() waits in
+# tagcache_context_acquire() until the publication ends. Before, the
+# key's boost stayed up the whole wait (count +1); now the wait gives it
+# back at once, and the play still starts after the publication.
+# commit_hold 101 holds the publication open, readers waiting.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p16-play-in-publication.script
+# needs: library
+# golden: skip
+# timeout: 240
+# nolog: lib play fail
+
+wait 4000
+wait_db 45000
+key SELECT          # Music
+wait 800
+wheel -10 100
+wait 300
+wheel +3 300        # Songs
+wait 600
+key SELECT          # the Songs list
+wait 2000
+expect_boost 0 3000 # at rest: nothing boosted
+commit_hold 101
+db_mark
+copy ../../tests/fixtures/plain.mp3 /Music/p272.mp3
+update_db
+commit_hold_wait 90000
+expect_boost 0 3000 # the held publication, before the key
+key SELECT          # play the first song: lib_play() waits on it
+wait 1500
+expect_boost 0      # the key's boost given back while the handler waits
+commit_release
+wait 3000
+expect_playing 1000
+expect_db_grew 90000
+shot playing
+rm_file /Music/p272.mp3
+quit

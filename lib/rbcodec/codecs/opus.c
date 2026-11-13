@@ -11,6 +11,7 @@
  * Copyright (C) 2006 Frederik M.J. Vestre
  * Based on vorbis.c codec interface:
  * Copyright (C) 2002 Björn Stenberg
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -57,47 +58,56 @@ static int get_more_data(ogg_sync_state *oy)
     return bytes;
 }
 
+/* ProkBox (p083-codecload): find pat at or after the current position,
+ * leaving the position on its first byte; 0 if the file ends first. The
+ * bytes are looked at where they are buffered (request_buffer), a block at
+ * a time. Upstream read them one read_filebuf() call per byte: a codec on
+ * the COP makes each call a cross-core round trip, and the comment header
+ * of a file with embedded art is the ~110 KB to pass (an Opus start took
+ * 15 s on the device; tests/opusstart). On the COP a buffered block is
+ * read from the ring with no call at all */
+#define SCAN_CHUNK 4096
+static int scan_to(const char *pat, size_t len)
+{
+    while (1) {
+        size_t got = 0, i;
+        const unsigned char *p = ci->request_buffer(&got, SCAN_CHUNK);
+
+        if (!p || got < len)
+            return 0;
+        for (i = 0; i + len <= got; i++) {
+            if (p[i] == (unsigned char)pat[0] && !memcmp(p + i, pat, len)) {
+                ci->advance_buffer(i);
+                return 1;
+            }
+        }
+        /* the last len - 1 bytes may start a match: looked at again */
+        ci->advance_buffer(got - (len - 1));
+    }
+}
+
 /* seek to ogg page after given file position */
 static int seek_ogg_page(uint64_t filepos)
 {
-    const char synccode[] = "OggS\0"; /* Note: there are two nulls here */
-    char buf[sizeof(synccode)];
+    /* the capture pattern, version 0 and header type 0 (a page that starts
+       a packet: a continuation page of the comment header is passed) */
+    static const char synccode[] = "OggS\0"; /* Note: there are two nulls here */
     ci->seek_buffer(filepos);
-    while (ci->read_filebuf(buf, 1) == 1) {
-        if (buf[0] == synccode[0]) {
-            if (ci->read_filebuf(&buf[1], sizeof(buf) - 1) != sizeof(buf) - 1)
-                break;
-            if (memcmp(buf, synccode, sizeof(buf)) == 0) {
-                ci->seek_buffer(ci->curpos - sizeof(buf));
-                LOGF("next page %jd", (intmax_t) ci->curpos);
-                return 1;
-            } else
-                ci->seek_buffer(ci->curpos - (sizeof(buf) - 1));
-        }
-    }
-    return 0;
+    if (!scan_to(synccode, sizeof(synccode)))
+        return 0;
+    LOGF("next page %jd", (intmax_t) ci->curpos);
+    return 1;
 }
 
 /* seek to comment header */
 static int seek_opus_tags(void)
 {
-    const char synccode[] = "OpusTags";
-    char buf[sizeof(synccode) - 1]; /* Exclude null */
+    static const char synccode[] = "OpusTags";
     ci->seek_buffer(0);
-    while (ci->read_filebuf(buf, 1) == 1) {
-        if (buf[0] == synccode[0]) {
-            if (ci->read_filebuf(&buf[1], sizeof(buf) - 1) != sizeof(buf) - 1)
-                break;
-            if (memcmp(buf, synccode, sizeof(buf)) == 0) {
-                ci->seek_buffer(ci->curpos - sizeof(buf));
-                LOGF("OpusTags %jd", (intmax_t) ci->curpos);
-                return 1;
-            } else
-                ci->seek_buffer(ci->curpos - (sizeof(buf) - 1));
-        }
-    }
-    /* comment header not found probably invalid file */
-    return 0;
+    if (!scan_to(synccode, sizeof(synccode) - 1)) /* Exclude null */
+        return 0; /* comment header not found probably invalid file */
+    LOGF("OpusTags %jd", (intmax_t) ci->curpos);
+    return 1;
 }
 
 /* The read/seek functions track absolute position within the stream */

@@ -1,0 +1,31 @@
+# #332 A/B: the art pass logs its progress to ipodui.log while it walks
+# the albums, "art progress n=<line> done=<d>/<total> s=<seconds>", at
+# most every 20th of the albums and (on the device) at most once a
+# minute, whichever comes later: a 50k pass logs at most about 20 lines.
+# The simulator's time gate is one tick (its passes take
+# seconds), so the step alone bounds the lines here: a full pass of the
+# test library (69 albums) logs at least one line and never a 21st.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-art-progress.script
+# needs: library
+# golden: skip built
+# timeout: 240
+# logbetween: b0 end art progress n=1 done=\d+/\d+ s=\d+
+# logrange: 1 20 after=b0 art progress n=(\d+)
+# logrange: 1 69 after=b0 art progress n=\d+ done=(\d+)/
+# logbetween: b0 end art pass done albums=
+
+wait 1000
+wait_db 30000
+art_wait 120000
+rm_file /.rockbox/artcache/index.dat
+rm_file /.rockbox/artcache/index.prev
+rm_file /.rockbox/artcache/index.tmp
+rm_file /.rockbox/artcache/thumbs.pak
+reboot
+
+ab_mark b0
+wait 1000
+wait_db 30000
+art_wait 120000
+wait 1000
+shot built

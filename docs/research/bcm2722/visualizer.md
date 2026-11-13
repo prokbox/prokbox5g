@@ -373,7 +373,7 @@ The mixer tap is the cheapest exact place: it sits where the bytes go to the DAC
 
 ### 11.2 The API (`viz_tap.h`)
 
-- `size_t viz_tap_bytes(unsigned n)`: 4,143 B on the device for n = 512 or 256 (the ring of 1,024 frames, its 20-byte header on its own cache line, alignment). The simulator's mixer frames are 1,024 frames long, so 16,431 B there.
+- `size_t viz_tap_bytes(unsigned n)`: 8,239 B on the device for n = 512 or 256 (the ring of 2,048 frames, its 20-byte header on its own cache line, alignment), sized for the 96 kHz top rate (#268/#270; 4,143 B and 1,024 frames at 48 kHz). The simulator's mixer frames are 1,024 frames long, so 32,815 B there. `VIZ_TAP_BYTES_C(n)` is the same as a constant expression; the screen arena's bound asserts from it (#295: a pinned 4,143 B there went stale and the view stopped opening while music played).
 - `int viz_tap_open(unsigned n, void *mem, size_t bytes)`: n is 256 or 512. Refuses `VIZ_TAP_E_BOOK` while a book plays, `E_SIZE`, `E_NOMEM`, `E_BUSY`. CPU only.
 - `unsigned viz_tap_read(int16_t *out, unsigned opts, struct viz_tap_frame *f)`: the newest n samples in **split order** (`out[k] = x[2k]`, `out[n/2 + k] = x[2k+1]`), ready for `SPECTRUM`'s slot or `jviz_power_ref()`. Returns flags, 0 for a fresh window of sound:
   - `STALE`: `head` hasn't moved since the last read (paused, stopped, or read twice inside a mixer frame);

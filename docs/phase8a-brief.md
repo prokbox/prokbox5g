@@ -2,6 +2,8 @@
 
 *Orchestrator brief, 2026-10-09, branch `p8a` (from `main`). **Revision 1 (brief review, 2026-10-09) is applied inline to §3–§6 and listed at the end; where an older sentence disagrees, Revision 1 wins.***
 
+> **2026-11-12 (0.8.3, one build):** `--dock30` and `HAVE_IPOD_DOCK30` are gone (#236): iAP is resident and dormant in every shell build, and the USB screen shows the USB-C glyph on every unit (the 30-pin glyph stays in the art kit for the sim's `usb_glyph dock30`). See `docs/changes-from-rockbox.md` §2.92. The text below is the brief as written.
+
 * Written while the owner was asleep: open points are frozen as ⚠️ with a default (§10) and go to the owner round. They are not revised mid-phase. Process: `docs/process.md` (brief template, device-reality checklist 1–13).*
 
 **Goal.** Before the device sees this firmware (P10), nothing Rockbox-looking can show up on any path a user can reach. That covers the boot (bootloader, then firmware), USB, splashes, and the dark screen after the backlight times out. The System debug screens stay reachable only through a hidden combo.

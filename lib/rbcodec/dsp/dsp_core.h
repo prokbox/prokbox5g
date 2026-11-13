@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2005 Miika Pekkarinen
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -28,6 +29,12 @@ enum dsp_ids
     CODEC_IDX_VOICE,
     DSP_COUNT,
 };
+
+/* ProkBox #268: the 24-bit output stage (the iPod shell build; warble for
+ * the host test) */
+#if defined(HAVE_PCM_24BIT_OUT) || defined(WARBLE)
+#define DSP_OUT_S24
+#endif
 
 enum dsp_settings
 {
@@ -77,6 +84,7 @@ struct dsp_buffer
         const void *pin[2]; /* 04h: Channel pointers (In) */
         int32_t *p32[2];    /* 04h: Channel pointers (Int) */
         int16_t *p16out;    /* 04h: DSP output buffer (Out) */
+        int32_t *p32out;    /* 04h: ProkBox #268: the 24-bit output (Out) */
     };
     union
     {
@@ -143,5 +151,20 @@ intptr_t dsp_configure(struct dsp_config *dsp, unsigned int setting,
 
 /* One-time startup init that must come before settings reset/apply */
 void dsp_init(void) INIT_ATTR;
+
+/* ProkBox #282 step 4: the cross-core lock around every change to a
+ * DSP's state (recursive for its holder). No-ops unless the platform
+ * provides them (apps/codec_cop.c on a dual-core target) */
+void dsp_xcore_lock(void);
+void dsp_xcore_unlock(void);
+struct buflib_callbacks;
+/* For a stage's own core_alloc_ex() buffer: moves wait for the lock */
+extern struct buflib_callbacks dsp_buflib_ops;
+
+#ifdef DSP_OUT_S24
+/* ProkBox #268: the audio DSP's output depth, 16 (int16 pairs) or 24
+ * (int32 pairs, the 24 bits at the top); dsp_sample_output.c */
+void dsp_set_output_depth(struct dsp_config *dsp, int bits);
+#endif
 
 #endif /* _DSP_H */

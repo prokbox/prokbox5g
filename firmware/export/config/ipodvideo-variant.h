@@ -21,24 +21,31 @@
  *
  ****************************************************************************/
 
-/* Phase 9: per-unit build variant (CLAUDE.md rule 7) and the shell's trims.
- * tools/configure passes IPOD_* / HAVE_IPOD_*; unset ones take the owner's
- * unit's value below. These defaults reproduce the pre-P9 ipodvideo.h
- * exactly, so the stock build stays byte-identical (checklist 11). */
+/* Phase 9: the unit's build facts (CLAUDE.md rule 7) and the shell's
+ * trims. Since 0.8.3 there is one build for every unit and configure
+ * passes no IPOD_* define: the per-unit facts are read or asked at
+ * start-up. The defaults below reproduce the pre-P9 ipodvideo.h exactly,
+ * so the stock build stays byte-identical (checklist 11). */
 #ifndef IPODVIDEO_VARIANT_H
 #define IPODVIDEO_VARIANT_H
 
-/* --storage=flash|hdd   -> IPOD_STORAGE_HDD when hdd                   */
-/* --ram=64|32           -> configure memory= (MEMORYSIZE)              */
-/* --battery=<mAh>|stock -> IPOD_BATTERY_MAH (0 = stock cell, 400/600)  */
+/* Storage: read at start-up, ata_disk_isssd() (#79; IPODUI_SIM_DISK in
+ * the simulator). RAM: one 64 MB image, a 32 MB unit is read at start-up
+ * (#204, probed_ramsize; IPODUI_SIM_RAM in the simulator). Battery: the
+ * shell asks the fitted cell once at first start (#205,
+ * apps/ipodui/battcell.h); IPOD_BATTERY_MAH is only the stock (non-shell)
+ * build's fitted cell, 3,000 mAh, no longer set by configure. Dock
+ * connector and haptics: no build dimension (#236): iAP is resident and
+ * dormant on every unit; the click is the same pulse on the piezo and the
+ * haptic mod. */
 #ifndef IPOD_BATTERY_MAH
 #define IPOD_BATTERY_MAH 3000
 #endif
-/* --dock30 -> HAVE_IPOD_DOCK30 (8a). --haptics -> HAVE_IPOD_HAPTICS.   */
-/* IPOD_VARIANT: written to autoconf.h by tools/configure for --ipodui
- * firmware builds (storage-ram-battery-dock-haptics), else this default. */
+/* IPOD_VARIANT: the build's name in the boot log ("boot variant ..."),
+ * diag.txt and the developer status. One build: no storage, RAM or
+ * battery field (the unit's facts follow in the "unit ..." boot lines). */
 #ifndef IPOD_VARIANT
-#define IPOD_VARIANT "flash-64-3000-usbc-haptic"
+#define IPOD_VARIANT "one-build"
 #endif
 
 #ifdef HAVE_IPOD_UI
@@ -51,9 +58,6 @@
  * integration removed the contract's IPODUI_TRIM_DEFAULTS guard). */
 #define IPODUI_TRIM_RECORDING      /* recording, *_enc.codec, peak meter   */
 #define IPODUI_TRIM_RADIO          /* remote tuner, RDS, presets           */
-#ifndef HAVE_IPOD_DOCK30
-#define IPODUI_TRIM_IAP            /* iAP, serial; dock line-out off       */
-#endif
 #define IPODUI_TRIM_USB_CLASSES    /* HID, HID mouse, UAC, USB-iAP; MSC stays */
 #define IPODUI_TRIM_DIRCACHE       /* device path == sim path              */
 #define IPODUI_TRIM_UTF8PROC       /* firmware/common/nfc.c instead        */
@@ -79,9 +83,6 @@
 #endif
 
 /* Variant coherence: a trim that the variant itself contradicts. */
-#if defined(IPODUI_TRIM_IAP) && defined(HAVE_IPOD_DOCK30)
-#error "IPODUI_TRIM_IAP contradicts --dock30 (the unit has a dock connector)"
-#endif
 #if defined(IPODUI_TRIM_PLUGINS) && defined(HAVE_IPOD_UI_PLUGINS)
 #error "IPODUI_TRIM_PLUGINS contradicts --ipodui-plugins"
 #endif
@@ -99,12 +100,11 @@
  *                     viewer, gui_wps_show, plugin_load, tagtree_export)
  *   QUICKSCREEN needs BROWSER, SKIN              (do_shortcut_menu,
  *                     shortcuts_add, sb_skin_force_next_update)
- *   IAP         leaf (iap-lingo4.c starts a playlist without
- *                     filetree.c under BROWSER; the --dock30 build)
- *   RADIO       needs IAP, KEYBOARD, BROWSER, SKIN, STOCK_MENUS
- *                     (ipod_remote_tuner.c iap_send_pkt; presets.c
- *                     kbd_input/rockbox_browse; radio_skin.c; radio menu)
- *   Measured leaves: KEYBOARD, VOICE, MISC, USB_CLASSES, IAP.
+ *   RADIO       needs KEYBOARD, BROWSER, SKIN, STOCK_MENUS
+ *                     (presets.c kbd_input/rockbox_browse; radio_skin.c;
+ *                     radio menu; iAP, which it also calls, is never
+ *                     trimmed since #236)
+ *   Measured leaves: KEYBOARD, VOICE, MISC, USB_CLASSES.
  * Cycles (SKIN, BROWSER, TAGTREE, STOCK_MENUS, PLUGINS) come back
  * together. The checks make an incoherent set fail at compile time with a
  * clear message naming every need, instead of a link error. Keep
@@ -136,10 +136,10 @@
     defined(IPODUI_TRIM_SKIN))
 #error "quickscreen needs BROWSER and SKIN"
 #endif
-#if !defined(IPODUI_TRIM_RADIO) && (defined(IPODUI_TRIM_IAP) || \
-    defined(IPODUI_TRIM_KEYBOARD) || defined(IPODUI_TRIM_BROWSER) || \
-    defined(IPODUI_TRIM_SKIN) || defined(IPODUI_TRIM_STOCK_MENUS))
-#error "radio needs IAP, KEYBOARD, BROWSER, SKIN and STOCK_MENUS"
+#if !defined(IPODUI_TRIM_RADIO) && (defined(IPODUI_TRIM_KEYBOARD) || \
+    defined(IPODUI_TRIM_BROWSER) || defined(IPODUI_TRIM_SKIN) || \
+    defined(IPODUI_TRIM_STOCK_MENUS))
+#error "radio needs KEYBOARD, BROWSER, SKIN and STOCK_MENUS"
 #endif
 
 /* Fit-1 C12a: one storage command moves up to 256 KB (buffering's fill
@@ -171,11 +171,12 @@
 
 /* Fit-1 C7: the developer experiment that forces UDMA4 on the flash
  * adapter (IDENTIFY words 76/93 are 0, so it negotiates UDMA2). Off by
- * default, developer builds and flash units only; DMA writes are off
+ * default, developer builds; applied on solid drives only (#79, runtime:
+ * ata.c set_features()); DMA writes are off
  * while it is forced, and the first failed command falls back to UDMA2
  * (ata.c, apps/ipodui/udmatest.c). */
 #if defined(HAVE_IPOD_UI_DEVMODE) && !defined(BOOTLOADER) \
-    && !defined(IPOD_STORAGE_HDD) && !defined(SIMULATOR)
+    && !defined(SIMULATOR)
 #define HAVE_ATA_UDMA_FORCE
 #endif
 /* Fit-2: work for the second core (firmware/export/cop_job.h,

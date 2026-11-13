@@ -48,6 +48,9 @@
 #include "power.h"
 #include "ata_idle_notify.h"
 #include "storage.h"
+#if defined(HAVE_IPOD_UI) && defined(HAVE_DISK_STORAGE)
+#include "ata.h"        /* ata_disk_isssd(): #79, one build */
+#endif
 #include "screens.h"
 #include "ctype.h"
 #include "file.h"
@@ -1083,6 +1086,12 @@ void settings_apply(bool read_disk)
     sound_settings_apply();
 
 #ifdef HAVE_DISK_STORAGE
+#ifdef HAVE_IPOD_UI
+    /* #79 (one build): the anti-skip margin is the disk's; on a solid
+     * drive the watermark is the power-up budget (playback.c), so the
+     * setting is not applied there (docs/storage-choices.md) */
+    if (!ata_disk_isssd())
+#endif
     audio_set_buffer_margin(global_settings.buffer_margin);
 #endif
 
@@ -1134,6 +1143,11 @@ void settings_apply(bool read_disk)
     buttonlight_set_timeout(global_settings.buttonlight_timeout);
 #endif
 #ifdef HAVE_DISK_STORAGE
+#ifdef HAVE_IPOD_UI
+    /* #79: a solid drive keeps the driver's 1 s idle hold, set at
+     * storage_init (ata.c); the spin-down setting is the disk's */
+    if (!ata_disk_isssd())
+#endif
     storage_spindown(global_settings.disk_spindown);
 #endif
     set_poweroff_timeout(global_settings.poweroff);

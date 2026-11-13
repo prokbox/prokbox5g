@@ -162,6 +162,7 @@ unsigned int button_wheel_touches(void)
 void sim_wheel_touch(void)
 {
     wheel_touches++;
+    button_queue_post(SYS_IPODUI_WHEEL_TOUCH, 0);   /* as the driver does */
 }
 #endif /* SIMULATOR && HAVE_IPOD_UI */
 

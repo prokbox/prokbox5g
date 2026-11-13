@@ -23,6 +23,7 @@
 #include "pgov.h"         /* ProkBox: pgov2_rail_normal() */
 #endif
 #include "thread.h"
+#include "corelayout.h"      /* ProkBox 0.8.3: cache_discard_take_stats() */
 #include "i2s.h"
 #include "i2c-pp.h"
 #include "as3514.h"
@@ -305,10 +306,109 @@ static void ICODE_ATTR cache_invalidate_special(void)
     }
 }
 
+#if defined(HAVE_CORE_LAYOUT_A) && !defined(BOOTLOADER)
+/* ProkBox 0.8.3 road-test fix: the drop on the COP, which takes the PCM's
+ * FIQ in layout A. The FIQ must start the next DMA piece before the I2S
+ * FIFO runs dry: 16 words, 83 us at 96 kHz 24-bit (one word a sample),
+ * 167 us at 48 kHz 24-bit, 363 us at 44.1 kHz 16-bit. The upstream drop
+ * holds the FIQ off for a whole write-back of up to 8 KB of dirty lines
+ * (longer while the CPU loads the SDRAM, an art pass) plus the 512-line
+ * status rewrite, and the COP runs one at every call that wrote its
+ * memory (about 150 a second at 192 kHz in). So here:
+ *  - the bulk of the write-back runs with the FIQ open (a write-back
+ *    more never hurts), and the masked one writes back only what was
+ *    dirtied since;
+ *  - the status rewrite opens the FIQ between blocks of 64 lines. That is
+ *    safe because the COP's FIQ writes no cached memory but its own stack
+ *    frame (scripts/cop_shared_check.py --fiq: no cached static written),
+ *    and that frame is dead once the FIQ returns: a dirty stack line the
+ *    rewrite drops loses nothing, and a line the FIQ reads is fresh. The
+ *    IRQ stays masked throughout (an IRQ handler's cached writes live on).
+ * Stats per core (IRAM): the longest masked stretch, and how many ran over
+ * 80 us, since cache_discard_take_stats() last read them */
+static uint32_t cds_max IBSS_ATTR;
+static uint32_t cds_over IBSS_ATTR;
+static uint32_t cds_n IBSS_ATTR;
+
+void cache_discard_take_stats(unsigned int core, uint32_t *max_us,
+                              uint32_t *over, uint32_t *n)
+{
+    /* the COP's only (the CPU takes no PCM FIQ in layout A) */
+    if (core != COP)
+    {
+        *max_us = *over = *n = 0;
+        return;
+    }
+    *max_us = cds_max;
+    *over = cds_over;
+    *n = cds_n;
+    cds_max = cds_over = cds_n = 0;
+}
+
+#define CDS_BLOCK_LINES 64
+
+static void ICODE_ATTR cop_commit_discard(void)
+{
+    register volatile unsigned long *p = &CACHE_STATUS_BASE_COP;
+    register volatile unsigned long *const end =
+        p + CACHE_SIZE/sizeof(*p);
+    register int istat;
+    register int open;
+    register uint32_t t0, tmax;
+
+    commit_dcache();                /* FIQ open: the bulk */
+    istat = disable_interrupt_save(IRQ_FIQ_STATUS);
+    /* the FIQ may open between blocks only if it was open at the call */
+    open = (istat & FIQ_STATUS) ? (istat | IRQ_FIQ_STATUS)
+                                : ((istat | IRQ_STATUS) & ~FIQ_STATUS);
+    t0 = USEC_TIMER;
+    tmax = 0;
+    commit_dcache();                /* what was dirtied since */
+    while (p < end)
+    {
+        register volatile unsigned long *const blk =
+            p + CDS_BLOCK_LINES * (CACHEALIGN_SIZE/sizeof(*p));
+
+        for (; p < blk; p += CACHEALIGN_SIZE/sizeof(*p))
+            *p = CACHE_LINE_VALID | CACHE_ADDRESS_MASK;
+        if (p < end)
+        {
+            register uint32_t t = USEC_TIMER - t0;
+
+            if (t > tmax)
+                tmax = t;
+            restore_interrupt(open);    /* a pending FIQ runs here */
+            nop; nop; nop; nop;
+            restore_interrupt(istat | IRQ_FIQ_STATUS);
+            t0 = USEC_TIMER;
+        }
+    }
+    {
+        register uint32_t t = USEC_TIMER - t0;
+
+        if (t > tmax)
+            tmax = t;
+    }
+    restore_interrupt(istat);
+    cds_n++;
+    if (tmax > cds_max)
+        cds_max = tmax;
+    if (tmax > 80)
+        cds_over++;
+}
+#endif /* HAVE_CORE_LAYOUT_A && !BOOTLOADER */
+
 void ICODE_ATTR commit_discard_idcache(void)
 {
     if (CACHE_CTL & CACHE_CTL_ENABLE)
     {
+#if defined(HAVE_CORE_LAYOUT_A) && !defined(BOOTLOADER)
+        if (CURRENT_CORE == COP)
+        {
+            cop_commit_discard();
+            return;
+        }
+#endif
         register int istat = disable_interrupt_save(IRQ_FIQ_STATUS);
 
         commit_dcache();

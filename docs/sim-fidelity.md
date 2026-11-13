@@ -19,14 +19,14 @@ Rank = (how likely the divergence bites) x (how silent the failure is) x (how ex
 | 3 | Alignment, remaining gaps | Strict via align shim and UBSan; gaps: opt-out `-fsanitize-recover` in the module twin, packed structs, `memcpy` hides, asm | **High**, data abort | `scripts/align-shim`, `tests/aligncast`, `sim_ubsan.sh` STRICT | Extend baselines (see 3 below) (S) |
 | 4 | Type sizes, `long`, pointers, struct layout | Host `long`/pointers 64-bit; device ILP32 | **High**, layout, overflow, format bugs | 41 `_Static_assert`s in `apps/ipodui/*.h`; `fw-ui` build is ILP32 so asserts fire there | Assert every on-disk struct; `-Wconversion`-style lint on `long` (S) |
 | 5 | Timing: CPU speed, no 30/80 MHz clock | Sim is 1-3 GHz out-of-order; device 30 MHz (unboosted) | **High**, jank, missed deadlines pass | `tests/perf` ELF instruction counts (`qemu-harness`), `sim_cmd_clock` | Instruction-budget gate per frame already; add "slow sim" mode (CPU throttle) (M) |
-| 6 | Storage: no ATA, no flash/HDD, no power cut mid-write | Sim reads host files; device ATA with write cache, 2048-B virtual sectors, wake costs | **High**, data loss, power | `tests/fatcrash/fsreplay`, devstats disk model, `sim_cmd_storpwr` | Fault injection: crash at every write-order point (M) |
+| 6 | Storage: no ATA, no power cut mid-write; flash/HDD only as a timing model | Sim reads host files; device ATA with write cache, 2048-B virtual sectors, wake costs | **High**, data loss, power | `tests/fatcrash/fsreplay`, devstats disk model, `sim_cmd_storpwr`, the disk model `IPODUI_SIM_DISK=flash\|hdd` (#79: the idle hold and the `if (solid)` rows; `tests/onebuild/disk_cells.sh`) | Fault injection: crash at every write-order point (M) |
 | 7 | Audio: mixer frame 4x, PCM clock, underrun | Sim 1024 samples/frame, SDL pulls; device 256, DMA-driven | Medium-High | none until now | `-DSIM_DEVICE_MIXER` (implemented); device-sized frames in an audio gate (S) |
 | 8 | Threads and locks: no ISR, cooperative only | Sim: SDL mutex hand-off, no interrupts, tick tasks on a timer thread; device: IRQ/FIQ preempt, COP parallel | Medium-High | `corelock` code paths, `tests/lock` | Run tick tasks only at yield points in sim ("deterministic ISR") (M) |
 | 9 | BCM job model | Sim models jobs (`sim_bcm_job.c`, `jmodel`); the port, timing and torn reads are not modelled | Medium-High | `vc2sim`, `tests/bcmjob`, device bench | Shared fixtures between vc2sim and `jmodel`; cross-check (M) |
 | 10 | LCD: partial update, host-port frame time | Sim blits instantly; device ~27 ms CPU/frame at 30 MHz, torn reads (quirks #17, #34) | Medium | LCD update-rect budget tests | Sim charges the measured cost per rect to its virtual clock (M) |
 | 11 | Clock and PLL | Sim has no clock; boost is a counter | Medium | `cpu_boost` balance gate | Virtual clock for boost duty (M) |
 | 12 | Screen arena size | Sim's arena reported 12 KB larger than the device's | Medium | `tests/arena`, floor gate | Verify and remove or assert equality (S) |
-| 13 | Memory size 32 / 64 MB | `sim-ui32` / `sim-ui` via `--ram`; the rest of the host RAM is hidden | Medium | floor gate (`tests/perf/floor_gate.sh`) | Cap the sim's heap with `RLIMIT_AS` plus guard pages (S) |
+| 13 | Memory size 32 / 64 MB | one `sim-ui` binary, `IPODUI_SIM_RAM=32\|64` sets `probed_ramsize` and ends the core pool 32 MB lower at 32 (#204); the rest of the host RAM is hidden | Medium | floor gate (`tests/perf/floor_gate.sh`) | Cap the sim's heap with `RLIMIT_AS` plus guard pages (S) |
 | 14 | USB | Sim has no controller: no dTD stalls, 304 ms hangs, cache/uncached rules | Medium | on-device bench only | Host test of buffer rules + bench row (S) |
 | 15 | Buttons and wheel | Sim: instant clean events from key map; device: packet stream, bounce, hold switch, wheel rate | Medium | `wheel`/`hold` script commands | Wheel replay from a recorded device trace (M) |
 | 16 | Battery and power | Sim drains 1 %/s or pins; device curve, charging, standby, boot guard | Medium | `battery`, `IPODUI_SIM_BATT_MV` | Replay a logged discharge (`battlog`) (S) |
@@ -93,7 +93,7 @@ Rank = (how likely the divergence bites) x (how silent the failure is) x (how ex
 - **Proposed.**
   1. *(M)* Crash-injection: for each write-order point the file layer flushes (R11, #91), a host test cuts the model at every point and reboots; the check names the point and the file left half-written.
   2. *(S)* Sim option to run on a case-sensitive, 8.3-restricted view (reject names FAT32 would reject: reserved characters, trailing dots, >255 UTF-16 units).
-  3. *(bench)* One row for HDD: nothing in the sim distinguishes it; the owner has only a flash unit.
+  3. *(bench)* One row for HDD: the sim's `IPODUI_SIM_DISK=hdd` model (0.8.3, #79) runs the rotating `if (solid)` rows and idle hold, with spin-up 0; real spin-up, seek and power need a hard-drive unit; the owner has only a flash unit.
 
 ### 7. Audio (mixer frame 4x)
 - **Sim.** `MIX_FRAME_SAMPLES` is 1024 on hosted targets (`firmware/export/pcm_mixer.h`: "hosted targets need larger buffers"); the PCM sink is SDL's pull callback (`pcm-sdl.c`). Unlimited CPU, no DMA half-buffer interrupt.
@@ -145,7 +145,7 @@ The sitting 4b first-use check is the case study: a host-side model that was mor
 - **Proposed.** (M) A virtual clock: boosted time accumulates in the sim log and the gate reports boosted-ms per scenario, failing a budget (ties to #5 and #16).
 
 ### 12. Screen arena
-- **Sim.** Reported by the visualizer agent as 12 KB larger than the device's. Not verified in this pass: `UI_ARENA_SIZE` is 9,216 B for the screen arena (`apps/ipodui/screen_stack.h`); the 12,288 B figure matches the codec-slot reservation (changes-from-rockbox, 2026-10-24). One of these may be the difference; the audit could not tell which.
+- **Sim.** 25,088 B larger than the device's (`apps/ipodui/screen_stack.h`, #295): the device's 13,312 B plus the simulator's larger visualizer tap ring (32,815 B against 8,239 B: its mixer frames are 4x the device's) and its 64-bit state, so the visualizer takes the device's path (the ring in the arena). Every other screen sees the same bounds (`UI_ARENA_B_*`, device sizes); the viz part alone is larger there.
 - **Device.** The numbers in `docs/hardware.md` (arena rows).
 - **Risk.** A screen that fits only in the sim's larger arena passes every script and fails on the device with an allocation refusal that is logged, not shown (rule 1).
 - **Guard.** `tests/arena` (refusal case at `UI_ARENA_SIZE + 1`), floor gate.
@@ -155,7 +155,7 @@ The sitting 4b first-use check is the case study: a host-side model that was mor
 - **Sim.** `--ram` (`MEMORYSIZE`) sets the audio buffer; the process itself uses host RAM for everything else: no 32 MB ceiling, no fragmentation of `core_alloc` caused by a smaller heap, resident usage unmeasured.
 - **Device.** 32 or 64 MB shared by code, `.bss` (~1.1 MB), audio buffer; floor 7.5 MB / 39 MB [ours].
 - **Risk.** A transient allocation that fits the sim's heap but not the device's fragmented one.
-- **Guard.** Floor gate at each unit's ceiling (50k tracks on `sim-ui32`, 65k on `sim-ui`; #229), the budget table in `hardware.md`, `core_alloc` receipts.
+- **Guard.** Floor gate at each unit's ceiling (50k tracks at `IPODUI_SIM_RAM=32`, 65k at 64, both on `sim-ui`; #229, #204), the budget table in `hardware.md`, `core_alloc` receipts.
 - **Proposed.** (S) Run the floor scripts with the `core_alloc` heap the exact device size (the buffer is already sized by `MEMORYSIZE`; confirm host allocations outside `core_alloc` are listed in a gate receipt) and `RLIMIT_AS` set generously above the model so a stray `malloc` growth shows up.
 
 ### 14. USB

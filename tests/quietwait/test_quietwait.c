@@ -64,6 +64,10 @@ static void test_audio(void)
     /* an automatic skip in progress: the FIQ's notice is polled */
     in.skip_pending = true;
     CHECK(qw_audio_wait(&in, HZ) == HZ / 10);
+    /* #298: the tick kicks the thread on the notice: a 1 s backstop */
+    in.kicked = true;
+    CHECK(qw_audio_wait(&in, HZ) == HZ);
+    in.kicked = false;
     /* paused with the codec's standby still to come: the old HZ/2 */
     in.skip_pending = false;
     in.paused = true;

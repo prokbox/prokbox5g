@@ -18,9 +18,9 @@ features:
 
 ## Download
 
-Get the latest release from the [releases page]({{< param releases >}}). There are eight downloads, one for each combination of stock or modded hardware, hard drive or flash, and 32 or 64 MB of memory. Each release also carries ready-to-run copies of the install tool for macOS, Windows and Linux (`ProkBox5g-<version>-ipodpatcher-macos-universal`, `-windows-x86_64.exe` and `-linux-x86_64`), and a `SHA256SUMS` file to check them against.
+Get the latest release from the [releases page]({{< param releases >}}). There is one download for every iPod Video: the player finds out by itself whether it has a hard drive or flash and 32 or 64 MB of memory. Each release also carries ready-to-run copies of the install tool for macOS, Windows and Linux (`ProkBox5g-<version>-ipodpatcher-macos-universal`, `-windows-x86_64.exe` and `-linux-x86_64`), and a `SHA256SUMS` file to check them against.
 
-In 0.8.2 only the flash-modded, 64 MB, USB-C-and-haptics player has been tested on real hardware. The other seven downloads are untested. [Getting started](guide/getting-started.md) shows how to choose and install.
+In 0.8.3 only the flash, 64 MB, 3,000 mAh, USB-C player has been tested on real hardware. Hard-drive, 32 MB and original-battery players are untested. [Getting started](guide/getting-started.md) shows how to choose and install.
 
 {{< swimlane >}}
 

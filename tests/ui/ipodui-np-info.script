@@ -1,0 +1,96 @@
+# #277 (owner, 2026-11-10, option a): Now Playing's SELECT cycle gains an
+# info page after Scrubber, Rating and Shuffle: the format and quality of
+# the playing file, then what the output runs at. Three generated files
+# (tests/fixtures/npinfo/make_npinfo_fixtures.sh; run it first):
+#   cd16.mp3 -> "MP3  256 kbps  44.1 kHz"
+#   hires.flac -> "FLAC  24-bit  192 kHz"
+#   aac.m4a -> "AAC  <n> kbps  44.1 kHz"
+# The output line is the mixer's rate with the 16-bit default until the
+# audiophile output path provides audio_output_rate()/_bits().
+#   sh tests/fixtures/npinfo/make_npinfo_fixtures.sh
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-np-info.script
+# needs: library
+# trace: np
+# golden: skip
+# log: np mode shuffle -> info ev=0
+# log: np mode info -> visualizer ev=0
+# fulls-extra: 1
+# timeout: 240
+
+wait 1000
+wait_db 30000
+sim_clock 15:08
+repeat off
+mkdir /NPINFO
+copy ../../build/npinfo-fixtures/cd16.mp3 /NPINFO/cd16.mp3
+copy ../../build/npinfo-fixtures/hires.flac /NPINFO/hires.flac
+copy ../../build/npinfo-fixtures/aac.m4a /NPINFO/aac.m4a
+
+play_files /NPINFO/cd16.mp3
+wait 1500
+key SELECT
+wait 700
+key MENU
+wait 700
+wheel +10
+wait 500
+key SELECT
+wait 1200
+shot mp3_normal
+key SELECT          # Scrubber
+wait 400
+key SELECT          # Rating
+wait 400
+key SELECT          # Shuffle
+wait 400
+key SELECT          # Info
+wait 900
+shot mp3_info
+key SELECT          # Visualizer (music, full screen)
+wait 800
+key SELECT          # Normal
+wait 600
+key MENU
+wait 700
+
+play_files /NPINFO/hires.flac
+wait 2500
+wheel +10
+wait 500
+key SELECT
+wait 1200
+key SELECT
+wait 400
+key SELECT
+wait 400
+key SELECT
+wait 400
+key SELECT
+wait 900
+shot flac_info
+key MENU
+wait 700
+
+play_files /NPINFO/aac.m4a
+wait 2000
+wheel +10
+wait 500
+key SELECT
+wait 1200
+key SELECT
+wait 400
+key SELECT
+wait 400
+key SELECT
+wait 400
+key SELECT
+wait 900
+shot aac_info
+key MENU
+wait 700
+audio_stop
+wait 500
+rm_file /NPINFO/cd16.mp3
+rm_file /NPINFO/hires.flac
+rm_file /NPINFO/aac.m4a
+quit

@@ -7,9 +7,10 @@
 # waits beside playing audio is floor-50k.script's (its first sections,
 # replayed here). One publication (the window's, database_gen1) came
 # before, so the candidate is database_gen2.
-#   SIM_BUILD=build/sim-ui32 SIMDISK=<a clone of build/sim-50k/simdisk> \
+#   SIM_BUILD=build/sim-ui SIMDISK=<a clone of build/sim-50k/simdisk> \
 #     scripts/shots.sh tests/perf/torn-temp-50k.script
 # golden: skip np_open
+# env: IPODUI_SIM_RAM=32
 # timeout: 900
 # log: tagcache: commit delayed until audio stops
 # log: db candidate drop

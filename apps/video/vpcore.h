@@ -334,6 +334,10 @@ struct vpc
     int failures;               /* image deaths this session */
     uint32_t open_drop;         /* HP_OPEN_* bits dropped after OPEN
                                    failed with them (FAST_CLOCK: SDRAM) */
+    bool selftest_sent;         /* #325: an OPEN of this session asked
+                                   for the developer self-test, whose
+                                   scratch (VIDEO_ST_AREA) overlays the
+                                   job block: the stop restarts the image */
     uint32_t sd_pll[5];         /* the failed 150 MHz OPEN's SDRAM words */
     bool sd_check;              /* stage 6: a readback after OPEN */
     bool sd_whole;              /*   over all 4 MB, not just the FIFO */

@@ -1,0 +1,37 @@
+# #285: 32-bit FLAC. The library lists the files as songs (their metadata
+# is fine); playback refuses each at the codec's open (flac.c: wider than
+# FLAC_OUTPUT_DEPTH, logged "flac 32-bit not supported", no PCM), which
+# #281 counts as unplayable: with Repeat All the album skips through its
+# three tracks once, then stops (no endless loop, nothing more written).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-unplayable-32bit.script
+# disk: bare
+# needs: unplayable
+# disk-file: build/unplayable-fixtures/wide1.flac Music/wide1.flac
+# disk-file: build/unplayable-fixtures/wide2.flac Music/wide2.flac
+# disk-file: build/unplayable-fixtures/wide3.flac Music/wide3.flac
+# log: flac 32-bit not supported
+# log: audio unplayable run=3 queue=3: stop
+# golden: skip albums album stopped
+# timeout: 90
+
+wait 1000
+wait_db 30000
+repeat all
+key SELECT          # Music
+wait 800
+wheel +2            # Albums
+wait 300
+key SELECT
+wait 800
+shot albums         # "Too Wide" is listed like any album
+key SELECT          # "Too Wide"
+wait 800
+shot album          # its three songs
+key SELECT          # its first track: the album plays from it
+wait 5000
+expect_stopped
+shot stopped        # what the skip leaves on screen
+writes_mark
+wait 4000
+expect_writes_max 0
+quit

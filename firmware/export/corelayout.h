@@ -67,12 +67,80 @@ struct pcm_pp_stats
     uint32_t lock_stuck;    /* waits that gave up (a FIQ never ended) */
     uint32_t lock_xcore;    /* locks taken from the core that does not
                                take the FIQ (mask, then wait out) */
+    /* 0.8.3 road-test fix: the FIFO's state as each playing FIQ starts
+     * (the first two after a start are not counted: the FIFO starts
+     * empty). The DMA ends a piece with the I2S FIFO full; one the FIQ
+     * finds empty ran dry before the next piece was started: a click */
+    uint32_t fifo_empty;    /* FIQs that found the FIFO empty */
+    uint32_t fifo_free_max; /* most free entries seen (16: empty) */
+    uint32_t gap_max_us;    /* the longest time between two FIQs */
+    /* 0.8.3 fifo96: what separates a late FIQ from a long one.  late: the
+     * FIQ's entry after the hardware finished the piece before it, in us
+     * (estimated from the piece's start, its length and the FIFO; with
+     * the queue, from the next piece's progress); restart: entry to the
+     * next piece armed; handler: entry to exit, the mix included; lock:
+     * the longest PCM lock (it masks the FIQ's source) */
+    uint32_t late_max_us;
+    uint32_t late_over;     /* FIQs later than the FIFO lasts */
+    uint32_t late_pc;       /* where the core was when the latest came */
+    uint32_t late_psr;      /* (the interrupted pc and its cpsr) */
+    uint32_t over_pc;       /* the same for the last FIQ over the FIFO */
+    uint32_t over_psr;
+    uint32_t restart_max_us;
+    uint32_t handler_max_us;
+    uint32_t lock_hold_max_us;
+    /* the two-channel queue (pcm-pp.c, docs/pp5022-reference/dma.md 2.1):
+     * dry: completions that found nothing queued (the FIFO ran out);
+     * slack: the least time left on the playing piece as a FIQ ended */
+    uint32_t q_pieces;
+    uint32_t q_dry;
+    uint32_t q_odd;         /* the queued piece ended before the older */
+    uint32_t q_fell;        /* the queue given up in use: one channel */
+    uint32_t q_slack_min_us;
 };
+/* 0.8.3 fifo96: the silent check of the two-channel queue, run once a
+ * boot at the PCM's first start (pcm-pp.c).  verdict: 0 not run yet,
+ * 1 proved (the queue is used), 2 refused (one channel at a time),
+ * 3 inconclusive (no progress: retried at the next start, up to 3 runs).
+ * Per order (0: channel 0 then 1; 1: 1 then 0): samples taken, the
+ * samples where the waiting channel moved while the first was still
+ * busy (overlap: it shares the request), the samples that found the
+ * FIFO empty between the two (gap), whether each raised its completion
+ * bit, the waiting channel's first status word and the run's time */
+struct pcm_pp_qdir
+{
+    uint16_t samples;
+    uint16_t overlap;
+    uint16_t gap;
+    uint8_t intr_first;
+    uint8_t intr_second;
+    uint32_t second_st0;
+    uint32_t us;
+};
+struct pcm_pp_qprobe
+{
+    uint8_t verdict;
+    uint8_t runs;
+    struct pcm_pp_qdir dir[2];
+};
+void pcm_pp_queue_probe_result(struct pcm_pp_qprobe *out);
+bool pcm_pp_queue_on(void);
+/* One channel from now on (verdict refused): the PCM must be stopped */
+void pcm_pp_queue_refuse(void);
 /* CPU (0) or COP (1).  0 on success, -1 if the PCM is playing or the core
  * is not valid.  The CPU only (it reprograms both cores' priority) */
 int pcm_pp_set_core(unsigned int core);
 unsigned int pcm_pp_core(void);
 void pcm_pp_get_stats(struct pcm_pp_stats *out);
+/* 0.8.3: fifo_free_max, gap_max_us and the fifo96 maxima (late, the
+ * pcs, restart, handler, lock, queue slack) start over */
+void pcm_pp_reset_max(void);
+/* 0.8.3: the longest time the cache's write-back and drop
+ * (commit_discard_idcache) held the FIQ off on a core, in us, and how
+ * many ran over 80 us (the I2S FIFO lasts 83 us at 96 kHz 24-bit),
+ * since the last call; then start over (system-pp502x.c) */
+void cache_discard_take_stats(unsigned int core, uint32_t *max_us,
+                              uint32_t *over, uint32_t *n);
 
 #endif /* HAVE_CORE_LAYOUT_A */
 #endif /* CORELAYOUT_H */

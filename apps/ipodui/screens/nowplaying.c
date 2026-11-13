@@ -70,6 +70,9 @@
 #include "ipodui/artcache.h"
 #include "ipodui/artfmt.h"
 #include "ipodui/np_playback.h"
+#ifdef IPODUI_NP_INFO
+#include "ipodui/np_info.h"
+#endif
 #include "ipodui/ab_book.h"
 #include "ipodui/np_layout.h"
 #include "ipodui/viz.h"
@@ -1525,6 +1528,37 @@ static void draw_shelf(struct np_mem *m)
     }
 }
 
+#ifdef IPODUI_NP_INFO      /* 0.9.0 (ipodvideo.h scope switch) */
+/* Info (#277): the format and quality, then the output; two centred
+ * lines in the bar row's place (Bold 12, as the shelf's labels) */
+#define INFO_CAP1       204
+#define INFO_CAP2       219
+static void draw_info_row(struct np_mem *m)
+{
+    char l1[48], l2[48];
+    const char *ln[2] = { l1, l2 };
+    int cap[2] = { INFO_CAP1, INFO_CAP2 };
+    unsigned col[2] = { C_TITLE, C_DIM };
+    int font = font_bold12(), i, tw;
+    struct viewport vp;
+
+    np_info_lines(l1, sizeof l1, l2, sizeof l2);
+    bg_fill(m, 0, NP_ROW_Y, LCD_WIDTH, NP_ROW_H);
+    for (i = 0; i < 2; i++)
+    {
+        if (!*ln[i])
+            continue;
+        font_getstringsize((const unsigned char *)ln[i], &tw, NULL, font);
+        text_vp(&vp, font, col[i], 0, NP_ROW_Y, LCD_WIDTH, NP_ROW_H);
+        lcd_set_viewport(&vp);
+        lcd_putsxy(MAX((LCD_WIDTH - tw) / 2, 0),
+                   cell_y(font, cap[i], CAP_SMALL) - NP_ROW_Y,
+                   (const unsigned char *)ln[i]);
+        lcd_set_viewport(NULL);
+    }
+}
+#endif
+
 /* Normal / Scrubber: labels, the bar, the fill or the diamond */
 static void draw_progress(struct np_mem *m)
 {
@@ -1588,6 +1622,11 @@ static void draw_row(struct np_mem *m)
     case NP_SHUFFLE:
         draw_shelf(m);
         break;
+#ifdef IPODUI_NP_INFO
+    case NP_INFO:
+        draw_info_row(m);
+        break;
+#endif
     case NP_LYRICS:
     case NP_VIZ:
     default:
@@ -2533,7 +2572,7 @@ static void np_feed(struct np_mem *m, const struct np_event *ev)
     {
         static const char * const names[] = {
             "normal", "scrubber", "rating", "shuffle", "lyrics",
-            "visualizer" };
+            "visualizer", "info" };
         /* "np mode <from> -> <to> ev=<np_event_type>" (#58: SELECT
          * after a change returns to Normal; tests/ui) */
         UPDATE_TRACE("np mode %s -> %s ev=%d", names[was], names[r.mode],
@@ -2688,6 +2727,9 @@ static int np_enter(struct ui_screen *s, const void *arg)
 #endif
     np_init(m.st, HZ, np_pb_shuffle());
     np_set_viz(m.st, true);         /* #126: music offers the Visualizer */
+#ifdef IPODUI_NP_INFO
+    np_set_info(m.st, true);        /* #277 (0.9.0): the Info page */
+#endif
     m.sc->have_track = false;
     m.sc->stopped = false;
     m.sc->viz_full = false;         /* a push starts in Normal, headed */

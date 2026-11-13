@@ -34,6 +34,7 @@
 #include "xcore.h"
 #include "core_alloc.h"
 #include "audio.h"
+#include "playback.h"           /* #345: audio_pause_post() */
 #include "appevents.h"
 #include "events.h"
 #include "settings.h"
@@ -59,6 +60,7 @@
 #include "stor_pwr.h"           /* the power-ups a remote call caused */
 #endif
 #include "hang_watch.h"         /* the hang watcher */
+#include "audiophile.h"         /* #270: the high-rate service */
 
 #if NUM_CORES > 1 && !defined(SIMULATOR)
 #define CROSS_POSSIBLE 1
@@ -398,11 +400,11 @@ static intptr_t be_dispatch(uint32_t kind, uint32_t *args, unsigned n)
     {
     case BE_NOP:
         return 0;
-    case BE_AUDIO_PAUSE:
-        audio_pause();
+    case BE_AUDIO_PAUSE:            /* #345: posted, never waited on */
+        audio_pause_post(true);
         return 0;
     case BE_AUDIO_RESUME:
-        audio_resume();
+        audio_pause_post(false);
         return 0;
     case BE_NOW_PLAYED:
         be_now_mark_played();
@@ -420,6 +422,9 @@ static intptr_t be_dispatch(uint32_t kind, uint32_t *args, unsigned n)
         clockpol_service();         /* Fit-1 C6: track needs, verdicts */
         lib_pool_idle();            /* fb-stall: a view pool size owed */
         settings_save_service();    /* cfgsafe: a changed setting, ~2 s on */
+#ifdef HAVE_HIRATE_OUT
+        audiophile_service();       /* #270: a high-rate fallback's change */
+#endif
         return 0;
     case BE_LOG_FLUSH:
         ui_log_flush();
@@ -513,6 +518,25 @@ static bool bounded_post(uint32_t kind)
     return kind == BE_SOUND;
 }
 #endif
+
+int fe_audio_status(void)
+{
+    int st = audio_status();
+    int want = audio_pause_pending();
+
+    if (want >= 0 && (st & AUDIO_STATUS_PLAY))
+        st = want ? (st | AUDIO_STATUS_PAUSE) : (st & ~AUDIO_STATUS_PAUSE);
+    return st;
+}
+
+void fe_audio_pause_sure(void)
+{
+    int st = audio_status();
+
+    if ((st & AUDIO_STATUS_PLAY)
+        && (!(st & AUDIO_STATUS_PAUSE) || audio_pause_pending() >= 0))
+        audio_pause();
+}
 
 void be_post(enum be_kind kind, intptr_t value)
 {

@@ -28,6 +28,12 @@
 set -e
 cd "$(dirname "$0")/../.."
 mkdir -p build/viztap
+# #295: the stub's top rate must be the device's (a 48 kHz stub hid the
+# 96 kHz ring, twice the size, from this test and the arena's bound)
+grep -q 'HW_SAMPR_CAPS   (HW_SAMPR_CAPS_STD | SAMPR_CAP_96 | SAMPR_CAP_88)' \
+    firmware/export/config/ipodvideo.h \
+    && grep -q '^#define HW_SAMPR_MAX 96000' tests/viztap/stub/pcm_sampr.h \
+    || { echo "viztap: stub HW_SAMPR_MAX differs from ipodvideo.h's top rate"; exit 1; }
 cc -std=gnu99 -O1 -Wall -Wextra -Werror -Wno-unused-parameter \
    -Itests/viztap/stub -Iapps/ipodui -Ibcmfw/jobs \
    tests/viztap/viztap_test.c apps/ipodui/viz_tap.c bcmfw/jobs/jviz.c -lm \

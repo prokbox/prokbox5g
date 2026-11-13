@@ -65,7 +65,12 @@ struct mixer_channel
     const struct mixer_buffer_cbs* buf_cbs; /* Callback for new buffer */
 };
 
-#if (defined(HW_HAVE_192) || defined(HW_HAVE_176))
+#if defined(HAVE_PCM_24BIT_OUT)
+/* ProkBox #268/#270: one IRAM frame size at every rate and depth (1 KB a
+   buffer): 88.2/96 kHz and 24-bit frames mix in more, shorter frames
+   (96 kHz 24-bit: 128 frames, 1.3 ms) instead of 2 KB more IRAM */
+#define FRAME_SIZE_MULT  1
+#elif (defined(HW_HAVE_192) || defined(HW_HAVE_176))
 #define FRAME_SIZE_MULT  4
 #elif (defined(HW_HAVE_96) || defined(HW_HAVE_88))
 #define FRAME_SIZE_MULT  2
@@ -95,6 +100,20 @@ static struct mixer_channel * active_channels[PCM_MIXER_NUM_CHANNELS+1] IBSS_ATT
 
 /* Number of silence frames to play after all data has played */
 static unsigned int idle_counter XCORE_BSS;
+
+#ifdef HAVE_PCM_24BIT_OUT
+/* ProkBox #268: the output's frame format.  mix_s24 (read by the mix, on
+   the COP in layout A, so uncached): 8-byte frames, two int32 with the
+   24 bits at the top; the playback channel carries that format, every
+   other channel (clicks, beeps, voice) stays 16-bit and is widened as it
+   is mixed.  mix_depth_want: what playback asked for (mixer_set_depth),
+   applied at the next PCM start; the PCM is stopped on every change */
+static uint8_t mix_s24 XCORE_BSS;
+static uint8_t mix_depth_want XCORE_DATA = 16;
+#define MIX_BPF (mix_s24 ? 8 : 4)
+#else
+#define MIX_BPF 4
+#endif
 
 #if defined(HAVE_IPOD_UI_DEVMODE) || defined(HAVE_VIZ_TAP)
 /* NULL unless the audio path test or the visualizer's tap is armed;
@@ -130,7 +149,8 @@ static unsigned int mix_idle_max XCORE_BSS;
 
 static void mix_idle_max_set(void)
 {
-    mix_idle_max = SAMPR_NUM(pcm_get_frequency()) * 3 / (mix_frame_size / 4);
+    mix_idle_max = SAMPR_NUM(pcm_get_frequency()) * 3 /
+                   (mix_frame_size / MIX_BPF);
 }
 
 static inline unsigned int max_idle_frames(void)
@@ -140,13 +160,75 @@ static inline unsigned int max_idle_frames(void)
 #else
 static inline unsigned int max_idle_frames(void)
 {
-    return SAMPR_NUM(pcm_get_frequency()) * 3 / (mix_frame_size / 4);
+    return SAMPR_NUM(pcm_get_frequency()) * 3 / (mix_frame_size / MIX_BPF);
 }
 #define mix_idle_max_set() do { } while (0)
 #endif
 
 /** Mixing routines, CPU optmized **/
 #include "asm/pcm-mixer.c"
+
+#ifdef HAVE_PCM_24BIT_OUT
+/* #268: the 24-bit mix.  out: n 32-bit samples (24 bits at the top).
+   src: the channel's samples, 16-bit (is16) or the same 32-bit form;
+   amp: 16.16, at most unity.  The first channel writes, the rest add
+   with clipping at 24 bits; the playback channel alone at unity (the
+   usual case: volume is the codec's) is a plain copy */
+static inline int32_t s24_in(const void *src, int i, bool is16,
+                             unsigned int amp)
+{
+    int32_t x = is16 ? (int32_t)((const int16_t *)src)[i] << 8
+                     : ((const int32_t *)src)[i] >> 8;
+
+    if (amp != MIX_AMP_UNITY)
+        x = (int32_t)(((int64_t)x * amp) >> 16);
+    return x;
+}
+
+/* out of IRAM: only 24-bit tracks run them */
+static void __attribute__((noinline)) s24_write(void *out, const void *src,
+                                                bool is16, unsigned int amp,
+                                                size_t size)
+{
+    int32_t *d = out;
+    int n = size / 4;
+
+    if (!is16 && amp == MIX_AMP_UNITY)
+    {
+        memcpy(out, src, size);
+        return;
+    }
+    for (int i = 0; i < n; i++)
+        d[i] = s24_in(src, i, is16, amp) << 8;
+}
+
+static void __attribute__((noinline)) s24_add(void *out, const void *src,
+                                              bool is16, unsigned int amp,
+                                              size_t size)
+{
+    int32_t *d = out;
+    int n = size / 4;
+
+    for (int i = 0; i < n; i++)
+    {
+        int32_t v = (d[i] >> 8) + s24_in(src, i, is16, amp);
+
+        if (v > 0x7fffff)
+            v = 0x7fffff;
+        else if (v < -0x800000)
+            v = -0x800000;
+        d[i] = v << 8;
+    }
+}
+
+/* A channel's samples are 16-bit in a 24-bit mix: every channel but
+   playback's (1: its byte counts are half the output's).  s24: the
+   callback's one read of mix_s24 (an uncached word) */
+#define chan_shift(chan) \
+    (s24 && (chan) != &channels[PCM_MIXER_CHAN_PLAYBACK])
+#else
+#define chan_shift(chan) 0
+#endif
 
 /** Private generic routines **/
 
@@ -208,6 +290,9 @@ mixer_buffer_callback(enum pcm_dma_status status)
         return status;
 
     downmix_index ^= 1; /* Next buffer */
+#ifdef HAVE_PCM_24BIT_OUT
+    const bool s24 = mix_s24;
+#endif
 
     void *mixptr = downmix_buf[downmix_index];
     size_t mixsize = mix_frame_size;
@@ -251,8 +336,8 @@ fill_frame:
 
         /* Channel with least amount of data remaining determines the downmix
            size */
-        if (chan->size < mixsize)
-            mixsize = chan->size;
+        if ((chan->size << chan_shift(chan)) < mixsize)
+            mixsize = chan->size << chan_shift(chan);
 
         chan_p++;
     }
@@ -264,6 +349,24 @@ fill_frame:
     {
         struct mixer_channel *chan = *chan_p++;
 
+#ifdef HAVE_PCM_24BIT_OUT
+        if (UNLIKELY(s24))
+        {
+            /* #268: the first channel writes, each other adds; each
+               consumes its own bytes for the frame's mixsize */
+            s24_write(mixptr, chan->start, chan_shift(chan),
+                      chan->amplitude, mixsize);
+            chan->last_size = mixsize >> chan_shift(chan);
+            while (*chan_p)
+            {
+                chan = *chan_p++;
+                s24_add(mixptr, chan->start, chan_shift(chan),
+                        chan->amplitude, mixsize);
+                chan->last_size = mixsize >> chan_shift(chan);
+            }
+        }
+        else
+#endif
         if (LIKELY(!*chan_p))
         {
             write_samples(mixptr, chan->start, chan->amplitude, mixsize);
@@ -299,6 +402,9 @@ fill_frame:
             }
         }
 
+#ifdef HAVE_PCM_24BIT_OUT
+        if (!s24)
+#endif
         chan->last_size = mixsize;
         next_size += mixsize;
 
@@ -347,6 +453,13 @@ static void mixer_start_pcm(void)
         return;
 #endif
 
+#ifdef HAVE_PCM_24BIT_OUT
+    /* #268: the PCM is stopped: the format playback asked for, on the
+       built-in sink only (another sink takes 16-bit frames) */
+    mix_s24 = mix_depth_want > 16 && pcm_current_sink() == PCM_SINK_BUILTIN;
+    if (pcm_current_sink() == PCM_SINK_BUILTIN)
+        pcm_builtin_set_depth(mix_s24 ? 24 : 16);
+#endif
     mix_idle_max_set();
 
     /* Prepare initial frames and set up the double buffer */
@@ -408,12 +521,17 @@ static  void mixer_handle_sampr_change(unsigned int sampr)
     }
 
     /* Work out how much space we really need */
+#ifdef HAVE_PCM_24BIT_OUT
+    (void)sampr;
+    mix_frame_size = 1; /* FRAME_SIZE_MULT above: one size for all */
+#else
     if (sampr > SAMPR_96)
         mix_frame_size = 4;
     else if (sampr > SAMPR_48)
         mix_frame_size = 2;
     else
         mix_frame_size = 1;
+#endif
 
     mix_frame_size *= MIX_FRAME_SAMPLES * 4;
     mix_idle_max_set();
@@ -571,6 +689,14 @@ const void * mixer_channel_get_buffer(enum pcm_mixer_channel channel, int *count
     /* Still same buffer? */
     if (buf == buf2)
     {
+#ifdef HAVE_PCM_24BIT_OUT
+        /* #268: 16-bit frames only (the peak meter reads int16 pairs) */
+        if (mix_s24 && channel == PCM_MIXER_CHAN_PLAYBACK)
+        {
+            *count = 0;
+            return NULL;
+        }
+#endif
         *count = size >> 2;
         return buf;
     }
@@ -608,6 +734,13 @@ void mixer_channel_set_buffer_hook(enum pcm_mixer_channel channel,
 {
     struct mixer_channel *chan = &channels[channel];
 
+#ifdef HAVE_CORE_LAYOUT_A
+    /* ProkBox (0.8.3 review): the hook runs in the PCM's FIQ, which is on
+       the COP in layout A, and its only user (the oscilloscope plugin,
+       built only with --ipodui-plugins) writes cached plugin statics from
+       it: never on the COP (docs/data-paths.md R7 item 8). Refused */
+    cbs = NULL;
+#endif
     pcm_play_lock();
     chan->buf_cbs = cbs;
     pcm_play_unlock();
@@ -638,6 +771,36 @@ void mixer_set_frequency(unsigned int samplerate)
     if (pcm_is_initialized())
         pcm_apply_settings();
 }
+
+#ifdef HAVE_PCM_24BIT_OUT
+/* #268: the playback channel's frame format from its next start (16 or
+   24); a change stops the PCM, as a rate change does, and the caller
+   remakes the playback buffer (playback.c).  CPU */
+void mixer_set_depth(int bits)
+{
+    uint8_t want = bits > 16 ? 24 : 16;
+
+    XCORE_ASSERT_CPU("mixer_set_depth");
+    if (want == mix_depth_want)
+        return;
+    pcm_play_stop();
+    idle_counter = 0;
+    mix_depth_want = want;
+    mixer_handle_sampr_change(SAMPR_NUM(pcm_get_frequency()));
+}
+
+int mixer_get_depth(void)
+{
+    return mix_depth_want;
+}
+
+/* The format the output runs in now (the mix's own; 16 when stopped
+   before any 24-bit start) */
+bool mixer_output_s24(void)
+{
+    return mix_s24;
+}
+#endif
 
 /* Get output samplerate */
 unsigned int mixer_get_frequency(void)

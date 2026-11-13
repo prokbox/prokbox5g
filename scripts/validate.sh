@@ -129,7 +129,10 @@ P=--compiler-prefix=arm-none-eabi-
 # (ipodui-p14a-*) need the sim with the video player (sim-ui-video:
 # --ipodui --bcmfw-video), and so do the P19 BCM2722 job-model scripts
 # (ipodui-p19-*: HAVE_BCM_JOBS_MODEL is on only in that build; not
-# ipodui-p19a-*/p19c-*, which run on sim-ui); an ipodui-* script with a
+# ipodui-p19a-*/p19c-*, which run on sim-ui), and so do the b12 bench
+# fixes' scripts (ipodui-b12-*: holdv plays a video; on sim-ui its "# needs:
+# video" put the video fixtures, an extra audiobook among them, on every
+# sim-ui script's disk); an ipodui-* script with a
 # "# needs: modules" header line runs on the sim with the module loader
 # (sim-ui-mod: --ipodui plus -DIPODUI_WITH_MODULES, P12 close); every other
 # ipodui-* script runs on sim-ui, and so do the user-guide shots
@@ -146,7 +149,7 @@ script_needs_modules() { # name
 }
 script_sim() {
     case "$1" in
-        ipodui-p14a-*|ipodui-p19-*) echo build/sim-ui-video ;;
+        ipodui-p14a-*|ipodui-p19-*|ipodui-b12-*) echo build/sim-ui-video ;;
         ipodui-relvideo-*) echo build/sim-rel-video ;;
         ipodui-*) if script_needs_modules "$1"; then echo build/sim-ui-mod
                   else echo build/sim-ui; fi ;;
@@ -442,13 +445,12 @@ if [ $QUICK = 1 ]; then
     fi
     echo "skip build sim (--quick: stock sim is --full only)"
 fi
-# GATE_POOL=1 (opt-in, docs/gate-speed-brief.md; full gate only): the 32 MB
-# floor sim, the UBSan sim and the three compile-only builds join this
+# GATE_POOL=1 (opt-in, docs/gate-speed-brief.md; full gate only): the
+# UBSan sim and the three compile-only builds join this
 # concurrent phase instead of being built late and serially.
 POOL_EXTRA=0
 if [ "$GATE_POOL" = 1 ] && [ $QUICK = 0 ]; then
     POOL_EXTRA=1
-    BUILD_DIRS="$BUILD_DIRS sim-ui32"
 fi
 NBUILDS=$(echo $BUILD_DIRS | wc -w | tr -d ' ')
 # Builds run concurrently: about ncpu+2 compilers in total, split across
@@ -458,7 +460,7 @@ if [ -z "${JOBS:-}" ]; then
     JOBS=$(( (NCPU + 2) / NBUILDS )); [ "$JOBS" -lt 2 ] && JOBS=2
 fi
 
-# The three compile-only builds (fw-ui-video, fw-alt, fw-bcmfw) as functions: the
+# The compile-only builds (fw-ui-video, fw-bcmfw, the release set) as functions: the
 # default gate runs them one after the other once the parallel builds are
 # done; GATE_POOL=1 (full gate) runs them in the same concurrent phase at
 # CO_J=1 (docs/gate-speed-brief.md). Each returns with nbad raised on a failure.
@@ -492,44 +494,10 @@ else
 fi
 }
 
-co_alt() {
-# Phase 9 fw-alt (docs/phase9-brief.md 3.5 row 2, 7.8): the other corner
-# of the variant matrix (hdd, 32 MB, no haptics; trims and B's core
-# function/data sections as configure gives them), compile-only ("make
-# bin": the core image, no codecs or plugins). Full gate only, started
-# after the parallel builds finish so the memory peak doesn't grow; its
-# size is checked in the size step. While the header still guards the
-# trim set (contract state) it passes --ipodui-trim=all, as fw-ui would
-# need to.
-if [ $QUICK = 0 ]; then
-    alt_args="--target=22 --type=n --ipodui --storage=hdd --ram=32 --no-haptics $P"
-    grep -q '^#ifdef IPODUI_TRIM_DEFAULTS' firmware/export/config/ipodvideo-variant.h \
-        && alt_args="$alt_args --ipodui-trim=all"
-    if [ ! -f build/fw-alt/Makefile ] || [ build/fw-alt/Makefile -ot tools/configure ] \
-            || [ build/fw-alt/Makefile -ot firmware/export/config/ipodvideo-variant.h ] \
-            || [ "$(cat build/fw-alt/.p9-args 2>/dev/null)" != "$alt_args" ]; then
-        rm -rf build/fw-alt; mkdir -p build/fw-alt
-        # shellcheck disable=SC2086
-        (cd build/fw-alt && ../../tools/configure $alt_args </dev/null >configure.log 2>&1) \
-            && echo "$alt_args" >build/fw-alt/.p9-args \
-            || bad "configure build/fw-alt ($alt_args): $(grep -E 'ERROR|error' build/fw-alt/configure.log | head -2 | tr '\n' ' ')"
-    fi
-    if [ -f build/fw-alt/.p9-args ]; then
-        if make -C build/fw-alt -j"${CO_J:-$NCPU}" bin >build/fw-alt/make.log 2>&1; then
-            echo "ok   build/fw-alt (compile-only: $alt_args)"
-        else
-            bad "build build/fw-alt ($alt_args)"; grep -nE "error" build/fw-alt/make.log | head -10
-        fi
-    fi
-else
-    echo "skip build fw-alt (--quick: full gate only)"
-fi
-}
-
 co_bcm() {
 # #60 developer test build (--bcmfw-devtest --bcmfw): the BCM device test
 # and the opt-in boot path are compiled only here, compile-only ("make
-# bin"), full gate only, after the parallel builds like fw-alt.
+# bin"), full gate only, after the parallel builds like fw-ui-video.
 if [ $QUICK = 0 ]; then
     bcm_args="--target=22 --type=n --ipodui --bcmfw-devtest --bcmfw $P"
     if [ ! -f build/fw-bcmfw/Makefile ] || [ build/fw-bcmfw/Makefile -ot tools/configure ] \
@@ -576,8 +544,9 @@ co_rel() {
 # fw-ship (p19-relmods) is the TRUE shipping shape, configured from
 # scripts/release_flags.sh exactly as scripts/release_build.sh configures
 # the release zips: RELEASE_SHAPE (--ipodui-release implies the module
-# loader) + RELEASE_STOCK (the 30-pin dock's iAP code makes stock the
-# largest variant) --storage=hdd --ram=64. Built in full and zipped: _end
+# loader), nothing else: one image for every unit since 0.8.3 (RAM,
+# storage and the battery are read or asked at start-up; #204, #79, #205;
+# iAP is resident everywhere, #236). Built in full and zipped: _end
 # <= RELEASE_END_MAX, every RELEASE_REQUIRED file in rockbox.zip, and no
 # "developer" string in rockbox.ipod or modules.pak (the sealed-release
 # step). It replaces fw-rel-bcm (sealed, no player: no longer a shape
@@ -597,7 +566,7 @@ if [ $QUICK = 0 ]; then
         elif [ $v = video ]; then
             d=build/fw-rel-bcmv; args="--target=22 --type=n --ipodui --bcmfw --bcmfw-default --bcmfw-video --bcmfw-merged $P"
         else
-            d=build/fw-ship; args="$RELEASE_SHAPE $RELEASE_STOCK --storage=hdd --ram=64 $P"
+            d=build/fw-ship; args="$RELEASE_SHAPE $P"
         fi
         if [ ! -f $d/Makefile ] || [ $d/Makefile -ot tools/configure ] \
                 || [ $d/Makefile -ot apps/features.txt ] \
@@ -691,8 +660,8 @@ mod_patch() { # dir, configure args...
         || { bad "configure $d: could not add $MOD_DEFINE to its Makefile's EXTRA_DEFINES"; return 1; }
 }
 
-build() { # dir, configure args...
-    local d=build/$1 mod=0; shift
+configure_dir() { # build/<dir>, configure args...
+    local d=$1 mod=0; shift
     case "$d" in build/*-mod) mod=1 ;; esac
     if [ $mod = 1 ] && [ -f "$d/Makefile" ] && ! mod_dir_ok "$d" "$@"; then
         echo "reconfigure $d (not configured by the gate with $MOD_DEFINE and these arguments; wiped)"
@@ -709,6 +678,11 @@ build() { # dir, configure args...
             || { bad "configure $d"; return 1; }
         if [ $mod = 1 ]; then mod_patch "$d" "$@" || return 1; fi
     fi
+}
+
+build() { # dir, configure args...
+    local d=build/$1; shift
+    configure_dir "$d" "$@" || return 1
     # Objects built before the sim tracked its headers (-MMD, gatefix2)
     # have no .d beside them, so a generated header (lang.h's
     # LANG_LAST_INDEX_IN_ARRAY, read by sim_cmd_text.c's str() range check)
@@ -755,30 +729,56 @@ touch "$GATE_TMP/build.stamp"
 # make itself still stops at a dir's own first error (no -k); results are
 # collected and printed in one block, sorted by dir, after every build
 # finishes or fails — one build failing never kills the others early.
-for d in $BUILD_DIRS; do
-    case "$d" in
-        fw-ui)  set -- --target=22 --type=n --ipodui $P ;;
-        fw)     set -- --target=22 --type=n $P ;;
-        sim-ui) set -- --target=22 --type=s --ipodui ;;
-        sim)    set -- --target=22 --type=s ;;
-        boot)   set -- --target=22 --type=b $P ;;
-        boot-ui) set -- --target=22 --type=b --ipodui $P ;;
-        fw-rel) set -- --target=22 --type=n --ipodui --ipodui-release $P ;;
-        sim-ui-video) set -- --target=22 --type=s --ipodui --bcmfw-video ;;
+dir_args() { # dir: its configure arguments
+    case "$1" in
+        fw-ui)  echo --target=22 --type=n --ipodui $P ;;
+        fw)     echo --target=22 --type=n $P ;;
+        sim-ui) echo --target=22 --type=s --ipodui ;;
+        sim)    echo --target=22 --type=s ;;
+        boot)   echo --target=22 --type=b $P ;;
+        boot-ui) echo --target=22 --type=b --ipodui $P ;;
+        fw-rel) echo --target=22 --type=n --ipodui --ipodui-release $P ;;
+        sim-ui-video) echo --target=22 --type=s --ipodui --bcmfw-video ;;
         # p19-relvideos: the shipping shape (scripts/release_flags.sh) as a
         # simulator: --bcmfw, --bcmfw-default and --bcmfw-l1 are firmware-only
-        sim-rel-video) set -- --target=22 --type=s --ipodui --ipodui-release --bcmfw-video --bcmfw-merged ;;
-        sim-ui32) set -- --target=22 --type=s --ipodui --ram=32 ;;
-        sim-ui-mod) set -- --target=22 --type=s --ipodui ;;
-        fw-ui-mod) set -- --target=22 --type=n --ipodui $P ;;
+        sim-rel-video) echo --target=22 --type=s --ipodui --ipodui-release --bcmfw-video --bcmfw-merged ;;
+        sim-ui-mod) echo --target=22 --type=s --ipodui ;;
+        fw-ui-mod) echo --target=22 --type=n --ipodui $P ;;
     esac
+}
+# ...except the host tools: every build dir's Makefile builds the same
+# tools/scramble, bmp2rb, convbdf, codepages, uclpack, mkboot, rdf2binary
+# and iaudio_bl_flash.[ch] (tools/root.make's TOOLS) in the source tree,
+# so dirs built at once raced on them whenever they were missing or older
+# than their sources (p083-int11: boot-ui's "CC scramble" failed in
+# dsymutil while boot linked the same file). One dir builds them first,
+# alone; every later make finds them up to date. A target dir: its TOOLS
+# are the base list plus the iPod's TOOLSET (scramble bmp2rb), a superset
+# of the simulators' (TOOLSET empty); a simulator only when no target
+# dir is built.
+tools_dir=""
+for d in $BUILD_DIRS; do
+    case "$d" in sim*) ;; *) tools_dir=$d; break ;; esac
+done
+[ -n "$tools_dir" ] || tools_dir=${BUILD_DIRS%% *}
+if [ -n "$tools_dir" ]; then
+    if configure_dir "build/$tools_dir" $(dir_args "$tools_dir") \
+        && make -C "build/$tools_dir" tools >"build/$tools_dir/tools.log" 2>&1; then
+        echo "ok   host tools (build/$tools_dir, before the parallel builds)"
+    else
+        bad "host tools (build/$tools_dir/tools.log)"
+        tail -5 "build/$tools_dir/tools.log" 2>/dev/null
+    fi
+fi
+for d in $BUILD_DIRS; do
+    set -- $(dir_args "$d")
     ( build "$d" "$@"; echo $? >"$GATE_TMP/build-$d.status" ) \
         >"$GATE_TMP/build-$d.log" 2>&1 &
 done
 if [ "$POOL_EXTRA" = 1 ]; then
     # compile-only variants, one compiler each (the extras add 5 compilers to
     # the 16 of the default phase)
-    for co in co_fwv co_alt co_bcm co_rel; do
+    for co in co_fwv co_bcm co_rel; do
         ( CO_J=1 $co; echo $((nbad - nbad_builds)) >"$GATE_TMP/$co.status" ) >"$GATE_TMP/$co.log" 2>&1 &
     done
     # the UBSan sim (report-only; its own failure is a note, not a build failure)
@@ -800,12 +800,12 @@ for d in $(printf '%s\n' $BUILD_DIRS | sort); do
 done
 
 if [ "$POOL_EXTRA" = 1 ]; then
-    for co in co_fwv co_alt co_bcm co_rel; do
+    for co in co_fwv co_bcm co_rel; do
         cat "$GATE_TMP/$co.log"
         [ "$(cat "$GATE_TMP/$co.status" 2>/dev/null || echo 1)" = 0 ] || { fail=1; bfail=1; }
     done
 else
-    co_fwv; co_alt; co_bcm; co_rel
+    co_fwv; co_bcm; co_rel
 fi
 
 gl_abort_on_build_failure
@@ -865,6 +865,25 @@ if [ -n "$MA_ELFS" ]; then
         || bad "misaligned static data access (scripts/misaligned_access_check.py; give the object its access type or alignment)"
 else
     echo "skip misaligned access check (no ARM build in this run)"
+fi
+
+step "initialisers in zeroed sections (#313)"
+# SHAREDBSS/NOCACHEBSS/XCORE_BSS (.ncbss) and IBSS (.ibss) are zeroed at
+# boot: a non-zero initialiser placed there is silently dropped (the AW-5
+# gate mask booted as 0).  The objects of every ARM build this run made;
+# under a second each.  Red-proven on the old wmcodec_gate_mask line
+ZI_DIRS=""
+for b in fw fw-ui fw-rel fw-ui-video fw-ui-mod fw-ship fw-rel-bcm-mod boot boot-ui; do
+    if [ -f "$GATE_TMP/built-$b" ]; then
+        ZI_DIRS="$ZI_DIRS build/$b"
+    fi
+done
+if [ -n "$ZI_DIRS" ]; then
+    # shellcheck disable=SC2086
+    python3 scripts/zeroed_init_check.py $ZI_DIRS \
+        || bad "an initialiser in a zeroed section (scripts/zeroed_init_check.py; use SHAREDDATA_ATTR/XCORE_DATA/IDATA_ATTR)"
+else
+    echo "skip zeroed-section initialiser check (no ARM build in this run)"
 fi
 
 step "UI boundary (P19 S1-S4: remote calls, cache lines)"
@@ -997,6 +1016,11 @@ step "trace rules self-test (Phase 15)"
 python3 tests/trace/test_p15_rules.py >"$GATE_TMP/trace-selftest15.log" 2>&1 \
     && echo "ok   check_trace.py p15 rules ($(grep -c '^ok' "$GATE_TMP/trace-selftest15.log") cases)" \
     || { cat "$GATE_TMP/trace-selftest15.log"; bad "check_trace.py p15 rules self-test"; }
+
+step "trace rules self-test (panic rule)"
+python3 tests/trace/test_panic_rules.py >"$GATE_TMP/trace-panic.log" 2>&1 \
+    && echo "ok   check_hang_rule.py panic rule ($(grep -c '^ok' "$GATE_TMP/trace-panic.log") cases)" \
+    || { cat "$GATE_TMP/trace-panic.log"; bad "check_hang_rule.py panic rule self-test"; }
 
 step "trace rules self-test (Phase 12)"
 python3 tests/trace/test_p12_rules.py >"$GATE_TMP/trace-selftest12.log" 2>&1 \
@@ -1664,7 +1688,7 @@ if [ "$GATE_POOL" = 1 ]; then
     for n in $pool_ub_list; do printf 'ubsan\t%s\n' "$n" >>"$GATE_TMP/pool-jobs.tsv"; done
     for n in $pool_ubm_list; do printf 'ubsanmod\t%s\n' "$n" >>"$GATE_TMP/pool-jobs.tsv"; done
     pool_floor=0
-    if [ $POOL_EXTRA = 1 ] && [ "${FLOOR_GATE:-1}" != 0 ] && [ -x build/sim-ui32/rockboxui ] \
+    if [ $POOL_EXTRA = 1 ] && [ "${FLOOR_GATE:-1}" != 0 ] \
             && [ -x build/sim-ui/rockboxui ]; then
         pool_floor=1
         [ -d build/sim-ui/simdisk/.rockbox/codecs ] || make -C build/sim-ui install >/dev/null 2>&1
@@ -1792,8 +1816,7 @@ if [ -f build/fw-ui-video/rockbox.elf ]; then
     arm-none-eabi-size build/fw-ui-video/rockbox.elf | awk 'NR==2{print "fw-ui-video text/data/bss: " $1, $2, $3}'
 fi
 # Phase 9 (docs/phase9-brief.md 7.2-7.4, 7.10): the image ceiling, the
-# resident _end, the decoder set and the normaliser, on fw-ui (and fw-alt
-# when this run built it). The ceiling and _end limits apply once the trim
+# resident _end, the decoder set and the normaliser, on fw-ui. The ceiling and _end limits apply once the trim
 # set is on: the header no longer guards it with IPODUI_TRIM_DEFAULTS (the
 # Part 1 integration), or this build passed --ipodui-trim=all.
 # Phase 16-A (owner, 2026-10-20; docs/hardware.md "Budget rules"): the
@@ -1802,7 +1825,7 @@ fi
 # gates, kept as notes: P9_CEILING 914,813 B (stock - 20 %) and P9_END_MAX
 # 1,100,000 B; P8B_T_END_MAX 1,072,000 B (8b-T interim, retired when 8b-2
 # merged), P8B_END_MAX 1,096,000 B and P8B_IPOD_MAX 820,000 B (8b close).
-P9_CEILING=1250000       # backstop, rockbox.ipod bytes
+P9_CEILING=1500000       # backstop, rockbox.ipod bytes: 1.5 MB from 0.8.3 (follows the 1.75 MB _end raise; was 1,250,000)
 P9_END_MAX=1750000       # backstop, resident core (_end): 1.75 MB from 0.8.1 (owner, 2026-11-09; planned for 0.9.0 on 2026-11-07)
 P9_DECODERS="a52 a52_rm aac aac_bsf adx aiff alac ape asap atrac3_oma atrac3_rm au ay cook flac gbs hes kss mod mpa mpc nsf opus raac sgc shorten sid smaf spc speex tta vgm vorbis vox wav wav64 wavpack wma wmapro"
 p9_trims_on() { # build dir
@@ -1832,7 +1855,7 @@ p9_size_check() { # build dir, label
     fi
     # decoders: the same 39 always; encoders only while RECORDING is back
     got=$(find "$d/lib/rbcodec/codecs" -name '*.codec' 2>/dev/null | sed 's|.*/||; s|\.codec$||' | sort)
-    [ -n "$got" ] || return 0      # fw-alt: compile-only (make bin), no codecs
+    [ -n "$got" ] || return 0      # a compile-only build (make bin): no codecs
     miss=$(for c in $P9_DECODERS; do echo "$got" | grep -qx "$c" || printf '%s ' "$c"; done)
     enc=$(echo "$got" | grep '_enc$' | tr '\n' ' ')
     extra=$(echo "$got" | grep -v '_enc$' | grep -vxF "$(printf '%s\n' $P9_DECODERS)" | tr '\n' ' ')
@@ -1940,9 +1963,6 @@ else
     cat "$GATE_TMP/reach-norm.err"; bad "p9: scripts/risk/reach.py failed on build/fw-ui/rockbox.elf"
 fi
 python3 -I scripts/sizemap.py build/fw-ui/rockbox.map --top 8 2>&1 | sed 's/^/sizemap: /'
-if [ -f build/fw-alt/rockbox.ipod ] && [ "$QUICK" = 0 ]; then
-    p9_size_check build/fw-alt fw-alt
-fi
 
 step "stock bootloader identity (Phase 8a)"
 # The stock bootloader must stay byte-for-byte what main builds: P's
@@ -2091,7 +2111,7 @@ elif [ $QUICK = 1 ]; then
             # or BCM2722 job model; the "# needs: modules" scripts go to
             # the mod variant)
             script_needs_modules "$n" && continue
-            case "$n" in ipodui-p14a-*|ipodui-p19-*) ;; ipodui-*) ub_list="$ub_list $n" ;; esac
+            case "$n" in ipodui-p14a-*|ipodui-p19-*|ipodui-b12-*) ;; ipodui-*) ub_list="$ub_list $n" ;; esac
         done
     elif [ -z "$ubm_list" ]; then
         echo "note skipped under --quick without a narrowed --changed (its own sim-ui-ubsan build; full gate runs it)"
@@ -2185,14 +2205,9 @@ if [ $floor_run = 1 ] && [ "$POOL_EXTRA" = 1 ] && [ -f "$GATE_TMP/floor.status" 
         bad "audio buffer floor (tests/perf/floor_gate.sh, build/floor-gate.log)"
     fi
 elif [ $floor_run = 1 ]; then
-    if [ ! -f build/sim-ui32/Makefile ]; then
-        mkdir -p build/sim-ui32
-        (cd build/sim-ui32 && ../../tools/configure --target=22 --type=s --ipodui --ram=32 </dev/null >configure.log 2>&1) \
-            || bad "configure build/sim-ui32 (32 MB floor sim)"
-    fi
-    if [ -f build/sim-ui32/Makefile ] && [ -x build/sim-ui/rockboxui ]; then
-        make -C build/sim-ui32 -j"$JOBS" >build/sim-ui32/make.log 2>&1 \
-            || bad "build build/sim-ui32 (32 MB floor sim): see build/sim-ui32/make.log"
+    # one binary for both units (#204): the 32 MB half runs build/sim-ui
+    # with IPODUI_SIM_RAM=32
+    if [ -x build/sim-ui/rockboxui ]; then
         [ -d build/sim-ui/simdisk/.rockbox/codecs ] || make -C build/sim-ui install >/dev/null 2>&1
         if tests/perf/floor_gate.sh 32 64 >build/floor-gate.log 2>&1; then
             grep -E "^floor gate: ok" build/floor-gate.log | sed 's/^/ok   /'
@@ -2202,7 +2217,7 @@ elif [ $floor_run = 1 ]; then
             bad "audio buffer floor (tests/perf/floor_gate.sh, build/floor-gate.log)"
         fi
     else
-        bad "audio buffer floor: build/sim-ui or build/sim-ui32 missing"
+        bad "audio buffer floor: build/sim-ui missing"
     fi
 fi
 

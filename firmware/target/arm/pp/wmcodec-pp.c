@@ -125,7 +125,11 @@ void wmcodec_write(int reg, int data)
  * failure signal (restored, the row off for the session). */
 static unsigned long gate_bits SHAREDBSS_ATTR;
 static unsigned long gate_cfg SHAREDBSS_ATTR, gate_fifo SHAREDBSS_ATTR;
-unsigned long wmcodec_gate_mask SHAREDBSS_ATTR = DEV_EXTCLOCKS | DEV_I2S;
+/* #313: initialised, so .ncdata (loaded with the image), not .ncbss: the
+ * zeroed section drops an initialiser and the gate never closed.  Still
+ * uncached: the awi2 bench row writes it on the CPU, the gate reads it
+ * on the core that holds the codec mutex */
+unsigned long wmcodec_gate_mask SHAREDDATA_ATTR = DEV_EXTCLOCKS | DEV_I2S;
 
 void wmcodec_clocks_gate(bool gate)
 {

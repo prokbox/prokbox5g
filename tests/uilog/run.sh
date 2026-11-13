@@ -66,7 +66,7 @@ if ! "$HOSTCC" -std=gnu99 -O1 -g -Wall -Wextra -Werror ${EXTRA_CFLAGS:-} \
 fi
 mkdir -p "$TMP/b"
 if "$TMP/test_uilog_boot"; then
-    echo "ok   ui log: the boot ring (64 lines, kept across a bench session)"
+    echo "ok   ui log: the boot ring (256 lines, kept across a bench session)"
 else
     echo "FAIL: ui log: the boot ring"
     exit 1

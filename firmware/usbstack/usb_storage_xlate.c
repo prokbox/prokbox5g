@@ -38,6 +38,7 @@
 #define BPB_BYTES       0x0b    /* u16 */
 #define BPB_SPC         0x0d    /* u8 */
 #define BPB_RESERVED    0x0e    /* u16 */
+#define BPB_NFATS       0x10    /* u8 */
 #define BPB_ROOTENT     0x11    /* u16, 0 on FAT32 */
 #define BPB_TOTSEC16    0x13    /* u16 */
 #define BPB_FATSZ16     0x16    /* u16, 0 on FAT32 */
@@ -121,7 +122,10 @@ void xlate_learn_mbr(struct xlate_state *s, unsigned int mult,
         if (end > 0xffffffffu)
             return;                 /* past 2 TiB in 512s: not shown */
         if (e[MBR_TYPE] == 0x0b || e[MBR_TYPE] == 0x0c)
+        {
             s->part[i].start = start;
+            s->part[i].end = end;
+        }
     }
     memcpy(s->mbr_parts, mbr + MBR_PART0, sizeof(s->mbr_parts));
     s->mult = mult;
@@ -163,6 +167,34 @@ void xlate_learn_boot(struct xlate_state *s, int part,
     }
     bk = rd16(boot + BPB_BKBOOT);
     p->backup = (bk && bk != 0xffff) ? p->start + (uint64_t)bk * s->mult : 0;
+    /* #314: the reserved sectors and the FATs, in the disk's sectors */
+    p->data = p->start + ((uint64_t)rd16(boot + BPB_RESERVED)
+                          + (uint64_t)boot[BPB_NFATS]
+                            * rd32(boot + BPB_FATSZ32)) * s->mult;
+    if (!boot[BPB_NFATS] || p->data >= p->end)
+        p->data = 0;                /* not plausible: unknown */
+}
+
+bool xlate_run_in_data(const struct xlate_state *s, uint64_t lba,
+                       unsigned int count)
+{
+    bool any = false;
+
+    if (!xlate_active(s))
+        return true;
+    for (int i = 0; i < XLATE_MAX_PARTS; i++)
+    {
+        const struct xlate_part *p = &s->part[i];
+
+        if (!p->start)
+            continue;
+        if (!p->data)
+            return true;            /* a FAT32 partition not learned */
+        any = true;
+        if (lba < p->end && lba + count > p->data)
+            return true;
+    }
+    return !any;
 }
 
 static uint32_t scale_field(const struct xlate_state *s,

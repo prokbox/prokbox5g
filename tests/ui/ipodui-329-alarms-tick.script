@@ -1,0 +1,61 @@
+# #329: Extras > Alarms, an alarm's countdown in the panel. An Every Day
+# 8:30 PM alarm made at 15:06 on Tue 6 Oct: with its row highlighted the
+# caption reads "Tue 6 Oct, 8:30 PM" over "In 5 hours 24 minutes"; a
+# minute later the list's tick has made the lines again and pushed the
+# caption band ("alarms panel row=2 in=193.."): "In 5 hours 23 minutes".
+# The light stays on (the sim's default, Always On). The rest of the
+# panel is ipodui-329-alarms.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-329-alarms-tick.script
+# golden: skip
+# timeout: 150
+# log: ipodui: alarms panel row=2 in=194
+# log: ipodui: alarms panel row=2 in=193
+# reset: mainmenu
+
+wait 4000
+rtc_at 2026-10-06 15:06:00
+sim_clock 15:06
+wheel +2              # Extras
+wait 700
+key SELECT
+wait 1200
+wheel +3              # Alarms
+wait 800
+key SELECT
+wait 1500
+key SELECT            # Create Alarm: the editor (Alarm, Date, Time, ...)
+wait 1200
+wheel +2              # Time
+wait 700
+key SELECT            # 7:00 AM: the hour
+wait 1000
+wheel +1              # 8
+wait 700
+key SELECT            # the minutes
+wait 700
+wheel +30             # 30
+wait 700
+key SELECT            # AM/PM
+wait 700
+wheel +1              # PM
+wait 700
+key SELECT            # done
+wait 1000
+wheel +1              # Repeat
+wait 700
+key SELECT
+wait 1200
+wheel +1              # Every Day
+wait 600
+key SELECT            # back to the editor
+wait 1200
+key MENU              # leave the editor: the commit
+wait 1500
+wheel +2              # the alarm
+wait 1000
+shot alarm_lit        # "Tue 6 Oct, 8:30 PM" / "In 5 hours 24 minutes"
+wait 61000            # a minute passes on the row, lit
+shot alarm_tick       # "In 5 hours 23 minutes"
+key MENU
+wait 1000
+quit

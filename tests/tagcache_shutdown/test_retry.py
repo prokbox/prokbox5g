@@ -91,6 +91,7 @@ static int ui_candidate_exported;
 #define BT_MARK(s) do { } while (0)
 static int playing, mem_full;
 static bool ui_begin_mem_wait;
+static volatile bool ui_begin_held;     /* ledger 2.107 */
 static bool ui_candidate_changed, ui_active_pre_done, ui_commit_pending, ui_scan_pending;
 static int audio_status(void) { return playing; }
 /* the paused window (apps/ipodui/maint.h, #88) */

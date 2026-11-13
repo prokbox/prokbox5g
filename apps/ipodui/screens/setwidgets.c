@@ -192,6 +192,11 @@ void ui_seg_draw(const short *lang, int n, int sel, bool shelf)
 
 void ui_prompt_draw(int head_lang, int body_lang)
 {
+    ui_prompt_draw_n(head_lang, body_lang, 3);
+}
+
+void ui_prompt_draw_n(int head_lang, int body_lang, int max_lines)
+{
     const struct ui_theme *t = ui_theme;
     int asc;
 
@@ -207,7 +212,7 @@ void ui_prompt_draw(int head_lang, int body_lang)
                (const unsigned char *)str(head_lang));
     lcd_setfont(t->font_small);
     lcd_set_foreground(SP_BODY_FG);
-    ui_wrap_text(SP_TEXT_X, SP_BODY_BASE, SP_BODY_PITCH, SP_TEXT_W, 3,
-                 str(body_lang));
+    ui_wrap_text(SP_TEXT_X, SP_BODY_BASE, SP_BODY_PITCH, SP_TEXT_W,
+                 max_lines, str(body_lang));
     lcd_set_drawmode(DRMODE_SOLID);
 }

@@ -783,6 +783,20 @@ struct user_settings
     int ipodui_video_start;
     bool ipodui_video_fit;
 #endif
+    /* #270 Settings > Audiophile (apps/audiophile.h): native 88.2/96 kHz
+     * output (Off by default), the rates this unit's self-test passed
+     * (AP_RATE_* | AP_TESTED; 0 untested) and the codec's 3D stereo
+     * width (0 Off .. 3 High) */
+#ifdef IPODUI_AUDIOPHILE   /* 0.9.0 (ipodvideo.h scope switch) */
+    bool ipodui_hirate;
+    int ipodui_hirate_ok;
+    int ipodui_width3d;
+#endif
+    /* one-build WP3: the fitted battery, the first-start question's
+     * answer (enum battcell, ipodui/battcurve.h: 0 not answered, 1 the
+     * original cell, 2 about 2,000 mAh, 3 3,000 mAh; hidden; kept by
+     * Reset Settings) */
+    int ipodui_battery_cell;
 #endif
     int  backlight_timeout;  /* backlight off timeout:  -1=never,
                                 0=always, or time in seconds */

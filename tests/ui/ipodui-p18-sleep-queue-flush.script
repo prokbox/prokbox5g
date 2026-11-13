@@ -1,0 +1,38 @@
+# #326 (b12 slp5/slp6): hold PLAY to sleep with a queue loaded and its
+# buffer full. Sleep entry's persist() syncs the playlist (playlist_sync()),
+# which flushes the tracks after the current one and starts a refill
+# (Q_AUDIO_FLUSH, audio_fill_file_buffer(): the audio thread boosts) after
+# the storage hold, so the refill can't run until the wake and never ended
+# its boost: the device's power_sleep() refused ("sleep refused why=2",
+# "sleep held thr=audio"). Now a fill held at sleep entry keeps no boost:
+# the sleep is taken and nothing is boosted asleep.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p18-sleep-queue-flush.script
+# needs: library
+# golden: skip
+# timeout: 180
+# fulls-extra: 1          (the wake pushes the left screen in full)
+# log: sim_sleep: sleep enter
+# log: audio fill while held state=
+# nolog: sleep refused
+# nolog: sleep deep
+# nolog: tier=off
+# nolog: splash-pass
+
+sleep_mode soft       # soft sleep is off by default (developer switch)
+wait 4000
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3 /Music/Tone%20Collective/Sine%20Studies/02%20Low%20E.mp3 /Music/Tone%20Collective/Sine%20Studies/03%20Warble.mp3
+wait_pos 3000 60000
+expect_boost 0 5000   # the queue buffered: the fill's boost given back
+hold PLAY 1500        # pause, then the sleep (persist() flushes, refills)
+expect_sleep asleep 12000
+expect_boost 0        # nothing boosted asleep
+expect_paused 500
+key SELECT            # wakes; swallowed
+expect_sleep button 3000
+wait 1000
+key PLAY
+wait 500
+expect_playing 1000
+expect_boost 0 20000  # the refill after the wake ends: its boost given back
+shot woken
+quit

@@ -115,7 +115,7 @@ ck "genversion PROKVERSION" '#define PROKVERSION "1.2.3-dev.4"' "$(grep PROKVERS
 mk; mkdir -p "$R/scripts"
 cp "$ROOT/scripts/release_build.sh" "$ROOT/scripts/version.sh" "$ROOT/scripts/release_flags.sh" "$R/scripts/"
 git -C "$R" add scripts; git -C "$R" commit -qm scripts; git -C "$R" tag v0.8.2
-out=$(cd "$R" && VERSION=0.8.3 sh scripts/release_build.sh 64 "$W/o" 2>&1); rc=$?
+out=$(cd "$R" && VERSION=0.8.3 sh scripts/release_build.sh "$W/o" 2>&1); rc=$?
 ck "override disagrees with tag: rc" "2" "$rc"
 case "$out" in *"VERSION=0.8.3 disagrees with the tag at HEAD (v0.8.2)"*) ck "override disagrees: message" y y ;; *) ck "override disagrees: message" y "$out" ;; esac
 more later
@@ -137,9 +137,13 @@ case "$bid" in
     [0-9a-f]*-[0-9][0-9][0-9][0-9][0-9][0-9]) ck "release: RBVERSION (Build:) stays <id>-<date>" y y ;;
     *) ck "release: RBVERSION (Build:) stays <id>-<date>" "<id>-<yymmdd>" "$bid" ;;
 esac
-out=$(cd "$R" && RELEASE_BUILD=1 sh scripts/release_build.sh 64 "$W/o" 2>&1); rc=$?
+out=$(cd "$R" && RELEASE_BUILD=1 sh scripts/release_build.sh "$W/o" 2>&1); rc=$?
 ck "RELEASE_BUILD=1 off a tag: rc" "2" "$rc"
 case "$out" in *"not at a clean release tag"*) ck "RELEASE_BUILD=1 off a tag: message" y y ;; *) ck "RELEASE_BUILD=1 off a tag: message" y "$out" ;; esac
+# 0.8.3: one image for every unit; an old caller's RAM argument is refused
+out=$(cd "$R" && sh scripts/release_build.sh 64 "$W/o" 2>&1); rc=$?
+ck "RAM argument refused: rc" "2" "$rc"
+case "$out" in *"takes no RAM argument"*) ck "RAM argument refused: message" y y ;; *) ck "RAM argument refused: message" y "$out" ;; esac
 
 echo "$n checks"
 [ "$n" -ge 30 ] || { echo "FAIL: only $n checks ran"; fail=1; }

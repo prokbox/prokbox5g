@@ -65,6 +65,7 @@
 #include "ipodui/sdk/sdk_int.h"     /* sdk_sleep_enter() */
 #include "ipodui/updscreen.h"       /* ui_upd_yield() */
 #include "ipodui/np_playback.h"     /* np_hires_yield() (#278) */
+#include "ipodui/clockpol.h"        /* clockpol_input_drop() (#272) */
 #include "hang_watch.h"          /* hang_idle_begin(): asleep is idle */
 #include "power_sleep.h"        /* SLEEP_REFUSE_*, struct sleep_req */
 #ifdef HAVE_POWER_SLEEP
@@ -89,6 +90,9 @@ static bool stay_dark;          /* power_sleep() refused twice: awake, the
                                  * backlight left off (review H1) */
 static bool lit_through_hold;   /* P12 W2-W (owner): an alarm, USB or
                                  * charger ended it: lit once with Hold on */
+static bool key_woke;           /* a key ended the entry or the sleep: the
+                                 * unlit face leaves with it (owner
+                                 * 2026-11-12, one press swallowed) */
 #ifdef HAVE_SW_POWEROFF
 static bool sw_off_owed, sw_off_val;    /* restored at PLAY's release (L3) */
 #endif
@@ -200,11 +204,9 @@ uint32_t ui_sleep_rtc_now(void)
 
 uint32_t ui_sleep_deep_after_s(void)
 {
-#ifdef IPOD_BATTERY_MAH
-    return sleep_deep_after_s(IPOD_BATTERY_MAH, 0, 0);
-#else
-    return sleep_deep_after_s(BATTERY_CAPACITY_DEFAULT, 0, 0);
-#endif
+    /* the fitted cell (one-build WP3, battcell.h): the question's
+     * answer, or the original cell's until it is answered */
+    return sleep_deep_after_s(get_battery_capacity(), 0, 0);
 }
 
 /* -- the swallow mask ------------------------------------------------------ */
@@ -298,6 +300,8 @@ static enum sleep_quiesce entry_wait(long deadline, unsigned *jobs,
 
     for (;;)
     {
+        bool face = ui_unlit_active();
+
         if (ui_input_get(&in, HZ/10))
         {
             uint8_t b = btn_bits(in.raw);
@@ -305,7 +309,22 @@ static enum sleep_quiesce entry_wait(long deadline, unsigned *jobs,
             if (b && !(b & WBTN_PLAY) && !in.release && !in.repeat)
             {
                 lit_from = current_tick;
+                key_woke = true;
                 swallow.mask |= b;      /* its repeats and release */
+                return SQ_WOKEN;
+            }
+        }
+        else if (face && !ui_unlit_active() && !(in.raw & SYS_EVENT))
+        {
+            /* the unlit face took the key (dismissed, swallowed to its
+             * release by unlit.c): that press ends the entry too, or a
+             * second one would be needed to wake (owner 2026-11-12) */
+            uint8_t b = btn_bits(in.raw);
+
+            if (b && !(b & WBTN_PLAY) && !in.release && !in.repeat)
+            {
+                lit_from = current_tick;
+                key_woke = true;
                 return SQ_WOKEN;
             }
         }
@@ -429,10 +448,19 @@ bool sleep_busy_read(struct sleep_busy *b)
         || b->pcm || b->disk || b->art || b->maint;
 }
 
-/* one HZ/10 slice of the UI queue (sleep_quiesce_wait()'s, at entry) */
+/* one HZ/10 slice of the UI queue (sleep_quiesce_wait()'s, at entry).
+ * #272: the input boosts go after each slice: a key's (button_queue.c:
+ * PLAY's repeats, a PLAY held past the entry re-arm it) and the lit
+ * input hold's (clockpol.c: taken lit, released only by the main loop's
+ * pass, which a sleep entry never reaches); both would have
+ * power_sleep() refuse. Dark here, nothing to compose */
 static enum sleep_quiesce entry_slice(void)
 {
-    return entry_wait(current_tick + HZ/10, NULL, false);
+    enum sleep_quiesce q = entry_wait(current_tick + HZ/10, NULL, false);
+
+    button_boost_release();
+    clockpol_input_drop();
+    return q;
 }
 
 static enum sleep_quiesce quiesce(enum ui_sleep_reason r, uint8_t *entry)
@@ -559,7 +587,15 @@ static enum sleep_quiesce quiesce(enum ui_sleep_reason r, uint8_t *entry)
                                                              * boost, if any */
 #endif
     if (button_queue_count())           /* a last look */
-        return entry_wait(current_tick, NULL, false);
+    {
+        q = entry_wait(current_tick, NULL, false);
+        if (q != SQ_SLEEP)
+            return q;
+    }
+    /* #272: the last look reads a held PLAY's repeat, which re-arms the
+     * key's boost: given back before power_sleep() */
+    button_boost_release();
+    clockpol_input_drop();
     return SQ_SLEEP;
 }
 
@@ -726,6 +762,7 @@ bool ui_sleep_run(void)
     lcd_cut = false;
     stay_dark = false;
     lit_through_hold = false;
+    key_woke = false;
     if (alarm_ringing())
     {
         /* P12: the idle timer or the Sleep Timer's end while ringing (hold
@@ -766,9 +803,8 @@ bool ui_sleep_run(void)
      * fire at the wake */
     if (get_sleep_timer_active())
         set_sleeptimer_duration(0);
-    if ((audio_status() & (AUDIO_STATUS_PLAY | AUDIO_STATUS_PAUSE))
-        == AUDIO_STATUS_PLAY)
-        audio_pause();              /* playing: paused first */
+    fe_audio_pause_sure();          /* playing: paused first (#345: a
+                                     * posted PLAY press included) */
     ui_log("sleep", "enter why=%d batt=%d", (int)r, battery_level());
 
     /* PLAY held on in the dark is this sleep's hold, never upstream's
@@ -850,6 +886,8 @@ bool ui_sleep_run(void)
         tagcache_ui_sleep_woke();
         if (w.why == WAKE_ALARM || w.why == WAKE_VBUS)
             lit_through_hold = true;    /* not a key: Hold can't stop it */
+        if (w.why == WAKE_BUTTON)
+            key_woke = true;
         if (sleep_counts_as_boot(w.why, w.s) && boots_owed < 255)
             boots_owed++;
         /* the waking press, still down for the driver
@@ -877,6 +915,13 @@ bool ui_sleep_run(void)
     /* P12 W2-W: the alarm's deadline again from the RTC, whatever woke
      * it; WAKE_ALARM rings at the loop's next pass (alarm_poll()) */
     alarm_wake(slept && w.why == WAKE_ALARM);
+    /* owner 2026-11-12: from the dark exactly one press is swallowed.
+     * The wake comes back on the top screen (ui_main.c redraws it), so
+     * an unlit face behind the sleep leaves with the waking key (already
+     * swallowed to its release above); kept, it took the next press too.
+     * Hold, USB, alarms and chargers keep their own paths */
+    if (key_woke)
+        ui_unlit_dismiss("key");
     return true;
 }
 

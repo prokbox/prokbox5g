@@ -62,6 +62,7 @@ static size_t arena_block;
 static long ticks;
 long modhost_tick(void) { return ticks++; }  /* every read moves time on */
 struct user_settings global_settings;
+unsigned char probed_ramsize = 64;      /* the unit's RAM (#204) */
 struct frame_buffer_t lcd_framebuffer_default;
 const struct extra_ent extras_table[XT__N];
 const struct ui_theme *ui_theme;
@@ -274,7 +275,7 @@ int main(int argc, char **argv)
 {
     FILE *f, *o;
     uint8_t *buf;
-    int n, runnable = 0, i;
+    int n, runnable = 0, i, ram_checked = 0;
     char want[64];
 
     if (argc < 2)
@@ -403,6 +404,28 @@ int main(int argc, char **argv)
     n = load_all("pack back");
     CHECK(n == runnable);
 
+    /* 6. one build (#204): the unit's RAM class is read at run time, so
+     * a 64 MB-only module is not runnable on a 32 MB unit of the same
+     * image, and is on a 64 MB one */
+    for (i = 0; i < hdr.count; i++)
+    {
+        const struct mod_rt *r = mod_rt_get((enum mod_id)hdr.ent[i].id);
+        struct mod_rt big;
+
+        if (!r || !mod_runnable(r))
+            continue;
+        big = *r;
+        big.min_ram = MOD_RAM_64;
+        probed_ramsize = 32;
+        CHECK(!mod_runnable(&big));
+        CHECK(mod_runnable(r));         /* its own 32 MB class still runs */
+        probed_ramsize = 64;
+        CHECK(mod_runnable(&big));
+        ram_checked++;
+        break;
+    }
+    CHECK(ram_checked == 1);
+
     remove(tmp_pak);
     if (fails)
     {
@@ -411,7 +434,7 @@ int main(int argc, char **argv)
     }
     printf("ok   module load path: %d of %u modules loaded and checked "
            "(%d hidden here), pack reopened after USB and after a missing "
-           "pack, %d storage jobs\n", runnable, hdr.count,
-           hdr.count - runnable, jobs);
+           "pack, %d storage jobs, unit RAM class read at run time\n",
+           runnable, hdr.count, hdr.count - runnable, jobs);
     return 0;
 }

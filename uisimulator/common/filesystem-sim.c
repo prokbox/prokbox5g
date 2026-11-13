@@ -509,16 +509,72 @@ int sim_get_os_path(char *buffer, const char *path, size_t bufsize)
 }
 
 
+#ifdef HAVE_IPOD_UI
+/* ProkBox #79 (one build): the simulator's disk model, flash or hard
+ * drive. The device tells them apart at runtime (ata_disk_isssd(),
+ * IDENTIFY); the sim answers from this model (firmware/export/ata.h), set
+ * by "# env: IPODUI_SIM_DISK=flash|hdd" before boot (default flash: the
+ * owner's unit) or the script command "disk model flash|hdd"
+ * (sim_cmd_storpwr.c). What follows the kind, as on the device:
+ *  - the driver's idle hold (ata.c sleep_timeout): 1 s solid, 5 s
+ *    rotating, then the disk_spindown setting where settings_apply()
+ *    gives it (rotating only); the sim's wake counts, the art builder's
+ *    and the panel's "disk awake" read it (sim_ata_hold_ticks());
+ *  - the power cut (#114): the stor_pwr policy when solid, upstream's
+ *    standby + 2 s when rotating (ata.c spw_off_due());
+ *  - every runtime "if (solid)" row that calls ata_disk_isssd().
+ * The power-up wait stays SIM_PWRUP for both (scripts set it with
+ * stor_pwrup): screens must not differ, only timing. */
+static int sim_disk_kind = -1;      /* -1 unset, 0 rotating, 1 solid */
+static long sim_ata_hold = -1;      /* ticks; -1: the kind's default */
+
+int sim_disk_solid(void)
+{
+    if (sim_disk_kind < 0)
+    {
+        const char *e = getenv("IPODUI_SIM_DISK");
+        sim_disk_kind = !(e && !strcmp(e, "hdd"));
+        fprintf(stderr, "sim disk model=%s\n",
+                sim_disk_kind ? "flash" : "hdd");
+    }
+    return sim_disk_kind;
+}
+
+void sim_disk_set_model(bool solid)
+{
+    sim_disk_kind = solid;
+    sim_ata_hold = -1;
+    fprintf(stderr, "sim disk model=%s\n", solid ? "flash" : "hdd");
+}
+
+long sim_ata_hold_ticks(void)
+{
+    if (sim_ata_hold < 0)
+        return sim_disk_solid() ? HZ : 5 * HZ;
+    return sim_ata_hold;
+}
+
+/* storage_spindown() in the shell's sim (firmware/export/storage.h): as
+ * ata_spindown(), the idle hold for the next accesses */
+void sim_storage_spindown(int seconds)
+{
+    sim_ata_hold = seconds * HZ;
+    fprintf(stderr, "sim disk spindown hold_ms=%ld\n",
+            sim_ata_hold * (1000 / HZ));
+}
+#endif /* HAVE_IPOD_UI */
+
 #ifdef HAVE_DEVSTATS
 /* ProkBox Fit-1 M0: the simulator's disk model for devstats. Every data
  * read or write, and every open (a failed one too), is a storage command
  * of the calling thread; one that comes after the modelled ATA hold has run out is a
- * wake (firmware/drivers/ata.c: 1 s on a flash shell build, else 5 s).
+ * wake (firmware/drivers/ata.c: 1 s on a solid drive, else 5 s; #79:
+ * sim_ata_hold_ticks()).
  * No sector cache is modelled, so a sim count is an upper bound. */
 #include "kernel.h"
 #include "devstats.h"
-#if defined(HAVE_IPOD_UI) && defined(HAVE_FLASH_STORAGE)
-#define SIM_ATA_HOLD    (1*HZ)
+#ifdef HAVE_IPOD_UI
+#define SIM_ATA_HOLD    sim_ata_hold_ticks()
 #else
 #define SIM_ATA_HOLD    (5*HZ)
 #endif
@@ -568,9 +624,22 @@ static volatile long sim_spw_last;      /* tick of the last access */
 
 static void sim_spw_tick(void)
 {
-    if (sim_spw.on && sim_spw_allow && !sim_spw_usb
-        && stor_pwr_off_due(&sim_spw, &sim_spw_tune, current_tick,
-                            sim_spw_last, is_backlight_on(true)))
+    if (!sim_spw.on || !sim_spw_allow || sim_spw_usb)
+        return;
+#ifdef HAVE_IPOD_UI
+    /* #79: a rotating drive: upstream's standby after the idle hold, the
+     * power cut 2 s later (ata.c ATA_POWER_OFF_TIMEOUT) */
+    if (!sim_disk_solid())
+    {
+        if (TIME_AFTER(current_tick,
+                       sim_spw_last + sim_ata_hold_ticks() + 2 * HZ))
+            stor_pwr_note_off(&sim_spw, current_tick, STOR_PWR_R_IDLE,
+                              1000/HZ);
+        return;
+    }
+#endif
+    if (stor_pwr_off_due(&sim_spw, &sim_spw_tune, current_tick,
+                         sim_spw_last, is_backlight_on(true)))
         stor_pwr_note_off(&sim_spw, current_tick, STOR_PWR_R_IDLE, 1000/HZ);
 }
 
@@ -765,10 +834,26 @@ int sim_write_count(void)
  * each one is logged so a UI script can fail on it. */
 static bool usb_host_window;
 static int usb_host_writes;
+/* #314: the host's own changes in the window (the script's copies,
+ * removals and folders): the device's WRITEs into the FAT data area */
+static int usb_host_changes;
+int sim_usb_host_changes(void)
+{
+    return usb_host_changes;
+}
+/* sim_script.c: a change made with the host's own file calls (copy,
+ * rm_file), which do not pass through here */
+void sim_usb_host_changed(const char *path)
+{
+    if (!usb_host_window)
+        return;
+    usb_host_changes++;
+    DEBUGF("ipodui: usb host change path=%s\n", path ? path : "-");
+}
 void sim_usb_host_window(bool open)
 {
     if (open)
-        usb_host_writes = 0;
+        usb_host_writes = usb_host_changes = 0;
     else
         DEBUGF("ipodui: usb host window close writes=%d\n", usb_host_writes);
     usb_host_window = open;
@@ -785,6 +870,10 @@ static void sim_wrote(const char *op, const char *path)
         DEBUGF("ipodui: usb host write op=%s path=%s tid=%u\n", op,
                path ? path : "-", thread_self());
     }
+    /* #314: the script's own (a path: not its screenshot's temp file) */
+    else if (usb_host_window && path
+             && strcmp(path, "/.sim_script_shot.bmp"))
+        sim_usb_host_changed(path);
 }
 #define SIM_WROTE()     sim_wrote(__func__, NULL)
 #define SIM_WROTE_P(p)  sim_wrote(__func__, (p))
@@ -798,6 +887,12 @@ int sim_open_audio_db_count(void)
 #else
 #define SIM_WROTE()     do { } while (0)
 #define SIM_WROTE_P(p)  do { } while (0)
+/* #314: sim_script.c reports the host's own changes in a USB session;
+ * the stock sim keeps no USB window, so there is nothing to count */
+void sim_usb_host_changed(const char *path)
+{
+    (void)path;
+}
 #endif
 
 #ifdef HAVE_IPOD_UI

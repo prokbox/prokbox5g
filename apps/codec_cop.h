@@ -34,6 +34,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <sys/types.h>
 
 struct codec_api;
 
@@ -60,6 +61,19 @@ void codec_cop_observe(void);
 /* Runs since boot: on the COP, and on the CPU */
 void codec_cop_place_stats(uint32_t *cop, uint32_t *cpu);
 
+/* p083-copclock: the COP's clock demand (codec_place_core.h). True while
+ * the music on the COP asks for the boost; the smoothed and the last
+ * period's demand in tenths of a MHz (either pointer may be NULL). Any
+ * thread; the values are the COP's, read uncached */
+bool codec_cop_demand(unsigned int *ema_x10, unsigned int *last_x10);
+/* The function the CPU's tick calls when the demand's want changes (the
+ * UI's wake; must be callable from the tick: a queue post) */
+void codec_cop_set_demand_wake(void (*wake)(void));
+#ifdef SIMULATOR
+/* sim command "cop_demand": one period at x10 tenths of a MHz */
+void codec_cop_sim_demand(unsigned int x10);
+#endif
+
 /* codec_thread.c, at Q_CODEC_LOAD: the api to hand the codec (the real
  * one, or the second core's view of it, whenever the COP could take a
  * run of this load) */
@@ -76,6 +90,30 @@ size_t codec_cop_reserve(void);
 void *codec_slot_top(size_t size);
 /* codec_thread.c: no message waits for the codec */
 bool codec_queue_idle(void);
+/* 0.8.3: us codec_pcm_window() slept on a full buffer, since boot */
+uint32_t codec_pcm_window_full_us(void);
+/* codec_thread.c (#282 step 4): the CPU's half of the COP's insert:
+ * publish `used` samples the COP wrote, then take a window of at least
+ * `want` samples (0: publish only). NULL: a message waits, stop.
+ * *hold: the window may be held across frames (no crossfade).
+ * 0.8.3 colocate: with may_lease, after a full-buffer sleep it may hand
+ * the write side to the COP instead (pcmbuf.h's lease): NULL, *leased */
+void *codec_pcm_window(int used, unsigned long elapsed, off_t offset,
+                       int want, bool may_lease, int *count, bool *hold,
+                       bool *leased);
+/* #282 step 4: the DSP runs on the COP with the decode (developer A/B
+ * switch, not saved; on at every boot) */
+void codec_cop_set_dsp(bool on);
+bool codec_cop_dsp(void);
+/* Counters since boot of the DSP on the COP: frames it ran, windows
+ * (calls to the CPU to publish), microseconds inside dsp_process() */
+void codec_cop_dsp_stats(uint32_t *frames, uint32_t *windows,
+                         uint32_t *dsp_us);
+/* 0.8.3 colocate: the COP reads the compressed ring itself (no call per
+ * request_buffer/advance_buffer/set_elapsed). Developer A/B switch, not
+ * saved, on at every boot; off says "COP FAILED (colocate off)" */
+void codec_cop_set_colocate(bool on);
+bool codec_cop_colocate(void);
 
 #endif /* HAVE_COP_CODEC */
 #endif /* _CODEC_COP_H_ */

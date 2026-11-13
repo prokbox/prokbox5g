@@ -47,9 +47,10 @@
  * ui_usbbusy_poll(): ui_main.c draw_dirty(), each header pass. Sets
  *   st->busy (0 none, 1..8 the glyph's lead dot) and returns the ticks
  *   until the glyph next steps, or TIMEOUT_BLOCK. When the moment ends it
- *   runs the housekeeping once: the "._" sidecar count the scan saw and
- *   the FSInfo plausibility check, both only logged (Q6: nothing is
- *   deleted, nothing written to the volume). */
+ *   owes the housekeeping once (run by ui_usbbusy_after_draw()): the "._"
+ *   sidecar count the scan saw and the FSInfo plausibility check, both
+ *   only logged (Q6: nothing is deleted, nothing written to the volume).
+ *   #315: also polled for a hidden screen (ui_main.c refresh()). */
 void ui_usbbusy_begin(void);
 int  ui_usbbusy_poll(struct ui_header_state *st, bool lit);
 /* the screen went dark: input.c (the backlight-off event), sleep.c (a
@@ -58,6 +59,10 @@ void ui_usbbusy_dark(void);
 /* #157: the post-USB moment is still open (from ui_usbbusy_begin() until
  * the scan has been quiet its gap, or never started in its grace) */
 bool ui_usbbusy_moment(void);
+/* #315: the housekeeping the moment's end owes, run after the frame's
+ * draw and push (ui_main.c's loop), not inside the header pass before
+ * it; UI thread */
+void ui_usbbusy_after_draw(void);
 
 /* The snapshot batch (modload.h, #106; docs/phase16-brief.md 4.2) is the
  * same routine the boot window runs. It does not exist yet: this is the

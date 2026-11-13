@@ -22,7 +22,8 @@
 #***************************************************************************
 
 # The shipping shape of a ProkBox5g release: ONE place, sourced by
-# scripts/release_build.sh (the release zips, locally and in CI) and by
+# scripts/release_build.sh (the release zip, locally and in CI), by
+# scripts/release_tree.py (the public tree's configurations) and by
 # scripts/validate.sh's shipping-shape gate, so they can't drift apart.
 # POSIX sh; defines variables only.
 
@@ -32,21 +33,16 @@
 # player, VC display driver, VC-drawn visualiser, art decode.
 RELEASE_SHAPE="--target=22 --type=n --ipodui --ipodui-release --bcmfw --bcmfw-default --bcmfw-video --bcmfw-l1 --bcmfw-merged"
 
-# The public variants (owner, 2026-10-26), each for --storage=flash|hdd and
-# --ram=64|32: stock = stock battery, 30-pin dock, no haptics; modded = the
-# owner's mods, 3000 mAh, haptics, USB-C (no dock).
-RELEASE_STOCK="--battery=stock --dock30 --no-haptics"
-RELEASE_MODDED="--battery=3000 --haptics"
-# The matrix release_build.sh builds ({variant} x {storage} x {RAM}); scripts/release_tree.py
-# reads the same lists to keep every file any of them compiles.
-RELEASE_VARIANTS="stock modded"
-RELEASE_STORAGES="flash hdd"
-RELEASE_RAMS="64 32"
+# One release image for every unit since 0.8.3 (owner, 2026-11-11): the
+# RAM (#204) and the storage kind (#79) are read at start-up, the fitted
+# battery is asked once at first start (#205), and the dock's iAP code is
+# resident everywhere (#236). No variant, storage or RAM flags: one zip,
+# ProkBox5g-<ver>.zip (scripts/release_build.sh).
 
-# The ProkBox start-up program (bootloader) shipped in every zip.
+# The ProkBox start-up program (bootloader), shipped in the zip.
 RELEASE_BOOT="--target=22 --type=b --ipodui"
 
-# Files every release zip must carry (paths inside the zip).
+# Files the release zip must carry (paths inside the zip).
 RELEASE_REQUIRED="bootloader-ipodvideo.ipod .rockbox/modules.pak .rockbox/bcmvideo.bin .rockbox/dec-ovl.bin .rockbox/viz-ovl-m.bin .rockbox/vcheck.bin"
 
 # The resident cap: _end in rockbox.elf, decimal bytes (validate.sh

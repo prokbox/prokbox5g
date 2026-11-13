@@ -202,6 +202,15 @@ bool ui_input_get(struct ui_input *in, int timeout)
                 fe_fb_serve();      /* P19 MF-4: a CPU push waits */
                 return false;
             }
+            if (btn == SYS_IPODUI_WHEEL_TOUCH)
+            {
+                /* #291: a finger on the wheel wakes the idle clock face
+                 * like a button; its steps are swallowed (unlit.c).
+                 * Before the unboost below: it never blocks, and a
+                 * turn's first touch must not drop a scroll's boost */
+                ui_unlit_wheel_touch();
+                return false;
+            }
             ui_anim_idle();     /* the handler may block (USB): unboost */
             clockpol_input_drop();  /* np-lag: the input boost too */
             if (btn == SYS_IPODUI_BACKLIGHT_OFF
@@ -230,11 +239,14 @@ bool ui_input_get(struct ui_input *in, int timeout)
                 return false;
             }
 #endif
-            if (btn == SYS_POWEROFF)
+            if (btn == SYS_POWEROFF || btn == SYS_REBOOT)
             {
-                ui_log("power", "off batt=%d", battery_level());
-                powerlog_mark("poweroff");  /* #10: written by
-                                             * system_flush()'s idle call */
+                /* #316: a restart (new software) saves as a power-off */
+                ui_log("power", "%s batt=%d",
+                       btn == SYS_POWEROFF ? "off" : "reboot",
+                       battery_level());
+                /* #10: written by system_flush()'s idle call */
+                powerlog_mark(btn == SYS_POWEROFF ? "poweroff" : "reboot");
                 lib_shuffle_settle();   /* npfix review L1: the
                                          * record matches the queue */
                 sdk_poweroff();     /* P12 W4-0: a game's state record */

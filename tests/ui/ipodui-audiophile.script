@@ -1,0 +1,81 @@
+# #270 Settings > Audiophile: the row after Sound Check (row 11) opens a
+# short split menu: High Sample Rate (an inline On/Off) and Stereo Width
+# (a value list: Off, Low, Medium, High). The first turn-on shows the
+# warning (Continue | Cancel, Cancel preselected); Cancel leaves it Off;
+# Continue shows "Testing..." while audiophile_selftest() runs (~2 s),
+# then the result (both rates pass in the simulator) and the setting On.
+# Off again needs no prompt, and a later On uses the stored result (no
+# warning). Stereo Width: Medium picked, then Off again.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-audiophile.script
+# Starts from an untested unit only when the simdisk's config.cfg has no
+# "ipodui high rate", "ipodui high rate ok" or "ipodui stereo width"
+# lines (shots.sh has no reset for them yet).
+# golden: skip
+# reset: mainmenu
+# log: audiophile test mask=0x83 on=1
+# log: audiophile hirate=0
+# log: audiophile hirate=1
+# log: audiophile width=2
+# log: audiophile width=0
+# nolog: cfg save failed
+wait 4000
+
+wheel +3 300            # Settings
+wait 400
+key SELECT 50
+wait 1200
+wheel +11 300           # Audiophile (row 11)
+wait 1500
+shot settings_row       # the Audiophile row and its tile
+key SELECT 50
+wait 1500
+shot menu               # High Sample Rate Off, Stereo Width
+key SELECT 50           # High Sample Rate: the warning
+wait 1200
+shot warning            # Cancel preselected
+key SELECT 50           # Cancel: back, still Off
+wait 1200
+shot cancelled
+key SELECT 50           # the warning again
+wait 1200
+wheel -1 300            # Continue
+wait 500
+shot warning_continue
+key SELECT 50           # the test
+wait 300
+shot testing
+wait 3500
+shot result_both
+key SELECT 50           # back to the menu, High Sample Rate On
+wait 1500
+shot menu_on
+key SELECT 50           # Off, no prompt
+wait 800
+shot menu_off
+key SELECT 50           # On again: the stored result, no prompt
+wait 800
+shot menu_on_again
+wheel +1 300            # Stereo Width
+wait 1500
+shot width_row
+key SELECT 50
+wait 1500
+shot width_list         # Off highlighted
+wheel +2 300            # Medium
+wait 500
+shot width_medium
+key SELECT 50           # set, back
+wait 1500
+shot width_set          # the caption says Medium
+key SELECT 50
+wait 1200
+wheel -3 300            # Off
+wait 300
+key SELECT 50
+wait 1200
+wheel -1 300            # High Sample Rate
+wait 500
+key SELECT 50           # Off (leave the disk as found)
+wait 3000
+shot end
+quit

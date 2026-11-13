@@ -1,0 +1,22 @@
+# 0.8.3: an AAC start logs "pcm start" (the laptop's flushed log had none
+# for an AAC that played from 1.8 s).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-aac-start-log.script
+# needs: library
+# golden: skip
+# fulls-extra: 2          (the main menu gains its Now Playing row at play_files and loses it at audio_stop)
+# log: codec trk AAC
+# log: pcm start prefill_ms=
+# timeout: 120
+
+wait 4000
+repeat off
+copy ../../tests/fixtures/apple_chapters.m4b /Music/aacstart.m4b
+wait 500
+play_files /Music/aacstart.m4b
+wait 4000
+expect_playing 1000
+audio_stop
+wait 1000
+shot end
+rm_file /Music/aacstart.m4b
+quit

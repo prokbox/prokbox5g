@@ -1,6 +1,6 @@
 # Phase 9 smoke (docs/phase9-brief.md 7.8): Music > Artists > an artist
 # > All Songs with the trims on (no tree/filetree code; the shell's own
-# library.c) and, under --ram=32, a 31 MB pool.
+# library.c) and, under IPODUI_SIM_RAM=32, a 31 MB pool.
 #   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p9-smoke-browse.script
 # needs: library
 # nolog: splash-pass

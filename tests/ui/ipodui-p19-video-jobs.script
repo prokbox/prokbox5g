@@ -1,0 +1,76 @@
+# #325 (b12 silicon, 2026-11-12, 0.8.3 release blocker): after a video
+# the job driver must still have the chip, so the Visualizer opens on it
+# ("path=bcm"), never "the job driver is off".  On the device the driver
+# found the job block overwritten after a play whose OPEN ran the
+# developer self-test (bench s6), and stayed on the CPU for the boot; the
+# fixes are a restart at that play's stop (vpcore.c) and a bounded restart
+# when discovery finds a bad block (bcmjob-core.c, tests/bcmjob).  The
+# simulator's job model does not share memory with its video model, so
+# this script cannot show the overwrite itself: it is the user path's
+# guard (a play, MENU out, then the Visualizer on the chip).
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p19-video-jobs.script
+# needs: music
+# needs: video
+# golden: skip
+# reset: viz
+# timeout: 180
+# logbetween: v0 v1 video leave audio=0
+# logbetween: v1 z1 viz start style=0 path=bcm
+# nolog: job driver is off
+# nolog: viz CPU FALLBACK why=nojobs
+# nolog: video error page
+wait 4000
+bcm_drift on        # the developer switch: jobs (the model's auto: off)
+wait_db 45000
+repeat off
+
+# a video: Short Film, MENU out after a few seconds
+wheel -10 300
+wheel +1 300        # Videos
+wait 600
+key SELECT
+wait 900
+key SELECT          # Movies
+wait 1200
+wheel -10 300
+wheel +3 300        # Short Film
+wait 400
+ab_mark v0
+key SELECT
+wait_pos 3000 30000 Film.m4v
+expect_video 10 playing
+key MENU            # stop: back to Movies
+wait 1200
+expect_video 0 none
+ab_mark v1
+key MENU            # Videos
+wait 700
+key MENU            # the main menu
+wait 700
+
+# then music, and the Visualizer over it
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait 1500
+expect_playing 1000
+wheel +10           # "Now Playing" (the main menu's last row)
+wait 500
+key SELECT
+wait 1200
+key SELECT          # Scrubber
+wait 400
+key SELECT          # Rating
+wait 600
+key SELECT          # Shuffle
+wait 600
+key SELECT          # Visualizer
+wait 1500
+expect_playing 1000
+shot viz
+ab_mark z1
+key SELECT          # Normal
+wait 1000
+key MENU
+wait 800
+bcm_drift auto
+audio_stop
+quit

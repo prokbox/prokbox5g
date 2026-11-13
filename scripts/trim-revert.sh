@@ -186,7 +186,7 @@ build_mode() {
         return 0
     fi
 
-    # --- the P9 batch lock (shared with variants.sh) and the gate check ---
+    # --- the P9 batch lock (variants.sh shared it until 0.8.3) and the gate check ---
     BATCH_LOCK=${P9_BATCH_LOCK:-$HOME/.cache/rockbox-p9-batch.lock}
     GATE_LOCK=${SIMPOOL_LOCK:-$HOME/.cache/rockbox-gate.lock}
     MAX_MIN=${P9_BATCH_MAX_MINUTES:-120}

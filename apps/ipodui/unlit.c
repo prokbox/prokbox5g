@@ -80,6 +80,10 @@ static struct ui_unlit_state st;
 static bool st_ready;
 static struct unlit_clock shown_clock;  /* the time row in the framebuffer */
 static long dismiss_btn;        /* button bits of the dismissing press */
+static bool touch_swallow;      /* #291: the wheel touch that woke the face */
+static unsigned touch_id;       /* its button_wheel_touches() count */
+static long touch_tick;         /* when it woke the face */
+#define TOUCH_SWALLOW_MAX (HZ/2)    /* a lift the driver never counts */
 static long orphan_btn;         /* still held after the 1 s fallback: drop
                                    its repeats and release */
 
@@ -234,6 +238,7 @@ static void enter(void)
      * before the face's first push (the face is drawn before any tick) */
     ui_fb_settle(0, 0, LCD_WIDTH, LCD_HEIGHT);
     UPDATE_TRACE("unlit enter%s", "");
+    touch_swallow = false;
     draw_full();
 }
 
@@ -362,6 +367,28 @@ static inline const char *key_name(const struct ui_input *in)
     return names[in->key];
 }
 
+/* #291: a finger on the wheel while the face shows. The driver has lit the
+ * backlight, but posts no step until the finger has moved a few clicks (or
+ * none at all), so without this the face stayed up, lit. Wake it as a key
+ * does, and drop the steps of this touch (until the finger is lifted and
+ * touches again, which the driver counts) so the list below stays put. */
+void ui_unlit_wheel_touch(void)
+{
+    unsigned a;
+
+    if (!st_ready || !st.face)
+        return;
+    a = ui_unlit_step(&st, UE_WHEEL, current_tick, true);
+    if (a & UA_DISMISS)
+    {
+        dismiss_btn = 0;
+        touch_swallow = true;
+        touch_id = button_wheel_touches();
+        touch_tick = current_tick;
+        dismissed("wheel");
+    }
+}
+
 bool ui_unlit_filter(const struct ui_input *in)
 {
     long bits = in->raw & ~(BUTTON_REL | BUTTON_REPEAT);
@@ -379,6 +406,18 @@ bool ui_unlit_filter(const struct ui_input *in)
             orphan_btn = 0;
         UPDATE_TRACE("unlit swallow %s", key_name(in));
         return true;
+    }
+    if (wheel && touch_swallow)
+    {
+        if (button_wheel_touches() == touch_id
+            && TIME_BEFORE(current_tick, touch_tick + TOUCH_SWALLOW_MAX))
+        {
+            UPDATE_TRACE("unlit swallow %s", "wheel touch");
+            return true;            /* the waking touch's own steps */
+        }
+        touch_swallow = false;      /* a new touch, or the bound: acts */
+        if (button_wheel_touches() == touch_id)
+            UPDATE_TRACE("unlit swallow-end %s", "wheel bound");
     }
     if (wheel)
         ev = UE_WHEEL;

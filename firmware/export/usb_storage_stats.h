@@ -119,6 +119,11 @@ struct usb_storage_stats {
      * USB_STATS_RST_* << 4 | the storage state (usb_storage.c's enum) */
     uint32_t rst_n;         /* resets logged in all */
     uint8_t rst_log[8];
+    /* #314: WRITE pieces that reached a FAT data area (a folder or a file
+     * may have changed; xlate_run_in_data()), or every WRITE piece where
+     * the layout is unknown. 0 with wr_cmds > 0: the host changed only
+     * the boot area or the FATs (its dirty flag), no file. */
+    uint32_t wr_data;
 };
 #define USB_STATS_RST_LOG   8
 #define USB_STATS_RST_BULK  1   /* Bulk-Only Mass Storage Reset */

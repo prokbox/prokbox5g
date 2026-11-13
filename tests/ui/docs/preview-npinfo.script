@@ -1,0 +1,107 @@
+# Site preview image (scripts/docs_shots.sh; its row in tests/ui/docs/images.tsv):
+# Now Playing's format page (#277, planned for 0.9.0) for a generated 24-bit,
+# 96 kHz FLAC, with Settings > Audiophile > Hi-Res on (#270), so the output
+# line reads 96 kHz too. 0.8.3 compiles both out (IPODUI_NP_INFO,
+# IPODUI_AUDIOPHILE), so this runs on the preview sim, the release shape with
+# the 0.9.0 switches on: build it first with tests/ui/docs/preview_sim.sh.
+# The track is a generated chord with made-up tags and synthetic cover art
+# (tests/ui/docs/make_preview_fixtures.sh); the rest is
+# the synthetic library and video fixtures (tests/ui/setup_library.py,
+# tests/fixtures/videos/mkvideos.sh): no owner media. In tests/ui/docs/, so
+# the gate's tests/ui/*.script sweep leaves it alone.
+#   sh tests/ui/docs/make_preview_fixtures.sh
+#   sh tests/ui/docs/preview_sim.sh
+#   SIM_BUILD=build/sim-rel-preview scripts/shots.sh tests/ui/docs/preview-npinfo.script
+# needs: library
+# needs: video
+# golden: skip
+# timeout: 420
+# log: audiophile test mask=0x83 on=1
+# log: np mode shuffle -> info ev=0
+# log: audiophile hirate=0
+# nolog: studio96.flac failed
+# nolog: cover.jpg failed
+# reset: mainmenu
+wait 4500
+wait_db 30000
+sim_clock 15:08
+repeat off
+wheel +4 300            # Settings
+wait 400
+key SELECT 50
+wait 1200
+wheel +11 300           # Audiophile
+wait 1500
+key SELECT 50
+wait 1500
+key SELECT 50           # Hi-Res: the warning
+wait 1200
+wheel -1 300            # Continue
+wait 500
+key SELECT 50           # the test
+wait 4000
+key SELECT 50           # OK: Hi-Res on
+wait 1500
+shot hires_on
+key MENU
+wait 700
+key MENU
+wait 700
+key MENU
+wait 700
+mkdir /NPINFO
+copy ../../../build/preview-fixtures/studio96.flac /NPINFO/studio96.flac
+copy ../../../build/preview-fixtures/cover.jpg /NPINFO/cover.jpg
+update_db_wait_change 60000   # index it, and cache its cover
+art_wait 150000
+
+play_files /NPINFO/studio96.flac
+wait 2500
+key SELECT
+wait 700
+key MENU
+wait 700
+wheel +10
+wait 500
+key SELECT
+wait 1200
+shot flac_normal
+key SELECT          # Scrubber
+wait 400
+key SELECT          # Rating
+wait 400
+key SELECT          # Shuffle
+wait 400
+key SELECT          # Info
+wait 2500
+shot flac_info
+audio_stop
+wait 500
+key MENU
+wait 700
+key MENU
+wait 700
+key MENU
+wait 700
+key MENU
+wait 700
+shot back_main
+wheel -20 300
+wait 300
+wheel +4 300            # Settings
+wait 400
+key SELECT 50
+wait 1200
+wheel -20 300
+wait 300
+wheel +11 300           # Audiophile
+wait 1500
+key SELECT 50
+wait 1500
+key SELECT 50           # Hi-Res off: the disk as found
+wait 1500
+shot hires_off
+rm_file /NPINFO/studio96.flac
+rm_file /NPINFO/cover.jpg
+update_db_wait_change 60000
+quit

@@ -29,6 +29,7 @@
 #include "resample.h"
 #include "resample_hb.h"
 #include "resample_hb_coefs.h"
+#include "resample_fir.h"
 #include <string.h>
 
 /**
@@ -64,101 +65,359 @@ static struct resample_data
 int resample_hermite(struct resample_data *data, struct dsp_buffer *src,
                      struct dsp_buffer *dst);
 
-/** Band-limited conversion for whole-number ratios (P19 19-13,
- * docs/design/resample-plan.md). Half-band polyphase IIR stages
- * (resample_hb.h) do /2, /4, x2 and x4 outright; x3, x6 and (optionally)
- * 3:2 oversample through one or two half-bands and let the Hermite
- * interpolator take the last, now gentle, step. Only the audio DSP uses it; the voice
- * DSP keeps Hermite. */
+/** Band-limited conversion for every ratio (#271; the whole-number ratios
+ * came first in P19 19-13; docs/design/resample-plan.md sections 8 and 9).
+ * - /2, /4, /8: a cascade of half-band polyphase IIR decimators;
+ * - x2, x4: half-band interpolators;
+ * - anything else (x3, x6, 3:2, 44.1 <-> 48 kHz, pitch, odd rates): the
+ *   fractional path. Half-band /2 stages while the rate is still at least
+ *   twice the output's; a half-band x2, which leaves nothing above 0.2268 of
+ *   its output rate A; then a short polyphase FIR (resample_fir.h) from A to
+ *   B, where B is the output rate, or twice it followed by one more
+ *   half-band /2 when the source is faster than the output. The half-bands
+ *   do the sharp filtering, so the FIR only has to remove its own images
+ *   (10 taps for 110 dB). Its phase is exact rational arithmetic: no drift.
+ * Only the audio DSP uses it; the voice DSP keeps Hermite, as does
+ * RESAMPLE_Q_HERMITE (the fallback for CPU starvation). */
 enum
 {
-    RS_HERMITE = 0, /* plain Hermite (any ratio; fallback) */
+    RS_HERMITE = 0, /* plain Hermite (voice DSP, fallback) */
     RS_DOWN,        /* nst half-band decimators */
     RS_UP,          /* nst half-band interpolators */
-    RS_UPH,         /* nst half-band interpolators, then Hermite */
+    RS_FRAC,        /* npre decimators, x2, FIR, post decimators */
 };
 
-#define RS_TMP_COUNT 96 /* per channel */
+#define RS_TMP_COUNT   96   /* cascade scratch, per channel */
+#define RS_MAX_STAGES  5    /* RS_FRAC: 3 before, x2, 1 after */
+#define RS_FBUF_COUNT  (RS_FIR_TAPS + RS_TMP_COUNT) /* FIR input, per ch */
+#define RS_FIR_BATCH   16   /* FIR outputs per kernel call */
 
 static unsigned int rs_quality = RESAMPLE_Q_INTEGER;
 
 static struct resample_bl
 {
     uint8_t mode;
-    uint8_t nst;                    /* half-band stages, 1 or 2 */
-    uint8_t npend;                  /* RS_DOWN: inputs held for a group */
-    int32_t fifo_rem;               /* RS_UPH: oversampled, not yet used */
-    int32_t *fifo_p[2];
-    const struct hb_coefs *hb[2];   /* [0] meets the input */
-    int32_t st[2][2][HB_STATE];     /* [stage][channel] */
-    int32_t pend[2][4];
+    uint8_t nst;                    /* RS_DOWN, RS_UP: stages, 1..3 */
+    uint8_t npre;                   /* RS_FRAC: decimators before the x2 */
+    uint8_t post;                   /* RS_FRAC: one decimator after */
+    uint8_t npend;                  /* inputs held for a /2^n group */
+    uint8_t nodd;                   /* RS_FRAC post: FIR output held */
+    uint8_t cached;                 /* RS_FRAC: rs_rows[ph] are the rows */
+    int16_t fill;                   /* RS_FRAC: samples in rs_fbuf */
+    int16_t w;                      /* RS_FRAC: FIR window start */
+    uint32_t ph;                    /* RS_FRAC: phase, ph / L sample */
+    uint32_t L, mint, mfrac;        /* RS_FRAC: step = mint + mfrac / L */
+    uint32_t recip_lo, recip_hi;    /* RS_FRAC: ceil(2^40 / L) */
+    const struct hb_coefs *hb[RS_MAX_STAGES];   /* [0] meets the input */
+    int32_t pend[2][8];
+    int32_t odd[2];
 } rs_bl IBSS_ATTR;
 
-/* Cascade scratch: stage outputs and the RS_UPH queue */
+/* Half-band states [stage][channel]: each stage call loads and saves its
+ * state once, so they need not take IRAM. Cascade scratch, FIR input queue
+ * and FIR coefficient rows (the cached rows of a ratio with
+ * L <= RS_FIR_BATCH, or one batch's rows). All of it is touched only by the
+ * core that runs the audio DSP. */
+static int32_t rs_st[RS_MAX_STAGES][2][HB_STATE];
 static int32_t rs_tmp_a[2][RS_TMP_COUNT];
 static int32_t rs_tmp_b[2][RS_TMP_COUNT];
+static int32_t rs_fbuf[2][RS_FBUF_COUNT];
+static int32_t rs_rows[RS_FIR_BATCH][RS_FIR_TAPS];
 
 static void rs_bl_flush(void)
 {
     rs_bl.npend = 0;
-    rs_bl.fifo_rem = 0;
-    memset(rs_bl.st, 0, sizeof (rs_bl.st));
+    rs_bl.nodd = 0;
+    rs_bl.ph = 0;
+    rs_bl.w = 0;
+    /* the first output is centred on the first input sample */
+    rs_bl.fill = RS_FIR_TAPS / 2 - 1;
+    memset(rs_fbuf, 0, sizeof (rs_fbuf));
+    memset(rs_st, 0, sizeof (rs_st));
+}
+
+/* The FIR's fractional position for phase ph, as a Q32 fraction */
+static inline uint32_t rs_frac_q32(uint32_t ph)
+{
+    uint64_t r = ((uint64_t)rs_bl.recip_hi << 32) | rs_bl.recip_lo;
+    return (uint32_t)(((uint64_t)ph * r) >> 8);
+}
+
+static unsigned int rs_gcd(unsigned int a, unsigned int b)
+{
+    while (b)
+    {
+        unsigned int t = a % b;
+        a = b;
+        b = t;
+    }
+    return a;
+}
+
+/* Decimator for a /2 stage whose input runs at fs. The last stage before a
+ * 44.1/48 kHz output is the tight design for its family; the others only
+ * have to stay flat to 20 kHz, and the faster their rate, the gentler. */
+static const struct hb_coefs *rs_down_design(unsigned int fs, bool last,
+                                             unsigned int fout)
+{
+    if (last && fout <= 48000)
+        return (fout % 11025) == 0 ? &hb_t44 : &hb_t48;
+    if (fs >= 174000)
+        return &hb_r;
+    if (fs >= 96000)
+        return &hb_t48;
+    return &hb_t44;
 }
 
 /* Pick the band-limited path for fin -> fout, or RS_HERMITE */
 static void rs_bl_setup(unsigned int fin, unsigned int fout)
 {
     struct resample_bl *b = &rs_bl;
-    /* Decimation: flat to 20 kHz; the 44.1 kHz family needs the steeper
-     * half-band. Interpolation: flat to 0.4535 fin at either family. */
-    const struct hb_coefs *tight = (fout % 11025) == 0 ? &hb_t44 : &hb_t48;
 
     b->mode = RS_HERMITE;
     rs_bl_flush();
 
-    if (rs_quality == RESAMPLE_Q_HERMITE || fin == 0 || fout == 0)
+    if (rs_quality == RESAMPLE_Q_HERMITE || fin == 0 || fout == 0 ||
+        fin == fout)
         return;
 
-    if (fin == 2*fout)
+    for (int k = 1; k <= 3; k++)
     {
-        b->mode = RS_DOWN; b->nst = 1; b->hb[0] = tight;
+        if (fin == fout << k)
+        {
+            b->mode = RS_DOWN;
+            b->nst = k;
+            for (int s = 0; s < k; s++)
+                b->hb[s] = rs_down_design(fin >> s, s == k - 1, fout);
+            return;
+        }
     }
-    else if (fin == 4*fout)
+
+    if (fout == 2*fin || fout == 4*fin)
     {
-        b->mode = RS_DOWN; b->nst = 2; b->hb[0] = &hb_r; b->hb[1] = tight;
+        b->mode = RS_UP;
+        b->nst = fout == 2*fin ? 1 : 2;
+        b->hb[0] = &hb_t44;
+        b->hb[1] = &hb_r;
+        return;
     }
-    else if (2*fin == fout)
+
+    /* Fractional: decimate while the source is at least twice the output */
+    int a = 0;
+    while ((uint64_t)fin >= ((uint64_t)fout << (a + 1)))
     {
-        b->mode = RS_UP; b->nst = 1; b->hb[0] = &hb_t44;
+        if (a == 3)
+        {
+            DEBUGF("RESAMPLE: %u -> %u beyond the band-limited path\n",
+                   fin, fout);
+            return; /* 16x and more: Hermite */
+        }
+        b->hb[a] = rs_down_design(fin >> a, false, fout);
+        a++;
     }
-    else if (4*fin == fout)
+    b->npre = a;
+    b->hb[a] = &hb_t44;                        /* x2 */
+    b->post = (uint64_t)fin > ((uint64_t)fout << a);
+    if (b->post)
+        b->hb[a + 1] = rs_down_design(2*fout, true, fout);
+
+    /* FIR from A = 2 fin / 2^a to B = fout (x2 with post): step A / B */
+    uint64_t num = 2 * (uint64_t)fin;
+    uint64_t den = (uint64_t)(fout << b->post) << a;
+    uint64_t g = rs_gcd((uint32_t)num, (uint32_t)den); /* both < 2^22 */
+    b->L = den / g;
+    b->mint = (num / g) / b->L;
+    b->mfrac = (num / g) % b->L;
+    uint64_t r = ((1ull << 40) + b->L - 1) / b->L;
+    b->recip_lo = (uint32_t)r;
+    b->recip_hi = (uint32_t)(r >> 32);
+
+    b->cached = b->L <= RS_FIR_BATCH;
+    if (b->cached)
     {
-        b->mode = RS_UP; b->nst = 2; b->hb[0] = &hb_t44; b->hb[1] = &hb_r;
+        for (uint32_t p = 0; p < b->L; p++)
+            rs_fir_row(rs_rows[p], rs_frac_q32(p));
     }
-    else if (3*fin == fout || 6*fin == fout ||
-             (2*fout == 3*fin && rs_quality >= RESAMPLE_Q_ALL))
+    b->mode = RS_FRAC;
+}
+
+/* n outputs of the /2^nst cascade hb[0..nst-1] on one channel. dst is
+ * never rs_tmp_a/b; the stages in between alternate between them. */
+static void rs_cascade(int32_t *dst, const int32_t *src, int n, int ch,
+                       int nst)
+{
+    struct resample_bl *b = &rs_bl;
+    const int32_t *in = src;
+    for (int s = 0; s < nst; s++)
     {
-        /* half-bands up, then Hermite for the last step: x4 then 4:3 or
-         * 2:3 for speech rates (images ~50 dB down); x2 then 4:3 for 3:2
-         * (~44 dB, at about half the cost of x4 then 8:3) */
-        b->mode = RS_UPH; b->nst = (2*fout == 3*fin) ? 1 : 2;
-        b->hb[0] = &hb_t44; b->hb[1] = &hb_r;
+        int32_t *o = s == nst - 1 ? dst :
+                     ((nst - 2 - s) & 1) ? rs_tmp_b[ch] : rs_tmp_a[ch];
+        hb_down2(o, in, n << (nst - 1 - s), rs_st[s][ch], b->hb[s]);
+        in = o;
     }
 }
 
-/* Run the half-band cascade of 'groups' outputs (RS_DOWN) on one channel */
-static void rs_down_run(int32_t *dst, const int32_t *src, int n, int ch)
+/* Up to maxn outputs of the /2^nst cascade into d[ch] + 0.., taking input
+ * from src at *usedp; a partial group waits in pend for the next buffer. */
+static int rs_down_pull(int32_t *const *d, int maxn, struct dsp_buffer *src,
+                        int *usedp, int nch, int nst)
 {
     struct resample_bl *b = &rs_bl;
-    if (b->nst == 1)
+    int g = 1 << nst, rem = src->remcount, used = *usedp, out = 0;
+
+    if (b->npend)
     {
-        hb_down2(dst, src, n, b->st[0][ch], b->hb[0]);
+        /* finish the group begun in the last buffer */
+        int need = MIN(g - b->npend, rem - used);
+        for (int ch = 0; ch < nch; ch++)
+            for (int i = 0; i < need; i++)
+                b->pend[ch][b->npend + i] = src->p32[ch][used + i];
+        b->npend += need;
+        used += need;
+        if (b->npend < g)
+        {
+            *usedp = used;
+            return 0;
+        }
+        for (int ch = 0; ch < nch; ch++)
+            rs_cascade(d[ch], b->pend[ch], 1, ch, nst);
+        b->npend = 0;
+        out = 1;
     }
-    else
+
+    while (out < maxn)
     {
-        hb_down2(rs_tmp_a[ch], src, 2*n, b->st[0][ch], b->hb[0]);
-        hb_down2(dst, rs_tmp_a[ch], n, b->st[1][ch], b->hb[1]);
+        int n = MIN((rem - used) >> nst, maxn - out);
+        n = MIN(n, RS_TMP_COUNT >> (nst - 1));
+        if (n <= 0)
+            break;
+        for (int ch = 0; ch < nch; ch++)
+            rs_cascade(d[ch] + out, src->p32[ch] + used, n, ch, nst);
+        used += n << nst;
+        out += n;
     }
+
+    if (out < maxn && rem - used < g)
+    {
+        /* keep the tail (less than a group) for the next buffer */
+        int left = rem - used;
+        for (int ch = 0; ch < nch; ch++)
+            for (int i = 0; i < left; i++)
+                b->pend[ch][i] = src->p32[ch][used + i];
+        b->npend = left;
+        used = rem;
+    }
+
+    *usedp = used;
+    return out;
+}
+
+/* RS_FRAC: FIR outputs while they fit, refilling the FIR's queue */
+static int rs_frac_run(struct dsp_buffer *src, struct dsp_buffer *dst,
+                       int nch)
+{
+    struct resample_bl *b = &rs_bl;
+    const int up = b->npre, post = b->npre + 1;
+    int rem = src->remcount, used = 0, out = 0;
+
+    for (;;)
+    {
+        while (out < RESAMPLE_BUF_COUNT && b->w + RS_FIR_TAPS <= b->fill)
+        {
+            uintptr_t tag[RS_FIR_BATCH];   /* row | samples to move on */
+            int space = RESAMPLE_BUF_COUNT - out;
+            int kmax = MIN(b->post ? 2*space - b->nodd : space,
+                           RS_FIR_BATCH);
+            int w0 = b->w, wl = w0, k = 0;
+
+            while (k < kmax && b->w + RS_FIR_TAPS <= b->fill)
+            {
+                const int32_t *row = rs_rows[k];
+                if (b->cached)
+                    row = rs_rows[b->ph];
+                else
+                    rs_fir_row(rs_rows[k], rs_frac_q32(b->ph));
+                tag[k] = (uintptr_t)row | (uintptr_t)(b->w - wl);
+                wl = b->w;
+                b->ph += b->mfrac;
+                b->w += b->mint;
+                if (b->ph >= b->L)
+                {
+                    b->ph -= b->L;
+                    b->w++;
+                }
+                k++;
+            }
+
+            if (!b->post)
+            {
+                for (int ch = 0; ch < nch; ch++)
+                    rs_fir_batch(dst->p32[ch] + out, rs_fbuf[ch] + w0,
+                                 tag, k);
+                out += k;
+            }
+            else
+            {
+                /* pairs at twice the output rate through the last /2 */
+                int tot = b->nodd + k, np = tot >> 1;
+                for (int ch = 0; ch < nch; ch++)
+                {
+                    int32_t *stg = rs_tmp_b[ch];
+                    stg[0] = b->odd[ch];
+                    rs_fir_batch(stg + b->nodd, rs_fbuf[ch] + w0, tag, k);
+                    if (np)
+                        hb_down2(dst->p32[ch] + out, stg, np,
+                                 rs_st[post][ch], b->hb[post]);
+                    b->odd[ch] = stg[tot - 1];
+                }
+                b->nodd = tot & 1;
+                out += np;
+            }
+        }
+
+        if (out >= RESAMPLE_BUF_COUNT)
+            break;
+
+        /* refill: drop what the FIR has passed, then x2 more input in */
+        if (b->w > 0)
+        {
+            for (int ch = 0; ch < nch; ch++)
+                memmove(rs_fbuf[ch], rs_fbuf[ch] + b->w,
+                        (b->fill - b->w) * sizeof (int32_t));
+            b->fill -= b->w;
+            b->w = 0;
+        }
+
+        int n;
+        if (b->npre == 0)
+        {
+            n = MIN((RS_FBUF_COUNT - b->fill) / 2, rem - used);
+            if (n <= 0)
+                break;
+            for (int ch = 0; ch < nch; ch++)
+                hb_up2(rs_fbuf[ch] + b->fill, src->p32[ch] + used, n,
+                       rs_st[up][ch], b->hb[up]);
+            used += n;
+        }
+        else
+        {
+            /* the decimators' output waits at the queue's far end, clear
+             * of the x2's output */
+            int nmax = (RS_FBUF_COUNT - b->fill) / 3;
+            int32_t *d[2] = { rs_fbuf[0] + RS_FBUF_COUNT - nmax,
+                              rs_fbuf[1] + RS_FBUF_COUNT - nmax };
+            n = rs_down_pull(d, nmax, src, &used, nch, b->npre);
+            if (n <= 0)
+                break; /* all input taken (a partial group is held) */
+            for (int ch = 0; ch < nch; ch++)
+                hb_up2(rs_fbuf[ch] + b->fill, d[ch], n, rs_st[up][ch],
+                       b->hb[up]);
+        }
+        b->fill += 2*n;
+    }
+
+    dst->remcount = out;
+    return used;
 }
 
 /* Band-limited worker; same contract as resample_hermite() */
@@ -167,127 +426,38 @@ static int resample_bl(struct resample_data *data, struct dsp_buffer *src,
 {
     struct resample_bl *b = &rs_bl;
     int nch = src->format.num_channels;
-    int rem = src->remcount;
     int used = 0, out = 0;
+    (void)data;
 
     if (b->mode == RS_DOWN)
     {
-        int g = 1 << b->nst;                 /* inputs per output */
-        int maxout = b->nst == 1 ? RESAMPLE_BUF_COUNT : RS_TMP_COUNT / 2;
-
-        if (b->npend)
-        {
-            /* finish the group begun in the last buffer */
-            int need = MIN(g - b->npend, rem);
-            for (int ch = 0; ch < nch; ch++)
-                for (int i = 0; i < need; i++)
-                    b->pend[ch][b->npend + i] = src->p32[ch][i];
-            b->npend += need;
-            used = need;
-            if (b->npend < g)
-            {
-                dst->remcount = 0;
-                return used;
-            }
-            for (int ch = 0; ch < nch; ch++)
-            {
-                int32_t grp[4];
-                memcpy(grp, b->pend[ch], g * sizeof (int32_t));
-                rs_down_run(dst->p32[ch], grp, 1, ch);
-            }
-            b->npend = 0;
-            out = 1;
-        }
-
-        int n = MIN((rem - used) / g, maxout - out);
-        if (n > 0)
-        {
-            for (int ch = 0; ch < nch; ch++)
-                rs_down_run(dst->p32[ch] + out, src->p32[ch] + used, n, ch);
-            used += n * g;
-            out += n;
-        }
-
-        if (out < maxout && rem - used < g)
-        {
-            /* keep the tail (less than a group) for the next buffer */
-            int left = rem - used;
-            for (int ch = 0; ch < nch; ch++)
-                for (int i = 0; i < left; i++)
-                    b->pend[ch][i] = src->p32[ch][used + i];
-            b->npend = left;
-            used = rem;
-        }
+        out = rs_down_pull(dst->p32, RESAMPLE_BUF_COUNT, src, &used, nch,
+                           b->nst);
     }
     else if (b->mode == RS_UP)
     {
-        int n = MIN(rem, b->nst == 1 ? RESAMPLE_BUF_COUNT / 2
-                                     : RS_TMP_COUNT / 2);
+        int n = MIN(src->remcount, b->nst == 1 ? RESAMPLE_BUF_COUNT / 2
+                                               : RS_TMP_COUNT / 2);
         for (int ch = 0; ch < nch; ch++)
         {
             if (b->nst == 1)
             {
-                hb_up2(dst->p32[ch], src->p32[ch], n, b->st[0][ch], b->hb[0]);
+                hb_up2(dst->p32[ch], src->p32[ch], n, rs_st[0][ch], b->hb[0]);
             }
             else
             {
-                hb_up2(rs_tmp_a[ch], src->p32[ch], n, b->st[0][ch],
+                hb_up2(rs_tmp_a[ch], src->p32[ch], n, rs_st[0][ch],
                        b->hb[0]);
-                hb_up2(dst->p32[ch], rs_tmp_a[ch], 2*n, b->st[1][ch],
+                hb_up2(dst->p32[ch], rs_tmp_a[ch], 2*n, rs_st[1][ch],
                        b->hb[1]);
             }
         }
         used = n;
         out = n << b->nst;
     }
-    else /* RS_UPH */
+    else /* RS_FRAC */
     {
-        while (out < RESAMPLE_BUF_COUNT)
-        {
-            if (b->fifo_rem <= 0)
-            {
-                /* refill rs_tmp_a: x2, or x4 by way of rs_tmp_b */
-                int n = MIN(rem - used, RS_TMP_COUNT >> b->nst);
-                if (n <= 0)
-                    break;
-                for (int ch = 0; ch < nch; ch++)
-                {
-                    if (b->nst == 1)
-                    {
-                        hb_up2(rs_tmp_a[ch], src->p32[ch] + used, n,
-                               b->st[0][ch], b->hb[0]);
-                    }
-                    else
-                    {
-                        hb_up2(rs_tmp_b[ch], src->p32[ch] + used, n,
-                               b->st[0][ch], b->hb[0]);
-                        hb_up2(rs_tmp_a[ch], rs_tmp_b[ch], 2*n,
-                               b->st[1][ch], b->hb[1]);
-                    }
-                    b->fifo_p[ch] = rs_tmp_a[ch];
-                }
-                b->fifo_rem = n << b->nst;
-                used += n;
-            }
-
-            struct dsp_buffer fsrc, fdst;
-            fsrc.remcount = b->fifo_rem;
-            fsrc.p32[0] = b->fifo_p[0];
-            fsrc.p32[1] = b->fifo_p[1];
-            fsrc.format = src->format;
-            fdst.remcount = 0;
-            fdst.p32[0] = dst->p32[0] + out;
-            fdst.p32[1] = dst->p32[1] + out;
-            fdst.bufcount = RESAMPLE_BUF_COUNT - out;
-
-            int took = resample_hermite(data, &fsrc, &fdst);
-            out += fdst.remcount;
-            b->fifo_rem -= took;
-            b->fifo_p[0] += took;
-            b->fifo_p[1] += took;
-            if (b->fifo_rem > 0)
-                break; /* output full */
-        }
+        return rs_frac_run(src, dst, nch);
     }
 
     dst->remcount = out;
@@ -298,7 +468,6 @@ void dsp_resample_set_quality(unsigned int quality)
 {
     rs_quality = quality;
 }
-
 static void resample_flush_data(struct resample_data *data)
 {
     data->phase = 0;
@@ -325,15 +494,7 @@ static bool resample_new_delta(struct resample_data *data,
     data->delta = fp_div(frequency, fout, 16);
 
     if (data == &resample_data[CODEC_IDX_AUDIO])
-    {
         rs_bl_setup(frequency, fout);
-        if (rs_bl.mode == RS_UPH)
-        {
-            /* Hermite runs on the oversampled stream */
-            data->delta = fp_div(frequency << rs_bl.nst, fout, 16);
-            resample_flush_data(data);
-        }
-    }
 
     if (frequency == data->frequency_out)
     {

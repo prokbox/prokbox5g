@@ -248,6 +248,15 @@ bool tagcache_is_initialized(void);
 bool tagcache_is_fully_initialized(void);
 bool tagcache_is_usable(void);
 void tagcache_start_scan(void);
+#ifdef HAVE_IPOD_UI
+/* #314: the post-USB check; host_changed false: the computer wrote no
+ * folder or file (usb_storage's data-area count), so the check's walk is
+ * skipped unless work was owed when the session began */
+void tagcache_start_scan_usb(bool host_changed);
+/* #314: a check or build was unfinished when the last USB session began
+ * (the post-USB check walks whatever the host did); UI thread, after it */
+bool tagcache_ui_usb_owed(void);
+#endif
 void tagcache_stop_scan(void);
 /* Called immediately before USB ownership is acknowledged. This is a
  * lock-free cancellation request: a long scan/commit checks it at its
@@ -288,7 +297,8 @@ enum { TC_UI_PROG_NONE, TC_UI_PROG_PROBE, TC_UI_PROG_WALK,
        TC_UI_PROG_COMMIT, TC_UI_PROG_JOBS, TC_UI_PROG_COUNT };
 int tagcache_ui_progress(int *permille);
 /* #157: + 1 each time a scan (a probe walk, the scan it hands over to and
- * its commit) has ended, whatever its outcome */
+ * its commit) has ended, whatever its outcome; #314's post-USB check
+ * that skips its walk (no file changed) counts as one */
 unsigned tagcache_ui_scans_ended(void);
 /* #237: the active library is missing (a first install, or one that must
  * be built again from nothing): 1; one exists (loaded or not): 0; not yet

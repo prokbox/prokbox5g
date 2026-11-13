@@ -4,7 +4,7 @@
 
 ProkBox5g is free, open-source firmware for the iPod Video, 5th generation and 5.5. It gives the player menus, a Now Playing screen and settings designed to feel like the iPod classic's final software (2.0.5), and keeps what [Rockbox](https://www.rockbox.org), the firmware it is built on, does well: almost every music format, and audiobooks with chapters, a saved place in every book and a choice of speed. You copy music on and off over USB, with no sync app. Apple's own software stays on the player, so you can always go back.
 
-**Current release: ProkBox5g 0.8.2, a pre-release, published 11 November 2026.** It is in daily use on one modded player. Only one of the eight player variants has been tested on real hardware so far, so back up your music before you install.
+**Current release: ProkBox5g 0.8.3, a pre-release, published 14 November 2026.** It is in daily use on one modded player. Only one kind of player (flash, 64 MB, 3,000 mAh battery, USB-C) has been tested on real hardware so far, so back up your music before you install.
 
 > ProkBox5g is not Apple software. It is an independent, community-driven fork of Rockbox, and Apple Inc. has not made, approved, endorsed or supported it in any way. It contains no Apple software. iPod is a trademark of Apple Inc.
 
@@ -37,7 +37,7 @@ What ProkBox5g does today. The [Features](https://prokbox.github.io/prokbox5g/fe
 - **A short settings list,** like the original, in place of Rockbox's hundreds of options.
 - **Safe to try.** Apple's software stays on the player: slide Hold on and restart, or hold Menu as it starts.
 
-Not there yet, among others: sound is sent to the audio chip at 16-bit and 48 kHz at most, menus are in English only, and Japanese, Chinese and Korean characters in song names show as blanks. The [0.8.2 release notes](https://prokbox.github.io/prokbox5g/releases/0.8.2/) list the known issues, and [What's coming](#whats-coming) says when each is planned.
+Not there yet, among others: MP3 and AAC music is still sent to the audio chip at 16-bit and 48 kHz at most (24-bit FLAC, WAV and AIFF now play at full depth), menus are in English only, and Japanese, Chinese and Korean characters in song names show as blanks. The [0.8.3 release notes](https://prokbox.github.io/prokbox5g/releases/0.8.3/) list the known issues, and [What's coming](#whats-coming) says when each is planned.
 
 ## Screenshots
 
@@ -62,17 +62,15 @@ Every screen here is the simulator running a made-up test library: the artists, 
 
 ## Download and install
 
-Download from the [Releases page on GitHub](https://github.com/prokbox/prokbox5g/releases). For 0.8.2 there is one zip for each player variant, eight in all:
+Download from the [Releases page on GitHub](https://github.com/prokbox/prokbox5g/releases). From 0.8.3 there is **one zip for every iPod Video**, whichever battery, storage and memory it has:
 
 ```
-ProkBox5g-0.8.2-{stock,modded}-{flash,hdd}-{64,32}MB.zip
+ProkBox5g-0.8.3.zip
 ```
 
-- **stock** or **modded:** *modded* means all three of a 3000 mAh battery, a USB-C port in place of the dock connector, and a haptic motor; *stock* means none of them.
-- **flash** or **hdd:** a memory-card adapter in place of the hard drive, or the original hard drive.
-- **64MB** or **32MB:** the 60 GB and 80 GB models have 64 MB of memory, the 30 GB models 32 MB.
+The player finds out by itself whether it has a hard drive or flash and 32 or 64 MB of memory, and the first start asks which battery is fitted (stock, 2,000 mAh or 3,000 mAh). The dock connector works on every player.
 
-Only **modded, flash, 64 MB** has been tested on a real player. The other seven build from the same code but are untested; reports from testers are very welcome. A single download for every player is planned for 0.8.3.
+Only **flash, 64 MB, 3,000 mAh and USB-C** has been tested on a real player. Hard-drive players, 32 MB players, the original batteries and accessories on the dock connector should work but are untested; reports from testers are very welcome.
 
 Each release also carries the install tool, `ipodpatcher`, ready to run on macOS, Windows and Linux; a `SHA256SUMS` file to check the downloads; the user guide as a PDF; and the complete source code for that release.
 
@@ -80,7 +78,7 @@ Each release also carries the install tool, `ipodpatcher`, ready to run on macOS
 
 ## What's coming
 
-ProkBox5g is in its 0.8 pre-releases. The 0.9 releases add features theme by theme, and 1.0 brings our own start-up software, Disk Mode, recovery and an installer, so you can fully replace the original software if you want to. The next release, 0.8.3, brings a new playback engine and one download for every player.
+ProkBox5g is in its 0.8 pre-releases. The 0.9 releases add features theme by theme, and 1.0 brings our own start-up software, Disk Mode, recovery and an installer, so you can fully replace the original software if you want to. The next release, 0.9.0, is about sound and languages: better audio, menus in more languages and better song details.
 
 - [What's coming](https://prokbox.github.io/prokbox5g/roadmap/): the release plan, release by release, with the state of every item. It is a plan, not a promise.
 - [Changelog](https://prokbox.github.io/prokbox5g/changelog/): everything that has changed, release by release.

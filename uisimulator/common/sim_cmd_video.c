@@ -215,6 +215,19 @@ bool sim_cmd_video(const char *cmd, char *argv[], int argc, int lineno)
                 (unsigned long)n);
         return true;
     }
+    if (!strcmp(cmd, "video_fault") && argc >= 3 &&
+        !strcmp(argv[1], "decode"))
+    {
+        /* video_fault decode <errors>: the next plays decode nothing and
+           report that many decode errors (#340, b12's failed first
+           decode); 0 clears */
+        uint32_t n = (uint32_t)strtoul(argv[2], NULL, 10);
+
+        sim_video_set_decode_fault(n);
+        fprintf(stderr, "sim_script:%d: video_fault decode %lu\n", lineno,
+                (unsigned long)n);
+        return true;
+    }
     if (!strcmp(cmd, "video_wait_refusal"))
     {
         /* video_wait_refusal [ms]: block until the model has refused the

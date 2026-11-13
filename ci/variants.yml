@@ -1,20 +1,25 @@
 # Phase 9 variant CI (docs/phase9-brief.md section 3.5). DRAFT, NOT ENABLED.
 #
 # GitHub Actions syntax, kept outside .github/workflows/ on purpose: the
-# project had no public CI when this was written (frozen default O7: a local
-# pairwise runner, scripts/variants.sh; this workflow waited for the public
-# GitHub repo). To enable it, copy it to .github/workflows/variants.yml (or
-# to any Actions-compatible runner that has the toolchain).
+# project had no public CI when this was written (frozen default O7; this
+# workflow waited for the public GitHub repo). To enable it, copy it to
+# .github/workflows/variants.yml (or to any Actions-compatible runner that
+# has the toolchain).
+#
+# One build for every unit since 0.8.3: RAM, storage and the battery are
+# read or asked at start-up, dock and haptics are the same code (#204,
+# #79, #205, #236), so there is no hardware matrix to compile; the units
+# differ only in the simulator's hooks (IPODUI_SIM_RAM, IPODUI_SIM_DISK).
 #
 # Jobs:
-#   compile   all 32 hardware variants (2 storage x 2 RAM x 2 battery
-#             classes x 2 dock x 2 haptics), core image size each; a
-#             default-trim variant over the 914,813 B ceiling fails
+#   compile   the one shell image, core image size; over the 914,813 B
+#             ceiling fails
 #   extra     fw-rel, --ipodui-plugins (size + mpegplayer.rock built),
 #             --thumb-cold (size only), --core-sections=off (image A)
 #   stock     stock fw/boot byte identity vs the merge-base (M6)
-#   sim       sim-ui smoke subset for the 4 storage x RAM combinations
-#   gate      the full gate for the owner's variant only
+#   sim       sim-ui smoke subset for the 4 storage x RAM units on one sim
+#             binary (IPODUI_SIM_DISK=flash|hdd, IPODUI_SIM_RAM=32|64)
+#   gate      the full gate
 name: variants
 
 on:
@@ -35,14 +40,6 @@ env:
 jobs:
   compile:
     runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: false
-      matrix:
-        storage: [flash, hdd]
-        ram: ["64", "32"]
-        battery: ["3000", stock]
-        dock: [usbc, dock30]
-        haptics: [on, off]
     steps:
       - uses: actions/checkout@v4
       - name: toolchain
@@ -50,14 +47,11 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: .ccache
-          key: ccache-${{ matrix.storage }}-${{ matrix.ram }}-${{ github.sha }}
-          restore-keys: ccache-${{ matrix.storage }}-${{ matrix.ram }}-
+          key: ccache-fw-${{ github.sha }}
+          restore-keys: ccache-fw-
       - name: configure
         run: |
           args="--target=22 --type=n --compiler-prefix=arm-none-eabi- --ipodui"
-          args="$args --storage=${{ matrix.storage }} --ram=${{ matrix.ram }} --battery=${{ matrix.battery }}"
-          [ "${{ matrix.dock }}" = dock30 ] && args="$args --dock30"
-          [ "${{ matrix.haptics }}" = off ] && args="$args --no-haptics"
           mkdir -p build/v && cd build/v && ../../tools/configure $args </dev/null
       - name: build
         run: make -C build/v -j"$(nproc)"
@@ -65,8 +59,7 @@ jobs:
         run: |
           ipod=$(wc -c < build/v/rockbox.ipod)
           end=$(printf '%d' "0x$(arm-none-eabi-nm build/v/rockbox.elf | awk '$3 == "_end" {print $1}')")
-          variant=$(sed -n 's/^#define IPOD_VARIANT "\(.*\)"/\1/p' build/v/autoconf.h)
-          echo "variant=$variant ipod=$ipod end=$end" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "ipod=$ipod end=$end" | tee -a "$GITHUB_STEP_SUMMARY"
           test "$ipod" -le "$CEILING"
 
   extra:
@@ -125,10 +118,12 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y libsdl2-dev python3
       - run: |
           mkdir -p build/sim-ui && cd build/sim-ui
-          ../../tools/configure --target=22 --type=s --ipodui \
-            --storage=${{ matrix.storage }} --ram=${{ matrix.ram }} </dev/null
+          ../../tools/configure --target=22 --type=s --ipodui </dev/null
           make -j"$(nproc)" && make install
       - name: smoke subset
+        env:
+          IPODUI_SIM_DISK: ${{ matrix.storage }}
+          IPODUI_SIM_RAM: ${{ matrix.ram }}
         run: |
           for s in ipodui-p9-smoke-boot ipodui-p9-smoke-browse ipodui-p9-smoke-play \
                    ipodui-p9-smoke-usb ipodui-p9-smoke-devmode; do
@@ -142,5 +137,5 @@ jobs:
         with:
           fetch-depth: 0
       - run: sudo apt-get update && sudo apt-get install -y gcc-arm-none-eabi binutils-arm-none-eabi libsdl2-dev python3
-      - name: full gate, owner's variant
+      - name: full gate
         run: scripts/validate.sh

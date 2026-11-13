@@ -18185,6 +18185,74 @@
   </voice>
 </phrase>
 <phrase>
+  id: LANG_NP_INFO_LOSSLESS
+  desc: iPod UI shell, Now Playing info page: format, bit depth, sample rate (%s %d %s)
+  user: core
+  <source>
+    *: none
+    ipodui: "%s  %d-bit  %s kHz"
+  </source>
+  <dest>
+    *: none
+    ipodui: "%s  %d-bit  %s kHz"
+  </dest>
+  <voice>
+    *: none
+    ipodui: ""
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_NP_INFO_LOSSY
+  desc: iPod UI shell, Now Playing info page: format, bitrate, sample rate (%s %d %s)
+  user: core
+  <source>
+    *: none
+    ipodui: "%s  %d kbps  %s kHz"
+  </source>
+  <dest>
+    *: none
+    ipodui: "%s  %d kbps  %s kHz"
+  </dest>
+  <voice>
+    *: none
+    ipodui: ""
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_NP_INFO_RATE
+  desc: iPod UI shell, Now Playing info page: format and sample rate (%s %s)
+  user: core
+  <source>
+    *: none
+    ipodui: "%s  %s kHz"
+  </source>
+  <dest>
+    *: none
+    ipodui: "%s  %s kHz"
+  </dest>
+  <voice>
+    *: none
+    ipodui: ""
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_NP_INFO_OUTPUT
+  desc: iPod UI shell, Now Playing info page: what the output runs at (%d bits, %s kHz)
+  user: core
+  <source>
+    *: none
+    ipodui: "Output %d-bit %s kHz"
+  </source>
+  <dest>
+    *: none
+    ipodui: "Output %d-bit %s kHz"
+  </dest>
+  <voice>
+    *: none
+    ipodui: ""
+  </voice>
+</phrase>
+<phrase>
   id: LANG_IPODUI_RESUME
   desc: iPod UI shell, Audiobooks: book page row that continues at the saved spot
   user: core
@@ -27515,5 +27583,685 @@
   <voice>
     *: none
     ipodui: "Updating your songs..."
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_AUDIOPHILE
+  desc: iPod UI shell, Settings row: the Audiophile menu (#270)
+  user: core
+  <source>
+    *: none
+    ipodui: "Audiophile"
+  </source>
+  <dest>
+    *: none
+    ipodui: "Audiophile"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Audiophile"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_CAP_AUDIOPHILE
+  desc: iPod UI shell, Settings panel caption of the Audiophile row: what the menu sets (#270; our own words)
+  user: core
+  <source>
+    *: none
+    ipodui: "Sample rate and stereo width"
+  </source>
+  <dest>
+    *: none
+    ipodui: "Sample rate and stereo width"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Sample rate and stereo width"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_AP_HIRATE
+  desc: iPod UI shell, Settings > Audiophile row: native 88.2/96 kHz output on or off; short to fit the split list beside its On/Off (#270)
+  user: core
+  <source>
+    *: none
+    ipodui: "Hi-Res"
+  </source>
+  <dest>
+    *: none
+    ipodui: "Hi-Res"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Hi-Res"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_AP_CAP_HIRATE_ON
+  desc: iPod UI shell, Settings > Audiophile panel caption, High Sample Rate On (#270; our own words)
+  user: core
+  <source>
+    *: none
+    ipodui: "88.2 and 96 kHz play as recorded"
+  </source>
+  <dest>
+    *: none
+    ipodui: "88.2 and 96 kHz play as recorded"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "88.2 and 96 kHz play as recorded"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_AP_CAP_HIRATE_OFF
+  desc: iPod UI shell, Settings > Audiophile panel caption, High Sample Rate Off (#270; our own words)
+  user: core
+  <source>
+    *: none
+    ipodui: "Plays at 44.1 or 48 kHz"
+  </source>
+  <dest>
+    *: none
+    ipodui: "Plays at 44.1 or 48 kHz"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Plays at 44.1 or 48 kHz"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_AP_WIDTH
+  desc: iPod UI shell, Settings > Audiophile row: the audio chip's stereo widening, Off/Low/Medium/High (#270)
+  user: core
+  <source>
+    *: none
+    ipodui: "Stereo Width"
+  </source>
+  <dest>
+    *: none
+    ipodui: "Stereo Width"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Stereo Width"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_AP_WIDTH_LOW
+  desc: iPod UI shell, Settings > Audiophile > Stereo Width value (#270)
+  user: core
+  <source>
+    *: none
+    ipodui: "Low"
+  </source>
+  <dest>
+    *: none
+    ipodui: "Low"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Low"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_AP_WIDTH_MEDIUM
+  desc: iPod UI shell, Settings > Audiophile > Stereo Width value (#270)
+  user: core
+  <source>
+    *: none
+    ipodui: "Medium"
+  </source>
+  <dest>
+    *: none
+    ipodui: "Medium"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Medium"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_AP_WIDTH_HIGH
+  desc: iPod UI shell, Settings > Audiophile > Stereo Width value (#270)
+  user: core
+  <source>
+    *: none
+    ipodui: "High"
+  </source>
+  <dest>
+    *: none
+    ipodui: "High"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "High"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_AP_WARN_HEAD
+  desc: iPod UI shell, High Sample Rate prompt heading, before the first turn-on (#270; our own words)
+  user: core
+  <source>
+    *: none
+    ipodui: "Turn on hi-res?"
+  </source>
+  <dest>
+    *: none
+    ipodui: "Turn on hi-res?"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Turn on hi-res?"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_AP_WARN_BODY
+  desc: iPod UI shell, High Sample Rate prompt body: what it does, the out-of-rating risk, the test (#270; our own words, UK spelling)
+  user: core
+  <source>
+    *: none
+    ipodui: "Plays 88.2 and 96 kHz music at its own rate. The audio chip then runs faster than it is rated for and may be unstable in heat, cold or long use. A short test runs first."
+  </source>
+  <dest>
+    *: none
+    ipodui: "Plays 88.2 and 96 kHz music at its own rate. The audio chip then runs faster than it is rated for and may be unstable in heat, cold or long use. A short test runs first."
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Plays 88.2 and 96 kHz music at its own rate. The audio chip then runs faster than it is rated for and may be unstable in heat, cold or long use. A short test runs first."
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_AP_CONTINUE
+  desc: iPod UI shell, High Sample Rate prompt button: run the test (#270)
+  user: core
+  <source>
+    *: none
+    ipodui: "Continue"
+  </source>
+  <dest>
+    *: none
+    ipodui: "Continue"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Continue"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_AP_TESTING_HEAD
+  desc: iPod UI shell, High Sample Rate self-test screen heading, while it runs (#270)
+  user: core
+  <source>
+    *: none
+    ipodui: "Testing..."
+  </source>
+  <dest>
+    *: none
+    ipodui: "Testing..."
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Testing..."
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_AP_TESTING_BODY
+  desc: iPod UI shell, High Sample Rate self-test screen body, while it runs (#270; our own words)
+  user: core
+  <source>
+    *: none
+    ipodui: "This takes a few seconds. Music pauses and then carries on."
+  </source>
+  <dest>
+    *: none
+    ipodui: "This takes a few seconds. Music pauses and then carries on."
+  </dest>
+  <voice>
+    *: none
+    ipodui: "This takes a few seconds. Music pauses and then carries on."
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_AP_RESULT_HEAD
+  desc: iPod UI shell, High Sample Rate self-test result heading (#270)
+  user: core
+  <source>
+    *: none
+    ipodui: "Test finished"
+  </source>
+  <dest>
+    *: none
+    ipodui: "Test finished"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Test finished"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_AP_RESULT_BOTH
+  desc: iPod UI shell, High Sample Rate self-test result: 88.2 and 96 kHz passed (#270; our own words)
+  user: core
+  <source>
+    *: none
+    ipodui: "88.2 and 96 kHz both passed. Hi-res is on."
+  </source>
+  <dest>
+    *: none
+    ipodui: "88.2 and 96 kHz both passed. Hi-res is on."
+  </dest>
+  <voice>
+    *: none
+    ipodui: "88.2 and 96 kHz both passed. Hi-res is on."
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_AP_RESULT_88
+  desc: iPod UI shell, High Sample Rate self-test result: only 88.2 kHz passed (#270; our own words)
+  user: core
+  <source>
+    *: none
+    ipodui: "88.2 kHz passed and 96 kHz did not. Hi-res is on; 96 kHz music plays at 48 kHz."
+  </source>
+  <dest>
+    *: none
+    ipodui: "88.2 kHz passed and 96 kHz did not. Hi-res is on; 96 kHz music plays at 48 kHz."
+  </dest>
+  <voice>
+    *: none
+    ipodui: "88.2 kHz passed and 96 kHz did not. Hi-res is on; 96 kHz music plays at 48 kHz."
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_AP_RESULT_96
+  desc: iPod UI shell, High Sample Rate self-test result: only 96 kHz passed (#270; our own words)
+  user: core
+  <source>
+    *: none
+    ipodui: "96 kHz passed and 88.2 kHz did not. Hi-res is on; 88.2 kHz music plays at 44.1 kHz."
+  </source>
+  <dest>
+    *: none
+    ipodui: "96 kHz passed and 88.2 kHz did not. Hi-res is on; 88.2 kHz music plays at 44.1 kHz."
+  </dest>
+  <voice>
+    *: none
+    ipodui: "96 kHz passed and 88.2 kHz did not. Hi-res is on; 88.2 kHz music plays at 44.1 kHz."
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_AP_RESULT_NONE
+  desc: iPod UI shell, High Sample Rate self-test result: neither rate passed (#270; our own words)
+  user: core
+  <source>
+    *: none
+    ipodui: "Neither rate passed on this unit, so hi-res stays off."
+  </source>
+  <dest>
+    *: none
+    ipodui: "Neither rate passed on this unit, so hi-res stays off."
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Neither rate passed on this unit, so hi-res stays off."
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_AP_FALLBACK_HEAD
+  desc: iPod UI shell, Popup heading: a high-rate fault moved playback to the standard rate (#270)
+  user: core
+  <source>
+    *: none
+    ipodui: "Hi-Res Off"
+  </source>
+  <dest>
+    *: none
+    ipodui: "Hi-Res Off"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Hi-Res Off"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_AP_FALLBACK_BODY
+  desc: iPod UI shell, Popup body: a high-rate fault moved playback to the standard rate until the next start (#270; our own words)
+  user: core
+  <source>
+    *: none
+    ipodui: "The audio chip reported an error, so music plays at the standard rate until the next restart."
+  </source>
+  <dest>
+    *: none
+    ipodui: "The audio chip reported an error, so music plays at the standard rate until the next restart."
+  </dest>
+  <voice>
+    *: none
+    ipodui: "The audio chip reported an error, so music plays at the standard rate until the next restart."
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_BATTQ_TITLE
+  desc: iPod UI shell, first-start battery question (one-build WP3), header title
+  user: core
+  <source>
+    *: none
+    ipodui: "Battery"
+  </source>
+  <dest>
+    *: none
+    ipodui: "Battery"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Battery"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_BATTQ_STOCK
+  desc: iPod UI shell, first-start battery question, the drum value for the original battery
+  user: core
+  <source>
+    *: none
+    ipodui: "Stock"
+  </source>
+  <dest>
+    *: none
+    ipodui: "Stock"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Stock"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_BATTQ_V2000
+  desc: iPod UI shell, first-start battery question, the drum value for a replacement of about 2,000 mAh
+  user: core
+  <source>
+    *: none
+    ipodui: "2,000 mAh"
+  </source>
+  <dest>
+    *: none
+    ipodui: "2,000 mAh"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "2,000 mAh"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_BATTQ_V3000
+  desc: iPod UI shell, first-start battery question, the drum value for a replacement of 3,000 mAh or more
+  user: core
+  <source>
+    *: none
+    ipodui: "3,000 mAh"
+  </source>
+  <dest>
+    *: none
+    ipodui: "3,000 mAh"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "3,000 mAh"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_BATTQ_NOTE
+  desc: iPod UI shell, first-start battery question, grey footnote under the drum
+  user: core
+  <source>
+    *: none
+    ipodui: "Sets the starting voltage curve for the battery percentage."
+  </source>
+  <dest>
+    *: none
+    ipodui: "Sets the starting voltage curve for the battery percentage."
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Sets the starting voltage curve for the battery percentage."
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_X_SLEEP_PANEL_ACTIVE
+  desc: iPod UI shell, Extras > Alarms: the panel under the alarm clock, line 1 while the Sleep Timer row is highlighted and the timer runs; line 2 is the minutes left (LANG_IPODUI_X_SLEEP_MINUTES, or the next phrase) (#329)
+  user: core
+  <source>
+    *: none
+    ipodui: "Sleep Timer Active"
+  </source>
+  <dest>
+    *: none
+    ipodui: "Sleep Timer Active"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Sleep Timer Active"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_X_SLEEP_PANEL_ONE_MINUTE
+  desc: iPod UI shell, Extras > Alarms: the panel under the alarm clock, line 2 under "Sleep Timer Active" in the timer's last minute (#329)
+  user: core
+  <source>
+    *: none
+    ipodui: "1 Minute"
+  </source>
+  <dest>
+    *: none
+    ipodui: "1 Minute"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "1 Minute"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_X_ALARM_PANEL_CREATE
+  desc: iPod UI shell, Extras > Alarms: the panel under the alarm clock while the Create Alarm row is highlighted (#329)
+  user: core
+  <source>
+    *: none
+    ipodui: "Create New Alarm"
+  </source>
+  <dest>
+    *: none
+    ipodui: "Create New Alarm"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Create New Alarm"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_X_ALARM_PANEL_OFF
+  desc: iPod UI shell, Extras > Alarms: the panel under the alarm clock while a switched-off alarm's row is highlighted (#329)
+  user: core
+  <source>
+    *: none
+    ipodui: "Alarm Off"
+  </source>
+  <dest>
+    *: none
+    ipodui: "Alarm Off"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Alarm Off"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_X_ALARM_PANEL_WHEN
+  desc: iPod UI shell, Extras > Alarms: the panel under the alarm clock, line 1 for an alarm: when it next rings. %s = weekday (3 letters, LANG_WEEKDAY_*), %d = day of the month, %s = month (3 letters, LANG_MONTH_*), %s = the time (12 or 24 hour), e.g. "Fri 13 Nov, 7:00 AM"; keep it short, the panel is 148 px wide (#329)
+  user: core
+  <source>
+    *: none
+    ipodui: "%s %d %s, %s"
+  </source>
+  <dest>
+    *: none
+    ipodui: "%s %d %s, %s"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "%s %d %s, %s"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_X_ALARM_PANEL_IN_ONE
+  desc: iPod UI shell, Extras > Alarms: the panel under the alarm clock, line 2 for an alarm: how far off it is in one unit (%s = e.g. "5 minutes", "2 days") (#329)
+  user: core
+  <source>
+    *: none
+    ipodui: "In %s"
+  </source>
+  <dest>
+    *: none
+    ipodui: "In %s"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "In %s"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_X_ALARM_PANEL_IN_TWO
+  desc: iPod UI shell, Extras > Alarms: the panel under the alarm clock, line 2 for an alarm: how far off it is in two units, the larger first (%s %s = e.g. "18 hours", "42 minutes") (#329)
+  user: core
+  <source>
+    *: none
+    ipodui: "In %s %s"
+  </source>
+  <dest>
+    *: none
+    ipodui: "In %s %s"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "In %s %s"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_X_ALARM_PANEL_SOON
+  desc: iPod UI shell, Extras > Alarms: the panel under the alarm clock, line 2 for an alarm that rings within the minute (#329)
+  user: core
+  <source>
+    *: none
+    ipodui: "In less than a minute"
+  </source>
+  <dest>
+    *: none
+    ipodui: "In less than a minute"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "In less than a minute"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_X_ALARM_PANEL_DAYS
+  desc: iPod UI shell, Extras > Alarms: the panel under the alarm clock: a number of days, 2 or more, inside LANG_IPODUI_X_ALARM_PANEL_IN_* (#329)
+  user: core
+  <source>
+    *: none
+    ipodui: "%d days"
+  </source>
+  <dest>
+    *: none
+    ipodui: "%d days"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "%d days"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_X_ALARM_PANEL_ONE_DAY
+  desc: iPod UI shell, Extras > Alarms: the panel under the alarm clock: one day, inside LANG_IPODUI_X_ALARM_PANEL_IN_* (#329)
+  user: core
+  <source>
+    *: none
+    ipodui: "1 day"
+  </source>
+  <dest>
+    *: none
+    ipodui: "1 day"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "1 day"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_X_ALARM_PANEL_HOURS
+  desc: iPod UI shell, Extras > Alarms: the panel under the alarm clock: a number of hours, 2 or more, inside LANG_IPODUI_X_ALARM_PANEL_IN_* (#329)
+  user: core
+  <source>
+    *: none
+    ipodui: "%d hours"
+  </source>
+  <dest>
+    *: none
+    ipodui: "%d hours"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "%d hours"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_X_ALARM_PANEL_ONE_HOUR
+  desc: iPod UI shell, Extras > Alarms: the panel under the alarm clock: one hour, inside LANG_IPODUI_X_ALARM_PANEL_IN_* (#329)
+  user: core
+  <source>
+    *: none
+    ipodui: "1 hour"
+  </source>
+  <dest>
+    *: none
+    ipodui: "1 hour"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "1 hour"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_X_ALARM_PANEL_MINUTES
+  desc: iPod UI shell, Extras > Alarms: the panel under the alarm clock: a number of minutes, 2 or more, inside LANG_IPODUI_X_ALARM_PANEL_IN_* (#329)
+  user: core
+  <source>
+    *: none
+    ipodui: "%d minutes"
+  </source>
+  <dest>
+    *: none
+    ipodui: "%d minutes"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "%d minutes"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_X_ALARM_PANEL_ONE_MINUTE
+  desc: iPod UI shell, Extras > Alarms: the panel under the alarm clock: one minute, inside LANG_IPODUI_X_ALARM_PANEL_IN_* (#329)
+  user: core
+  <source>
+    *: none
+    ipodui: "1 minute"
+  </source>
+  <dest>
+    *: none
+    ipodui: "1 minute"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "1 minute"
   </voice>
 </phrase>
