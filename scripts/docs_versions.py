@@ -26,7 +26,7 @@
 
 usage: scripts/docs_versions.py [--repo DIR] [--out DIR] [--releases FILE]
                                 [--dev auto|yes|no] [--pdf] [--search]
-                                [--base-url URL] [--keep-work]
+                                [--base-url URL] [--keep-work] [--patch-dir DIR]
 
 Every release tag vX.Y.Z >= v0.8.0 in REPO (default: this checkout) is
 exported from git and built with ITS OWN site/ (layouts and stylesheet as
@@ -56,6 +56,15 @@ Everything else at the root, and every version folder, is the tag's own tree:
 a docs-only update to main (release-plan 3.3a) changes the living pages, dev/
 and the picker, never a released version's pages.  In every version folder and in dev/ they are replaced by a page
 that sends the reader to the root copy, so no snapshot shows an old plan.
+A released version's pages can be CORRECTED without moving its tag (docs patch,
+release-plan 3.3a, #336): files under site/versions/patches/vX.Y.Z/ (paths as in
+the tree: docs/user/releases/X.Y.Z.md, ...) are laid over that tag's export before
+it is built, for its folder and for the root when it is the newest.  Only paths a
+docs-only update may change (the DOCS_ALLOW_* lists of release_tree.py, copied
+below; a test keeps the two equal) are accepted, a patch for a tag that does not
+exist fails the build, and versions.json records it ("patched").
+A release whose notes page the site did not build (Hugo leaves out a page dated in
+the future) fails the build, naming the date.
 Search: Pagefind indexes each folder (and the root) separately (--search), and
 each version's own search box loads its own index.
 
@@ -63,7 +72,7 @@ each version's own search box loads its own index.
                  passes the published GitHub releases, so a tag whose release
                  is still a draft is not shown.
 Ends with release_docs.py's R9 check of OUT; any problem fails the build."""
-import argparse, json, os, re, shutil, subprocess, sys
+import argparse, datetime, json, os, re, shutil, subprocess, sys
 from urllib.parse import urlparse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -71,6 +80,13 @@ ROOT = os.path.dirname(HERE)
 DOCS_BUILD = os.path.join(HERE, 'docs_build.sh')
 PICKER_SRC = os.path.join(ROOT, 'site', 'versions')
 SKIP_FILE = os.path.join(PICKER_SRC, 'skip.tsv')
+PATCH_DIR = os.path.join(PICKER_SRC, 'patches')
+# the paths a docs patch may touch: a copy of release_tree.py's DOCS_ALLOW_* (that script is not in the public tree)
+PATCH_ALLOW_DIRS = ('docs/', 'site/')
+PATCH_ALLOW_FILES = frozenset([
+    'README.md', '.github/workflows/pages.yml',
+    'scripts/docs_build.sh', 'scripts/docs_versions.py', 'scripts/docs_shots.sh', 'scripts/readme_visuals.sh',
+    'scripts/release_docs.py', 'scripts/roadmap.py', 'scripts/changelog.py', 'scripts/adr_check.py'])
 TAGRE = re.compile(r'^v(\d+)\.(\d+)\.(\d+)$')
 FLOOR = (0, 8, 0)
 EXPORT = ['site', 'docs', 'README.md']
@@ -137,6 +153,55 @@ def read_skips(path):
             raise Fail('%s:%d: want "vX.Y.Z<TAB>reason", got %r' % (path, n, line))
         out[tag.strip()] = why.strip()
     return out
+
+
+def read_patch(patch_dir, tag):
+    """-> {path in the tree: file on disk} for the docs patch of `tag` ({} when it has none).
+    Refuses a path outside the docs allow-list, a symlink, or an empty patch folder."""
+    top = os.path.join(patch_dir, tag)
+    if not os.path.isdir(top):
+        return {}
+    out = {}
+    for d, dirs, files in os.walk(top):
+        dirs.sort()
+        for f in sorted(files):
+            full = os.path.join(d, f)
+            rel = os.path.relpath(full, top).replace(os.sep, '/')
+            if os.path.islink(full):
+                raise Fail('docs patch %s: %s is a symlink' % (tag, rel))
+            if '..' in rel.split('/') or not (rel.startswith(PATCH_ALLOW_DIRS) or rel in PATCH_ALLOW_FILES):
+                raise Fail('docs patch %s: %s is not a path a docs update may change (release_tree.py DOCS_ALLOW_*)'
+                           % (tag, rel))
+            out[rel] = full
+    if not out:
+        raise Fail('docs patch %s: %s holds no files (remove the folder)' % (tag, top))
+    return out
+
+
+def apply_patch(tree, files):
+    for rel, src in sorted(files.items()):
+        dst = os.path.join(tree, rel)
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.copyfile(src, dst)
+
+
+def notes_built(tree, stage, ver):
+    """The release's own notes page must have been built; Hugo silently leaves out a page dated in the future.
+    -> '' or the problem."""
+    src = os.path.join(tree, 'docs/user/releases/%s.md' % ver)
+    if not os.path.isfile(src) or os.path.isfile(os.path.join(stage, 'releases', ver, 'index.html')):
+        return ''
+    head = open(src, encoding='utf-8').read().split('---')
+    m = re.search(r'^date:\s*["\']?(\d{4}-\d\d-\d\d)', head[1] if len(head) > 2 else '', re.M)
+    if not m or m.group(1) <= today():    # not built for another reason (a draft, say): R2 and R9 judge that
+        return ''
+    return ('the notes page releases/%s/ was not built: its front matter date is %s, after today (%s), and Hugo skips '
+            'a page dated in the future. Correct the date with a docs patch: %s/v%s/docs/user/releases/%s.md'
+            % (ver, m.group(1), today(), os.path.relpath(PATCH_DIR, ROOT), ver, ver))
+
+
+def today():
+    return datetime.date.today().isoformat()
 
 
 def docs_build(tree, version, base_url, out, pdf):
@@ -263,6 +328,8 @@ def build(a):
             continue
         tree = os.path.join(work, 'tree-' + ver)
         export(repo, t, tree)
+        patch = read_patch(a.patch_dir, t)
+        apply_patch(tree, patch)
         own = os.path.isfile(os.path.join(tree, 'site/hugo.toml'))
         if not own:   # an older site/ without hugo.toml is replaced whole, never mixed
             shutil.rmtree(os.path.join(tree, 'site'), ignore_errors=True)
@@ -273,12 +340,20 @@ def build(a):
             raise Fail('%s failed to build with %s layouts (list it in %s with a reason to leave it out): %s'
                        % (t, 'its own' if own else 'the current', os.path.relpath(a.skip_file, ROOT),
                           ' | '.join(log.splitlines()[-3:])[:600]))
+        why = notes_built(tree, stage, ver)
+        if why:
+            raise Fail('%s: %s' % (t, why))
         commit = git(repo, 'rev-list', '-n1', t).strip()
         built.append(dict(id=ver, tag=t, commit=commit, templates='own' if own else 'current', stage=stage,
-                          tree=tree, pdf=a.pdf))
-        say('built %s (%s layouts)' % (t, 'its own' if own else 'current'))
+                          tree=tree, pdf=a.pdf, patched=sorted(patch)))
+        say('built %s (%s layouts)%s' % (t, 'its own' if own else 'current',
+                                         ', docs patch: %s' % ' '.join(sorted(patch)) if patch else ''))
     if not built:
         raise Fail('no release built')
+    stale = sorted(d for d in (os.listdir(a.patch_dir) if os.path.isdir(a.patch_dir) else [])
+                   if TAGRE.match(d) and d not in release_tags(repo))
+    if stale:
+        raise Fail('docs patch folder(s) %s in %s match no release tag in the repository' % (stale, a.patch_dir))
     if built[0]['tag'] != tags[0]:
         raise Fail('the newest release %s is skipped; the site would show an older one as newest' % tags[0])
     latest = built[0]
@@ -349,7 +424,7 @@ def build(a):
     os.makedirs(os.path.join(out, 'versions'))
     open(os.path.join(out, 'versions', 'index.html'), 'w').write(versions_page(bp, latest['id'], built, dev, living))
     vj = dict(schema=1, base=bp, latest=latest['id'],
-              versions=[dict(id=b['id'], tag=b['tag'], commit=b['commit'], templates=b['templates'], pdf=b['pdf'],
+              versions=[dict(id=b['id'], tag=b['tag'], commit=b['commit'], templates=b['templates'], pdf=b['pdf'], patched=b['patched'],
                              pages=[p for p in pages(b['stage']) if p not in living]) for b in built],
               root=dict(tag=latest['tag'], living_from=head if head_has_latest else latest['tag'],
                         pages=pages(rstage)),
@@ -386,6 +461,7 @@ def main(argv=None):
     ap.add_argument('--base-url')
     ap.add_argument('--keep-work', action='store_true')
     ap.add_argument('--skip-file', default=SKIP_FILE)
+    ap.add_argument('--patch-dir', default=PATCH_DIR)
     a = ap.parse_args(argv)
     try:
         build(a)

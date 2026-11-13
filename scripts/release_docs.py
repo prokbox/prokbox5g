@@ -58,6 +58,12 @@ unless, in DIR (default: this repo; release_import.py passes the exported tree):
   R11 every image under docs/user/images/, site/static/ and site/assets/ has a row in
       tests/ui/docs/images.tsv naming its generator (a sim script and the shot it takes,
       or a script), every row's image and generator exist (scripts/docs_shots.sh)
+  R12 the notes page's front-matter `date:` is a real date (when present) and not later than today (the day the
+      check runs; --today YYYY-MM-DD overrides it for tests).  Hugo leaves out a page dated in
+      the future, so the release's page and its entry in the releases list would be missing
+      from the site until that day.  The date is part of the tagged tree, so it cannot be set
+      "at publish time": fix it before the tag, or after it with a docs patch
+      (site/versions/patches/vX.Y.Z/, release-plan 3.3a)
   R6  --fresh only: docs/user/changelog.md and the fragments equal a fresh run of
       scripts/changelog.py --strict (needs git history, so private repo only)
 VER is the release version without "-rc.N" (the notes page of an RC is its base's).
@@ -71,7 +77,7 @@ VER is the release version without "-rc.N" (the notes page of an RC is its base'
       (What's coming, changelog) send the reader to the root copy; dev/ pages carry
       the "not released yet" banner; --require-pdf: each version has its PDF.
 """
-import argparse, json, os, re, subprocess, sys
+import argparse, datetime, json, os, re, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
@@ -314,7 +320,7 @@ def check_images(root):
     return p
 
 
-def check_tree(root, ver, fresh=False, rc=False, site=None):
+def check_tree(root, ver, fresh=False, rc=False, site=None, today=None):
     """-> [problem strings]; empty means the docs are release-ready."""
     p = []
     rel = os.path.join(root, 'docs/user/releases/%s.md' % ver)
@@ -322,6 +328,19 @@ def check_tree(root, ver, fresh=False, rc=False, site=None):
         p.append('R1 release notes missing: docs/user/releases/%s.md' % ver)
     elif re.search(r'^draft:\s*true\s*$', front_matter(rel), re.M) and not rc:
         p.append('R2 docs/user/releases/%s.md is still "draft: true" (Hugo would not publish it)' % ver)
+    if os.path.isfile(rel):
+        m = re.search(r'^date:\s*["\']?([^\s"\']+)', front_matter(rel), re.M)
+        today = today or datetime.date.today().isoformat()
+        try:
+            d = datetime.date.fromisoformat(m.group(1)[:10]) if m else None
+        except ValueError:
+            d = None
+        if m and d is None:
+            p.append('R12 docs/user/releases/%s.md has `date: %s`, which is not YYYY-MM-DD' % (ver, m.group(1)))
+        elif d and d.isoformat() > today:
+            p.append('R12 docs/user/releases/%s.md is dated %s, later than today (%s): Hugo would leave the page '
+                     'out of the site.  Set `date:` to the publication day (a released tag: use a docs patch, '
+                     'site/versions/patches/v%s/docs/user/releases/%s.md)' % (ver, d.isoformat(), today, ver, ver))
     toml = os.path.join(root, 'site/hugo.toml')
     if not os.path.isfile(toml):
         p.append('R3 site/hugo.toml missing')
@@ -517,6 +536,7 @@ def main(argv=None):
     ap.add_argument('--tree', default=REPO)
     ap.add_argument('--fresh', action='store_true')
     ap.add_argument('--rc', action='store_true')
+    ap.add_argument('--today', help='YYYY-MM-DD, the date R12 compares the notes date with (tests)')
     ap.add_argument('--site', help='a built site (scripts/docs_build.sh --out) to check README site links against')
     a = ap.parse_args(argv)
     if not a.version:
@@ -529,12 +549,12 @@ def main(argv=None):
     if a.cmd == 'prepare':
         return prepare(a.version)
     probs = check_tree(os.path.abspath(a.tree), a.version, a.fresh, a.rc,
-                       os.path.abspath(a.site) if a.site else None)
+                       os.path.abspath(a.site) if a.site else None, a.today)
     for q in probs:
         print('release_docs: ' + q, file=sys.stderr)
     if probs:
         return 1
-    print('release_docs: docs for %s are release-ready (R1-R5, R7, R8, R10, R11%s)' % (a.version, ', R6' if a.fresh else ''))
+    print('release_docs: docs for %s are release-ready (R1-R5, R7, R8, R10-R12%s)' % (a.version, ', R6' if a.fresh else ''))
     return 0
 
 

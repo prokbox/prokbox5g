@@ -4,7 +4,7 @@
 
 ProkBox5g is free, open-source firmware for the iPod Video, 5th generation and 5.5. It gives the player menus, a Now Playing screen and settings designed to feel like the iPod classic's final software (2.0.5), and keeps what [Rockbox](https://www.rockbox.org), the firmware it is built on, does well: almost every music format, and audiobooks with chapters, a saved place in every book and a choice of speed. You copy music on and off over USB, with no sync app. Apple's own software stays on the player, so you can always go back.
 
-**Current release: ProkBox5g 0.8.3, a pre-release, published 14 November 2026.** It is in daily use on one modded player. Only one kind of player (flash, 64 MB, 3,000 mAh battery, USB-C) has been tested on real hardware so far, so back up your music before you install.
+**Current release: ProkBox5g 0.8.3, a pre-release, published 13 November 2026.** It is in daily use on one modded player. Only one kind of player (flash, 64 MB, 3,000 mAh battery, USB-C) has been tested on real hardware so far, so back up your music before you install.
 
 > ProkBox5g is not Apple software. It is an independent, community-driven fork of Rockbox, and Apple Inc. has not made, approved, endorsed or supported it in any way. It contains no Apple software. iPod is a trademark of Apple Inc.
 
