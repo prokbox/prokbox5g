@@ -55,6 +55,77 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 RC=0
 TMPS=
 trap 'for t in $TMPS; do rm -rf "$t"; done' EXIT
+# p090-floor2: the DEVICE's pool, not the simulator's. The simulator's core
+# pool is a fixed MEMORYSIZE - 1 MB (66,060,288 B); the device's runs from
+# _end to the codec buffer, less the panic record (core_alloc.c,
+# app-pp.lds), so every byte the image grows comes out of the audio buffer,
+# and device-only code pins more at boot: fat.c's directory burst slots
+# (8 x 16 KiB + 2 cache lines) and the BCM job client's slots. The int3
+# gate passed at 39,164,504 B in the simulator while the device was below
+# the floor. Every sim this gate runs gets the release-shape ELF's pool
+# (IPODUI_SIM_DEVICE_POOL) and those pinned bytes (IPODUI_SIM_DEVICE_PINNED;
+# system-sdl.c, core_alloc.c), so maint.c's runtime floor check decides
+# the paused window's commit as the device would. What stays conservative:
+# the simulator is a 64-bit host, so its pointer-holding allocations and
+# buflib's block headers are larger than the device's (never smaller).
+# FLOOR_ELF: another ELF (default build/fw-ship/rockbox.elf, made or
+# refreshed here from scripts/release_flags.sh). FLOOR_DEVICE=0: the
+# simulator's own pool, a diagnostic arm that never passes.
+device_shape() {
+    local elf nm_ ab ae pr slots sbytes jobs pool pin
+    elf=${FLOOR_ELF:-}
+    if [ -z "$elf" ]; then
+        elf=$ROOT/build/fw-ship/rockbox.elf
+        . "$ROOT/scripts/release_flags.sh"
+        if [ ! -f "$ROOT/build/fw-ship/Makefile" ]; then
+            mkdir -p "$ROOT/build/fw-ship"
+            (cd "$ROOT/build/fw-ship" && ../../tools/configure $RELEASE_SHAPE \
+                --compiler-prefix=arm-none-eabi- </dev/null >configure.log 2>&1) \
+                || { echo "floor gate: FAIL could not configure build/fw-ship (the release shape)" >&2; return 1; }
+        fi
+        make -C "$ROOT/build/fw-ship" -j4 >"$ROOT/build/fw-ship/floor-make.log" 2>&1 \
+            || { echo "floor gate: FAIL could not build the release shape (build/fw-ship/floor-make.log)" >&2; return 1; }
+    fi
+    [ -f "$elf" ] || { echo "floor gate: FAIL no release-shape ELF $elf" >&2; return 1; }
+    nm_=$(mktemp "$ROOT/build/floor-nm.XXXXXX"); TMPS="$TMPS $nm_"
+    arm-none-eabi-nm "$elf" >"$nm_" && [ -s "$nm_" ] \
+        || { echo "floor gate: FAIL arm-none-eabi-nm $elf" >&2; return 1; }
+    sym() { awk -v s="$1" '$3 == s && !f {print $1; f = 1}' "$nm_"; }
+    ab=$(sym audiobuffer); ae=$(sym audiobufend_lds)
+    [ -n "$ab" ] && [ -n "$ae" ] \
+        || { echo "floor gate: FAIL $elf has no audiobuffer / audiobufend_lds" >&2; return 1; }
+    ab=$(( (0x$ab + 3) & ~3 )); ae=$((0x$ae))
+    pr=0
+    if [ -n "$(sym panic_record_area)" ]; then
+        pr=$(sed -n 's/^#define PANIC_REC_RESERVE[[:space:]]*\([0-9]*\).*/\1/p' \
+            "$ROOT/firmware/export/panic_record.h" | head -1)
+        [ -n "$pr" ] || { echo "floor gate: FAIL could not read PANIC_REC_RESERVE" >&2; return 1; }
+    fi
+    pool=$((ae - ab - pr))
+    pin=0
+    if [ -n "$(sym dir_burst_buf)" ]; then
+        slots=$(sed -n 's/^#define FAT_DIR_BURST_SLOTS[[:space:]]*\([0-9]*\).*/\1/p' "$ROOT/firmware/common/fat.c" | head -1)
+        sbytes=$(sed -n 's/^#define FAT_DIR_BURST_BYTES[[:space:]]*\([0-9]*\).*/\1/p' "$ROOT/firmware/common/fat.c" | head -1)
+        [ -n "$slots" ] && [ -n "$sbytes" ] \
+            || { echo "floor gate: FAIL could not read FAT_DIR_BURST_SLOTS/BYTES (firmware/common/fat.c)" >&2; return 1; }
+        pin=$((slots * sbytes + 2 * 16))        # + 2 x CACHEALIGN_SIZE (16)
+    fi
+    if [ -n "$(sym jd_slots)" ]; then
+        jobs=$(sed -n 's/^#define BJC_SLOTS[[:space:]]*\([0-9]*\).*/\1/p' \
+            "$ROOT/firmware/target/arm/ipod/video/bcmjob-core.h" | head -1)
+        [ -n "$jobs" ] || { echo "floor gate: FAIL could not read BJC_SLOTS" >&2; return 1; }
+        pin=$((pin + jobs * 16 + 16))           # struct bjc_slot: 16 B on ARM, + XCORE_LINE
+    fi
+    echo "floor gate: device pool $pool B (release ELF $elf: _end..codec buffer $((ae - ab)) B, panic record $pr B; the simulator's own 66,060,288 B), device-only pinned $pin B"
+    IPODUI_SIM_DEVICE_POOL=$pool; IPODUI_SIM_DEVICE_PINNED=$pin
+    export IPODUI_SIM_DEVICE_POOL IPODUI_SIM_DEVICE_PINNED
+}
+if [ "${FLOOR_DEVICE:-1}" = 0 ]; then
+    echo "floor gate: NOTE FLOOR_DEVICE=0: the simulator's own pool, NOT the device's (diagnostic; this run fails)"
+    unset IPODUI_SIM_DEVICE_POOL IPODUI_SIM_DEVICE_PINNED
+else
+    device_shape || exit 2
+fi
 # the size of each unit's run: its ceiling, or FLOOR_K_<RAM>
 k_for() { eval "_o=\${FLOOR_K_$1:-}"; if [ -n "$_o" ]; then echo "$_o"; else stress_k "$1"; fi; }
 for RAM_ in ${*:-32 64}; do
@@ -75,6 +146,9 @@ for RAM_ in ${*:-32 64}; do
         exit 1; }
     # P16: the re-sort (and a post-USB commit) racing PLAY, unsettled
     FLOOR_SOURCE=$SRC "$ROOT/tests/perf/resort_play_check.sh" "$RAM_" || RC=1
+    # p090-artrelease: an art pass on the retired library gives way, so
+    # PLAY after a stopped update sizes its buffer without that library
+    FLOOR_SOURCE=$SRC "$ROOT/tests/perf/artrelease_check.sh" "$RAM_" || RC=1
     # #47: a disk sorted by older grouping rules is re-sorted once at its
     # next boot. The measured scripts start from a library in the current
     # order, as on a device after its first boot (tests/perf/settle65k.sh)
@@ -206,6 +280,12 @@ run_ram() { # RAM -> stdout/stderr as before; exit status = this half's RC
         R_=$(sed -n 's/^sim: ram \([0-9]*\) MB$/\1/p' "$L_" 2>/dev/null | sort -u | tr '\n' ' ')
         [ "$R_" = "$RAM " ] \
             || RAMBAD="${RAMBAD:-$L_ ran as '${R_:-no sim: ram line}', not a ${RAM} MB unit}"
+        # p090-floor2: and with the device's pool (every boot of the run)
+        if [ -n "${IPODUI_SIM_DEVICE_POOL:-}" ]; then
+            D_=$(sed -n 's/^sim: device pool \([0-9]*\) B.*pinned \([0-9]*\) B$/\1 \2/p' "$L_" 2>/dev/null | sort -u | tr '\n' ' ')
+            [ "$D_" = "$IPODUI_SIM_DEVICE_POOL $IPODUI_SIM_DEVICE_PINNED " ] \
+                || RAMBAD="${RAMBAD:-$L_ ran with device pool '${D_:-none}', not '$IPODUI_SIM_DEVICE_POOL $IPODUI_SIM_DEVICE_PINNED'}"
+        fi
     done
     grep -E "ram_mb=[0-9]+" "$LOG" 2>/dev/null | grep -vq "ram_mb=$RAM " \
         && RAMBAD="${RAMBAD:-floor lines with another ram_mb than $RAM ($LOG)}"
@@ -242,29 +322,13 @@ run_ram() { # RAM -> stdout/stderr as before; exit status = this half's RC
   done
   return $RC
 }
-# #309, the 64 MB unit's paused window (floor-65k.script): between
-# "floor before_window" and "floor window_commit" the commit is first
-# refused for the floor, retried exactly once after the regrow, and taken
-# after that retry; the buffer right after it clears the floor. Prints
-# the window's line with its margin; 0 = the rule held, else the reason
-# (one line).
-window309() { # LOG FLOOR
-    awk -v floor="$2" '
-        /sim_script: floor before_window / { w = 1; next }
-        w && /ipodui: maint job=commit wait floor/ { if (!wt) wt = ++n }
-        w && /ipodui: maint retry after regrow job=commit/ { retries++; if (!rt) rt = ++n }
-        w && /ipodui: maint take job=commit ok=1/ { if (!tk) tk = ++n }
-        w && /sim_script: floor window_commit / {
-            for (i = 1; i <= NF; i++) if ($i ~ /^audio=/) a = substr($i, 7) + 0
-            done = 1; exit }
-        END {
-            if (!done) { print "no \"floor window_commit\" after \"floor before_window\""; exit 1 }
-            if (!wt) { print "no \"maint job=commit wait floor\" in the window (never refused: the #309 path did not run)"; exit 1 }
-            if (retries != 1) { print "\"maint retry after regrow job=commit\" " retries + 0 " times in the window, not once"; exit 1 }
-            if (!(wt < rt && rt < tk)) { print "the window order is not: wait floor, retry after regrow, commit take"; exit 1 }
-            if (a < floor) { print "window_commit audio=" a " B under the floor " floor " B"; exit 1 }
-            printf "paused window (#309): refused, retried once after the regrow, committed paused; audio=%d B, floor=%d B, margin=%d B\n", a, floor, a - floor
-        }' "$1"
+# #309, the 64 MB unit's paused window (floor-65k.script): at 65k the
+# commit waits for the stop (owner, 2026-11-14): refused for the floor,
+# nothing taken, committed after audio_stop (tests/perf/window309.awk).
+# Prints the window's line with its margin; 0 = the rule held, else the
+# reason.
+window309() { # LOG FLOOR (the rule: tests/perf/window309.awk)
+    awk -v floor="$2" -f "$ROOT/tests/perf/window309.awk" "$1"
 }
 # a clone of the 0.8.0 disk with this build's installed files
 upgrade_clone() { # SOURCE DEST
@@ -292,12 +356,12 @@ upgrade_script() { # SCRIPT DEST
         && grep -q '^wait_db_settled ' "$2" && ! grep -q '^wait_db ' "$2" \
         || { echo "floor gate: FAIL could not make $1 wait for the boot's publication (no single wait_db line?)" >&2; return 1; }
 }
-# 0 = the boot's publication freed the retired generation's RAM cache
-# before the first play (p081-floor); else the reason
+# 0 = the first boot's order held (tests/perf/upgrade_order.awk: a same-
+# format upgrade retires the old RAM cache before the first play; a
+# format bump rebuilds, exports the statistics and publishes before it);
+# prints the verdict line either way
 upgrade_order() { # LOG
-    awk '/ipodui: db retired ram free gen=/ { if (!play) { ok = 1; exit } }
-         /ipodui: lib play / { play = 1 }
-         END { exit ok ? 0 : 1 }' "$1"
+    awk -f "$ROOT/tests/perf/upgrade_order.awk" "$1"
 }
 upgrade_case() { # SOURCE; uses RAM K BUILD RUN FLOOR; 0 = the floor held
     local UB ST4 OUT4 LOG4 MIN4
@@ -313,8 +377,11 @@ upgrade_case() { # SOURCE; uses RAM K BUILD RUN FLOOR; 0 = the floor held
         >"$RUN/shots-up.out" 2>&1
     ST4=$?
     LOG4=$OUT4/sim.log
-    upgrade_order "$LOG4" \
-        || UB="no 'db retired ram free' before the first 'lib play' in $LOG4 (the boot's publication did not free 0.8.0's RAM cache before playback)"
+    if O_=$(upgrade_order "$LOG4"); then
+        echo "floor gate: ${RAM} MB upgrade order: $O_"
+    else
+        UB="first-boot order in $LOG4: $O_"
+    fi
     grep -E "sim_script: (floor |floor_watch end|floor_reserve )|expect_floor|ipodui: maint (take|job)" "$LOG4" 2>/dev/null \
         | sed 's/^sim_script: /upgrade: /'
     MIN4=$(grep -E "floor_watch all_cases" "$LOG4" | tail -1)
@@ -339,8 +406,8 @@ upgrade_case() { # SOURCE; uses RAM K BUILD RUN FLOOR; 0 = the floor held
             "$ROOT/out/shots/paused-floor-wait-upgrade-$RAM" >"$RUN/shots-up3.out" 2>&1 \
             || UB="${UB:-the wait script failed ($RUN/shots-up3.out)}"
         L5=$ROOT/out/shots/paused-floor-wait-upgrade-$RAM/sim.log
-        upgrade_order "$L5" \
-            || UB="${UB:-no 'db retired ram free' before the first 'lib play' in $L5}"
+        O_=$(upgrade_order "$L5") \
+            || UB="${UB:-first-boot order in $L5: $O_}"
         grep -E "maint (job=commit wait|take)|sim_script: floor (shrunk|window)" "$L5" 2>/dev/null \
             | sed 's/^sim_script: //; s/^ipodui: /upgrade wait: /'
         grep -q "maint job=commit wait floor" "$L5" 2>/dev/null \
@@ -397,5 +464,9 @@ if [ "${FLOOR_PARALLEL:-0}" = 1 ]; then
     rm -rf "$FT"
 else
     for RAM_ in ${*:-32 64}; do run_ram "$RAM_" || RC=1; done
+fi
+if [ "${FLOOR_DEVICE:-1}" = 0 ]; then
+    echo "floor gate: FAIL FLOOR_DEVICE=0 is a diagnostic arm (the simulator's pool, not the device's)" >&2
+    RC=1
 fi
 exit $RC

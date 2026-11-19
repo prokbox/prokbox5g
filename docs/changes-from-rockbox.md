@@ -34,6 +34,8 @@ Generated list: `scripts/upstream_changes.sh`. Line counts are insertions/deleti
 
 | File | What changed | Why | Guard | Stock-identical |
 |---|---|---|---|---|
+| `lib/rbcodec/metadata/id3tags.c` (+12) **(#163)** | The numeric genre table runs to 191: the Winamp 5.6 names 148 Abstract ... 183 Audiobook, 184 Audio Theatre, 185 Neue Deutsche Welle, 186 Podcast ... 191 Psybient (as FFmpeg's `ff_id3v1_genre_str`; checked with ffprobe 9.0.2), with a compile-time size check. Files tagged "(183)" now have genre Audiobook (a book by #146's rules), "(186)" Podcast. Host tests `tests/metatags/run.sh` (148, 183, 191 through v2.4, v2.3 and ID3v1) and `tests/classify/run.sh` (the parser row "(183)" is a book) | #163: 148-191 arrived as no genre | none | No (all builds). **Upstreamable**; fw-ship .rodata +~560 B |
+| `lib/rbcodec/metadata/metadata_common.c` (+~65), `metadata_common.h` (+1), `id3tags.c` (+~15), `metadata.c` (+~22), `metadata.h` (+~17), `lib/rbcodec/test/warble.c` (+11) **(#167)** | Several artists, album artists or composers are joined with ", " (owner design 2026-11-06): `parse_tag()` (Vorbis comments, APE) joins a repeated ARTIST/ALBUMARTIST/COMPOSER into the first instead of dropping it (in place when the fields are adjacent, else a fresh copy; within `ID3V2_MAX_ITEM_SIZE`, a value that does not fit is dropped whole; an identical repeat is ignored; ENSEMBLE is not joined); `metadata_join_values()` joins an ID3v2.4 TPE1/TPE2/TCOM list (NUL-separated values in one frame, any encoding) in place. `struct mp3entry` gains `artist_len1`, `albumartist_len1`, `composer_len1` (the primary value's length, 0 = one value); `metadata_primary_len()` / `metadata_keep_primary()` give the primary, guarded against a stale length. warble `-m` prints "... key:" lines for a joined tag | Now Playing showed only the first of several artists | none | No (all builds; display only: what was dropped is now shown). Upstreamable in spirit |
 | `tools/genlang` | `english.list` (the English ID cache) written under a private name and renamed into place | A parallel build could read it half written and emit a 10-byte, empty `english.lng` (seen in a 0.7.0-alpha release build, 2026-10-27) | none (build tool) | build output only: no race |
 | `apps/playback.c` (+212) | Two chapter-table slots with a seqlock, shell-only resume for book queues (the auto-resume that fires for `is_audiobook` is skipped when the shell owns resume), book speed applied at codec track start, buffer-shrink keeps a paused queue paused, art/regrow hooks | Phase 5 hooks, P6 (M), #24 | `HAVE_IPOD_UI` (19 sites, 2 with `HAVE_TAGCACHE`) plus one unguarded audiobook resume line | Mostly; the one chapter/auto-resume line is by design |
 | `apps/playback.h` (+9) | Prototypes for `audio_buffer_regrow()` and the stop/pause event | #24, art builder works in fill windows | `HAVE_IPOD_UI` | Yes |
@@ -73,6 +75,7 @@ Generated list: `scripts/upstream_changes.sh`. Line counts are insertions/deleti
 
 | File | What changed | Why | Guard | Stock-identical |
 |---|---|---|---|---|
+| `apps/tagcache.c` (+3) **(#167)** | `add_tagcache()` calls `metadata_keep_primary()` on its own parsed copy before the string tags: artist, album artist, composer (and so the canonical artist) are indexed by the primary (first) value, so Artists, Composers and their sorting list each person once under the first name. The stored values mean what they did (the parser kept only the first value before), so it needs no bump of its own; 0.9.0's one format bump (`SORTKEY_VERSION` 3, 3.1) reads every file again. The shell's `artcache_key_for_id3()` and the boot-resume book key use the primary too (`artcache_key_n()`), matching the library's album keys | #167: owner design, Artists by the primary artist | none | Same index content as before #167 |
 | `apps/tagcache.c` (+1679 net) | Silent first build, right-sized RAM cache, scan-time classes (audiobook/podcast), shell collation order, bounded commit buffer that never evicts playback, power-off wait, stats survive rebuilds, library precompute hook after loads and deletions, no changelog export at shutdown, cheaper background export on charger, UBSan alignment fixes | P4, P4b (#37, #41, #28 mitigation) | `HAVE_IPOD_UI` and internal `UI_COMMIT` / `UI_COLLATE` / `UI_TIMING` (defined under it) | Yes |
 | `apps/tagcache.h` (+57) | Shell-facing tagcache API (precompute commit id, UI class flags) | P4b | `HAVE_IPOD_UI` | Yes |
 | `apps/tagcache.c`, `apps/tagcache.h` (2026-10-17 maintenance follow-up) | Expose directory scan/commit activity independently of RAM-library readiness; artwork yields at work/I/O boundaries until the scan finishes, avoiding concurrent source decoding and the metadata walk | Music maintenance and background cache scheduling | `HAVE_IPOD_UI` | Yes |
@@ -1555,7 +1558,7 @@ The codec's `pcmbuf_insert()` crossed to the CPU once per frame (`cop_job_call()
 | `firmware/export/config/ipodvideo.h` | `HAVE_PCM_24BIT_OUT`, `HAVE_HIRATE_OUT`; `HW_SAMPR_CAPS` + 88.2/96 (`HW_SAMPR_CAPS_STD` the old list; recording keeps it) | #268, #270 | `HAVE_IPOD_UI && !BOOTLOADER` | Yes |
 | `firmware/drivers/audio/wm8758.c`, `firmware/export/audiohw.h`, `firmware/export/dac_ext.h` | `HW_FREQ_88/96` (MCLKDIV 1, SR 48 kHz filter); `audiohw_set_depth()` (R4 IWL 16/24); `dac_set_width3d()` (R41 3D depth with M128ENB) | #268, #270, Stereo Width | the two flags; `HAVE_IPOD_UI` | Yes |
 | `firmware/drivers/audio/wm8758.c`, `firmware/export/dac_ext.h`, `apps/audiophile.c` | p083-dacosr64 (experimental, A/B on the owner's unit): R10 DACOSR 64x at 88.2/96 kHz, 128x (upstream) at 48 kHz and below, set with the rate through the R10 shadow (muted and standby kept); `dac_stats.osr/rate_hz/rate_seq`; one `dac osr=<n> rate=<Hz>` line per rate set (`tests/dacosr`) | the faint clicks at 96 kHz with SYSCLK at 2x its rating (#228): half the DAC filter's work per sample | `HAVE_HIRATE_OUT` | Yes |
-| `firmware/target/arm/pp/pcm-pp.c` | `pcm_builtin_set_depth()`: FIFO format 3 or 7, TX clear, the codec word, the DMA piece doubled in bytes; `pcm_builtin_progress()` (a piece counter in the FIQ); the stop's FIFO-empty wait bounded at 20 ms (a codec that lost its clock at 2x would hang it) | #268, #270 | the two flags | Yes |
+| `firmware/target/arm/pp/pcm-pp.c` | `pcm_builtin_set_depth()`: FIFO format 3 or 7, TX clear, the codec word, the DMA piece doubled in bytes; `pcm_builtin_progress()` (a piece counter in the FIQ, plus one at each DMA start so the stall watch counts within one run: p090-apstall); the stop's FIFO-empty wait bounded at 20 ms (a codec that lost its clock at 2x would hang it) | #268, #270 | the two flags | Yes |
 | `firmware/pcm_mixer.c`, `firmware/export/pcm_mixer.h`, `firmware/export/pcm_sink.h` | `mixer_set_depth()` (stops the PCM like a rate change), the format applied at the mixer's start; a 24-bit mix (playback copied at unity, other channels widened from 16 bits and added with 24-bit clipping; out of IRAM); one 1 KB frame size at every rate (no 2 KB more IRAM for 96 kHz); the peak meter gets no 24-bit frames | #268 | `HAVE_PCM_24BIT_OUT` | Yes |
 | `firmware/target/hosted/sdl/pcm-sdl.c` | the simulator's sink takes 24-bit frames (to the card as 16-bit through a shadow) | sim parity | `HAVE_PCM_24BIT_OUT` | Yes |
 | `apps/pcmbuf.c` | frame size 4 or 8 from `mixer_get_depth()` at each `pcmbuf_init()`; the DSP's depth set with it | #268 | `HAVE_PCM_24BIT_OUT` | Yes |
@@ -1722,13 +1725,13 @@ The owner's call for 0.8.3: "do 24 bit now audiophile later". 24-bit output (#26
 
 | File | What changed | Why | Guard | Stock-identical |
 |---|---|---|---|---|
-| `firmware/export/config/ipodvideo.h` | `IPODUI_AUDIOPHILE`, `IPODUI_NP_INFO` (commented out); `HAVE_HIRATE_OUT` and the 88.2/96 kHz `HW_SAMPR_CAPS` now only under `IPODUI_AUDIOPHILE`; `HAVE_PCM_24BIT_OUT` stays under `HAVE_IPOD_UI && !BOOTLOADER` | 0.8.3 scope; with `HAVE_HIRATE_OUT` gone the DACOSR 64x path, the bounded FIFO wait and `Q_AUDIO_RATE_REPICK` compile out with it | the two switches | Yes |
+| `firmware/export/config/ipodvideo.h` | `IPODUI_AUDIOPHILE`, `IPODUI_NP_INFO` (commented out in 0.8.3; defined again in 0.9.0, §3.17); `HAVE_HIRATE_OUT` and the 88.2/96 kHz `HW_SAMPR_CAPS` now only under `IPODUI_AUDIOPHILE`; `HAVE_PCM_24BIT_OUT` stays under `HAVE_IPOD_UI && !BOOTLOADER` | 0.8.3 scope; with `HAVE_HIRATE_OUT` gone the DACOSR 64x path, the bounded FIFO wait and `Q_AUDIO_RATE_REPICK` compile out with it | the two switches | Yes |
 | `apps/settings.h`, `apps/settings_list.c` | `ipodui_hirate`, `ipodui_hirate_ok`, `ipodui_width3d` only under `IPODUI_AUDIOPHILE` | upgrade safety: a road-test `config.cfg`'s "ipodui high rate: on" is an unknown key in 0.8.3 (ignored, dropped at the next settings write) | `IPODUI_AUDIOPHILE` | Yes |
 | `apps/playback.c` | the auto output rate is `audiophile_pick_rate()` whenever `HAVE_PCM_24BIT_OUT` (was `HAVE_HIRATE_OUT`), with no high rate allowed when the switch is off: the rule the road-test build ran with the setting off | one host-tested rate rule in both shapes | `HAVE_PCM_24BIT_OUT` | Yes |
 | `apps/SOURCES` | `ipodui/screens/audiophile.c` under `IPODUI_AUDIOPHILE`, `ipodui/np_info.c` under `IPODUI_NP_INFO` | build out | the two switches | Yes |
 
 - Shell-only: `apps/audiophile.{c,h}` (width and boot hook under the switch; `audiophile_hirate_allowed()` an inline 0 without `HAVE_HIRATE_OUT`; new pure `audiophile_allowed_rates()` in `audiophile_core.c`), `apps/ipodui/screens/settings.c` (the row, its submenu and the inline-value row numbers), `apps/ipodui/ui_main.c`, `apps/ipodui/fe_be.c`, `apps/ipodui/np_state.{c,h}` (`np_set_info()`: the screen offers the page, off after `np_init()`), `apps/ipodui/screens/nowplaying.c`. The febe stubs for the built-out functions stay listed; their `__real_` references are weak.
-- **Tests:** `tests/audiophile/run.sh` builds the rule twice (switch off and on): a saved "on, 0x83" allows nothing off (96 and 192 kHz sources at 48 kHz, 24-bit) and 88.2/96 on; red against the p083-int2 shape. `tests/nowplaying/test_np_state.c` `test_info_off()`. `tests/ui/ipodui-p083-scope.script` (no Audiophile row drawn, no "kHz" drawn through the SELECT cycle, a 96 kHz 24-bit FLAC at 48 kHz 24-bit) and `ipodui-p083-upgrade.script` (a road-test config loaded by reboot: 48 kHz, no stereo width), both red on the p083-int2 sim.
+- **Tests:** `tests/audiophile/run.sh` builds the rule twice (switch off and on): a saved "on, 0x83" allows nothing off (96 and 192 kHz sources at 48 kHz, 24-bit) and 88.2/96 on; red against the p083-int2 shape. `tests/nowplaying/test_np_state.c` `test_info_off()`. `tests/ui/ipodui-p083-scope.script` (no Audiophile row drawn, no "kHz" drawn through the SELECT cycle, a 96 kHz 24-bit FLAC at 48 kHz 24-bit) and `ipodui-p083-upgrade.script` (a road-test config loaded by reboot: 48 kHz, no stereo width), both red on the p083-int2 sim. (0.9.0 turns both switches on again: package A retired these two scripts and `tests/ui/fixtures/roadtest-audiophile.cfg` in 7a5b4319a3; the `ipodui-audiophile*` and `ipodui-np-info` scripts cover the rows.)
 - **Kept on purpose:** the viz arena's 96 kHz tap ring (#295; harmless), the screen stack's `overlay` flag and `ui_prompt_draw_n()` (generic), the `LANG_IPODUI_AP_*` and `LANG_NP_INFO_*` strings (the language file keeps every ID).
 
 ### 2.92 One build for 32 and 64 MB units; iAP resident, OUT2 on, no dock or haptics dimension (#204, #236, WP1 and WP4 of the one-build brief, branch `p083-onebuild-a`, 2026-11-12)
@@ -1944,7 +1947,7 @@ The shell's PLAY went `toggle_pause()` -> `be_post(BE_AUDIO_PAUSE)` -> `be_dispa
 | `apps/misc.c` (+8) | headphone unplug folds a posted wish into its status read, so a posted resume is paused after it | #345 | `HAVE_IPOD_UI` | Yes (`misc.o` full objcopy identical) |
 
 - Own files: `apps/ipodui/fe_be.{c,h}` (`BE_AUDIO_PAUSE/RESUME` post; `fe_audio_status()`, the status the header and PLAY's toggle read; `fe_audio_pause_sure()`, a synchronous pause that also runs behind a posted press), `header.c`, `ui_main.c` (toggle, charging sleep), `sleep.c`, `alarm.c` (ring, dark wait), `npmark.c` (a marked row resumes after a posted pause), `febe_rpc.list` (`direct: audio_pause_pending`), `uisimulator/common/sim_cmd_audio.{c,h}` (`load_hold`, `expect_shown`, `expect_pcm`), `tests/ui/ipodui-345-pause-mid-load.script` (red on `p083-int8`: icon not drawn within 150 ms, PCM paused 3,680 ms later; green: icon in 20-60 ms).
-- Unchanged and still synchronous: `audio_pause()`/`audio_resume()` for every other caller (iAP, the sleep timer, the video screen, the volume-limit preview, devbench, bookmarks, `playlist_start()`); a send queued behind a posted press runs after it, so the last request wins.
+- Unchanged and still synchronous (since 2.108 `audio_pause()` holds the PCM before it waits): `audio_pause()`/`audio_resume()` for every other caller (iAP, the sleep timer, the video screen, the volume-limit preview, devbench, bookmarks, `playlist_start()`); a send queued behind a posted press runs after it, so the last request wins.
 - **Sizes** (against `p083-int8` `418229c5d6`): release shape `.text` +424 B, `.bss` -416 B (placement), `_end` ±0, IRAM ±0 (`layout_diff.py`: ok; 10 IRAM veneers moved, `__keep_ata_active_veneer` gone, 131 hot functions at another line offset); fw-ui `.text` +440 B, `_end` ±0. Stock `fw`: 1,760 objects compared, only the version string differs (`version.o`, `panic.o`, quake's `host.o`). New statics: two bools (`XCORE_BSS` in UI-split builds).
 - **Not verified** on the device or the laptop's emulator: the press-to-redraw time with a real load (the emulator's watched run of #345), and that nothing else in a real load holds the ui thread (the sim's hold sits before any lock).
 
@@ -1972,6 +1975,33 @@ The art pass pins its library for the whole pass (`tagcache_context_acquire_pass
 - **Sizes** (against `p083-int11` d0ad51c5c7): fw-ui `.text` +248 B (`tagcache.o` +226 B), release shape `.text` +248 B, `_end` ±0 in both, `.iram` ±0; one new 1 B static.
 - **Not verified** on the device: a deleted-file update right after a stop that publishes during an art pass.
 
+### 2.108 Pause silences at once, even while the audio thread is in a load or fill (#362, branch `p083-pausefix`, 2026-11-13)
+
+2.105 posted the press, but the pause itself still waited in the audio queue: `Q_AUDIO_PAUSE` sat behind the handler the audio thread was in (`Q_AUDIO_FILL_BUFFER` -> `audio_fill_file_buffer()` -> `audio_load_track()`: `open()`, `bufopen(TYPE_ID3)`'s metadata read, then the audio, art and cuesheet handles), whose storage waits under the library's work lasted seconds; the laptop's emulator measured press -> pause applied at about 5.8 s on flash 64 MB (v0.8.3). Now the poster does the PCM half of the pause at once and the audio thread takes its own state from the queued event as before.
+
+| File | What changed | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `apps/playback.c` | `pause_pcm_hold()`: from `audio_pause_post()` and `audio_pause()`, on the CPU, a playing stream gets the pause tick, the fade-out (or the channel pause) at once and `pause_held` is set; a posted resume before the thread wakes undoes it. `audio_on_pause()` with a hold only makes sure of the channel pause (no second fade); the posted and sent pause handlers, the two `queue_clear()` sites and the shrink callback's replay keep `pause_held` in step; `audio_pcmbuf_may_play()` and the end of a seek refuse a PCM start while it is held | #362 | `HAVE_IPOD_UI` | Yes (see sizes) |
+
+- Own files: `uisimulator/common/sim_cmd_audio.{c,h}` (`expect_pcm held`, `expect_audio`), `tests/ui/ipodui-362-pause-during-fill.script` (new), `tests/ui/ipodui-345-pause-mid-load.script` (waits for the thread's state before `expect_paused`).
+- Resume still waits for the audio thread (it owns the codec's skip, the standby wake and the PCM start), except the undo of a hold it has not taken yet.
+- **Sizes** (`playback.c` alone swapped base/fix in one build dir): on `rel-0.8.3` fw-ui `.text` +488 B, `.rodata` +32 B (the two log lines), `_end` ±0; release shape `.text` +472 B, `.rodata` +24 B, `_end` ±0. On `p090-int3` fw-ui `.text` +496 B, `.rodata` +24 B, `_end` ±0; release shape `.text` +480 B, `.rodata` +24 B, `_end` ±0. IRAM sections unchanged in all four. Stock fw: `playback.o` byte-identical on both bases. New static: one bool (`PLAY_STATUS_XCORE`, uncached beside `play_status`). `cop_shared_check.py --fiq`: ok on fw-ui and the release shape (the FIQ only reads the flag).
+- **Not verified** on the device or the laptop's emulator: press -> pause applied with a real load under the library's work.
+
+### 2.109 The disk cache finds a buffer's slot from its byte offset (#355, branch `p090-fsfix`, the same commit as `p083-fsfix`, 2026-11-14)
+
+Upstream's `DCIDX_FROM_BUF` (the 2013 file-system rewrite) subtracted pointers to `DC_CACHE_BUFSIZE`-byte arrays. C defines that only for pointers to a buffer's start, so GCC takes the byte distance to be a whole number of buffers and folded the range check of all three users into "offset <= 63 x 512" (`cmp r0,#0x7e00; bxhi lr`, in every build: stock, fw-ui, the release shape, the bootloader). `fat.c` marks a directory entry dirty through a pointer to the 32-byte entry; when its sector was cached in the last of the 64 buffers and the entry was not the sector's first (offset 0x7e20-0x7fe0), `dc_dirty_buf()` returned and the change (a close's size, a create, a rename, a remove) was lost at the buffer's next reuse or the next commit. The laptop's emulator replay (#355) lost 7 art bundles, all 7 with their folder's sector in buffer 63 (0 of 458 kept ones), and an `ipodui.log` truncated to its boot lines.
+
+| File | What changed | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `firmware/common/disk_cache.c` (+33 -2) | `DCIDX_FROM_BUF` is the unsigned byte offset over `DC_CACHE_BUFSIZE` (`cmp r0,#0x8000; bxcs lr`, the same instruction count); used by `dc_dirty_buf()`, `dc_discard_buf()`, `dc_release_buffer()`. Developer builds: `DC_CHECK_BUF` panics "dc <what> buf=<p> lr=<caller>" on a pointer outside the cache, a dirty or discard of a slot not in use, or a release of a slot that is not a lent buffer | #355: lost directory-entry changes | the index: none (all builds, the upstream bug); the checks: `HAVE_IPOD_UI_DEVMODE && !BOOTLOADER` | No (all builds): the stock `disk_cache.o` differs only in those three functions' compare and shift, same size |
+
+- Own files: `tests/fatcrash/dcidx.c` (new: dirty, commit and discard through 6 interior offsets of every slot, pointers outside the cache), `tests/fatcrash/armrun/` (new: a bare runtime so a host test runs compiled by arm-none-eabi-gcc with the firmware's code flags under `qemu-system-arm -semihosting`), `tests/fatcrash/run.sh` (runs both, and the upstream macro put back as the negative control).
+- **Red/green:** the host compilers on the Mac (gcc-16, clang; 64-bit pointers) do not fold the check: dcidx passes on the old code there. Under qemu with arm-none-eabi-gcc 16.2, `-Os` and `-O2`: old macro FAIL (slot 63: 5 of 6 offsets not marked and not written, the +32 case included; the discard missed too), fix PASS 384/384.
+- **Sizes** (`disk_cache.c` swapped base/fix in one build dir, same `VERSION` in both arms): release shape `.text` ±0, `disk_cache.o` 1,964 B both, `_end` ±0 (0x184cc0). fw-ui (developer checks): `.text` +152 B, `.rodata` +56 B, `.iram` ±0, `_end` ±0 (0x18a2f0). Stock fw: `disk_cache.o` 1,372 B both, `rockbox.elf` within the build id's 8-16 B. Bootloader: compiled on `p083-fsfix` (same file), carries the new compare.
+- **Not verified** on the device or the laptop's emulator: the t355d replay with this build (expected: 0 missing bundles, t355d the red run).
+- **With 3.24 (int5 merge):** in shell builds `dc_dirty_buf()` keeps 3.24's own byte-offset check (counted in `dc_bad_refs`, a panic in developer builds); `DCIDX_FROM_BUF` above serves `dc_dirty_buf()` in stock builds and `dc_discard_buf()`/`dc_release_buffer()` in every build, and 3.24's `dce_holds()` map check is unchanged.
+
 ## The version comes from git tags (p082-version, 2026-11-11)
 
 | File | Change | Why | Guard | Stock build unchanged |
@@ -1980,3 +2010,569 @@ The art pass pins its library for the whole pass (`tagcache_context_acquire_pass
 | `tools/mkinfo.pl` (+9 -1) | `rockbox-info.txt`: `Version:` is the `scripts/version.sh` version (or `VERSION`), `Build:` the old Rockbox id (`<sha>-<date>`) | the info file shows the release version | only when `scripts/version.sh` exists | Yes (falls back to the old single `Version:` line) |
 
 Shell-only: `scripts/version.sh`, `apps/ipodui/prodver.h`, `tests/version/`. Format and rules: `docs/process.md`, "Versions".
+
+## 0.9.0 (branch `p090`, from `rel-0.8.3`)
+
+Sections 3.x are the 0.9.0 line's (not to be confused with part 3 above, the changed defaults). P0 (2026-11-13) holds the contracts the parallel packages build on; package sections arrive as `2.9x-<pkg>` and are renumbered here at merge.
+
+### 3.1 One database format for 0.9.0; the upgrade carries the statistics over (P0)
+
+0.9.0 changes what the scan stores for every file three ways: the unplayable reason (#286, 3.3), ID3 genres 148-191 and joined multi-value artists (#163, #167), the sort values inside the tag entries (#235). Each needs each file read again, so they share **one** format bump: `SORTKEY_VERSION` 2 → 3, `TAGCACHE_MAGIC` `0x544348a2` → `0x544348a3`. Until 0.9.0 ships no released firmware carries 3, so a package that changes the key order or scan-time data updates the guards' hashes at 3 and does not bump again (`sortkey.h`).
+
+A 0.8.x library fails validation on its magic and is rebuilt fresh, as before. What is new: the statistics of an older format were "unreadable for good" (only the last changelog and the journal came over). Now the boot recognises another firmware's library by the stamp in the newest intact manifest (3.1a; a 0.8.x library has none) and, when its master is one this firmware reads (the 0.8.x magic or its own), keeps its folder (`ui_upgrade_detect()`, log `db upgrade owed from=none to=a3/k3/s1 why=missing`; before p090-upgpage it read the master's magic, log `db upgrade owed v=2 to v=3`) and, as the fresh candidate begins, exports that master's play counts, ratings and resume points into its own folder as the changelog the build imports (`ui_upgrade_export()`, log `db upgrade export rc=`). Only that export reads the older magic (`ui_upgrade_read`); every other reader refuses it as before.
+
+Guards (all existing): the 0.8.x generation stays referenced until the new one publishes, so a cut rebuild runs again at the next boot (exactly one completed rebuild); 0.8.1's chain check and read-back; #237's battery rule for a build with no library (<15 % waits for the charger); the boot window's first-build hold (2.106). The library is empty while it builds, as at a first install, so the build runs behind the library page, as a first build does (p090-upgpage: before it, the boot counted the refused library as a dirty one, `tagcache_ui_no_library()` 0, and let the user into empty menus over a silent rebuild; the owner saw it on the road-test build). On battery below 15 % with no charger the page shows "Connect to power to finish your library." and the build waits, #237's rule unchanged.
+
+| File | What changed | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `apps/tagcache.c` (+113 -6) | `TAGCACHE_UI_UPGRADE_FROM` 2, `TAGCACHE_MAGIC_PREV`, `ui_upgrade_read` accepted by `open_tag_fd()`/`open_master_fd()` only while set; `ui_upgrade_detect()` in the CORRUPT selection, `ui_upgrade_export()` at the top of a fresh `ui_candidate_begin()`; the unplayable bits stored in `add_tagcache()` and their compile-time disjointness check (3.3) | the upgrade keeps the statistics folded into the master | `UI_COLLATE` (and `UI_COMMIT`) | Yes: stock `rockbox.ipod` byte-identical to rel-0.8.3's with the version strings pinned (`VERSION=p0test`, `PROKVERSION=unknown`) |
+| `apps/ipodui/sortkey.h` (own file) | `SORTKEY_VERSION` 3 and the one-bump rule | | | |
+
+- Tests: `tests/p090/run.sh` (magic and previous magic pinned as literals and bytes); `tests/ipodui/test_sortkey_version.c` and `tests/classify/test_bookclass.c` `EXPECTED_VERSION` 3 (red at 3 until moved; hashes unchanged). `tests/p090/upgrade.sh OLD NEW` (needs a rel-0.8.3 `--ipodui` simulator): a library built and rated by 0.8.3, then this build twice. Measured: B `upgrade owed v=2 to v=3`, `upgrade export rc=1`, one first build, magic `a3484354`, rating 7 kept; C no upgrade, `gen select rc=0`, no commit, rating kept.
+- **Not shown in the sim:** that the export is the only path a statistic takes. With the export disabled (red run) the rating still came over, through the journal or 0.8.3's own changelog; the export writes the rows (`rc=1`) but this scenario can't tell them apart. The case it alone covers (statistics folded into the master after the last changelog, the journal compacted) needs a disk in that state.
+- `tests/perf/floor_gate.sh`'s upgrade case (a 0.8.0 library, first boot) now runs this rebuild at 50k/65k: its timing and floors move.
+- Downgrade to 0.8.x: 0.8.x reads a version-2 manifest (3.1a) as foreign (never selected, its folder kept), finds no folder whose master it reads, rebuilds fresh and imports the best changelog (its own rule).
+
+### 3.1a The library version stamp (p090-upgpage; owner, 2026-11-13)
+
+Owner: "Make sure libraries are versioned so future libraries can be quickly checked for versioning compatibility." Every published generation's manifest carries the stamp of the firmware that built it (`apps/ipodui/libstamp.h`, the one header with the constants and the rules for bumping them):
+
+| Field | Bytes | Value in 0.9.0 | Compared |
+|---|---|---|---|
+| database format: `LIBSTAMP_DB_MAGIC` (= `TAGCACHE_MAGIC`, a compile-time check in `tagcache.c`) | 4 | `0x544348a3` | yes |
+| key order: `SORTKEY_VERSION` (`sortkey.h`) | 2 | 3 | yes |
+| ProkBox library schema: `LIBSTAMP_SCHEMA`, bumped whenever anything the scan or commit derives and stores changes (sort keys or stored sort values, the unplayable bits, the artist join, genres, class flags, the library file's sections, a new stored tag) | 2 | 1 | yes |
+| the building firmware's version (`prokversion`, truncated to 23 characters) | 24 | e.g. `0.9.0+g0a7ea74457` | no: logs only |
+
+**Where:** `apps/ipodui/dbgen.c`, `struct manifest`, offset 264 (what were the last four file slots; `DBGEN_MAX_FILES` 32 → 28, the library uses 12). The manifest stays 304 bytes with its CRC at 296; `DBGEN_VERSION` 1 → 2. A version-1 manifest (0.8.x, and 0.9.0 development builds before this) reads as one with no stamp. The boot reads the manifests anyway, so the check adds no read; a refused library is not CRC-checked at all (fewer reads than before on that one boot), and the only extra read is its master's first 4 bytes, to decide the export.
+
+**The check** (`libstamp_check()`, called by `dbgen_select()` and `dbgen_select_quick()` through `dbgen_ops.stamp` before any of the generation's content is read): equal format, key order and schema → the library is used as before. Anything else, older or newer (a downgrade too), no stamp (`why=missing`) or one no firmware writes (`why=corrupt`: a format outside the `TCH` family, a zero field, no terminator) → `DBGEN_STALE`: never selected, never salvaged past, its folder still reserved by its manifest until this firmware's library publishes. The boot then logs `db upgrade owed from=<stamp> to=<ours> why=format|sortkey|schema|missing|corrupt` (a stamp as `a3/k3/s1`: the format magic's last byte, key order, schema; `x<magic>` outside the family; `none`) and `db upgrade from fw=<version>`, exports the statistics when the refused master is one it reads (the previous format or its own; otherwise `db upgrade export none: magic ...`, and the build imports the best changelog), and rebuilds behind the library page (`tagcache_ui_no_library()` 2, log `library page at boot: no library (other version)`).
+
+| File | What changed | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| new `apps/ipodui/libstamp.h` | The stamp, its constants, `libstamp_ours()`, `libstamp_check()`, `libstamp_format()`; header-only, pure | Owner, 2026-11-13 | shell only | n/a (shell file) |
+| `apps/ipodui/dbgen.{c,h}` (own files) | `DBGEN_VERSION` 2, `struct manifest.lib`, `DBGEN_MAX_FILES` 28, `DBGEN_STALE`, `dbgen_ops.stamp`/`.stale`; publish writes the stamp | as above | shell only | n/a |
+| `apps/tagcache.c` | `ui_stamp_ours`/`ui_stamp_found` (64 B, tagcache thread only) in `ui_generation_ops()`; `DBGEN_STALE` handled as the CORRUPT selection plus `ui_upgrade_owed`; `ui_upgrade_detect()` takes the refused folder, logs the stamps; `tagcache_ui_no_library()` 2 while an upgrade is owed (cleared at this firmware's publication) | the stamp; the boot page for an upgrade | `UI_COMMIT` / `UI_COLLATE` | Yes |
+| `apps/tagcache.h` | `tagcache_ui_no_library()`'s 2 documented | | `HAVE_IPOD_UI` | Yes |
+| `apps/ipodui/updscreen.c` (own file) | the boot log line names the upgrade case | | shell only | n/a |
+
+- Tests: `tests/libstamp/run.sh` (host): the numbers pinned as literals; equal → OK; each field older and newer → its `why`; missing, `NULL`, corrupt (bad family, zero fields, no terminator) → owed; 200,000 random stamps never crash and never pass unless the compared fields are equal; through dbgen: the stamp written at publish, `DBGEN_STALE` from select and quick with the folder and stamp reported, a version-1 manifest read as no stamp (and selected as before without a stamp to check), a corrupt stamp never salvaged past and its folder kept by a fresh prepare, this firmware's publication selected again. Red runs: the schema comparison removed (fails at the schema case), the select-side check removed (fails at the first STALE case). `tests/dbgen` (foreign = version 99 now). `tests/p090/upgrade.sh`: B asserts the new owed line, the boot page (`no library (other version)`, `upd push mode=boot`, `upd done`, the hold balanced) and the stamp at offset 264; C asserts no page.
+
+### 3.2 `mp3entry` says why a file can't play (P0, #286)
+
+| File | What changed | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `lib/rbcodec/metadata/metadata.h` (+37) | `uint8_t unplayable_reason` as the **last** member of `struct mp3entry`; `enum unplayable_reason` (NONE, DRM `.m4p`, PROTECTED `.aa/.aax/.aaxc`, CODEC); `METADATA_SET_UNPLAYABLE()`/`METADATA_UNPLAYABLE()`, no-ops in stock | the reason comes from the parser at index time; the field at the end keeps every offset | `HAVE_IPOD_UI` | Yes |
+
+- Append-only values (stored in the database). 32-bit FLAC is not on the list (#318 plays it).
+- Size (fw-ui, measured with the build's own flags): `struct mp3entry` 2,792 → 2,800 B (+8: the byte plus padding to the struct's 8-byte alignment); stock unchanged. Every user takes the size from the struct (`buffering.c` id3 handles, `playback.c`'s COP-shared `codec_id3_slot` via `CODEC_ID3_SLOT_SIZE`, `library.c`'s batch); no codec or plugin sizes it, and all ship in one zip: no `CODEC_API_VERSION`/`PLUGIN_API_VERSION` change.
+
+### 3.3 Where the unplayable reason lives in the database (P0, #286)
+
+Bits 16-19 of the index entry's flag word: `TAGCACHE_UI_UNPLAYABLE_SHIFT`/`_MASK`/`_FLAG()`/`TAGCACHE_UI_UNPLAYABLE()` in `apps/tagcache.h` (+18), written by `add_tagcache()` from `mp3entry.unplayable_reason` for music, books and videos alike (Videos too, owner 2026-11-12). Zero bytes per entry.
+
+- The #235 brief review's "no free flag bit" holds for the low 16 bits only. The high half reaches the master from the scan's temp entry (`int32_t flag`) and the RAM cache loads the whole word; `write_index()` keeps the RAM copy's high half (`flag & 0x0000ffff | ram & 0xffff0000`), which is right for scan-time data. `0x400000` (`FLAG_UI_STATS_REPLAYED`) is RAM-only, so 16-19 are free on disk. A compile-time check keeps them apart from every other flag and fits every reason.
+- A database from before 3.1 has these bits 0 and is rebuilt, so 0 never means "not checked".
+- Rejected: a new numeric tag (+4 B per entry: +200 KB of RAM cache at 50k for 4 bits); packing into `tag_bitrate`'s high bits (every reader of the bitrate would have to mask it).
+
+### 3.4 The ShellCJK fonts slice, cherry-picked (P0, #235, #266)
+
+`e0b5fa029a` and `2d917eebe6` from `p20-japanese`, so packages G and H start from one copy. One conflict with 0.8.3: `ui_usb_prime_fonts()` named two USB strings 0.8.3 no longer has (`LANG_IPODUI_USB_EJECTING`, `_UNPLUG_NOW`); it now primes the screen's three lines (`USB_CONNECTED`, `OK_TO_DISCONNECT`, `USB_EJECT_FIRST`), squashed into the first commit.
+
+| File | What changed | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `firmware/font.c` (+65 -1), `firmware/export/font.h` (+4 -1) | `font_set_companion()`: a code point from U+3000 up is drawn from the companion font of the same height; a cached font's blank placeholder is paper, not ink | CJK glyphs in every shell font | `HAVE_IPOD_UI` | Yes |
+| `apps/gui/usb_screen.c` (+3) | `ui_usb_prime_fonts()` before `font_disable_all()` | the USB screen draws while the disk is the host's | `HAVE_IPOD_UI` | Yes |
+
+- Own files: `apps/ipodui/theme.{c,h}`, `usbscreen.{c,h}`, `paint.{c,h}`, `screens/legal.c`, `screens/setwidgets.c`, `fonts/` (`cjk_cut.py`, `gen_cjk.py`, `cjk-cut-A.txt`), `tests/fixtures/cjk/make_cjk_fonts.sh`, `scripts/shots.sh` (`# needs: cjk`). Nothing ships the CJK fonts yet (G: sparse form, zip, OFL credit).
+
+### 3.5 One block per 0.9.0 package at the end of `english.lang` (P0)
+
+| File | What changed | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `apps/lang/english.lang` (+37) | nine commented BEGIN/END pairs, packages A-I, after the last phrase | parallel packages append phrases without touching the same lines | comments only | Yes: genlang's output is byte-identical with and without them, shell and stock features (`tests/p090/run.sh`) |
+
+**P0 sizes** against rel-0.8.3 (`2d3342d80f`), same Mac, same toolchain: fw-ui `.text` 1,025,352 → 1,026,840 (+1,488), `.data` +16, `.bss` −1,760, `_end` 1,569,232 (±0), `rockbox.ipod` +1,760, `.iram` 11,852 and `.ibss` 25,608 (±0); release shape (`fw-ship`) `.text` 996,376 → 998,240 (+1,864), `_end` 1,547,392 (±0), `rockbox.ipod` 1,244,856 → 1,247,000 (+2,144), `.iram`/`.ibss` ±0. Most of `.text` is the fonts slice (3.4); the `.bss` drop with `_end` unchanged is alignment.
+
+The library glyph file contract (`apps/ipodui/libglyph.{h,c}`, G's, with a stub that writes nothing) is shell-only (part 1); `apps/SOURCES` gains `ipodui/libglyph.c` inside the `HAVE_IPOD_UI` block.
+
+### 3.6 All audio on the COP: a video's soundtrack, every start's first frames; fewer codec calls (package C, #283, #292)
+
+Owner 2026-11-10/12: all audio handling of every kind on the COP, the first two frames of a start too (+2 frames). Starts from `p090-avcop` (`06916e1d79`, `1948704481`); its read path already landed as §2.88 (#294).
+
+| File | What changed | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `firmware/pcm_mixer.c` (+46) | `mixer_channel_play_data()`: a channel with no first buffer goes in empty under the PCM lock, its first `get_more` is the FIQ's; `mixer_start_pcm()`: the PCM starts on two silent frames, the FIQ mixes from the third | no channel's audio fetched or mixed on the CPU; +2 frames at a start (11.6 ms at 44.1 kHz, 2.7 ms at 96 kHz 24-bit) | `HAVE_CORE_LAYOUT_A` (shell firmware, not the sim) | Yes |
+| `apps/beep.c` (+7 -2) | no first frame rendered in `beep_play()` | the mixer's FIQ makes it | `HAVE_CORE_LAYOUT_A` | Yes |
+| `firmware/export/config/ipodvideo-variant.h` (comment, 1 line) | the COP codec comment says a video's soundtrack decodes there too | keeps the config's prose true (row added at integration) | — | Yes (comment only) |
+
+- Shell-only: `apps/codec_cop.c`: the video guard in `codec_cop_select()` is gone (a soundtrack is bound like any track); `t_set_offset()` stores into the uncached codec id3 on the COP instead of a call (Opus reports it every 20 ms packet; Vorbis, Speex, MPC, WavPack, A52 likewise; `in ... of=`); `in_seek()` local up to 256 KB forward (was 64 KB: a film's audio chunks past the picture's bytes). Rules: `docs/data-paths.md` R7 items 9 and 11.
+- **Tests:** `tests/mixerfirst` (the real `pcm_mixer.c` and `beep.c` in the driver's FIQ order): red on p090's mixer (14 checks), on avcop's (11) and on p090's `beep.c` (96 of 880 samples made on the CPU). `tests/codecplace`: soundtrack bound (red on p090: not bound); Opus with per-packet reports 123 → 11 calls; a second build on a 512 KB ring, a 6 MB film: 96 KB gaps 63 → 10 calls, 300 KB gaps a call each (red at 64 KB and at 400 KB).
+- **Size (against p090 `3f9d7a6d2d`, only the three sources swapped):** release shape `.text` −64, `_end` 0x179c80 → 0x179c90 (+16), `rockbox.ipod` −64; fw-ui `.text` +8, `_end` +16, `rockbox.ipod` +16; `.iram`/`.ibss` ±0 in both. No thread, no `cpu_boost`, no splash.
+- **Not verified:** anything on silicon: a film's start and steady state on the COP (S36 stage 7, 4gh arm F), the start's +2 frames heard as no click, the Opus call count on a real file.
+
+### 3.7 An allocation while playing no longer stops the music (C, #170)
+
+| File | What changed | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `apps/playback.c` (+~45) | `audio_reset_buffer_noalloc()` carves a 64 KB reserve at the audio block's very end, past PCM (`[SCRATCH\|BUFFERING\|PCM\|RESERVE]`), whenever the rest still holds PCM, scratch and the 256 KB buffering minimum. `shrink_callback()`, playing or paused, cuts a request that fits from that end in place (`core_shrink(handle, start, old_size - take)`: no data moves, nothing playing touches those bytes) and returns OK: no stop, no restart, no gap, no "stopped" for Now Playing to pop on (log `audio reserve take want= left= status=`). A request bigger than what is left logs `audio reserve short` and takes the old path (playing: stop and restart; paused: #88's refusal and posted give), which re-carves the reserve whole. Stopped, the old path runs as before | upstream's "TODO: Do it without stopping playback": #170, option (2) "memory reserved up front" for every allocation (shell or not) without touching the call sites | `HAVE_IPOD_UI` | Yes (stock: no reserve, no new path) |
+
+Sizing (enumerated with `grep core_alloc` over `apps/`, `firmware/`): most shell screens already refuse to allocate while audio runs (the UI arena, `browse.c`, `viz_tap.c`, `artcache.c`'s chapter block through the paused window). The rest that can run while playing: the power log's ring 7,160 B (`powerlog.c:864`, #170's instance), an AB book block 11,344 B, the viz overlay piece 8,240 B (now made at the BCM's init), menu states past the static slots, the stopwatch's log record, `qscroll` tables, buflib's handle-table growth (64 B a time), and the 58,368 B Now Playing block (made once, on the first Now Playing). Cost: the buffering area is 65,536 B smaller on every unit, all the time (32 MB at 50k: 11,299,712 → about 11,234,176 B, 3.37 MB above the 7.5 MB floor; 64 MB at 65k: 40,143,144 → about 40,077,608 B, 1.08 MB above the 39 MB floor; arithmetic, the floor gate measures it at integration). Code, against p090 (`3f9d7a6d2d`, base relinked in the same dir): fw-ui `.text` +248 B, `.bss` −352 (alignment; one new 4-byte static), `_end` 1,569,232 (±0), `rockbox.ipod` +352; release shape `.text` +240, `_end` 1,547,392 (±0), `rockbox.ipod` +320; `.iram`/`.ibss` ±0. Stock fw: `playback.o` disassembly identical.
+
+Tripwire: `tests/ui/ipodui-c170-alloc-playing.script` (sim-ui): `heap_tight`, then the power log's ring made while a song plays under Now Playing; between the marks no `audio shrink want`, `Codec: cleaning up`, `fade dir=out` or `np pop stopped`, and one `audio reserve take ... status=1`. Red on p090 (`audio shrink want=7160 status=1`, `Codec: cleaning up`), green with this change.
+
+### 3.8 A seamless output-format switch between tracks; 24-bit MP3 and AAC (package B, #214, #289)
+
+**#214, seamless switch.** Until 0.8.3 a track of another output rate or depth (HAVE_PLAY_FREQ "auto", #268's per-track depth) stopped buffering, ran the playing track out to an empty buffer, then remade the playback buffer and read the file data again: a gap at every rate or depth change (seconds on a sleeping disk). Now each pcmbuf chunk carries the format it was written at. At an automatic track change the audio thread sets the write format to the next track's (the DSP's output rate and depth follow) before the codec writes its first frame, and buffering never stops (until b16 the codec's run start set the DSP's rate back to the output's, so the next track played at the wrong speed: §3.x-fmtrate). The PCM callback (the FIQ, the COP's in layout A) stops at the first chunk of another format instead of handing it to the mixer; the CPU's tick sees that, and the audio thread re-clocks (`mixer_set_depth()`, `mixer_set_frequency()`: the I2S and the codec's I2C) and restarts the channel. No `Q_AUDIO_REMAKE_AUDIO_BUFFER`, no re-read. The last 64 frames before the boundary ramp down and the first 64 after it ramp up (~1.5 ms at 44.1 kHz), so the stop for the re-clock is no step. A start, a manual skip and Audiophile's re-pick keep the remake (the buffer is flushed then anyway). Crossfade on keeps the old drain (it mixes two tracks at one format), still counted as a rate gap. The PCM buffer is sized for 3 s at the largest standard format the session may switch to (`audiophile_max_byterate()`: 48 kHz x 8 bytes), since a switch keeps the buffer; an output already at 88.2/96 kHz is sized for 3 s of itself, and a switch into those rates plays with 1.5 s buffered (3.13: sizing for 96 kHz x 8 in every session cost the 64 MB unit 1.9 MB). One log pair per switch: `pcm fsw n= <Hz>/<bits> gap_us= clk_us=` and `pcm fsw chk=ok|FAIL at= edge=out_pre/out_post,in_pre/in_post`.
+
+**#289, 24-bit MP3 and AAC.** libmad hands the DSP 28 fraction bits and libfaad 29 (`DSP_SET_SAMPLE_DEPTH`), so the precision already reached the DSP; only the depth rule truncated it. `audiophile_pick_depth()` gains `deep_codec` (MP1/2/3, AAC in MP4/RM/ADTS): those play through the 24-bit output stage. An all-MP3/AAC queue is 24-bit throughout, so it never switches depth. Vorbis, Opus and WMA stay 16-bit (not in #289).
+
+| File | Change | Why | Guard | Stock build unchanged |
+|---|---|---|---|---|
+| `apps/pcmbuf.c`, `apps/pcmbuf.h` | chunk format word; write format; the callback's stop at a boundary; `pcmbuf_fmt_switch()`; the soft edge; the sample check (bytes handed out at the boundary = bytes committed before it); sizing at the largest format; `pcmbuf_fmt_switches()`, `pcmbuf_fmt_check_fails()`, `pcmbuf_fmt_hard_edges()` | #214 | `PCMBUF_FMT_SWITCH` (`HAVE_PCM_24BIT_OUT` and `HAVE_PLAY_FREQ`: shell only) | Yes |
+| `apps/playback.c`, `apps/audio_thread.h` | a track buffered ahead keeps buffering at any format; the write format set at an automatic change; `Q_AUDIO_FMT_SWITCH`; a start or manual skip remakes where the output or the write side differs; `audio_codec_deep()` for #289 | #214, #289 | `PCMBUF_FMT_SWITCH`, `HAVE_PCM_24BIT_OUT` | Yes |
+| `apps/pcmbuf.c` (+6, integration) | `data_level()` counts bytes at the frame's real size (`PCMBUF_SAMPLE_SIZE`, 4 or 8) | upstream's form counts 4-byte frames, so a 24-bit track prefilled (and judged crossfade and low-latency levels on) half the intended time; B's finding, fixed at integration; `tests/pcmlevel` (the real function sliced out; red with the old line as a mutant) | `HAVE_PCM_24BIT_OUT` (shell only) | Yes |
+
+Shell-only: `apps/audiophile_core.c`, `apps/audiophile.h` (`audiophile_pick_depth()` takes `deep_codec`; new `audiophile_max_byterate()`), `tests/audiophile/test_rate.c`, `uisimulator/common/sim_cmd_audio.c` (`expect_fmt_switches`), `tests/ui/ipodui-p090-rsw.script`, `tests/ui/ipodui-p19-rate-gap.script` (now expects the switch).
+
+### 3.9 32-bit FLAC plays, reduced to the chain's depth with TPDF dither (#318, package E)
+
+| File | What changed | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `lib/rbcodec/codecs/libffmpegFLAC/decoder.{c,h}` | streams of 30..32 bits decode at their own width: the frame header's 32-bit size code (7, RFC 9639) is read; a 32-bit stereo stream's side channel (33 bits) decodes into a 64-bit buffer (`decode_subframe_33`: libFLAC's arithmetic, 32-bit residuals, 64-bit history and sums, with a 32-bit-history fast path while the samples fit 32 bits) and decorrelates from it (`flac_decorrelate_33`); `flac_reduce_frame()` then takes a stereo or mono frame to 29 bits with TPDF dither; a multichannel one goes to 24 bits first, for the downmix's sums | #318: 0.8.3 refused them at open (#285) | `bps > FLAC_OUTPUT_DEPTH` only: frames up to 29 bits take exactly the old path (33 of 33 `tests/flacarm` streams bit-identical; the 25 older ones unchanged); the 33-bit code is `noinline` in DRAM, so the IRAM hot paths stay as they were | No: an unguarded codec fix, stock gets it too (codecs are separate binaries; the core is unchanged) |
+| `lib/rbcodec/codecs/libffmpegFLAC/dither.h` (new) | `flac_reduce_tpdf()`: two uniform values of `shift` bits from one LCG step a sample (x' = 1664525 x + 1013904223, from 0 at the stream's open: a fixed seed), q + floor((f + r1 + r2 − 2^(s−1)) / 2^s), clamped | the reduction the issue asks for; error mean −½ input LSB and variance 63/4 LSB² at shift 3, the same for every input (`tests/flac32/dither_stats.c`) | — | No: an unguarded codec fix, stock gets it too (codecs are separate binaries; the core is unchanged) |
+| `lib/rbcodec/codecs/flac.c` | the #285 refusal becomes a rate limit: a wide stream over 96,000 samples a second (48 kHz stereo) is refused at open, logged "flac: 32-bit at 96000 Hz x2 too slow", before any PCM (skipped as unplayable, #281); a 32-bit stereo stream gets its 33-bit buffer (`max_blocksize` × 8 B, `codec_malloc`); `flac_reduce_frame()` before each `pcmbuf_insert` | real-time margin, from tests/flacarm's ARM7TDMI estimate: 466 cycles a stereo sample at `-8` (22 MHz at 48 kHz), 726 with 32nd-order predictors (35 MHz); 88.2/96 kHz would need 41-70 MHz of the COP's 80 | the limit is `FLAC_TOO_WIDE_FOR_RATE()` in the new `lib/rbcodec/metadata/flac_limits.h` (with `FLAC_OUTPUT_DEPTH`), shared with the library so F tags these streams unplayable (CODEC) at index time; ≤29-bit streams never see it | No: an unguarded codec fix, stock gets it too (codecs are separate binaries; the core is unchanged) |
+| `tests/flacarm/*`, `tests/flac32/` (new), `tests/flacblock/run.sh`, `tests/fixtures/unplayable/make_unplayable.py`, `tests/ui/ipodui-flac32-plays.script` (was `ipodui-unplayable-32bit`) | 8 wide streams in flacarm (flac 1.5 `-8`/`-5`/`-l 32`, noise, 44.1-192 kHz; synth.py 30/31/32 bits with every 33-bit subframe type) checked against `flac -d` before the reduction and against `dither.py` (the reduction written again, from its description) after it, with coverage of every 33-bit subframe type, fixed order, side assignment and both size codes; `tests/flac32` the same through warble's whole codec (stereo, mono, 30/31-bit), the 24-bit path unchanged, the 96 kHz refusal, and the dither statistics; the UI script's album now plays | red on p090: flac32 7 of 8 checks fail (refused at open), flacarm's wide streams fail at frame 0 (size code 7) or at open | — | — |
+
+Cost (`fw-ui`, against p090 `3f9d7a6d2d`): `flac.elf` `.text` 5,056 → 7,696 B (+2,640, all of it the wide path), image (`plugin_end_addr`) 7,892 B, so `tests/flacblock`'s device codec budget becomes 1,028,396 B (its 24/192 worst case needs 933,952); the codec IRAM window 50,964 → 51,212 B (+248: `.iram` +236, `.ibss` +12; 30,708 B of the 81,920 free). The core firmware is unchanged (the codec is a separate binary). Memory: a 32-bit stereo stream takes `max_blocksize` × 8 B more codec buffer (36,864 B at 4608-sample blocks; at 65,535-sample blocks it no longer fits the 1 MB codec buffer and is refused, logged "why=memory"). Not checked: real-time margin on silicon (the estimate is zero-wait memory; the 33-bit path runs from DRAM through the cache), which a device run of a 48 kHz 32-bit file must confirm.
+
+### 3.10 Opus: exact end, one-page files, R128 loudness tags (#292, package E)
+
+| File | What changed | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `lib/rbcodec/codecs/opus.c` | the stream's last (e_o_s) packet is decoded, and the last page plays only to its granule position, counted from the page before's granule (after a seek, from the page's own granule less its packets' durations: then a few ms of padding may play); the audio page search takes header type 4 (the last page) as well as 0; the packet loop goes on past a gap (-1); the end of the file returns `CODEC_OK` | upstream dropped up to 20 ms at every track's end and played the encoder's padding instead of trimming it (no sample-exact gapless); a file whose audio is one page (under about a second) played nothing; every Opus track ended in a codec error | — | No: an unguarded codec fix, stock gets it too (codecs are separate binaries; the core is unchanged) |
+| `lib/rbcodec/metadata/replaygain.c` | in an Opus file, `R128_TRACK_GAIN`/`R128_ALBUM_GAIN` (RFC 7845 5.2.1: Q7.8 dB on top of the output gain, to −23 LUFS) become ReplayGain levels + 5 dB, and win over `REPLAYGAIN_*` in either order | Sound Check ignored opusenc/ffmpeg-tagged Opus files | `codectype == AFMT_OPUS` (set by the Ogg parser before the comments are read); other formats ignore R128 tags | No: unguarded, stock gets it too; stock `fw` text +152 B, data +8 (measured against the same tree with p090's replaygain.c) |
+| `lib/rbcodec/test/warble.c` | `-m` prints the ReplayGain levels and gains | the test reads them | — | — |
+| `tests/opus292/` (new) | warble against ffmpeg: decode lengths equal for one, two and many pages and 60 ms frames, SNR ≥ 40 dB; no codec error; a `.ogg` holding Opus decodes as the same file named `.opus`; R128 levels pinned (−2560 → −20480 = −5 dB, 512 → 28672 = +7 dB), both tag orders, ReplayGain alone, R128 in FLAC ignored | red on p090: 8 of 10 checks fail; with only the end trim mutated off, every length is long by the padding (e.g. 48,648 against 48,624) | — | — |
+
+- **Opus in `.ogg`:** no code change was needed: `.ogg` maps to the Ogg parser, which sets the codec type from the content (`OpusHead`), and playback loads the codec by that type. The test makes it stay so.
+- **Clock:** no change. The COP demand boost (2.85) already holds Opus boosted: its model (`tests/copdemand`) asks at a new Opus track's first period and holds through it (the emulator's 44.6 MHz at 80). The decoder speed-up (#287) is not done (the plan's first cut candidate).
+- **Cost** (`fw-ui`): core `.text` +160 B (replaygain.c), `.data` +16, `_end` ±0, `rockbox.ipod` 1,268,876 → 1,269,052 (+176); `opus.elf` `.text` +544 B, `.iram`/`.ibss` ±0 (window 53,724 B). Release shape (`scripts/release_flags.sh`, against P0's figures): `.text` 998,240 → 998,368 (+128), `_end` 1,547,392 (±0), `rockbox.ipod` 1,247,000 → 1,247,160 (+160). Both E parts together; the FLAC part adds nothing to the core.
+- **Not checked:** on silicon. A gapless Opus album and a short clip on the device, and Sound Check's level on an R128-tagged file.
+
+### 3.11 Library: sort values, unplayable files, several artists, genres 148-191 (package F1: #235, #286, #167, #163)
+
+#163/#167 are the p20-metadata commit `53c7fdcf24`, ported unchanged (rows in the first table above); their rescan is P0's version-3 rebuild (3.1).
+
+| File | What changed | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `lib/rbcodec/metadata/metadata.h` (+11), `metadata.c` (+~120), `id3tags.c` (+~60), `metadata_common.c` (+~20), `metadata_common.h` (+1, `metadata_join_values()`), `mp4.c` (+~115), `asf.c` (+~22), `flac.c` (+7), `flac_limits.h` (new, package E's, copied byte for byte) | **Sort values** (#235): `mp3entry.sortartist/sortalbum/sortalbumartist` (in `id3v2buf`, relocated by `adjust_mp3entry()`, NFC normalised) from ID3 TSOP/TSOA/TSO2 (+XSOP/XSOA, v2.2 TSP/TSA/TS2, TXXX aliases ARTISTSORT/ALBUMSORT/ALBUMARTISTSORT/"ALBUM ARTIST SORT"/ALBUMARTISTSORTORDER; a dedicated frame beats an alias), Vorbis/APE ARTISTSORT/ALBUMSORT/ALBUMARTISTSORT(ORDER), MP4 soar/soal/soaa, ASF WM/...SortOrder; the first of several values; Sort Title/Composer not read. **Unplayable reason** (#286): MP4 sound entry drms/enca → DRM, aavd → PROTECTED, any other than mp4a/alac → CODEC (rate from the entry); a moving picture that is not avc1/avc3 or whose avcC is not Baseline with 4-byte lengths → CODEC (vpcore.c's open check restated); Audible .aa/.aax/.aaxc → PROTECTED and a book by extension (.aa: a header/dictionary reader for title and author); a 30-32-bit FLAC over 96,000 samples/s → CODEC (`FLAC_TOO_WIDE_FOR_RATE`, E's). `m4p`, `aa`, `aax`, `aaxc` join the ALAC/MP4 extension list so they are indexed. An unplayable audio file gets `AFMT_UNKNOWN`, so playback never decodes it (a video keeps its type) | #235 sort tags; #286 greyed rows from an index-time record; owner 2026-11-12: Audible never decrypted | `HAVE_IPOD_UI` | Yes (stock parsers unchanged; built stock) |
+| `lib/rbcodec/test/warble.c` (+8), `lib/rbcodec/test/SOURCES` (+3) | `warble -m` prints the sort values and the reason in a shell build; warble links `nfc.c` when `IPODUI_TRIM_UTF8PROC` is on (`tests/p090f1/parsers.sh` builds warble with `-DHAVE_IPOD_UI`) | host tests of the shell parsers | `HAVE_IPOD_UI` / trim | Yes |
+| `apps/tagcache.c` (+~110) | Every sorted string tag is stored "display NUL sort NUL" (temp file, tag files, RAM cache); the sort value is empty except for artist, album, album artist and the canonical artist, and dropped when the entry would pass `TAG_MAXLEN`; C-string readers see the display string as before. One sort value per case-class: the newest non-empty one read wins (`ui_sort_refresh()`). `compare()`/precomputed keys sort on the sort value, then the display name. Zero index bytes | #235: one order everywhere, the readings in RAM for the lists | `UI_COLLATE` (shell) | Yes |
+| `apps/ipodui/library.c`, `sortkey.{c,h}` | Lists, letters and the album-artist search key on `ui_sort_of(label)`; CJK collation (kana gojūon with Katakana folded, Hangul by jamo, kanji by code point as the documented fallback, group order A-Z, kana, Hangul, kanji, #); `ui_sortcmp()`, `ui_sortindex()`; the glyph file (G's `libglyph`) written at each precompute in its own block | #235 | shell files | n/a |
+
+### 3.12 The sparse CJK font form, the library glyph file and two glyph tiers (package G, #235)
+
+The ShellCJK fonts move to a sparse form (`firmware/export/font_sparse.h`, a ProkBox file): a presence bitmap and counts stay resident (5,804 B, one copy shared by the three sizes), and a glyph miss reads one fixed-stride record (stock cached mode reads a width, an offset and the bits: three seeks). The library glyph file (`apps/ipodui/libglyph.{c,h}`, `libglyph_fill.c`) carries the list font's glyphs in the order the lists first show them, so a miss in a CJK list reads one 4 KB page with the next ~20 rows' glyphs.
+
+| File | What changed | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `firmware/font.c` (+284 -0) | sparse load (forced cached, the shared pinned index block per glyph set), one-record miss read, the companion keeps a code point the set lacks with the partner, `font_set_fill()`/`font_fill_put()` (a page source for a sparse font's misses), `font_sparse_id/stride()`, `font_cache_slots()`; the sparse fields in the private allocation record, not `struct font` | CJK glyphs at one read each, shared index RAM, the library glyph file | `HAVE_IPOD_UI` | Yes |
+| `firmware/export/font.h` (+13) | declarations of the above | | `HAVE_IPOD_UI` | Yes |
+
+- Own files: `firmware/export/font_sparse.h`, `apps/ipodui/libglyph.{c,h}`, `libglyph_fill.c`, `theme.{c,h}` (the two tiers, `ui_theme_cjk_poll()`), `ui_main.c` (one call), `fonts/gen_cjk.py`, `fonts/README.md`, `tests/p090/test_libglyph.c`, `tests/fixtures/cjk/make_cjk_library.py`, `tests/ui/ipodui-cjk-lists.script`, `tests/perf/cjk10k.sh`, `tests/perf/cjk-10k.script`. `apps/SOURCES` gains `ipodui/libglyph_fill.c` inside the `HAVE_IPOD_UI` block.
+- Contract change: `LIBGLYPH_WORK_MIN` 9,528 → 15,360 B (the writer also needs the font's own index); `struct libglyph_writer` gains G's fields. F's calls are unchanged.
+
+### 3.13 The EQ keeps its loudness; custom EQ slots; limiter and AMUTE switches (0.9.0 package D: #203, #82, #327)
+
+| File | What changed | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `firmware/drivers/audio/wm8758.c` | `dac_eq_set(band, precut, makeup_db10)`: the make-up summed with Sound Check's trim in `dac_apply_volume()`; quiet-side-first write order; DAC limiter R24/R25 while the EQ is on (`DAC_LIMITER_DEFAULT 1` since b18, `dac_set_limiter_allow()`); R10 `AMUTE` from `dacctrl_play()` (`DAC_AMUTE_DEFAULT 0`, `dac_set_amute()`) | #203: a boost preset no longer makes everything quieter; #327 study | `HAVE_IPOD_UI` (the `dacctrl_play()` restructure is shared and compiles to the same value) | see the stock build note below |
+| `firmware/export/wm8758.h` | R24/R25 field macros | the limiter | defines only | Yes |
+| `firmware/export/dac_ext.h` (shell header) | the new `dac_eq_set()` signature, `dac_set_limiter_allow()`, `dac_set_amute()`, `dac_stats` precut/make-up/limiter/amute | as above | shell-only header | n/a |
+| `firmware/drivers/audio/sdl.c` | the sim rides the precut and make-up on its software volume; limiter/AMUTE state | the sim's level is the device's outside the EQ's bands | `HAVE_IPOD_UI` | sim only |
+| `apps/settings.h`, `apps/settings_list.c` | `ipodui_eq_preset` 0..25 (was 0..22); `ipodui eq custom 1..3` text settings | #82 slots, stored in the export format | `HAVE_IPOD_UI` | Yes |
+| `apps/SOURCES` | `ipodui/eqlab_core.c` moved from the devmode block to the `HAVE_IPOD_UI` block | Settings > EQ applies every curve through it | `HAVE_IPOD_UI` | Yes |
+
+Tests: `tests/eqlevel` (level plan vs a double-precision RBJ + BS.1770 reference; red run without make-up), `tests/dacosr/test_eqlev.c` (every register write's headroom, the summed trim, the Volume Limit cap, the limiter, AMUTE; four red runs). Reference: `docs/wm8758-reference/playback-path.md` 4.4 (corners at 44.1/88.2/96 kHz) and 5.1.
+
+### 3.14 Hi-Res 128x: opt-in 128x DAC oversampling at 88.2/96 kHz (0.9.0, owner 2026-11-13)
+
+p083-dacosr64 (§2.82) runs R10 DACOSR at 64x at 88.2/96 kHz output. Settings > Audiophile gains a third row, **Hi-Res 128x** (Off by default), that runs those rates at 128x instead (upstream's setting at every rate). It keys on the output rate, so a 176.4/192 kHz source converted to 88.2/96 gets it too. Like Hi-Res, the first turn-on shows its own warning and runs its own self-test (the same drain test, with the DAC at 128x); 128x then runs only at the rates that passed (`ipodui_osr128_ok`), and with none passing the setting stays Off. High Sample Rate's own test now always runs at 64x. A change takes effect at the next rate set, or at once while a high rate plays: R10 soft-mutes with the old OSR, the ramp runs out (`DAC_OSR_RAMP_TICKS`, ~30 ms: the datasheet gives no ramp time), the new OSR goes in still muted, then the unmute. Muted or in standby only the shadow changes. The log shows `hi-res 128x on|off (rates 0x..)` and then the existing `dac osr=<n> rate=<Hz>` line (`rate_seq` also counts OSR changes).
+
+| File | What changed | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `firmware/drivers/audio/wm8758.c` | `dac_osr64_for(fsel)` (the mask), `dac_fsel`, `dac_set_osr128()` with the soft-mute switch | the owner's opt-in | `HAVE_HIRATE_OUT` | Yes (`objdump -d` of `wm8758.o` identical, stock fw) |
+| `firmware/export/dac_ext.h` (shell header) | `DAC_OSR128_88/_96`, `dac_set_osr128()`, sim-only `dac_sim_rate_set()` | as above | shell-only header | n/a |
+| `firmware/drivers/audio/sdl.c`, `firmware/target/hosted/sdl/pcm-sdl.c` | the sim models R10's OSR per rate set and switch, so `dac osr=` is logged in the sim | sim scripts assert the choice | `HAVE_IPOD_UI` + `HAVE_HIRATE_OUT` | sim only |
+| `apps/settings.h`, `apps/settings_list.c` | `ipodui hi-res 128x` (Off), `ipodui hi-res 128x ok` (its test's mask) | saved choice and result | `IPODUI_AUDIOPHILE` | Yes |
+
+Shell-only: `apps/audiophile.{c,h}` (`audiophile_osr128_selftest()`, `audiophile_set_osr128()`, one `ap_run_test()` for both tests), `apps/ipodui/screens/{settings,audiophile}.c` (the row, its captions: "Needs Hi-Res on" while Hi-Res is off, else the filter in use; the prompt in 128x mode), `apps/ipodui/febe_rpc.list` (+2 calls), ten `LANG_IPODUI_AP_*OSR128*` strings. Tests: `tests/dacosr/test_dacosr.c` (+39 checks: every rate with the mask, per-rate masks, no write at a rated rate, the live switch's three R10 writes and its wait, standby and muted; red run 2 ignores the mask), `tests/ui/ipodui-audiophile-128x.script` (96 kHz and a 192 kHz source at 96 kHz, on and off while playing; red against `6a0ac062f6`). `scripts/shots.sh` also scrubs the two new config lines; `tests/fixtures/npinfo/make_npinfo_fixtures.sh` adds a 96 kHz FLAC (version 2).
+
+### 3.15 EQ preset tables per output-rate family (0.9.0, #352)
+
+| File | What changed | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `apps/SOURCES` | `ipodui/eqtable_core.c` in the `HAVE_IPOD_UI` block | the table parser (shell-only file) | `HAVE_IPOD_UI` | Yes |
+| `apps/lang/english.lang` | `LANG_IPODUI_EQ_HIRATE_PAUSE`, appended in the package D block | the Settings > EQ caption while presets pause at 88.2/96 kHz | `ipodui` feature | Yes (the accepted `english.lang` exception) |
+
+No driver change: `wm8758.c` and `sdl.c` are untouched; the family lookup, the bypass (`dac_eq_set(NULL, 0, 0)`) and the boot load of the optional hi table live in `apps/ipodui/screens/eq.c` and `apps/ipodui/eqtable_core.c`. Tests: `tests/eqtable` (the parser), `tests/ui/ipodui-eqtable-bypass.script`, `tests/ui/ipodui-eqtable-loaded.script`.
+
+### 3.16 The paused window's library commit fits the 64 MB floor again (p090-floor)
+
+On the first 0.9.0 integration (C, B, E, F1, G) the 64 MB unit's paused-window commit (#309) no longer fitted above the 39,000,000 B floor at 65k, so the update waited for a stop. Measured (`tests/perf/floor_gate.sh 64`, sim, 65k, against p090's margin of 695,592 B): the buffer at shell start lost 730,064 B (B's PCM buffer: 24-bit MP3 by #289 and the size for the largest format, 529,200 -> 1,152,000 B for the fixture's MP3s; C's 64 KB reserve), and the commit's take grew 88,416 B (F1's sort values in the tag files). With Audiophile's high rates allowed the PCM buffer doubled again (shell start -1,939,632 B). Two fixes, neither visible:
+
+| File | What changed | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `apps/tagcache.c` (`ui_commit_buffer()`) | the paused window's take is MAX(commit buffer, reload + statistics lookup + view pool) + `UI_MAINT_SLACK`, the pool from `lib_generation_pool_want()`; was commit buffer or reload, plus a pool guessed at 16 B an entry | the commit buffer is freed before the publication's phase, so the phases never overlap; the statistics lookup (12 B an entry) was never counted, only covered by the sum's excess. 65k: 11,108,640 -> 10,755,662 B | `UI_COMMIT` (shell) | Yes |
+| `apps/ipodui/library.{c,h}` | `lib_generation_pool_want()`, the one sizing rule of a generation's view pool | shared by the publication and the window's peak | shell files | n/a |
+| `apps/playback.c` (`audio_pcmbuf_size_byterate()`) | the PCM buffer's switch reserve is the largest standard format (48 kHz x 8 B) whatever the high-rate setting; `pcmbuf.c` sizes for the current format when it is larger | 3 s of 96 kHz x 8 B in every session cost 1.9 MB of the 64 MB unit's audio buffer | `PCMBUF_FMT_SWITCH` (shell) | Yes |
+
+Checked: `ipodui-p090-rsw`'s queue with the high rates forced on (48/16 -> 96/24 -> 44.1/24, the buffer at 1.5 s of 96/24) switched seamlessly, sample check ok, 0 underruns, 0 rate gaps.
+
+C's 64 KB reserve stays: without it the buffer at shell start was 714,512 B smaller (arm), since the allocations it serves while playing then cut the buffer by the old path. Its `reserve short want=77872` line in the floor script is the script's chapter-table stand-in (77,832 B), which the shell only allocates stopped or through a paused-window take (`artcache.c`), never from the playing reserve.
+
+Cost (release shape, against int1 + A at 794b83cd7e): `.text` 1,021,072 -> 1,021,112 B (+40), `_end` 1,576,112 B (±0), `rockbox.ipod` 1,273,224 -> 1,273,256 B (+32); `fw-ui` `.text` 1,049,672, `_end` 1,598,000, `rockbox.ipod` 1,295,116. Stock `fw` `rockbox.ipod` byte-identical with and without the change.
+
+Floor gate (`tests/perf/window309.awk`, `upgrade_order.awk`, checked by `tests/floorrules/run.sh`): the window may commit by its first take as well as by the #309 refusal and retry; the upgrade case knows the 0.9.0 format bump (no old RAM cache to retire; the statistics export and the rebuild's publication come before the first play).
+
+### 3.17 Settings > Audiophile and the info page are on again; a manual skip switches the output format; two script-reader fixes (package A, p090-playfix, p090-int3)
+
+| File | What changed | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `apps/playback.c` (`audio_finalise_track_change()`) | a manual skip runs `audio_auto_change_frequency(play=true)` whenever the seamless switch is on, not only when buffering had stopped (§3.8) | with §3.8 a track buffered ahead keeps its own format, so a NEXT/PREV onto a 44.1 kHz track after a 96 kHz one played it resampled to 96 kHz (and the other way round), with no "output" line | `PCMBUF_FMT_SWITCH` | Yes (stock has no `PCMBUF_FMT_SWITCH`) |
+| `firmware/export/config/ipodvideo.h` | `IPODUI_AUDIOPHILE` and `IPODUI_NP_INFO` defined again (§2.91 had compiled them out of 0.8.3) | 0.9.0 ships Settings > Audiophile (#270) and the Now Playing info page (#277) | the two switches; `HAVE_IPOD_UI` paths only | Yes (the stock build doesn't read them) |
+| `uisimulator/common/sim_cmd_maint.c` | `expect_title [title]`: the words given are the whole title (p090-playfix) | which song a selected row started | sim only | n/a |
+| `uisimulator/common/sim_script.c` | lines up to 1023 characters and 64 words (were 255 and 24); a longer line's tail is dropped, never run as the next line (a comment still counts, any other such line is a "bad command"), and a line of more words is refused, never cut short (p090-int3) | a 330-char `# golden: skip` header ran its tail ("tg") as a command with every later line number off by one; the four `ipodui-p19-bench-*` "bench_sim expect order" lines (348-352 chars, ~40 checks) ran their first 24 words and their tail as a bad command since p090 | sim only | n/a |
+| `uisimulator/common/sim_cmd_video.c` | `audio_pause on\|off` in every sim, not only the one with the video player (p090-int3) | A's #180 marquee scripts hold a track with it on sim-ui ("bad command 'audio_pause'") | sim only | n/a |
+
+Tests: the `ipodui-audiophile*` and `ipodui-np-info` scripts leave `tests/ui/PENDING` (package A; int3 for `-128x`, `-switch`, `-stall`, the `eqtable` pair and `ipodui-180-np-lines-turns`). The reader fix: `ipodui-286-unplayable` passes (it failed on "bad command 'tg'"); `tests/gate/mutants/m-longline.script` (70 words) exits 1 with "more than 64 words"; the bench order lines now run every check (and show the bench sessions there end early: see the int3 report). The skip fix: `ipodui-audiophile-switch` red at the int3 merge (no "output 96000/44100 Hz" between s2-s3 and s3-s4), green with it; `ipodui-p090-rsw` and `ipodui-p19-rate-gap` stay green.
+
+Also in int3, ProkBox files only (no upstream text): the two #255 sleep fixes from p23-b12-run, cherry-picked (a6db635fbd, a07cbad1bb): `pmu_raw-pp502x.c`'s raw RTC read names the failing step and retries once, and its I2C busy wait takes Apple's 100 ms bound instead of 2 ms (`sleep_wake_core.h`, `power_sleep.h`; `tests/sleep`: 486/486, pmu_raw 309/309 and 299/299 in the release shape). The D2 block of the source branch's `sleep_wake_core.h` was left out (not in 0.9.0).
+
+### 3.18 A library shuffle's refill keeps the buffered tracks; Shuffle Songs starts after 4 entries (p090-shuffle, owner 2026-11-13)
+
+Every library-shuffle refill (`lib_shuffle.c` `refill_finish()`) ended with `playlist_sync()`, whose `audio_flush_and_reload_tracks()` drops every track buffered after the current one (`track_list_clear(TRACK_LIST_KEEP_CURRENT)`) and reads them again, or, with an automatic change under way, restarts the playing track (`audio_start_playback(AUDIO_START_RESTART)`). A refill only appends at the end (its history trim deletes before the current entry), so nothing buffered was ever wrong. The shell's side (Shuffle Songs queues 4, plays, backfills 46; the shelf's mode change the same) is in `docs/design/shuffle.md` "Instant start".
+
+| File | What changed | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `apps/playback.c` | `audio_playlist_appended()` posts `Q_AUDIO_FLUSH` with data 1; `audio_on_audio_flush(int append)`: an append with no skip pending or an automatic change (`TRACK_SKIP_AUTO`), in `STATE_FILLING`/`STATE_FULL` keeps everything (the next load peeks past the old end), in `STATE_END_OF_PLAYLIST`/`STATE_FINISHED` sets `STATE_END_OF_PLAYLIST` (the main loop registers the buffer-low event again; it continues at `playlist_peek_offset`, as a full buffer does). Every other state (a new playlist's change, the end already decided, a stopped fill for a frequency switch) takes the flush as before. `ahead_bytes()` and two `ui_log` lines: `audio append kept=<tracks> kb=<KB>`, `audio flush dropped=<tracks> kb=<KB> append=<0/1> fill=<state> skip=<skip>` | the reads a refill threw away, and the restart of the playing track | `HAVE_IPOD_UI` (the handler's new argument is `(void)` in a stock build) | yes |
+| `apps/playback.h` | `audio_playlist_appended()` | | `HAVE_IPOD_UI` | yes |
+| `apps/playlist.c`, `playlist.h` | `playlist_sync_append_ipodui()`: the control file's fsync as `playlist_sync()`, then `audio_playlist_appended()` instead of the flush | | `HAVE_IPOD_UI` | yes |
+
+Measured (simulator, `ipodui-shuf-append`, the test library's 2 s tracks; flush arm = the same build with `refill_finish()` calling `playlist_sync()`):
+
+| refill | flush (before) | append (after) |
+|---|---|---|
+| Shuffle Songs' backfill (+46) | dropped 2 tracks, 27 KB, during an automatic change (a restart of the playing track) | kept 3 tracks, 59 KB |
+| a mid-run refill (+50) | dropped 48 tracks, 692 KB | kept 2 tracks, 39 KB (the fill waits for buffer-low) |
+| the shelf's Albums backfill (+46) | dropped 9 tracks, 127 KB | kept 14 tracks, 202 KB |
+
+The shelf's mode change itself (it replaces what is queued) still flushes (`dropped=98 kb=1474` in both arms). On the device a track is ~8 MB, so a refill's flush re-read up to the buffer's worth (tens of MB) once per ~50 tracks.
+
+Sizes (fw-ui, each file swapped base/new in one build dir with the build's own flags): `playback.o` text 23,003 -> 23,423 (+420), `playlist.o` 16,460 -> 16,532 (+72), `lib_shuffle.o` 5,180 -> 5,240 (+60); data and bss unchanged; no IRAM.
+
+**Not verified** on the device: a refill with the disk asleep (the append defers the next tracks' reads to the buffer-low fill instead of reading them at once).
+
+### 3.19 Dates, times and numbers in each language's own form (p090-locale, 0.9.0)
+
+The language system's printf passes arguments by position, so no translation could put the day before the month, the year first, or 午前 before the time. Every shell date and time is now a pattern string (`LANG_IPODUI_DATE_*`, `LANG_IPODUI_TIME_*`: `$j` day, `$n` month, `$Y` year, `$M` month name, `$D` weekday, `$t` the time; `apps/ipodui/locale_core.c`, host-tested by `tests/locale`), the decimal mark is a language string, and the 12/24-hour clock follows the language until the owner sets it.
+
+| File | What changed | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `apps/settings.h`, `apps/settings_list.c` | `ipodui_clock_set` ("ipodui clock set", default off): set once the owner flips 24 Hour Clock; until then the clock is the language's (`LANG_IPODUI_CLOCK_DEFAULT`; a 24-hour `timeformat` from before counts as set). Reset Settings clears it | German, Dutch and Japanese default to the 24-hour clock without overriding anyone's choice | `HAVE_IPOD_UI` | Yes |
+| `apps/lang/{english,deutsch,nederlands,japanese}.lang` | 12 shell IDs added (`DECIMAL_SEP`, `CLOCK_DEFAULT`, `TIME_12H`, `TIME_24H`, `DATE_PANEL`, `DATE_ALARM`, `DATE_SHORT`, `DATE_DAY`, `DATE_DAY_THIS_YEAR`, `DATE_MONTH`, `DATE_CAPTION`, `DATE_TIME_HEAD`); the printf formats `PANEL_DATE` and `X_ALARM_PANEL_WHEN` removed (no other user); Japanese AM/PM read 午前/午後 | the patterns above; `DATE_TIME_HEAD` is the split header's own short title | `ipodui:` target only | Yes (stock builds don't see `ipodui:` lines) |
+| `scripts/check_shell_langs.py`, `scripts/validate.sh` | `--lng BUILD`: every translated shell string must be in the built `.lng` as the translation (counted per language) | `tools/updatelang` swaps English in for a translation whose placeholders it refuses and still exits 0 | tooling | n/a |
+
+Cost (`fw-ui`, against the p090-h0 merge 0a7ea74457 + h0): `.text` +2,584 B, `.rodata` +136, `.data` +8; `.bss` -2,736 (alignment padding before an aligned buffer absorbs the growth; `_end` -8 B). Release shape (`fw-ship`, scripts/release_flags.sh) after: `_end` 1,596,608 B (cap 1,750,000), `rockbox.ipod` 1,293,112 B, `modules.pak` 126,224 B; not built at the base. RAM: no new statics (the formatter works in its callers' buffers); the stopwatch's per-visit work block grows 166 B (log labels 20 -> 28 B, the date title 10 -> 16 B; still under its 3,072 B assert), the legal page's arena block 1 B.
+
+Found on the way (not changed here): one `make` after a `.lang` edit leaves objects compiled against the old string enum (`lang_enum.h` is written as a side effect of the `lang.h` rule), so a second `make` rebuilt `locale.c`, `noplay.c` and `language.c`; and `language.c` loads a `.lng` built for another string table without refusing it (a stale `simdisk` copy showed every German string shifted). Both fixed in 3.25.
+
+### 3.20 Dutch wording review: two stock Dutch strings changed (0.9.0, branch `p090-lang-nl`, 2026-11-13)
+
+The 0.9.0 translation committee for Dutch reviewed every shell string in `apps/lang/nederlands.lang` (their `ipodui:` lines). Two core IDs the shell shows have no `ipodui:` target in `english.lang`, and `tools/updatelang` drops an `ipodui:` dest line that English lacks, so their Dutch text changes on the `*:` dest and voice lines, which stock Dutch builds share.
+
+| File | What changed | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `apps/lang/nederlands.lang` | `LANG_NOW_PLAYING` "Speelt nu af" → "Huidig nummer"; `LANG_REPEAT` "Herhalen" → "Herhaal" | Apple's Dutch iPod classic terms (its Dutch user guide), the same text as the shell's own `LANG_IPODUI_NOW_PLAYING` and `LANG_IPODUI_X_REPEAT` | none (`*:` line) | No: stock Dutch builds show the new words too. Same meaning |
+
+### 3.21 Settings > Language switches English, Deutsch, Nederlands and Japanese while running; the release zip keeps their files (P20, #266, branch `p090-h0`)
+
+| File | What changed | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `apps/language.c`, `apps/language.h` | `lang_core_size()` also under `HAVE_IPOD_UI`; `lang_core_switch(file, reserve)`: a file that fits the loaded block loads in place, a larger one gets one new pinned block of at least `reserve` (the largest language offered); the old block is kept (a screen may still hold a `str()` pointer) and goes at the next boot; a refused file leaves the strings as they were. `lang_core_builtin()` (back to built-in English) and `lang_core_file_size()` | the shell's Language screen (`apps/ipodui/screens/language.c`) switches at once, no reboot | `HAVE_IPOD_UI` | Yes |
+| `apps/lang/deutsch.lang`, `nederlands.lang`, `japanese.lang` | the shell's `ipodui:` strings (packages A-I and P20; Japanese new for the shell); German, Dutch and Japanese reviewed by a three-member committee each (0.9.0) | 0.9.0's languages (owner, 2026-11-10) | `ipodui:` lines (stock builds don't see them); four German and two Dutch core `*:` lines: 3.20, 3.22 | Yes, except 3.20 and 3.22 |
+| `tools/buildzip.pl` | a release zip (shell without developer mode) keeps `english`, `deutsch`, `nederlands` and `japanese.lng` in `langs/` (was English only) and carries the four ShellCJK fonts and their OFL notice from `build/cjk-fonts` (made by `tests/fixtures/cjk/make_cjk_fonts.sh`; a release refuses without them); every zip now also carries `docs/CREDITS.txt` (int4; `scripts/legal_audit.py` check 5) | the Language list's files; the GPL credit | the shell's `EXTRA_DEFINES` (fonts, .lng list); CREDITS in every zip | Binaries yes; a stock zip gains `docs/CREDITS.txt` |
+| `scripts/release_flags.sh` | `RELEASE_REQUIRED` lists the four `.lng`, the ShellCJK fonts and notice, and (int4) `docs/COPYING.txt`, `CREDITS.txt`, `LICENSES.txt` | the gate's shipping-shape check refuses a zip without them | tooling | n/a |
+
+### 3.22 German wording review: four stock German strings changed (0.9.0, branch `p090-lang-de`, 2026-11-13)
+
+`tools/updatelang` puts the `*:` line first and `genlang` keeps the first match unless a later line names the device model, so an `ipodui:` line on a core ID never takes effect (the chair's check: `updatelang` + `genlang` with the shell's and the stock feature lists). The four core strings the shell shows were therefore changed on their `*:` dest and voice lines.
+
+| File | What changed | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `apps/lang/deutsch.lang` | `LANG_NOW_PLAYING` "Spielt gerade" → "Sie hören"; `LANG_SHUFFLE` "Zufällig" → "Zufall"; `LANG_REPEAT` "Wiederholung" → "Wiederholen"; `LANG_ALWAYS_ON` "Immer an" → "Immer ein" | Apple's German 7G terms where they fit (committee chair); the same words as the shell's own IDs | none (`*:` line) | No: stock German builds show the new words too. Same meaning |
+
+### 3.23 The job driver flushes the chip's caches before an overlay swap; b9bcbe57 verified on silicon (#257, branch `p090-257`; int4)
+
+ProkBox files only (no upstream text), listed because they sit under `firmware/`: `bcmjob-core.c` (release: `host_code_flush()` before a region that has run code is rewritten, and again before its OVERLAY, the keep|0xC0000000 then keep|0x40000000 form, re-asked while bit 0 reads 1, polled at most 5 ms; a flush that never finishes refuses the load for the epoch, logged; the first load of a power-up unchanged; no image change), `bcmjob-core.h`, `bcmjob-dev.c` and the new `firmware/export/bcmjob_ring.h` and `bcmjob_pp.h` additions (the ring and overlay looks, bench builds only, `HAVE_BCMFW_DEVTEST`). Proven on silicon in sitting b13 (ovsw: every swap loaded cleanly, covers 20, visualiser 20 of 20; artsoak, vizsoak 10 min); `docs/bcm2722-reference/quirks.md` #59, `docs/data-paths.md`'s BCM cache row. Host test: `tests/bcmjob` (red with the flush disabled).
+
+int4 also lists the merged image b9bcbe57 in `bcmfw/verified.txt` from the chip update sitting of 2026-11-06 (its job line and its own clock150 token, replacing the owner-trusted line), so `bcmfw_res_verified()` opens the release's job gate: VC jobs (the visualiser on the chip) run in the release. `bcm-devtest-images.c` regenerated: only `bcmdt_verified_fnv[]` moved.
+
+### 3.24 The disk cache's lines and references, hardened in every shell build (int4-dcache, #355, 0.9.0)
+
+#355 (a crash or corruption on the device) had no cause found by reading. The release map at 2ddb5ef6ba had `disk_cache.c`'s `cache_lru` (0x183500) and `bidi.c`'s `bidi_buf.0` (0x183504) on one 16-byte line, the pairing behind bench 4f's OOM panic (quirks.md #88), because `app-pp.lds` kept the file layer on lines of its own only with the UI split (developer builds). The release's COP decodes and runs jobs, so it gets the same placement now, and the cache refuses references its invariants rule out.
+
+| File | What changed | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `firmware/target/arm/pp/app-pp.lds` | the file layer's and storage driver's `.data`/`.bss` (file, dir, file_internal, disk_cache, fat, fileobj_mgr, disk, rb_namespace, ata, ata-pp5020, storage) on cache lines of their own in every shell build, not only with the UI split | no other object's static shares a line with the disk cache's LRU list or the FAT state | `HAVE_IPOD_UI` | Yes (stock `ram.link`, `.text`, `.data`, `rockbox.ipod` identical, fixed version) |
+| `firmware/common/disk_cache.c`, `firmware/include/disk_cache.h` | `dce_holds()`: `dc_cache_probe()` and `dc_peek()` match an entry only if it is in use as a cached sector (not free, not handed out by `dc_get_buffer()`); `dc_dirty_buf()` takes its index from the byte offset and refuses a buffer outside the cache or an entry not in use; both counted in `dc_bad_refs`, developer builds panic in `dc_dirty_buf()` with the caller's address | a lost map-bit clear made the probe hand out a buffer someone else owned as the sector's | `HAVE_IPOD_UI && !BOOTLOADER` (panic: `HAVE_IPOD_UI_DEVMODE`) | Yes; bootloader `.ipod` identical too |
+
+Test: `tests/diskcache` (the cache built for the host as release and developer build; the cache at 2ddb5ef6ba must fail both: it returns a handed-out and a freed buffer as hits). Cost (release shape, fixed version): `.text` +56 B, `.data` +16, `.bss` -2,656, `_end` 0x186cc0 -> 0x1862b0 (-2,576 B: the moved objects change the padding before an aligned buffer); `rockbox.ipod` +80 B. `fw-ui` link script unchanged (identical `ram.link`). `dc_bad_refs` is not yet written to the device log.
+
+### 3.25 Language build: one make after a .lang edit, and a .lng tied to its string table (0.9.0, int4, branch `p090-int4-langdep`)
+
+The two findings at the end of 3.19. **One make:** the compiler's `.d` files name the generated headers relative to the build dir (`lang/lang.h`, `lang_enum.h`: `CCACHE_BASEDIR`), the rules that make them use absolute paths, so to make they were different files; an object known only from its `.d` (a file added to `SOURCES` after the build dir's `make.dep` snapshot, such as `locale.c`) was not rebuilt by the make that ran genlang. And `lang_enum.h`'s recipe-less rule is not counted as remade by GNU make 3.81 (the Mac's `/usr/bin/make`; no grouped `&:` targets), so objects that include only it (`firmware/usb.c`, `metadata/hes.c`, `jpeg_load.c`) and `lang-enum.txt` waited for a second make. **The .lng:** a file built from another `english.lang` for the same target loaded, every string shifted (German "Back" read "Hinzufügen").
+
+| File | What changed | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `tools/root.make` (`fix_dep_target`) | every relative path in a `.d` file is made absolute (`$(BUILDDIR)/...`) after the compile, as its target already was | the generated headers then match the rules that make them | none (build files only) | Yes |
+| `apps/lang/lang.make` | `lang/lang.h`, `lang/lang_core.c` and `lang_enum.h` are the targets of one multi-target pattern rule (stem `g`), replacing the `lang.h` rule and the two recipe-less ones | make knows one genlang run makes all three: they count as remade, genlang still runs once | none | Yes |
+| `tools/genlang` | when the target features name `ipodui`: `.lng` header version 0x87 and 8 bytes (the 4 before plus a big-endian FNV-1a 32 hash of the core string ID names in number order), and `#define LANG_IDTABLE_HASH` in `lang.h` from the enum it writes | ties each `.lng` to the string table it was numbered against | `ipodui` feature | Yes (stock `.lng` and `lang.h` as before) |
+| `apps/language.c` | the header check (`lang_load`, `lang_core_size`) also compares the hash; a refusal returns 3 as a bad header does, the strings in use stay, and is logged (`lang refused (other table)` / `(not this build's)`), never shown. Version-6 files fail the version check | a stale `.lng` can no longer shift every string | `HAVE_IPOD_UI` (stock keeps the old expression via `LANG_HEADER_OK`) | Yes |
+| `uisimulator/common/sim_cmd_p9.c`, `scripts/check_shell_langs.py` | read the subheader after an 8-byte header when the version is 0x87 | the other two `.lng` readers | sim / tooling | n/a |
+| `scripts/shots.sh`, `tests/fixtures/lng/`, `tests/ui/ipodui-lng-idhash.script` | `# needs: lng` makes a shifted and an old-format German `.lng` with the sim's own genlang; the script checks both refused and the build's own `deutsch.lng` loaded | the test | tooling | n/a |
+
+Verified: one make after adding a phrase at the top of `english.lang` (with `make.dep`'s entries for `locale.o`, `usb.o`, `hes.o`, `jpeg_load.o` removed) rebuilt all four, and a second make rebuilt nothing (before: `locale.c` rebuilt only by the second make; with only the `.d` fix, `usb.c`, `hes.c`, `jpeg_load.c`, `language.c` and `lang-enum.txt` still did); a no-op make after a clean build rebuilds nothing. `ipodui-lng-idhash.script` fails on the base (both bad files load, rc 0) and passes after. Cost (`VERSION` pinned, base 2ddb5ef6ba): `fw-ui` `.text` +176 B, `.bss` -256 (alignment), `_end` unchanged, `rockbox.ipod` +256 B; release shape `.text` +184 B, `_end` 1,600,704 B unchanged, `rockbox.ipod` 1,296,072 -> 1,296,328 B. Stock `rockbox.ipod` byte-identical (`cmp`). RAM: none (4 header bytes on the stack).
+
+### 3.26 Class A Extras draw Japanese without a storage read (p090-int4)
+
+With the shell in Japanese every Class A Extra (Clocks, Calendars, Contacts, Alarms, Notes, Screen Lock, Stopwatch) logged `modclass viol <name> reads`: its kana and kanji are glyphs of the sparse ShellCJK fonts (3.12), and a glyph not in the LRU is one read of the `.fnt` while the module runs. The class rule stays; the glyphs are made resident instead. While the UI is Japanese, theme.c collects the code points of every string a Class A shell module can draw (`ipodui_classa_lang[]`, generated at build time by `apps/ipodui/modules/gen_classa_lang.py` from the modules' sources, their manifests and `classa_helpers.txt`) and pins each companion's records in RAM at the tier load; a cache miss of a pinned glyph copies the record instead of reading. Measured (sim, `ipodui-p090-ja-modclass`): 264 strings, 254 glyphs, 94,234 B for the three sizes, 258 reads of 4 KB at the language load; module reads during the tour 0 for Clocks (was 59), Alarms (30), Screen Lock (7); 2 for Calendars (7), Contacts (19), Notes (10) and Stopwatch (12, now 4 with its save), which are the modules' own entry reads, as in English.
+
+| File | What changed | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `firmware/font.c` | `font_sparse_pin()` (a forward pass of 4 KB reads into one pinned block per font (pinned for its life, freed at `font_unload()`)), the miss path copies a pinned record, `font_unload()` frees it; two fields in the private allocation record | Class A modules may not read storage while running | `HAVE_IPOD_UI` | Yes |
+| `firmware/export/font.h` | its declaration | | `HAVE_IPOD_UI` | Yes |
+
+Shell-only: `apps/ipodui/theme.c` (`cjk_pin()`, the `cjk pin glyphs= strings= bytes= reads=` log line), `apps/ipodui/modules/{gen_classa_lang.py,classa_helpers.txt,modules.make}` (the generated `ipodui_classa_lang.h`). Test: `tests/ui/ipodui-p090-ja-modclass.script` (a viol for each of the seven Extras without the pin).
+
+int4 budget review (High): Settings > Language > 日本語 while a song plays did the tier change and the pin at once (~70-90 KB + 94,234 B, past the 64 KB playing reserve). `ui_theme_cjk_for_lang()` now leaves both owed while playing (`cjk tier owed (playing)`, the seen stamp cleared) and `ui_theme_cjk_poll()` does them at the next stop or pause; the strings switch at once. Test: `tests/ui/ipodui-p20-lang-ja-playing.script` (red on 3883f3b50f: the pin between the switch and the stop, no owed line).
+
+### 3.27 The floor gate measures the device's pool; the statistics lookup leaves before the view pool (p090-floor2)
+
+The simulator's core pool was a fixed 66,060,288 B; the device's runs from `_end` to the codec buffer, less the panic record, and device-only code pins the directory burst slots and the BCM job slots at boot. The int3 gate passed at 39,164,504 B while the device was below the floor.
+
+| File | What changed | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `firmware/target/hosted/sdl/system-sdl.{c,h}` | `IPODUI_SIM_DEVICE_POOL` / `IPODUI_SIM_DEVICE_PINNED` (bytes), read at `system_init()` and logged (`sim: device pool`) | the floor gate gives each simulator the device's pool | `IPOD_VIDEO && HAVE_IPOD_UI` (simulator) | n/a |
+| `firmware/core_alloc.c` | with them, the simulator's pool ends where the device's would (minus 32 MB on a 32 MB unit) and a pinned block of the device-only bytes is taken at init | as above | `IPOD_VIDEO && HAVE_IPOD_UI && SIMULATOR` | Yes |
+| `tests/perf/floor_gate.sh` | reads the pool from the release-shape ELF (`build/fw-ship`, built or refreshed by the gate), the pinned bytes from `fat.c` / `bcmjob-core.h`; checks every run's log for them; `FLOOR_DEVICE=0` is a diagnostic arm that never passes | device-accurate floor | test only | n/a |
+| `apps/tagcache.c` (`ui_candidate_stats_settle()`, `ui_candidate_publish()`, `ui_candidate_stats_finish()`, `ui_commit_buffer()`) | before the publication takes the view pool, the journal is drained and replayed into the candidate and the statistics lookup (12 B an entry) is freed; anything journalled after that makes the finish refuse and the next try prepare anew; the window's peak is reload + MAX(lookup, pool) | the two were held together: 780,012 B at 65k | `UI_COMMIT` (shell) | Yes |
+
+Measured (`tests/perf/floor_gate.sh`, int3 3e84b804a0 + this; release `_end` 1,592,512 B, device pool 64,466,240 B, pinned 132,144 B):
+
+| Arm (64 MB, 65k) | window need | window | all-cases min | resort_play_check |
+|---|---|---|---|---|
+| int3, simulator pool (p090-floor's figures) | 10,755,662 | commits, 39,230,088 | 39,164,504 (upgrade) | pass |
+| int3, device pool (red) | 10,755,662 | waits: 1,496,014 B short | 37,618,912 (1,381,088 short) | 38,518,192 (481,808 short) |
+| + settle | 10,003,088 (−752,574) | waits: 743,440 B short | 38,354,888 (645,112 short) | 38,518,192 (481,808 short; not changed) |
+
+32 MB at 50k, device pool + settle: minimum 9,469,488 B (margin 1,969,488), the paused window waits as required, `resort_play_check` 10,719,080 B. Still red at 64 MB: the window (the simulator's 64-bit commit buffer, 9,904,784 B, binds after the settle; on the device the publication's phase, ~9.98 MB, ~0.72 MB short), PLAY after a stopped commit while a reader holds the retired library (`after_commit_regrow` 39,197,888 B, dip 38.35 MB) and PLAY during the re-sort's publication. Owner decision pending (p090-floor2 report).
+
+Cost (release shape): `.text` +352 B, `_end` 1,592,512 B (±0), `rockbox.ipod` 1,288,808 -> 1,289,160 B (+352).
+
+### 3.28 PLAY from a stop gets a library update's spare RAM back before the buffer is sized (p090-floor3)
+
+Owner, 2026-11-14: at 65k on 64 MB the paused window waits for the stop; during playback the buffer stays at or above the floor (39,000,000 / 7,500,000 B, the device's pool).
+
+| File | What changed | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `apps/playback.c` (`audio_start_playback()`, cold start) | calls `tagcache_ui_play_release(audio_buffer_size() + core_allocatable())` just before the regrow check; never the paused window's restart | the buffer was sized beside the retired library or an unpublished candidate's RAM cache (~9 MB at 65k) and kept that size all session | `HAVE_IPOD_UI` | Yes |
+| `apps/tagcache.c`, `apps/tagcache.h` | publication success runs the play queue's rebase at once, then frees the retired library; `tagcache_ui_play_release()`: only when something is releasable and the room is under floor + 2 MB, asks the tagcache thread (kicks its wait; a precompute, a publication before its locked part and the candidate's deleted-files pass stop for it), waits 150 ms at most; a timeout or a running window take logs `play release FALLBACK` and sizes as before; a deleted pass cut by PLAY is owed again with the deferred scan; sim hold point 102 | as above; the wait cannot deadlock with `maint_take()` -> `audio_buffer_give()` (`maint_taking()`) | `UI_COMMIT` (shell) | Yes |
+| `apps/ipodui/dbqueue.{c,h}`, `apps/ipodui/maint.{c,h}` | `dbq_tc_rebase_now()`, `maint_taking()` | as above | shell | n/a |
+| `uisimulator/common/sim_cmd_floor.c` | `floor_watch` keeps samples taken while audio is stopped out of the verdict (counted, `stopped_min` printed) | the floors bind during playback; a stopped buffer lends memory to a library job and is sized anew at the next cold start | sim only | n/a |
+| `uisimulator/common/sim_cmd_p9a.c` | `stat_idx` / `stat_write` | the settle's rare-path test (`ipodui-p090-settle-moved`) | sim only | n/a |
+| tests: `floor-65k.script`, `window309.awk`, `tests/floorrules`, `resort_play_check.sh`, `tests/tagcache_shutdown` | the 65k window must wait and commit at the stop; the publication's yield counted from the held publication on; harness stubs | owner decision; `test_retry.py` had not compiled since 3.27's settle | test only | n/a |
+
+Measured (`tests/perf/floor_gate.sh`, device pool 64,466,240 B, pinned 132,144 B): 64 MB at 65k: all-cases minimum 39,197,752 B (margin 197,752), the window waits (margin 9,259,648 B at `window_wait`), committed at the stop; upgrade case 39,195,208 B (margin 195,208); `resort_play_check` 64: 48,422,936 B (was 38,518,192). 32 MB at 50k: 9,469,488 B, upgrade 9,443,888 B, resort 10,733,576 B. The stopped samples' minimum stays at 38.35 MB (64 MB), outside the verdict. Remaining thin spot then: when the art builder's pass held the retired library at PLAY (its passive reference ended only at the pass's next album), the buffer was sized beside it (`after_commit_regrow` 39.2 MB); fixed in 3.20.
+
+Cost (release shape): `.text` +1,520 B, `.bss` -1,536 B, `_end` unchanged (device pool 64,466,240 B both).
+
+### 3.29 An art pass on the retired library gives way before PLAY (p090-artrelease)
+
+| File | What changed | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `apps/tagcache.c` (`ui_candidate_publish()`) | a publication calls `artcache_library_published()` | wakes an art pass still reading the retired generation (its waits poll every 250 ms to 1 s) so it drops its passive pin at once | `UI_COMMIT` (shell) | Yes |
+| `apps/tagcache.c` (`tagcache_ui_play_release()`, `ui_play_release_run()`) | PLAY also asks when the retired generation still has its RAM cache, whatever the room (the candidate still yields only when the buffer would be short); the release is retried each tick for up to `HZ/10` inside PLAY's 150 ms wait | on 32 MB at 50k the room was above the floor's slack, so 3.28's release did not run and the buffer was sized beside the retired RAM cache (11,399,144 B instead of 18,424,328 B) | `UI_COMMIT` (shell) | Yes |
+| `apps/ipodui/artcache.{c,h}` | `pass_gen_moved()`: pace points stop deferring, parks and `lib_defer()`/`pace_defer()` end (a semaphore the publication releases), `io_go()` refuses the album's next read or write (nothing half-written, the album again later), `wait_ready()` ends the pass with `EV_GEN`; the pin goes before the commit's I/O, the tagcache thread is kicked, a pass on the new generation is owed; logs `art pass yield gen old=N new=M done=D` | as above | shell | n/a |
+| tests: `tests/perf/artrelease.script`, `artrelease_check.sh`, `floor_gate.sh` | PLAY at once after a stopped commit's publication with an art pass under way; yield and `retired ram free` before the PLAY's start; buffer no smaller than before the update (256 KiB slack); both units, run by the floor gate | regression test | test only | n/a |
+
+Measured (`tests/perf/floor_gate.sh 32 64`, device pool 64,462,144 B, pinned 132,144 B): `artrelease_check` red on cb758f74b5: 64 MB 38,644,192 B (before the update 48,486,016), 32 MB 11,399,144 B (18,424,328); green: 48,418,552 B (48,481,920) and 18,356,768 B (18,420,232). 64 MB at 65k all-cases minimum 47,286,200 B (margin 8,286,200; was 39,197,752), `after_commit_regrow` 48,192,048 B, window waits (margin 9,255,552), upgrade 47,260,600 B. 32 MB at 50k: minimum 9,465,392 B (the paused window, as before), `after_commit_regrow` 18,130,280 B (was 11,172,360), upgrade 9,439,792 B.
+
+Cost (release shape): `.text` +688 B (`artcache.o` +545, `tagcache.o` +148), `_end` +4,096 B: not the code's size but `inquiry_static`'s 4 KiB alignment in `.bss`, whose pad the growth pushed over a page (device pool 64,466,240 -> 64,462,144 B).
+
+### 3.30 The simulator's SDL sink paces on the host's clock only (p090-simrate, int5)
+
+The SDL audio callback slept one chunk's playing time for every chunk after the first (`SDL_Delay()` in `sdl_audio_callback()`), on top of the host driver's own wait of one buffer between callbacks, so a buffer of several chunks was paid for twice: the simulator played at 64 % of real time on 4 KB chunks (v0.8.3, p090) and 55 % on the 24-bit path's 2 KB chunks (int3). Measured with `tests/ui/ipodui-simrate.script` (`rate_mark` / `expect_rate`, 15 s on the host clock): 97 % with the sleep gone. It is what made `ipodui-np-sharp-skip`, `p5-export-charger-on` and `p9-stats-playcount` time out at the int3/int4 gates. Scripts whose waits had been fitted to the slow clock were re-fitted in int5 (`ipodui-colocate-play`, `-p69-npcontinue`, `-np-sharp-mru`, `-p8b-pin`, `-p18-sleep-stamp-spoil`, `-p19-vclkcap`; the `ipodui-p6-slots` goldens re-recorded).
+
+| File | What changed | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `firmware/target/hosted/sdl/pcm-sdl.c` | `sdl_audio_callback()` no longer calls `SDL_Delay()`; the callback fills its buffer at once | the double pacing above | none (simulator only; the device's `pcm-pp.c` is paced by the I2S FIFO) | No (the stock simulator plays at real time too) |
+| `uisimulator/common/sim_cmd_np.c` (ProkBox commands) | `rate_mark`, `expect_rate` | the rate test | `SIMULATOR` | n/a |
+
+Upstream candidate: listed in `docs/upstream-backports.md`.
+
+### 3.31 The shell's playlist insert contexts start zeroed (RockWheel review B10, our part; branch `fix-shell-insert-init`)
+
+| File | What changed | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `apps/ipodui/library.c` (`play_view()`), `apps/ipodui/otg.c` (`otg_play()`) | `struct playlist_insert_context c = { 0 };`, was uninitialised | when `playlist_insert_context_create()` fails (the control file can't be checked, or a replace fails) it has set only `playlist` and `initialized`, and both functions then call `playlist_insert_context_release()` on that context to unlock: release reads `progress` (and `count`, `count_langid`) from the stack, so a stray non-zero byte showed `display_playlist_count()`'s splash with a garbage count and string id. **Our shell's bug** (upstream 9b1f1e9e65, from PodBox, sets those fields in create before its first way out and fixes tagtree's caller; that port, with 8a1aee5c76, is P7, not this branch). Found by the RockWheel review (B10) | shell files | n/a (shell). `library.o` and `otg.o` +16 B text each |
+
+Test: `tests/otg` (otg.c and library.c over the fake tagcache) makes the fake create fail as the real one does (only `playlist` and `initialized` set) and calls `otg_play()` and `lib_play()` on a songs view; the fake release reads `progress` as its byte. `run.sh` builds with `-ftrivial-auto-var-init=pattern`, so an uninitialised context shows 0xFE (gcc) or 0xAA (clang) there every run. Red without the init (both callers: "1 uninitialised"), green with it. The stub's `struct playlist_insert_context` now has the real field list (`tests/ipodui/libstub/playlist.h`); `tests/ipodui` and `tests/search` share the fake and still pass. Not shown on the device: a failed create needs a control file that can't be checked (full disk, unwritable folder).
+
+### 3.32 MP3: a start skip of whole frames no longer silences the track (RockWheel B12, branch `fix-mpa-oneframe`)
+
+| File | What changed | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `lib/rbcodec/codecs/mpa.c` (`codec_run()`) | a frame the start skip covers exactly (`framelength == 0`) now takes its length off the skip, as one it more than covers did: `<= 0`, was `< 0` | with `< 0` a skip of exactly a whole number of frames stayed whole after its last frame, so every later frame was skipped as well and the track decoded to silence. Layer III: a LAME encoder delay of 623 (623 + 529 = 1,152) or 1,775 (two frames). **Upstream bug, still in upstream.** Found first by RockWheel 3a9f3e120 (ssarkisy, GPL-2.0-or-later); reimplemented here (same condition, our comment), credited | none (bug fix for every target) | No (bug fix). Size 0 B (`mpa.codec` 75,944 B text either way) |
+
+Test: `tests/mp3skip` writes a 2 s CBR MP3 with ffmpeg, sets its LAME tag's encoder delay with `lametag.py` and decodes it through warble, so the metadata parser reads the tag and the codec skips. Each delay (623, 624, 1,200, 1,775) must decode exactly `d - 622` fewer sample frames than delay 622. Red on `< 0` (623 and 1,775 decode 0 frames), green with the fix.
+
+### 3.33 jpeg_load: four upstream safety fixes for bad covers (RockWheel review P3: B4; branch `fix-jpeg-upstream`)
+
+Our own fixes for an over-full Huffman table and bad codes (§ P19 jdec rows above) sit under `JPEG_JDEC`, which only `bcmfw/jpeg/env/jenv.h` defines: the BCM's jdec had them, the PP5022's own album-art decoder did not. Upstream fixed these and three more after our base; all four are hand-merged (our file has diverged by about 1,050 lines), unguarded, so the shell, stock and jdec builds all take them.
+
+| File | What changed | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `apps/recorder/jpeg_load.c` | upstream 6b6642fcbe: `huff_counts_ok()` refuses a DHT whose counts claim more codes than a prefix code holds (-13 AC, -14 DC); a code below its length's first code is a bad code in the slow decode paths (both macros and the `JDEC_BITSERIAL` reference walk) | an over-full table made `fix_huff_tbl()` write ~80 KB past `look_nbits[256]` | none | No (upstream's fix) |
+| `apps/recorder/jpeg_load.c` | upstream 162241602a: `skip_bytes_read_buf()` ends on an empty refill | a marker length past the end of an Ogg/Opus embedded picture spun the art thread at full CPU for ever | none | No (upstream's fix) |
+| `apps/recorder/jpeg_load.c` | upstream 3be791bc1d: `e_skip_bytes()` refuses a negative count (-1) | a segment shorter than what was read of it moved the read position backwards: before the buffer in the 16-byte reader, back into parsed bytes in the shell's 64 KiB reader | none | No (upstream's fix) |
+| `apps/recorder/jpeg_load.c` | upstream 473b827ea1: a sampling factor below 1 is refused (-3) | a factor of 0 divided by zero in `fix_headers()` | none | No (upstream's fix) |
+
+Test: `tests/jpegsafe` (crafted files from a generated 64x48 JPEG, no owner media; `clip_jpeg_fd()` as the art readers call it, 16-byte and bulk builds, UBSan + Homebrew llvm ASan, a 64 KiB guard, 20 s timeout). p090-int3: 7 of 12 runs fail (look_nbits index 256, division by zero, buf index -152, two timeouts); here 12 of 12 pass. `bcmfw/tests/jpeg_oob_test.py` (287 corrupt files x 3 sizes, sanitized; fast and bit-serial loops the same) and `jskip_test.py --quick` pass with the change.
+
+Cost (against p090-int3 `3e84b804a0`): `jpeg_load.o` `.text` 12,079 -> 12,247 B (+168) in `fw-ui` and the release shape. `fw-ui` `rockbox.ipod` 1,310,524 -> 1,310,684 B (+160), release shape 1,288,808 -> 1,289,000 B (+192); `_end` unchanged in both (1,614,576 and 1,592,512 B). No RAM, no IRAM, no new state; the checks run once per marker segment. The BCM image (`bcmfw/video/bcmvideo.bin`) is committed and frozen, so it does not change now; jdec compiles the same file and takes the four fixes at its next rebuild (its size then not measured here). **int5:** unguarded, the fixes made the committed VC images stale against their source (the gate's bcmfw devtest: `mkvideo --check`, `mkdevtest --check`), so `JPEG_UP_SAFE` (0 under `JPEG_JDEC`) keeps jdec on the code its frozen image was built from; both checks are up to date again and `tests/jpegsafe` still passes 12 of 12 on the PP's decoder. jdec takes them at the next image rebuild (#400).
+Stock `fw`: `rockbox.ipod` 1,172,580 -> 1,172,740 B (+160), `_end` +160 B (upstream's fixes, unguarded). Simulator (`build/sim-ui`, `scripts/shots.sh`, judged): 26 of the 27 art scripts (`ipodui-art-*`, `-np-artq-*`, `-np-sharp-*`, `-p5-art-fit`, `-p4b1-art-ready`, `-p5-chapart-*`) pass; `ipodui-np-sharp-skip` fails its `logbetween` npcover-queue line on this disk, and fails the same way with p090-int3's simulator on the same disk (the cover was already cached by an earlier script; the gate gives each script a fresh clone). Authorship: each fix is committed under its upstream author with `(cherry picked from upstream commit <sha>)` and `Adapted-by: prokopto-dev`.
+
+### 3.35 The walk leaves the hidden folder out of its digest on the device too (#403, branch `laptop/403-stamp-digest`)
+
+§3.34 is taken by #401's branch (`laptop/stamp-rewalk-int5s`, not merged here); this section keeps its own number so the two merge without a clash.
+
+| File | What changed | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `apps/tagcache.c` (`check_dir()`, new `ui_walk_is_hidden()`) | the boot stamp's hidden-folder test strips the path's volume specifier (`path_strip_volume()`, under `HAVE_MULTIVOLUME`) before comparing with `ROCKBOX_DIR` | on the device (`HAVE_MULTIVOLUME`: ATA with LBA48) the walk's "/" root is rewritten to the volume's root, so `curpath` is `/<0>/.rockbox` and the whole-path compare never matched: the walk's digest (`ui_walk_dg`) took in the hidden folder, the boot digest (`bootstamp.c`, "/" as set) left it out, and no boot ever trusted its stamp (`why=digest` and a full walk at every boot). The simulator has one volume and no specifier, so every sim test passed | `UI_COMMIT` (shell) | Yes |
+
+Evidence. Owner's road-test logs (relayed by the orchestrator, not read here): `db walk ms=3370-4280 ent=~3770 probe=1` after every boot, `why=digest`. Emulator, 5k flash drive, two boots each, digests read by a probe on a diagnostic build (`laptop/403-diag`, local): before the fix the walk saw 687 folders / 5,841 entries and the boot digest 651 / 5,665 (the difference is the hidden folder); boot 2 digest `0ada94d6` against stamp `444bb668`, walked at 8.7 s, art pass at 9.0 s. With the fix the walk's digest is `0ada94d6`, boot 2 matches it, no walk, art pass at 4.3 s. 50k on flash (emulator, 57k entries): a boot with the fix from a stamp the old walk wrote walks once (330.9 s) and settles a good stamp; the next two boots from it (fix alone, and fix with p090-resumepark) never call `ui_log()` with the walk's format (a probe on `ui_log`, against two calls in the settling boot). Before the fix every boot there took the digest (about 22 s) and then a full walk (1,026 s on rw1). Sim: all 17 `expect_boot_walk` scripts pass; builds `fw-ship`, `sim-ui`, stock `fw` and stock `sim` compile with no new warnings.
+
+Cost (`fw-ship`): `tagcache.o` `.text` +20 B, `rockbox.elf` `.text` +24 B, `.bss` -32 B, `_end` unchanged (0x001882b0); `rockbox.ipod` 1,302,144 -> 1,302,176 B (+32).
+
+### 3.x-fmtrate The next track converts to its own rate at a seamless switch; a stop clears the switch request (b16, #417, #418, branch `p090-fmtfix`)
+
+Numbered at merge (other branches hold §3.34 and may take the next numbers).
+
+| File | What changed | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `apps/codec_thread.c` (`run_codec()`) | the DSP's output rate at a run's start is `pcmbuf_dsp_out_frequency()` (the write side's), not `mixer_get_frequency()` | #417: at a seamless switch (§3.8) the codec starts the next track's run before the output reaches it; the mixer's rate is still the outgoing track's, so the DSP converted the next track to the old rate while pcmbuf tagged its chunks with the new one, and it played at the wrong speed (b15: seam96's 96 kHz clip after 48 kHz at twice the speed; rs0's 96 kHz clip converted to 44.1 kHz, "mode=3 (WRONG)") | `PCMBUF_FMT_SWITCH` | Yes |
+| `apps/pcmbuf.c`, `apps/pcmbuf.h` | new `pcmbuf_dsp_out_frequency()`; `init_buffer_state()` clears `fmt_switch_posted` | the first for `run_codec()`; #418: `Q_AUDIO_STOP` clears the audio queue after the stop's flush, so a switch request queued at a boundary was dropped with its flag still set, and neither the tick nor a start asked again (the output would wait at the next boundary for good) | `PCMBUF_FMT_SWITCH` | Yes |
+
+The codec's `trk` line (`apps/codec_cop.c`, ours) now logs the write side's format, the one the DSP writes at. It logged the output's, which read "24/96000>16/44100" for a run written at 96/24 and hid the bug.
+
+Tests: `tests/fmtswitch` (the real `pcmbuf.c` on `tests/fencepcm`'s stubs: 44.1/16 <-> 96/24 and 48/16 -> 96/24, with and without a flush between, and a dropped request; two mutants, each fix taken back, are red). `tests/ui/ipodui-p090-fmtrate.script` measures each next track's position against the host clock: before the fix 90 % (48 -> 44.1), the 96 kHz clip ended early (48 -> 96/24) and 44 % (96 -> 44.1); after it 97 %, 94-97 % and 97 %. Not explained: no codec ran again after rs0's first arm on the device (#419; the simulator, which decodes on the CPU, does not reproduce it).
+
+Cost (release shape, `build/fw-rel`, against `655cbc6b5f`): `.text` 1,044,904 -> 1,044,928 B (+24), `_end` unchanged (0x001882b0). Stock `fw` and stock `sim` compile with no new warnings (the change is under `PCMBUF_FMT_SWITCH`, shell only).
+
+### 3.x-fiqstall The core that takes the PCM's FIQ starts a whole-cache write-back only when no DMA piece ends inside it (b16, #436, branch `p090-fiqstall`)
+
+Numbered at merge (other branches hold §3.34 and may take the next numbers).
+
+| File | What changed | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `firmware/target/arm/pp/system-pp502x.c` | `commit_dcache()`'s write-back moves into `commit_dcache_hw()` (the same code). In `cop_commit_discard()` the IRQ is now masked from the bulk write-back on (it was masked from the second write-back on). In layout A every whole-cache write-back and drop (`commit_dcache()`, `cop_commit_discard()`, the CPU's `commit_discard_idcache()`) first calls `mstall_window()`. Each one is timed with the IRQ masked (`mstall_note()`: a decaying maximum, the longest per take and the clock then). New `cache_mstall_take_stats()` | b16: four load rows found the I2S FIFO empty with the FIQ 250–760 µs late. 71 of 73 late PCs sat in `commit_dcache()`'s wait loop, with the FIQ open. The write-back holds the FIQ's entry, the cached vector's fetch [hypothesis] (`pp5022-reference/quirks.md` 96). The cache has no ranged operation (quirk 10) | `HAVE_CORE_LAYOUT_A && !BOOTLOADER` | Yes (stock: the same instructions, inlined) |
+| `firmware/target/arm/pp/pcm-pp.c` | New `pcm_pp_fiq_window(need_us)` (IRAM), between `fiq-window` markers: on the core that takes the FIQ, with the FIQ and its source open, the PCM playing and the two-channel queue off, it waits until the playing piece has `need_us` left or a FIQ has run. Bounded at 8 ms (counted) | Puts each stall where no piece ends: a piece lasts 1.6–3.9 ms, the worst stall seen is 761 µs | `HAVE_CORE_LAYOUT_A` | Yes |
+| `firmware/export/corelayout.h` | Declarations, `struct cache_mstall` | — | layout A | Yes |
+
+`apps/codec_cop.c` (ours) logs `pcm fiq rows e= late= pc= stall= mhz=` and `pcm fiq win w= b= est=` at each run's stats dump. The first line's format was agreed with the bench parsers (61 characters at most). `scripts/cop_shared_check.py --fiq` now names `mstall_window`, `mstall_note` and `pcm_pp_fiq_window` as roots. The walker never enters `commit_dcache()`, and the FIQ calls it. Red run: `ms_hz` made cached gave FOUND. `tests/fencecache` (the real cache section) checks that each call opens one window, before its first write-back and under the caller's mask, asking at least 761 µs; four new mutants (each window taken out, or moved under the mask) are red, 16 of 16.
+
+Tests: `tests/pcmdma/test_fiqwin.c` runs the real `fiq-window` block against a one-channel I2S model, with stalls of 100–761 µs, at 96/48/44.1 kHz 24-bit and 44.1 kHz 16-bit and pieces of 1.2–3.9 ms. Without the window the FIFO runs empty 7,556 times in 60,000 write-backs, and with a window short of the stall 4,516 times. With the window as asked it runs empty 0 times, and the window waits 0.6–2.2 % of the time. A mutant that asks for a quarter of `need_us` fails all 20 arms. The model takes the stall as a parameter, so silicon timing is measured only by the device's `stall=` field.
+
+Cost (release shape, `build/fw-rel`, against `e0b1076aaa`): `.text` 1,291,252 → 1,292,308 B (+1,056), core IRAM code +544 B and `.ibss` +32 B (11.3 KB of the core's 48 KB still free; codec IRAM untouched), `_end` unchanged (0x001882b0). The IRAM is the FIQ's reach: the FIQ calls `commit_dcache()`, which calls the window. Stock `fw` and stock `sim` compile with no new warnings.
+
+### 3.x-codec30v The codec's supply runs at Apple's 3.0 V on the iPod Video (b17, owner 2026-11-16, branch `p090-codec30v`)
+
+Numbered at merge (other branches hold §3.34 and may take the next numbers).
+
+| File | What changed | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `firmware/drivers/pcf50605.c` | `pcf50605_init()` writes `D1REGC1` = `0xf5` (3.0 V) instead of `0xf0` (2.5 V) | Apple's default for the iPod Video (the driver's own comment says so). Datasheet: line-out SNR 96 → 100 dB A-weighted, +1.6 dB headroom. Battery cost small and unmeasured (no meter tests); the audible effect is unmeasured (`wm8758-reference/open-questions.md` 22) | `HAVE_IPOD_UI && IPOD_VIDEO` (the bootloader never sees `HAVE_IPOD_UI`) | Yes (stock keeps `0xf0`; `pcf50605.o` identical) |
+
+Every `D1REGC1` write site (grep of `firmware/`, `apps/`, `bootloader/`, `uisimulator/`): only this one writes a value on its own. Light sleep, `power_sleep-pp502x.c`, `pmu_raw-pp502x.c` and `panic.c` never touch it (the raw path writes `DCDC1` and `OOCC1` only; standby cuts the whole PMU). The bench's LDO cycle (`devbench_pwr.c` `ldo_cycle`) reads the code, writes the same voltage code in mode 010 (Apple's sleep form, `pwrp_ldo_sleep_val`) and puts back the code it read, so it follows the new 3.0 V. `pcf50605_init()` runs in `power_init()`, before `audiohw_init()` enables the codec, so the rail is settled before any codec register is written: no pop at boot. Wake does not change the rail (no sleep path lowers it), so there is no wake step. Not heard on a device yet (bench row "power up, play, sleep/wake: any pop or distortion?").
+
+Developer-only for the b17 bench's listening arm: `dac_rail_set(bool full)` (true 0xf5 = 3.0 V, false 0xf0 = 2.5 V; refuses with -1 while PCM plays and the codec is awake) and `dac_rail_get()` (the PMU's `D1REGC1`, read back), in `firmware/drivers/audio/wm8758.c`, declared in `firmware/export/dac_ext.h`, under `HAVE_IPOD_UI_DEVMODE && IPOD_VIDEO`. The bench puts 3.0 V back after the arm; the release default stays 3.0 V.
+
+Test: `tests/pmucodec` slices the real `pcf50605_init()` and records its PMU writes: the shell build writes `0xf5` and no lower code, stock writes `0xf0`; a mutant back at `0xf0` is red; the same test is red on the old source. It also fails if another file names `PCF5060X_D1REGC1`.
+
+### 3.x-osr128 Hi-Res 128x at 88.2/96 kHz: two developer switches and a longer self-test (#439, branch `p090-osr128`)
+
+Numbered at merge. The owner heard a faint crackle in the silent tail of a 16/96 track at Hi-Res 128x (2026-11-16). The datasheet's clock margin at 88.2/96 kHz and what each switch does are in `wm8758-reference/playback-path.md` §1.1 (quirk 35, open question 25); the bench row b17 "128x at 96 kHz" sets the release defaults.
+
+| File | What changed | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `firmware/drivers/audio/wm8758.c` | `dac_m128_hr`, a third user of #265's `M128ENB` OR (88.2/96 kHz at 128x while `dac_set_m128_hirate()` is on, `DAC_M128_HIRATE_DEFAULT 1` since b18); the EQ guard (`dac_set_hirate_eq_guard()`, `DAC_HR_GUARD_DEFAULT 0`: the shell already pauses presets there and custom slots play by the owner's choice; the bench turns it on): `dac_eq_set()` keeps the shell's request (`eq_req*`) and `dac_eq_apply()` writes the "off" image with the shelves flat at 88.2/96 kHz, bass and treble write their shadows only there; `dac_hr_sync()` from `audiohw_set_frequency()` and `dac_set_osr128()` (before the unmute); `dac_hr_switch()` puts a live change under a soft-mute ramp; `dac_stats.width3d` | the owner's crackle; #352's bypass covered presets only, a UI pass after the rate change | `HAVE_IPOD_UI` (`HAVE_HIRATE_OUT` for the guard and the switches) | Yes (stock `fw`: `objdump -d` of `wm8758.o` identical to `0f54604eb9`'s) |
+| `firmware/drivers/audio/sdl.c` | the sim models both switches (the EQ guard's register image, `hw_eq`, precut; the third `M128ENB` user) | sim scripts trace the codec's state | `HAVE_IPOD_UI` + `HAVE_HIRATE_OUT` | sim only |
+| `firmware/export/dac_ext.h` (shell header) | `dac_set_m128_hirate()`, `dac_set_hirate_eq_guard()`; `dac_stats.m128_hr_allow/hr_guard/hr_bypass/width3d` | the bench reads each switch back | shell-only header | n/a |
+
+Shell-only: `apps/audiophile.c` (`ap_try()`: the 128x test plays 4 s a rate, 2 s of a +-1 LSB square then 2 s of exact silence, fails on a 20 ms piece gap, logs the gap and the FIFO empties), `apps/audiophile_core.c` and `.h` (`audiophile_test_ms()`, `audiophile_rate_test_ok()`, pure). The 3D stage (Stereo Width) is not held at 88.2/96 kHz. Tests: `tests/dacosr/test_hr.c` (75 checks; six red runs: no guard, a preset at 96 not guarded, bass and treble not guarded, the high-rate user not counted, a live switch without the mute, Hi-Res 128x off live leaving `M128ENB`), `tests/audiophile/test_rate.c` (+12 cases with literal numbers; red: no gap rule, 600 ms for 128x).
+
+Cost (release shape `build/fw-rel`, against `0f54604eb9`): `.text` 1,123,912 → 1,125,176 B (+1,264, of which 512 B is the const ±1 LSB buffer), `.data` −8 B, `_end` +32 B (0x0015db20 → 0x0015db40), IRAM and `.ibss` unchanged. Stock `fw` and stock `sim` compile with no new warnings.
+
+### 3.x-crashfix Parser and codec crash fixes from upstream, ALAC correctness, embedded pictures (owner 2026-11-17, branch `p090-rt9`)
+
+Numbered at merge. Owner, 2026-11-17: the parser crash fixes go into 0.9.0. Twenty-nine commits cherry-picked from `forge/peer-backports-trial` (`076205a45c`, built on `p25-b17-int`) onto rt9, every one without a conflict against the p090 tree; each keeps its upstream author and its "(cherry picked from upstream commit ...)" line. Left out: the ALAC speed-ups (upstream 43704e0670, Rice bit cache, and d65530a075, ARM predictor), held for a later road test after an ARM bit-exact check, so `libalac/SOURCES` stays upstream's (the trial's mark on it is dropped). Not in this set (they are on `fix-upstream-batch` only): a0338697fb (FAT FsInfo), decc6181c3 (USB unplug during a stop), 790d282746 (tagtree refused search), ba96040021 (`read_filebuf(0)`).
+
+| File | What changed | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `lib/rbcodec/metadata/mp4.c` | upstream f317bd7264 (atoms clamped to their parent, 64-bit sizes; ours: `chap_walk()` reads them the same way) and ba6994dfa2 (stts count bounded by the atom) | ffmpeg's 64-bit mdat failed the file and hid an m4b's chapters; a huge stts count hung the library build | none | No: stock gets the fixes too |
+| `lib/rbcodec/codecs/libm4a/demux.c`, `m4a.c` | upstream e4ae0cc36f (64-bit top-level atoms), 2676854a3a (co64 offsets, hand-ported into our in-memory lookup table), 9610042dc2 (time-to-sample spans in 64 bits) | such files played nothing or junk; seeks past ~27 h landed wrong | none | No |
+| `lib/rbcodec/metadata/flac.c` | upstream 10857759e6 (PICTURE MIME length), 6a69ead1dc (one STREAMINFO, at least 18 bytes), 5d3b008151 (a bad PICTURE is skipped, not fatal), cb36cae2bc (a JPEG front cover preferred) | a negative MIME length faulted; a damaged picture failed the whole file | none | No |
+| `lib/rbcodec/codecs/flac.c` | upstream 6a69ead1dc and a9319e71c4 (resync after a bad frame); ours (`fb5371f9a6` on the trial): a track with no frame that decodes is still a codec error | stack overrun; one bad byte ended the track | none | No |
+| `lib/rbcodec/codecs/libffmpegFLAC/decoder.c`, `golomb.h` | upstream bdefe26f4d (blocking-strategy bit) and 7b7a2dde98 (hardening, hand-ported onto the #318 decoder) | wrong time and seeks in variable-blocksize streams; reads past corrupt frames | none | No |
+| `lib/rbcodec/metadata/wave.c` | upstream 66f3075f9e: RIFF INFO items bounded to the buffer | a negative or long item overran (segfault on the host) | none | No |
+| `lib/rbcodec/metadata/aiff.c` | upstream 1e4a74dfd3: every chunk walked, text bounded | overrun; ID3 before SSND unread | none | No |
+| `lib/rbcodec/metadata/vgm.c`, `codecs/libgme/vgm_emu.c`, `vgm_emu.h` | upstream 949011f28e (GD3 conversion bounded) and 81ad6a6c6d (reads kept inside the song and samples) | CJK titles overwrote the next strings; reads outside the codec's memory | none | No |
+| `lib/rbcodec/metadata/id3tags.c` | upstream a97bbf6cfc (UTF-16 APIC description) and 619144481a (an unsynchronised picture found where it starts) | cover art at the wrong offset | none | No |
+| `lib/rbcodec/metadata/vorbis.c` | upstream 10857759e6 and 5d3b008151 (the FLAC PICTURE block inside Ogg comments) | as flac.c | none | No |
+| `lib/rbcodec/codecs/libpcm/linear_pcm.c` | upstream 963908422d: under 8 bits refused | divide by zero (a restart on the PP5022) | none | No |
+| `lib/rbcodec/codecs/libalac/alac.c`, `codecs/alac.c` | upstream 0958cb732d (oversized frames refused, decode errors end the track), 15d73677bc (24-bit low bytes kept), 35f08f7eb7 (zero run clamped), 5b67f8a57a (rice limit 1..25), 1c0d1f5cff (clz over 32 bits); first ported from PodBox (Anthony Fletcher), upstream by Ciro Iriarte | writes past the 4096-sample buffers; 24-bit ALAC lost its lowest 8 bits | none | No |
+| `lib/rbcodec/test/warble.c` | `WARBLE_ART=1`: `-m` prints the embedded picture's type, place and size | `tests/upfix` checks art offsets | env variable, host tool only | n/a |
+
+Tests: `tests/upfix` (46 cases; on p090-final's code 42 checks fail, five of them segfaults and one a 10 s hang), `tests/alac24` (4 streams bit-exact against the input and ffmpeg), `tests/flacarm` (33 of 33 streams bit-identical to `flac -d` on the device's ARM objects under qemu, coverage complete). Stock `fw` and stock `sim` compile with no warnings. Legal: every touched upstream file carries its mark, outside the licence text; `libm4a/demux.c`'s, placed inside the MIT warranty sentence by the trial (#458), is moved after its copyright lines.
+
+### 3.x-allocmax A hole's largest block leaves room for its header; a pinned block splits holes (0.9.0 road test, #487, branch `p090-langfix`)
+
+Numbered at merge. The owner's 0.9.0 road test (rt9 e5fa4a9b6b): Settings > Language > 日本語 while a song played, then a song opened from a list, panicked on the audio thread with "audio_reset_buffer(): OOM!". The language switch's new block (`lang_core_switch()`, pinned for the session) was cut off the audio block's end by #170's reserve take, so it sat right after the audio buffer. The next cold start freed the audio block and `core_alloc_maximum()` asked for the whole hole in front of the pinned block, with no room for the new block's header: `buflib_alloc_ex()` found no fit, compaction can't move a pinned block, -2, panic. In 0.9.0 since #170 (36917d78c1) met the running language switch (a61157bd1f).
+
+| File | What changed | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `firmware/buflib_mempool.c` | `buflib_allocatable()`: the largest hole's figure leaves out one header (`BUFLIB_NUM_FIELDS` words: 4 on a release build, 5 with `HAVE_BUFLIB_HEAPCHECK`), as `free_space_at_end()` already does; a pinned block ends a run of holes as an unmovable one does (`move_block()` refuses it) | `buflib_alloc_maximum()` asks for exactly the reported size; a hole reported whole never fits, and two holes either side of a pinned block never join | none (shared code) | No: stock gets the fix too. The figure is one header lower only when a hole is the largest; it is lower by more only when a pinned block used to be summed across |
+
+The same fix as RockWheel 29b0ba105 (Sergei Sarkisian, GPL-2.0-or-later; first in PodBox), which #376 took in on the parked `fix-small-platform` (8f776259b6); this branch carries it for 0.9.0 with its own test. Upstream master's `buflib_allocatable()` is the same as our base.
+
+Callers (every one read): the `core_alloc_maximum()` callers (`playback.c` `audio_reset_buffer()`, `playlist.c`, `plugin.c`, `tagcache.c` tempbuf, `tagtree.c`, `rolo.c`, `radioart.c`, `pcm_record.c`, `linuxboot.c`, the x1000 bootloader) now get a block where they could fail; the size they get is one header (16 or 20 B) smaller when a hole was the largest, and unchanged when the end was. The `core_allocatable()` guards (`maint.c`, `library.c`, `dbqueue.c`, `tagcache.c`, `playback.c`, `playlist.c`, `file_internal.c`, the simulator's `floor` command) each compare it with what one `core_alloc()` needs plus a margin; a figure that is now the size that really fits makes each of them right or a header more careful, never less. `buflib_malloc.c` (the other backend) is untouched.
+
+Test: `tests/allocmax/run.sh`, built twice (the release build's 4-word header, `tests/allocmax/stub-release/config.h`, and the developer build's 5-word one, the heapwalk stub; the test refuses a header it was not told to expect). Two cases: a pinned block cut off the audio block's end by a #170-style shrink callback, then the audio block freed (the road-test panic); two holes either side of a pinned block, an unmovable block after them. On the base both cases fail in both shapes (`alloc_maximum` -2 while `allocatable` reports 61,320 B / 40,080 B); with only the pinned-block half one case fails, with only the header half both fail; with the fix all pass.
+
+Shell-only (same branch): Settings > Language now stops playback and settles before the main menu (owner, first-hand: the 7G's own language change; `docs/design/spec/settings.md`): `apps/ipodui/screens/language.c` `lang_apply()` (`audio_stop()`, the strings, the settings save, then `ui_theme_cjk_for_lang()` with nothing playing, the busy glyph stepped between them by `ui_header_busy_step()` in `apps/ipodui/ui_main.c`; "lang settle stop/strings/save/glyphs/done ... ms=" and "cjk settle tier= apply ms= pin ms=" lines). With nothing playing no allocation is cut from the playing buffer, so the language block no longer lands pinned past it; the allocator fix above stays for every other pinned block. This supersedes the int4 note above for the language screen: the tier is no longer owed after a switch (the owed path stays for any other caller that runs while playing). The boot window (`apps/ipodui/bootstamp.c`, its loop now `boot_window_run()` in `bootstamp_core.c`) beats the hang watch on every pass. Tests: `tests/ui/ipodui-p20-lang-ja-playing.script` (switch while playing, then a song from the Songs list), `tests/bootstamp` (`test_bootwin.c`).
+
+Simulator repro (fresh primed disk, `build/sim-ui`): the script plays a song, switches to 日本語, then (after `audio_regrow`, a new script command standing in for the art or library block freed on the device) plays the first song of the Songs list. Base cef8d8f937: "audio reserve take want=38384", then "audio_reset_buffer(): OOM!". The allocator fix alone: the song plays, but the switch keeps playing and owes the tier (its settle checks fail). Both: every check passes; settle 300 ms in the simulator (stop 250 ms, glyph pin 10 ms).
+
+### 3.44 Glyph-record reads are the font layer's, not a module's (p090-notescjk, branch `laptop/p090-notescjk`)
+
+§3.36–3.43 are taken on the b18 line (`p25-b18-int`); this section keeps its own number so the lines merge without a clash.
+
+With the ShellCJK companions installed (every 0.9.0 install), opening a note with kanji logged `modclass viol notes reads`: each glyph not in the companion's LRU is one read of one record (§3.12), and the class accountant counted those reads against Notes' entry budget of 2. §3.26's `cjk_pin()` covers the shell's own strings; a note's text is arbitrary. The glyph cache is the shell's work, so its commands are now booked apart, as `modclass_save()` books a save's.
+
+| File | What changed | Why | Guard | Stock-identical |
+|---|---|---|---|---|
+| `firmware/font.c` (+6) | the sparse miss read (`load_cache_entry()`) is wrapped in `DEVSTATS_FONT_BEGIN()` / `DEVSTATS_FONT_END()`; `devstats.h` included | the commands a glyph-record read costs, booked into the thread's `font_cmds` as `devstats_io()` counts them | `HAVE_IPOD_UI` (the include and the sparse branch); the macros are empty without `HAVE_DEVSTATS` | Yes: the stock build has neither `HAVE_IPOD_UI` nor the include |
+
+Ours: `firmware/export/devstats.h` (`font_cmds` in the per-thread record, `devstats_font()`, the macros), `firmware/common/devstats.c` (`devstats_font()`), `apps/ipodui/modclass.c` (`ds_sample()` subtracts `font_cmds`). Tests: `tests/modclass/run.sh` (glyph reads don't count, a module's own third read in the entry window still breaches; red with the old sample), `tests/ui/ipodui-p12-notes-unicode.script` (`# needs: cjk`, `missing=15`, `nolog: modclass viol`).

@@ -63,6 +63,7 @@
  * #16). The battery is the empty-glass tile with the green (red when
  * low) gel fill drawn over it, one row colour at a time. */
 #include "ipodui/header_tiles.h"
+#include "ipodui/locale.h"
 
 #define BATT_W          24              /* body incl. the outline */
 #define BATT_H          12
@@ -344,6 +345,7 @@ static void draw_text(int width, const char *title, bool centre, unsigned fg)
         int ell_w;
         size_t n;
 
+        UI_FIT_TRACE("header", title, w, avail);
         font_getstringsize((const unsigned char *)"...", &ell_w, NULL, font);
         /* bytes of whole characters that fit in front of the ellipsis */
         n = font_measurestring((const unsigned char *)title,
@@ -558,18 +560,11 @@ static int clock_update(void)
         sec = 0;
     }
 #endif
-    if (mod != tt.minute || global_settings.timeformat != tt.format)
+    if (mod != tt.minute || (int)ui_clock_12h() != tt.format)
     {
-        int h = mod / 60, m = mod % 60;
-
-        if (global_settings.timeformat)         /* 12 hour clock */
-            snprintf(tt.clock_buf, sizeof(tt.clock_buf), "%d:%02d %s",
-                     h % 12 ? h % 12 : 12, m,
-                     str(h < 12 ? LANG_IPODUI_AM : LANG_IPODUI_PM));
-        else
-            snprintf(tt.clock_buf, sizeof(tt.clock_buf), "%02d:%02d", h, m);
+        ui_fmt_time(tt.clock_buf, sizeof(tt.clock_buf), mod / 60, mod % 60);
         tt.minute = mod;
-        tt.format = global_settings.timeformat;
+        tt.format = ui_clock_12h();
     }
     return (60 - MIN(sec, 59)) * HZ;
 }

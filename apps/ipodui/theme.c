@@ -24,14 +24,24 @@
  ****************************************************************************/
 #include "config.h"
 #include <stdio.h>
+#include <string.h>
 #include "lcd.h"
 #include "font.h"
 #include "rbpaths.h"
 #include "logf.h"
+#include "settings.h"
+#include "audio.h"
+#include "tagcache.h"
+#include "core_alloc.h"
+#include "rbunicode.h"
+#include "lang.h"
+#include "ipodui/libglyph.h"
+#include "ipodui/uilog.h"
 #include "ipodui/theme.h"
 #include "ipodui/screens/panels.h"
 #include "ipodui/paint.h"
 #include "ipodui/material.h"
+#include "ipodui_classa_lang.h"   /* generated: gen_classa_lang.py */
 
 /* Header, y 0..19: the material kit's header rows (art/materials.py
  * HEADER, the main.png profile measured there). */
@@ -59,7 +69,9 @@ static struct ui_theme theme = {
     .header_h         = 20,
     .header_title_x   = 6,      /* cell x; "iPod" ink starts at x=7 */
     .header_baseline  = 14,     /* "iPod" cap rows 5-13 in main.png */
-    .header_title_pad = 4,
+    .header_title_pad = 2,      /* P20: "Einstellungen" (86 px) fits a
+                                 * split header; 2 px clear of the lock
+                                 * when lock and play both show */
     .header_side_w    = 66,     /* lock + play + battery + gaps + margin */
     .header_margin_r  = 5,      /* nub ends at x 154 (155 edge) */
     .header_glyph_gap = 7,      /* play -> battery (audit fix #7) */
@@ -142,11 +154,300 @@ static int load_font(const char *name, int cur)
     return id;
 }
 
+/* -- ShellCJK companions (#235, #266) -----------------------------------
+ * Kana, kanji and Hangul come from three companion fonts of the same
+ * height and ascent as their ShellSans partner (apps/ipodui/fonts/
+ * gen_cjk.py, the sparse form of firmware/export/font_sparse.h;
+ * firmware/font.c draws a code point the companion holds from it). They
+ * are large files (cut A, 1.9-3.0 MB each), so only their index (5.8 KB,
+ * shared by the three) and a movable glyph LRU are resident; a miss is
+ * one read of one record. Two tiers (design 5.3):
+ *  - base, every library: 32/16/16 slots (~15 KB with the index), so a
+ *    Japanese title, subtitle or Notes page draws on any library;
+ *  - full, while the UI is Japanese or the library holds CJK text (its
+ *    glyph file says so, libglyph.h): 256/64/64 slots, the library glyph
+ *    file as the list font's page source (libglyph_fill.c) and the
+ *    letter cards' companion (35-ShellCJK-Index, in RAM): ~70-90 KB.
+ * A tier change allocates, so it waits for a moment when nothing plays
+ * (ui_theme_cjk_poll(); a paused song counts as quiet). Missing files:
+ * logged, CJK draws as the ShellSans default glyph, and Settings >
+ * Language does not offer Japanese (ui_theme_has_cjk()). */
+static const struct {
+    const char *name;
+    short glyphs[2];        /* LRU slots: base tier, full tier */
+} cjk_fonts[3] = {
+    { "14-ShellCJK-Bold", { 32, 256 } },        /* for font_ui */
+    { "11-ShellCJK-Bold", { 16,  64 } },        /* for font_title */
+    { "11-ShellCJK",      { 16,  64 } },        /* for font_small */
+};
+#define CJK_INDEX_FONT  "35-ShellCJK-Index"     /* the letter cards' */
+#define CJK_LETTERS     "35-ShellSans-Letters"  /* qscroll.c QS_FONT */
+#define CJK_MAP_MAX     8192    /* resident glyph-file table, 4 B each */
+static int cjk_id[3] = { -1, -1, -1 };
+static int cjk_index_id = -1;
+static int cjk_big = -1;            /* the tier loaded, -1 none yet */
+static bool cjk_pinned;             /* jaglyph: cjk_pin() */
+static int cjk_lib_glyphs;          /* the library glyph file's count */
+static int32_t cjk_seen_commit = -2;
+static int cjk_seen_count = -2;
+
+bool ui_theme_has_cjk(void)
+{
+    return cjk_id[0] >= 0;
+}
+
+static int cjk_load(int i, int big)
+{
+    char path[64];
+
+    snprintf(path, sizeof(path), FONT_DIR "/%s.fnt", cjk_fonts[i].name);
+    return font_load_ex(path, 0, cjk_fonts[i].glyphs[big]);
+}
+
+/* the letter cards: the index font as the companion of qscroll's letters
+ * font, in the full tier only (a Latin library never shows a kana card) */
+static void cjk_index(bool on)
+{
+    char path[64];
+    int id;
+
+    if (on && cjk_index_id < 0)
+    {
+        snprintf(path, sizeof(path), FONT_DIR "/%s.fnt", CJK_INDEX_FONT);
+        cjk_index_id = font_load_ex(path, 0, 0);
+        if (cjk_index_id < 0)
+            logf("ipodui: cjk index font failed (%d)", cjk_index_id);
+#ifdef HAVE_UI_THREAD_SPLIT
+        else
+            font_lock(cjk_index_id, true);
+#endif
+    }
+    snprintf(path, sizeof(path), FONT_DIR "/%s.fnt", CJK_LETTERS);
+    for (id = 0; id < MAXFONTS; id++)
+        if (font_filename_matches_loaded_id(id, path))
+            font_set_companion(id, on ? cjk_index_id : -1);
+    if (!on && cjk_index_id >= 0)
+    {
+        font_unload(cjk_index_id);
+        cjk_index_id = -1;
+    }
+}
+
+static void cjk_apply(int big)
+{
+    const int base[3] = { theme.font_ui, theme.font_title, theme.font_small };
+    int i;
+
+    if (big == cjk_big)
+        return;
+    cjk_pinned = false;     /* the reload drops each font's pinned set */
+    for (i = 0; i < 3; i++)
+    {
+        int id;
+
+        if (base[i] == FONT_UI)
+            continue;               /* no ShellSans partner to attach to */
+        if (cjk_id[i] >= 0)
+        {
+            /* a reload: font_load_ex() only grows a loaded font, and
+             * counts a second load as a second user */
+            font_set_companion(base[i], -1);
+            font_unload(cjk_id[i]);
+            cjk_id[i] = -1;
+        }
+        id = cjk_load(i, big);
+        if (id < 0 && big)
+        {
+            logf("ipodui: cjk font %s full tier failed (%d)",
+                 cjk_fonts[i].name, id);
+            id = cjk_load(i, 0);    /* the base tier, rather than none */
+        }
+        if (id < 0)
+        {
+            logf("ipodui: cjk font %s failed (%d)", cjk_fonts[i].name, id);
+            continue;
+        }
+#ifdef HAVE_UI_THREAD_SPLIT
+        font_lock(id, true);    /* the COP draws from it (as load_font) */
+#endif
+        cjk_id[i] = id;
+        font_set_companion(base[i], id);
+    }
+    cjk_big = big;
+}
+
+static bool cjk_japanese(void)
+{
+    return !strcmp((const char *)global_settings.lang_file, "japanese");
+}
+
+/* jaglyph (p090-int4): a Class A Extra may not read storage while it runs
+ * (docs/design/sdk.md 1.2, 6.1a), but in Japanese its kana and
+ * kanji are sparse-font glyphs, one read each on a cache miss. So while
+ * the shell is Japanese the glyphs of every string a Class A module can
+ * draw (ipodui_classa_lang[], generated from the modules' sources) stay
+ * in RAM in each companion (font_sparse_pin()): a miss copies, never
+ * reads. Loaded with the tier (a quiet moment), in a forward pass of
+ * 4 KB reads; ~250 glyphs, ~94 KB for the three sizes (measured in the
+ * "cjk pin" line). Text from the user's files (notes, contacts) still
+ * draws through the cache. */
+#define CJK_PIN_MAX 1024                /* code points collected (2 KB) */
+
+static int cjk_pin_collect(uint16_t *cps)
+{
+    int n = 0;
+
+    for (size_t k = 0; k < ARRAYLEN(ipodui_classa_lang); k++)
+    {
+        const unsigned char *s = (const unsigned char *)
+                                 str(ipodui_classa_lang[k]);
+        while (s && *s)
+        {
+            ucschar_t c;
+            int lo = 0, hi = n;
+
+            s = utf8decode(s, &c);
+            if (c < 0x3000 || c > 0xffff)
+                continue;
+            while (lo < hi)             /* the insertion point */
+            {
+                int mid = (lo + hi) >> 1;
+                if (cps[mid] < c)
+                    lo = mid + 1;
+                else
+                    hi = mid;
+            }
+            if (lo < n && cps[lo] == c)
+                continue;
+            if (n == CJK_PIN_MAX)
+                return n;               /* logged by the caller */
+            memmove(&cps[lo + 1], &cps[lo], (n - lo) * sizeof(*cps));
+            cps[lo] = c;
+            n++;
+        }
+    }
+    return n;
+}
+
+static void cjk_pin(bool on)
+{
+    long bytes = 0;
+    int reads = 0, n = 0, h, i;
+    uint16_t *cps;
+
+    if (on == cjk_pinned)
+        return;
+    if (!on)
+    {
+        for (i = 0; i < 3; i++)
+            if (cjk_id[i] >= 0)
+                font_sparse_pin(cjk_id[i], NULL, 0, NULL);
+        cjk_pinned = false;
+        ui_log("cjk", "pin off");
+        return;
+    }
+    h = core_alloc_ex(CJK_PIN_MAX * sizeof(uint16_t), NULL);
+    if (h <= 0)
+    {
+        ui_log("cjk", "pin failed alloc");
+        return;
+    }
+    cps = core_get_data_pinned(h);
+    n = cjk_pin_collect(cps);
+    for (i = 0; i < 3; i++)
+    {
+        int r = 0;
+        long b;
+
+        if (cjk_id[i] < 0)
+            continue;
+        b = font_sparse_pin(cjk_id[i], cps, n, &r);
+        reads += r;
+        if (b < 0)
+            ui_log("cjk", "pin failed font=%s", cjk_fonts[i].name);
+        else
+            bytes += b;
+    }
+    core_put_data_pinned(cps);
+    core_free(h);
+    cjk_pinned = true;
+    ui_log("cjk", "pin glyphs=%d%s strings=%d bytes=%ld reads=%d", n,
+           n == CJK_PIN_MAX ? " (capped)" : "",
+           (int)ARRAYLEN(ipodui_classa_lang), bytes, reads);
+}
+
+/* At boot and after Settings > Language. The tier and the Class A pin
+ * allocate (~70-90 KB and ~94 KB), past the 64 KB playing reserve, so
+ * while a song plays they are owed: the seen stamp is cleared and
+ * ui_theme_cjk_poll() does both at its next quiet moment (stopped or
+ * paused), as after a library commit. Settings > Language stops the
+ * song first (#487, its settle step), so there both run here, timed
+ * ("cjk settle"). */
+void ui_theme_cjk_for_lang(void)
+{
+    int status = audio_status();
+    long t0, t1;
+
+    if (cjk_big >= 0 && (status & AUDIO_STATUS_PLAY)
+        && !(status & AUDIO_STATUS_PAUSE))
+    {
+        cjk_seen_commit = -2;
+        cjk_seen_count = -2;
+        ui_log("cjk", "tier owed (playing) japanese=%d", cjk_japanese());
+        return;
+    }
+    t0 = current_tick;
+    cjk_apply(cjk_japanese() || cjk_lib_glyphs > 0);
+    t1 = current_tick;
+    cjk_pin(cjk_japanese());
+    ui_log("cjk", "settle tier=%d apply ms=%ld pin ms=%ld", cjk_big,
+           (t1 - t0) * (1000 / HZ), (current_tick - t1) * (1000 / HZ));
+}
+
+void ui_theme_cjk_poll(void)
+{
+    struct libglyph_stamp st;
+    size_t bytes = 0;
+    int status, big;
+
+    if (cjk_big < 0)
+        return;                     /* before ui_theme_init() */
+    st.commitid = tagcache_ui_commitid();
+    st.entries = tagcache_ui_count();
+    if (st.commitid == cjk_seen_commit && st.entries == cjk_seen_count)
+        return;
+    status = audio_status();
+    if ((status & AUDIO_STATUS_PLAY) && !(status & AUDIO_STATUS_PAUSE))
+        return;                     /* an allocation now is a gap: later */
+    cjk_seen_commit = st.commitid;
+    cjk_seen_count = st.entries;
+    libglyph_attach(NULL, &st, -1, 0, &bytes);          /* detach */
+    cjk_lib_glyphs = 0;
+    if (st.entries > 0)
+    {
+        struct libglyph_hdr h;
+        if (libglyph_check(tagcache_ui_db_path(), &st, &h) == LIBGLYPH_OK)
+            cjk_lib_glyphs = h.count;
+    }
+    big = cjk_japanese() || cjk_lib_glyphs > 0;
+    cjk_apply(big);
+    cjk_pin(cjk_japanese());
+    if (big && cjk_lib_glyphs > 0 && cjk_id[0] >= 0
+        && font_cache_slots(cjk_id[0]) >= 128)
+        libglyph_attach(tagcache_ui_db_path(), &st, cjk_id[0], CJK_MAP_MAX,
+                        &bytes);
+    cjk_index(big);
+    ui_log("cjk", "tier %s glyphs=%d map=%ld slots=%d",
+           big ? "full" : "base", cjk_lib_glyphs, (long)bytes,
+           font_cache_slots(cjk_id[0]));
+}
+
 void ui_theme_init(void)
 {
     theme.font_ui    = load_font("15-ShellSans-Bold", theme.font_ui);
     theme.font_title = load_font("12-ShellSans-Bold", theme.font_title);
     theme.font_small = load_font("12-ShellSans", theme.font_small);
+    ui_theme_cjk_for_lang();
     ui_theme = &theme;
     ui_settings_init();             /* localised Settings labels (#38) */
 }

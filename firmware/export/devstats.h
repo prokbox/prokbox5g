@@ -63,6 +63,10 @@
 struct devstats_thread {
     uint32_t cpu_us;        /* time on a core (target only) */
     uint32_t cmds;          /* storage commands (reads + writes) */
+    uint32_t font_cmds;     /* of cmds: the font layer's glyph-record
+                             * reads (DEVSTATS_FONT_*; the module class
+                             * accountant books them apart, modclass.c) */
+    uint8_t font_io;        /* inside one (devstats_font(true)) */
     uint32_t sectors;       /* 512 B sectors moved */
     uint16_t wakes;         /* commands that found the disk asleep */
     uint16_t pio;           /* commands that fell back to PIO */
@@ -162,6 +166,11 @@ void devstats_slot_name(unsigned int slot, char *buf, int size);
 /* p081: the calling thread's storage commands so far (its slot as
  * devstats_io() files it: THREAD_ID_SLOT, never id % DEVSTATS_SLOTS) */
 uint32_t devstats_self_cmds(void);
+/* p090-notescjk: a glyph-record read of the calling thread begins
+ * (true) or ends (false); devstats_io() books the commands between into
+ * its slot's font_cmds as well as its cmds, as each is counted (the
+ * simulator's file layer samples the accountant inside the read) */
+void devstats_font(bool begin);
 
 #if !defined(SIMULATOR) && (CONFIG_PLATFORM & PLATFORM_NATIVE)
 #include "system.h"
@@ -213,6 +222,11 @@ static inline void devstats_idle_end(unsigned int core)
 #define DEVSTATS_PCM_WB(us) do { \
         devstats.f3.pcm_wb++; devstats.f3.pcm_wb_us += (us); } while (0)
 #define DEVSTATS_IO(w, s, c, wake, pio) devstats_io(w, s, c, wake, pio)
+/* a glyph-record read (firmware/font.c, the sparse form): its commands
+ * are the shell's font work, not the screen's (modclass.c books them
+ * apart) */
+#define DEVSTATS_FONT_BEGIN()           devstats_font(true)
+#define DEVSTATS_FONT_END()             devstats_font(false)
 #define DEVSTATS_DISK_SLEEP(ok)         devstats_disk_sleep(ok)
 #define DEVSTATS_DISK_RESET()           devstats_disk_reset()
 #define DEVSTATS_ATA_IRQ(woke)          devstats_ata_irq(woke)
@@ -232,6 +246,10 @@ static inline void devstats_idle_end(unsigned int core)
 #ifndef DEVSTATS_SWITCH_OUT
 #define DEVSTATS_SWITCH_OUT(core, slot) do { } while (0)
 #define DEVSTATS_IDLE_END(core)         do { } while (0)
+#endif
+#ifndef DEVSTATS_FONT_BEGIN
+#define DEVSTATS_FONT_BEGIN()           do { } while (0)
+#define DEVSTATS_FONT_END()             do { } while (0)
 #endif
 #ifndef DEVSTATS_IO
 #define DEVSTATS_IO(w, s, c, wake, pio) do { } while (0)

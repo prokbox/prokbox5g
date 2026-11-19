@@ -254,6 +254,29 @@ static void test_store(const char *dir)
     CHECK(lib_play(v, 2, false) == 0 && fake_pl_start == 2, "lib_play");
     lib_close(v);
 
+    /* B10 (RockWheel review): a create that fails (the playlist's control
+     * file) leaves the context's 'progress' unset, and both callers hand
+     * it to release(), whose splash reads it. run.sh builds with
+     * -ftrivial-auto-var-init=pattern, so an uninitialised context reads
+     * as set every time, not by chance */
+    fake_pl_create_fail = 1;
+    fake_pl_creates = fake_pl_splashes = fake_pl_garbage = 0;
+    CHECK(otg_play(1) < 0 && fake_pl_creates == 1, "otg_play: create "
+          "failed: rc, %d creates", fake_pl_creates);
+    CHECK(fake_pl_splashes == 0 && fake_pl_garbage == 0, "otg_play: "
+          "release() of a failed create: %d splashes, %d uninitialised",
+          fake_pl_splashes, fake_pl_garbage);
+    v = lib_open(LIB_SONGS, NULL);
+    fake_pl_creates = fake_pl_splashes = fake_pl_garbage = 0;
+    CHECK(v > 0 && lib_play(v, 0, false) < 0 && fake_pl_creates == 1,
+          "lib_play: create failed: %d creates", fake_pl_creates);
+    CHECK(fake_pl_splashes == 0 && fake_pl_garbage == 0, "lib_play: "
+          "release() of a failed create: %d splashes, %d uninitialised",
+          fake_pl_splashes, fake_pl_garbage);
+    lib_close(v);
+    fake_pl_create_fail = 0;
+    CHECK(strip_held == 0, "failed plays: strip held %d", strip_held);
+
     /* a commit: ONE resolve pass at the next open */
     fake_db_commit();
     resolves = 0;

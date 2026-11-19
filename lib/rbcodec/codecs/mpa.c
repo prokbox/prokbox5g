@@ -663,7 +663,11 @@ enum codec_status codec_run(void)
          * Inline, synthesis has already set the same value. */
         pcm_length = 32 * MAD_NSBSAMPLES(&frame.header);
         framelength = pcm_length - samples_to_skip;
-        if (framelength < 0) {
+        /* a frame the skip covers whole, exactly too, is dropped and the
+         * skip goes down by it; with "< 0" a skip of exactly one frame
+         * (LAME delay 623 at layer III) stayed whole and silenced the
+         * track (RockWheel 3a9f3e120; tests/mp3skip) */
+        if (framelength <= 0) {
             framelength = 0;
             samples_to_skip -= pcm_length;
         }

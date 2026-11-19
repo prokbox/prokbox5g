@@ -214,7 +214,8 @@ static int fold(uint32_t c, bool raw, const unsigned char *src, int len,
 
     if (raw)
     {
-        out[0] = (char)c;
+        /* a malformed byte keeps its value, below the group leads */
+        out[0] = (char)(c >= 0xf8 ? 0xf7 : c);
         return 1;
     }
     if (c < 0x20 || c == 0x7f)
@@ -226,7 +227,7 @@ static int fold(uint32_t c, bool raw, const unsigned char *src, int len,
     }
     if (c > 'z' && c < 0x80)
     {
-        out[0] = ':';                   /* { | } ~: below HASH_GROUP */
+        out[0] = ':';                   /* { | } ~: with the symbols */
         return 1;
     }
     if (c < 0x80)
@@ -261,38 +262,193 @@ static int fold(uint32_t c, bool raw, const unsigned char *src, int len,
         out[0] = latin_ext_a[c - 0x100];
         return 1;
     }
-    memcpy(out, src, len);              /* sorts after 'z' */
+    memcpy(out, src, len);              /* after 'z', before kana */
     return len;
 }
 
-/* Leads every key whose name does not start with a letter: the '#' group
- * sorts after 'z' (iPod classic 2.0.5 user guide: numbers and symbols
- * after Z, as "#"). Above every letter; ASCII symbols inside a key are
- * kept below it. */
-#define HASH_GROUP  '{'
+/* -- script groups (#235) ----------------------------------------------
+ * A key's first byte names its group: 'a'..'z', then GROUP_KANA,
+ * GROUP_HANGUL, GROUP_KANJI, then HASH_GROUP (digits, symbols, other
+ * scripts; the 2.0.5 user guide lists numbers and symbols after Z, as
+ * "#"). Bytes 0xF8 and above never occur in UTF-8, and a malformed raw
+ * byte of that value is kept as 0xF7 (fold()), so these leads never
+ * collide with the bytes of other characters inside a key. */
+#define GROUP_KANA      0xf8
+#define GROUP_HANGUL    0xf9
+#define GROUP_KANJI     0xfa
+#define HASH_GROUP      0xfe
 
-/* Drops the key's last character (all of its UTF-8 bytes) and a space
- * left in front of it. Returns the new length. */
-static int drop_last(char *key, int n)
+/* Gojuon weight (1..48) of Hiragana U+3041..U+3096: small kana weigh as
+ * their full size, voiced and semi-voiced as their base; the wa row is
+ * wa 44, wi 45, we 46, wo 47, n 48; vu (U+3094) is u, small ka / ke
+ * (U+3095, U+3096) are ka / ke. */
+static const uint8_t kana_w[0x3096 - 0x3041 + 1] = {
+    1, 1, 2, 2, 3, 3, 4, 4, 5, 5,                   /* a i u e o */
+    6, 6, 7, 7, 8, 8, 9, 9, 10, 10,                 /* ka .. go */
+    11, 11, 12, 12, 13, 13, 14, 14, 15, 15,         /* sa .. zo */
+    16, 16, 17, 17, 18, 18, 18, 19, 19, 20, 20,     /* ta .. do */
+    21, 22, 23, 24, 25,                             /* na .. no */
+    26, 26, 26, 27, 27, 27, 28, 28, 28,             /* ha .. pu */
+    29, 29, 29, 30, 30, 30,                         /* he .. po */
+    31, 32, 33, 34, 35,                             /* ma .. mo */
+    36, 36, 37, 37, 38, 38,                         /* ya yu yo */
+    39, 40, 41, 42, 43,                             /* ra .. ro */
+    44, 44, 45, 46, 47, 48, 3, 6, 9,                /* wa .. n, vu, ka, ke */
+};
+
+/* The vowel's weight of kana weights 36..48 (ya .. n; n keeps its own),
+ * for the long-vowel mark; weights 1..35 have it at (w - 1) % 5 + 1. */
+static const uint8_t kana_vowel_hi[13] = {
+    1, 3, 5,            /* ya yu yo */
+    1, 2, 3, 4, 5,      /* ra .. ro */
+    1, 2, 4, 5, 48,     /* wa wi we wo n */
+};
+
+/* Half-width Katakana U+FF66..U+FF9D: full-width Katakana - 0x30A0. */
+static const uint8_t halfwidth_kana[0xff9d - 0xff66 + 1] = {
+    0x52,                                           /* wo */
+    0x01, 0x03, 0x05, 0x07, 0x09,                   /* small a .. o */
+    0x43, 0x45, 0x47, 0x23,                         /* small ya yu yo tu */
+    0x5c,                                           /* long vowel mark */
+    0x02, 0x04, 0x06, 0x08, 0x0a,                   /* a .. o */
+    0x0b, 0x0d, 0x0f, 0x11, 0x13,                   /* ka .. ko */
+    0x15, 0x17, 0x19, 0x1b, 0x1d,                   /* sa .. so */
+    0x1f, 0x21, 0x24, 0x26, 0x28,                   /* ta .. to */
+    0x2a, 0x2b, 0x2c, 0x2d, 0x2e,                   /* na .. no */
+    0x2f, 0x32, 0x35, 0x38, 0x3b,                   /* ha .. ho */
+    0x3e, 0x3f, 0x40, 0x41, 0x42,                   /* ma .. mo */
+    0x44, 0x46, 0x48,                               /* ya yu yo */
+    0x49, 0x4a, 0x4b, 0x4c, 0x4d,                   /* ra .. ro */
+    0x4f, 0x53,                                     /* wa n */
+};
+
+typedef char kana_w_size_check[sizeof(kana_w) == 86 ? 1 : -1];
+typedef char halfwidth_kana_size_check[sizeof(halfwidth_kana) == 56 ? 1 : -1];
+
+#define KANA_LONG   (-1)    /* U+30FC: the previous kana's vowel */
+#define KANA_REPEAT (-2)    /* iteration marks: the previous kana */
+#define KANA_MARK   (-3)    /* (semi-)voicing marks: merge into the kana */
+
+/* Kana class of c: its gojuon weight 1..48, a KANA_* mark, or 0. */
+static int kana_class(uint32_t c)
 {
-    n--;
-    while (n > 0 && ((unsigned char)key[n] & 0xc0) == 0x80)
-        n--;
-    if (n > 0 && key[n - 1] == ' ')
-        n--;
-    return n;
+    if (c >= 0xff66 && c <= 0xff9d)
+        c = 0x30a0 + halfwidth_kana[c - 0xff66];
+    if (c == 0x30fc)
+        return KANA_LONG;
+    if (c == 0x309d || c == 0x309e || c == 0x30fd || c == 0x30fe)
+        return KANA_REPEAT;
+    if (c == 0x3099 || c == 0x309a || c == 0xff9e || c == 0xff9f)
+        return KANA_MARK;
+    if (c >= 0x30f7 && c <= 0x30fa)
+        return 44 + (int)(c - 0x30f7);  /* va vi ve vo: wa wi we wo */
+    if (c >= 0x30a1 && c <= 0x30f6)
+        c -= 0x60;                      /* Katakana to Hiragana */
+    if (c >= 0x3041 && c <= 0x3096)
+        return kana_w[c - 0x3041];
+    return 0;
+}
+
+/* Hangul initial (L) of the compatibility consonants U+3131..U+314E;
+ * the clusters that occur only as finals take their first consonant. */
+static const uint8_t jamo_initial[0x314e - 0x3131 + 1] = {
+    0, 1, 0, 2, 2, 2, 3, 4, 5, 5, 5, 5, 5, 5, 5, 5,
+    6, 7, 8, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
+};
+
+typedef char jamo_initial_size_check[sizeof(jamo_initial) == 30 ? 1 : -1];
+
+static bool is_kanji(uint32_t c)
+{
+    return (c >= 0x4e00 && c <= 0x9fff) || (c >= 0x3400 && c <= 0x4dbf)
+        || (c >= 0xf900 && c <= 0xfaff);
+}
+
+/* The key unit of a kana, Hangul or kanji character into 'out' (at most
+ * 4 bytes; 'src'/'len' are its UTF-8 bytes). Returns its length, 0 when
+ * c is none of them, -1 to drop c. '*kana' is the previous character's
+ * kana weight (0 after anything else), for the long-vowel, iteration and
+ * voicing marks. */
+static int map_cjk(uint32_t c, const unsigned char *src, int len, int *kana,
+                   char *out)
+{
+    int w = kana_class(c);
+
+    if (w == KANA_MARK)
+    {
+        if (*kana)
+            return -1;                  /* ka + voicing mark = ga = ka */
+        w = 0;
+    }
+    else if (w == KANA_LONG || w == KANA_REPEAT)
+    {
+        if (!*kana)
+            return -1;                  /* at the start: dropped */
+        w = *kana;
+        if (c == 0x30fc || c == 0xff70)
+            w = w <= 35 ? (w - 1) % 5 + 1 : kana_vowel_hi[w - 36];
+    }
+    if (w > 0)
+    {
+        *kana = w;
+        out[0] = (char)GROUP_KANA;
+        out[1] = (char)(0x80 + w);
+        return 2;
+    }
+    *kana = 0;
+    if (c >= 0xac00 && c <= 0xd7a3)
+    {
+        uint32_t s = c - 0xac00;        /* (L * 21 + V) * 28 + T */
+
+        out[0] = (char)GROUP_HANGUL;
+        out[1] = (char)(0x80 + s / 588);
+        out[2] = (char)(0x81 + (s % 588) / 28);
+        out[3] = (char)(0x80 + s % 28);
+        return 4;
+    }
+    if (c >= 0x3131 && c <= 0x3163)
+    {
+        out[0] = (char)GROUP_HANGUL;
+        if (c <= 0x314e)
+        {
+            out[1] = (char)(0x80 + jamo_initial[c - 0x3131]);
+            out[2] = (char)0x80;        /* no vowel: before the syllables */
+        }
+        else
+        {
+            out[1] = (char)(0x80 + 11); /* a bare vowel: silent initial */
+            out[2] = (char)(0x81 + (c - 0x314f));
+        }
+        out[3] = (char)0x80;
+        return 4;
+    }
+    if (is_kanji(c) && len == 3)
+    {
+        out[0] = (char)GROUP_KANJI;
+        memcpy(out + 1, src, 3);
+        return 4;
+    }
+    return 0;
+}
+
+/* A key whose first unit does not start with one of these is in the '#'
+ * group. */
+static bool is_group_lead(unsigned char b)
+{
+    return (b >= 'a' && b <= 'z') || b == GROUP_KANA || b == GROUP_HANGUL
+        || b == GROUP_KANJI;
 }
 
 static bool is_space(uint32_t c)
 {
     return c == ' ' || c == '\t' || c == '\n' || c == '\r'
-        || c == 0xa0 || c == 0x2007 || c == 0x202f;
+        || c == 0xa0 || c == 0x2007 || c == 0x202f || c == 0x3000;
 }
 
 static int sortkey_impl(const char *name, char *key, int keylen, bool cf)
 {
     const unsigned char *p = (const unsigned char *)name;
-    int n = 0;
+    int n = 0, kana = 0;
     bool space = false;
 
     if (!key || keylen <= 0)
@@ -316,49 +472,53 @@ static int sortkey_impl(const char *name, char *key, int keylen, bool cf)
 
     while (*p)
     {
-        const unsigned char *start = p;
+        const unsigned char *src = p;
         char buf[4];
-        bool raw;
-        uint32_t c = next_char(&p, &raw);
         char low[4];
-        int len;
+        bool raw, hash;
+        uint32_t c = next_char(&p, &raw);
+        int len = (int)(p - src), unit;
 
         if (!raw && is_space(c))
         {
             space = n > 0;              /* drop leading space */
+            kana = 0;
             continue;
         }
-        if (cf && !raw && ui_casefold_char(c) != c
-            && (c >= 0x180 || ui_casefold_char(c) >= 0x180))
+        if (!raw && c >= 0xff01 && c <= 0xff5e)
+            c -= 0xfee0;                /* full-width ASCII: ASCII */
+        else if (cf && !raw && ui_casefold_char(c) != c
+                 && (c >= 0x180 || ui_casefold_char(c) >= 0x180))
         {
             /* outside Latin-1 / Extended-A the key keeps the bytes:
              * those of the lower case (fold() lowers the rest itself) */
             c = ui_casefold_char(c);
-            len = fold(c, false, (const unsigned char *)low,
-                       utf8_put(c, low), buf);
+            len = utf8_put(c, low);
+            src = (const unsigned char *)low;
         }
-        else
-            len = fold(c, raw, start, (int)(p - start), buf);
-        if (len == 0)
+        unit = raw ? 0 : map_cjk(c, src, len, &kana, buf);
+        if (unit < 0)
             continue;
-        if (n + len + (space ? 1 : 0) > keylen - 1)
-            break;                      /* truncated, never mid-character */
-        if (space)
-            key[n++] = ' ';
-        space = false;
-        memcpy(key + n, buf, len);
-        n += len;
-    }
-    if (n > 0 && !(key[0] >= 'a' && key[0] <= 'z'))
-    {
-        if (n + 1 > keylen - 1)
-            n = drop_last(key, n);
-        if (keylen > 1)
+        if (unit == 0)
         {
-            memmove(key + 1, key, n);
-            key[0] = HASH_GROUP;
-            n++;
+            kana = 0;
+            unit = fold(c, raw, src, len, buf);
+            if (unit == 0)
+                continue;
         }
+        /* the '#' group's lead goes in front of the first unit */
+        hash = n == 0 && !is_group_lead((unsigned char)buf[0]);
+        if (n + unit + (space || hash ? 1 : 0) > keylen - 1)
+        {
+            if (hash && keylen > 1)
+                key[n++] = (char)HASH_GROUP;
+            break;                      /* truncated, never mid-unit */
+        }
+        if (space || hash)
+            key[n++] = hash ? (char)HASH_GROUP : ' ';
+        space = false;
+        memcpy(key + n, buf, unit);
+        n += unit;
     }
     key[n] = '\0';
     return n;
@@ -442,4 +602,92 @@ char ui_sortletter(const char *name)
     if (key[0] >= 'a' && key[0] <= 'z')
         return (char)(key[0] - 'a' + 'A');
     return '#';
+}
+
+/* -- the list comparator and the quick-scroll index (#235) -------------- */
+
+#define SORTCMP_KEYLEN 96   /* UI_SORTKEY_LEN in apps/tagcache.c */
+
+int ui_sortcmp(const char *disp_a, const char *sort_a, const char *disp_b,
+               const char *sort_b)
+{
+    char ka[SORTCMP_KEYLEN], kb[SORTCMP_KEYLEN];
+    int r;
+
+    if (!disp_a)
+        disp_a = "";
+    if (!disp_b)
+        disp_b = "";
+    if (!sort_a || !*sort_a)
+        sort_a = disp_a;
+    if (!sort_b || !*sort_b)
+        sort_b = disp_b;
+    ui_groupkey(sort_a, ka, sizeof(ka));
+    ui_groupkey(sort_b, kb, sizeof(kb));
+    r = strcmp(ka, kb);
+    if (r)
+        return r;
+    r = ui_casefold_cmp(sort_a, sort_b);
+    if (r)
+        return r;
+    r = ui_casefold_cmp(disp_a, disp_b);
+    if (r)
+        return r;
+    return strcmp(disp_a, disp_b);
+}
+
+const char *ui_sort_of(const char *stored)
+{
+    const char *sort;
+
+    if (!stored)
+        return NULL;
+    sort = stored + strlen(stored) + 1;
+    return *sort ? sort : stored;
+}
+
+/* Index labels, UTF-8: A..Z, the gojuon rows, the Hangul initials, '#'. */
+static const char sortindex_labels[UI_SORTINDEX_COUNT][4] = {
+    "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M",
+    "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z",
+    "\xe3\x81\x82", "\xe3\x81\x8b", "\xe3\x81\x95", "\xe3\x81\x9f",
+    "\xe3\x81\xaa", "\xe3\x81\xaf", "\xe3\x81\xbe", "\xe3\x82\x84",
+    "\xe3\x82\x89", "\xe3\x82\x8f",     /* a ka sa ta na ha ma ya ra wa */
+    "\xe3\x84\xb1", "\xe3\x84\xb4", "\xe3\x84\xb7", "\xe3\x84\xb9",
+    "\xe3\x85\x81", "\xe3\x85\x82", "\xe3\x85\x85", "\xe3\x85\x87",
+    "\xe3\x85\x88", "\xe3\x85\x8a", "\xe3\x85\x8b", "\xe3\x85\x8c",
+    "\xe3\x85\x8d", "\xe3\x85\x8e",     /* g n d r m b s ng j ch k t p h */
+    "#",
+};
+
+/* The 19 Hangul initials to the 14 basic ones (doubles under singles). */
+static const uint8_t hangul_basic[19] = {
+    0, 0, 1, 2, 2, 3, 4, 5, 5, 6, 6, 7, 8, 8, 9, 10, 11, 12, 13,
+};
+
+int ui_sortindex(const char *name)
+{
+    unsigned char key[8];
+    int w;
+
+    ui_sortkey(name, (char *)key, sizeof(key));
+    if (key[0] >= 'a' && key[0] <= 'z')
+        return UI_SORTINDEX_LATIN + key[0] - 'a';
+    if (key[0] == GROUP_KANA)
+    {
+        w = key[1] - 0x80;
+        if (w <= 35)
+            return UI_SORTINDEX_KANA + (w - 1) / 5;
+        return UI_SORTINDEX_KANA + (w <= 38 ? 7 : w <= 43 ? 8 : 9);
+    }
+    if (key[0] == GROUP_HANGUL)
+        return UI_SORTINDEX_HANGUL + hangul_basic[key[1] - 0x80];
+    return UI_SORTINDEX_HASH;
+}
+
+const char *ui_sortindex_label(int id)
+{
+    if (id < 0 || id >= UI_SORTINDEX_COUNT)
+        id = UI_SORTINDEX_HASH;
+    return sortindex_labels[id];
 }

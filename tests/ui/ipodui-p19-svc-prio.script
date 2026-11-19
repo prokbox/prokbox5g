@@ -27,8 +27,9 @@ wheel -1 200            # Settings (before the music: no Now Playing row)
 wait 400
 key SELECT 50
 wait 1200
-wheel +11 40            # Clicker (row 11)
+wheel +12 40            # Clicker (row 12)
 wait 800
+text_mark               # Audiophile (row 11) must not open
 play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
 wait 1500
 expect_playing 400
@@ -46,6 +47,7 @@ wheel -8 20
 wheel +8 20
 wait 800
 expect_playing 400
+expect_not_drawn Hi-Res   # the presses toggled Clicker, they did not open Audiophile
 shot svc_prio
 rm_file /.rockbox/ui_split
 quit

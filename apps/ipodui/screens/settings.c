@@ -292,6 +292,8 @@ static int eq_cap_lang(void)
 {
     int p = global_settings.ipodui_eq_preset;
 
+    if (p >= 23 && p <= 25)     /* #82: the custom slots (eq_custom.h) */
+        return LANG_IPODUI_EQ_CUSTOM_1 + (p - 23);
     return (p >= 1 && p <= 22) ? LANG_IPODUI_EQ_ACOUSTIC + (p - 1) : LANG_OFF;
 }
 
@@ -323,6 +325,34 @@ static void act_hirate(void)
     }
     UPDATE_TRACE("audiophile hirate=%d",
                  (int)global_settings.ipodui_hirate);
+    changed();
+}
+
+/* Hi-Res 128x (0.9.0, owner 2026-11-13): an inline On/Off after Stereo
+ * Width, the High Sample Rate pattern: the first turn-on runs its own
+ * warning and self-test (the prompt in 128x mode). It acts only while
+ * Hi-Res plays 88.2/96 kHz; with Hi-Res off it still toggles (the choice
+ * waits) and its caption says it needs Hi-Res (the shell has no greyed
+ * rows, and a hidden row could not say why) */
+static int osr128_lang(void)
+{
+    return global_settings.ipodui_osr128 ? LANG_ON : LANG_OFF;
+}
+
+static void act_osr128(void)
+{
+    int ok = global_settings.ipodui_osr128_ok;
+
+    if (global_settings.ipodui_osr128)
+        audiophile_set_osr128(false);
+    else if ((ok & AP_TESTED) && (ok & (AP_RATE_88 | AP_RATE_96)))
+        audiophile_set_osr128(true);
+    else
+    {
+        ui_push(&ui_ap_hirate_screen, (const void *)1);
+        return;
+    }
+    UPDATE_TRACE("audiophile 128x=%d", (int)global_settings.ipodui_osr128);
     changed();
 }
 
@@ -403,7 +433,11 @@ CAPTION(music_menu, str(LANG_IPODUI_CAP_MUSIC_MENU))
 CAPTION(volume, str(LANG_IPODUI_CAP_VOLUME_LIMIT))
 CAPTION(audiobooks, str(LANG_IPODUI_CAP_AB_MENU))   /* what it sets (owner) */
 CAPTION(ab_speed, str(speed_cap_lang()))
-CAPTION(eq, str(eq_cap_lang()))
+/* #352: a preset paused at 88.2/96 kHz says so instead of its name */
+CAPTION(eq, str(global_settings.ipodui_eq_preset >= 1 &&
+                global_settings.ipodui_eq_preset <= 22 &&
+                ui_eq_presets_paused() ? LANG_IPODUI_EQ_HIRATE_PAUSE
+                                       : eq_cap_lang()))
 CAPTION(sound_check, str(sound_check_on() ? LANG_IPODUI_CAP_SOUND_CHECK_ON :
                          LANG_IPODUI_CAP_SOUND_CHECK_OFF))
 CAPTION(clicker, str(clicker_cap_lang()))
@@ -418,6 +452,11 @@ CAPTION(ap_hirate, str(audiophile_hirate_allowed() ?
                        LANG_IPODUI_AP_CAP_HIRATE_ON :
                        LANG_IPODUI_AP_CAP_HIRATE_OFF))
 CAPTION(ap_width, str(width_lang[width_value()]))
+CAPTION(ap_osr128, str(!global_settings.ipodui_hirate ?
+                       LANG_IPODUI_AP_CAP_OSR128_NEEDS :
+                       global_settings.ipodui_osr128 ?
+                       LANG_IPODUI_AP_CAP_OSR128_ON :
+                       LANG_IPODUI_AP_CAP_OSR128_OFF))
 #endif
 CAPTION(legal, str(LANG_IPODUI_CAP_LEGAL))
 CAPTION(reset, str(LANG_IPODUI_CAP_RESET))
@@ -465,6 +504,7 @@ static const struct set_tile
     t_audioph  = { LANG_IPODUI_AUDIOPHILE, PANELART_SPEAKER, cap_audiophile },
     t_ap_hirate = { LANG_IPODUI_AP_HIRATE, PANELART_SPEAKER, cap_ap_hirate },
     t_ap_width = { LANG_IPODUI_AP_WIDTH, PANELART_SPEAKER, cap_ap_width },
+    t_ap_osr128 = { LANG_IPODUI_AP_OSR128, PANELART_SPEAKER, cap_ap_osr128 },
 #endif
     t_clicker  = { LANG_IPODUI_CLICKER, PANELART_CLICKER, cap_clicker },
     t_date     = { LANG_IPODUI_DATE_TIME, UI_TILE_CALENDAR, cap_date },
@@ -765,18 +805,20 @@ static void ab_refresh(void)
 }
 
 #ifdef IPODUI_AUDIOPHILE   /* 0.9.0 (ipodvideo.h scope switch) */
-/* -- Audiophile: High Sample Rate and Stereo Width (#270) ------------------- */
+/* -- Audiophile: High Sample Rate, Stereo Width, Hi-Res 128x (#270) -------- */
 
-/* The Audiobooks pattern: a short split-screen menu, one inline value
- * (High Sample Rate) and one value list (Stereo Width) */
+/* The Audiobooks pattern: a short split-screen menu, two inline values
+ * (High Sample Rate, Hi-Res 128x) and one value list (Stereo Width) */
 static void ap_refresh(void);
 
 static struct ui_menu_item ap_items[] = {
     VALUE(act_hirate, t_ap_hirate),
     ROW(&choice_screen, &c_width, NULL, t_ap_width),
+    VALUE(act_osr128, t_ap_osr128),
 };
 
 static char ap_value[48];             /* "High Sample Rate" UI_VALUE_SEP value */
+static char ap_value128[48];          /* "Hi-Res 128x" UI_VALUE_SEP value */
 
 static struct ui_menu ap_menu = {
     NULL, ap_items, ARRAYLEN(ap_items), true, false, ap_refresh
@@ -790,6 +832,9 @@ static void ap_refresh(void)
              str(LANG_IPODUI_AP_HIRATE), UI_VALUE_SEP, str(hirate_lang()));
     ap_items[0].label = ap_value;
     ap_items[1].label = str(LANG_IPODUI_AP_WIDTH);
+    snprintf(ap_value128, sizeof(ap_value128), "%s%c%s",
+             str(LANG_IPODUI_AP_OSR128), UI_VALUE_SEP, str(osr128_lang()));
+    ap_items[2].label = ap_value128;
 }
 #endif
 

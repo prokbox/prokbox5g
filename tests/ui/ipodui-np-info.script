@@ -1,7 +1,7 @@
 # #277 (owner, 2026-11-10, option a): Now Playing's SELECT cycle gains an
 # info page after Scrubber, Rating and Shuffle: the format and quality of
 # the playing file, then what the output runs at. Three generated files
-# (tests/fixtures/npinfo/make_npinfo_fixtures.sh; run it first):
+# (tests/fixtures/npinfo/make_npinfo_fixtures.sh; "# needs: npinfo" makes them):
 #   cd16.mp3 -> "MP3  256 kbps  44.1 kHz"
 #   hires.flac -> "FLAC  24-bit  192 kHz"
 #   aac.m4a -> "AAC  <n> kbps  44.1 kHz"
@@ -10,6 +10,7 @@
 #   sh tests/fixtures/npinfo/make_npinfo_fixtures.sh
 #   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-np-info.script
 # needs: library
+# needs: npinfo
 # trace: np
 # golden: skip
 # log: np mode shuffle -> info ev=0

@@ -446,8 +446,13 @@ void ab_map_resumed(const struct mp3entry *id3, int q, int files)
 {
     struct ab_book_map *m;
     ab_key_t key = artcache_key_for_id3(id3);
-    ab_key_t old = id3 ? artcache_key_ascii(id3->albumartist, id3->artist,
-                                            id3->album, id3->path) : 0;
+    ab_key_t old = id3 ? artcache_key_n(id3->albumartist,
+                             metadata_primary_len(id3->albumartist,
+                                                  id3->albumartist_len1),
+                             id3->artist,
+                             metadata_primary_len(id3->artist,
+                                                  id3->artist_len1),
+                             id3->album, id3->path, true) : 0;
 
     m = ab_map_begin(key, files);
     if (!m)

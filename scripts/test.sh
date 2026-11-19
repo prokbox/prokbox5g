@@ -38,6 +38,19 @@ fail=0
 # scripts/align-shim (ALIGN_SHIM=0 disables). Set after warble is built.
 [ "${ALIGN_SHIM:-1}" = 0 ] || PATH="$ROOT/scripts/align-shim:$PATH"
 export PATH
+# The suites: every tests/*/run.sh, plus the ones named here (a suite whose
+# entry point is not run.sh). A suite that can't run is a failure, never a
+# skip: a run.sh without its executable bit used to be passed over in
+# silence (0.9.0 package C found tests/mixerfirst missing from the log).
+EXTRA_SUITES="tests/p090f1/parsers.sh"
+SUITES="$(echo tests/*/run.sh) $EXTRA_SUITES"
+nsuites=0
+for t in $SUITES; do
+    nsuites=$((nsuites + 1))
+    [ -f "$t" ] || { echo "FAIL: $t: no such suite"; fail=1; continue; }
+    [ -x "$t" ] || { echo "FAIL: $t is not executable (chmod +x it); it would never run"; fail=1; }
+done
+[ $fail -eq 0 ] || { echo "TESTS FAILED"; exit 1; }
 # TEST_JOBS=N (N > 1): the suites run N at a time, the slow fatcrash first;
 # each suite's output is kept and printed in name order, so the log reads
 # as the serial run does. Suites keep to their own build/<name> directories
@@ -45,24 +58,22 @@ export PATH
 if [ "${TEST_JOBS:-1}" -gt 1 ] 2>/dev/null; then
     PD=build/.test-par
     rm -rf "$PD"; mkdir -p "$PD"
-    { echo tests/fatcrash/run.sh; for t in tests/*/run.sh; do
+    { echo tests/fatcrash/run.sh; for t in $SUITES; do
           [ "$t" = tests/fatcrash/run.sh ] || echo "$t"; done; } |
         xargs -P "$TEST_JOBS" -I{} sh -c '
-            t=$1; n=$(basename "$(dirname "$t")")
-            [ -x "$t" ] || { echo 0 >"$2/$n.rc"; exit 0; }
+            t=$1; n=$(echo "$t" | tr / _)
             "$t" >"$2/$n.out" 2>&1; echo $? >"$2/$n.rc"' _ {} "$PD"
-    for t in tests/*/run.sh; do
-        [ -x "$t" ] || continue
-        n=$(basename "$(dirname "$t")")
+    for t in $SUITES; do
+        n=$(echo "$t" | tr / _)
         echo "== $t"
         cat "$PD/$n.out" 2>/dev/null
         [ "$(cat "$PD/$n.rc" 2>/dev/null || echo 1)" = 0 ] || { echo "FAIL: $t exited non-zero"; fail=1; }
     done
 else
-for t in tests/*/run.sh; do
-    [ -x "$t" ] || continue
+for t in $SUITES; do
     echo "== $t"
     "$t" || fail=1
 done
 fi
+echo "suites run: $nsuites"
 [ $fail -eq 0 ] && echo "ALL TESTS PASSED" || { echo "TESTS FAILED"; exit 1; }

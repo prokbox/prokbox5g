@@ -45,3 +45,16 @@ if ! "$HOSTCC" -std=gnu99 -O1 -g -Wall -Wextra -Werror -Iapps \
 fi
 "$TMP/test_bootstamp" || { echo "FAIL: boot stamp"; exit 1; }
 echo "ok   boot stamp CRC, torn writes, decision, digest (bootstamp_core.c)"
+# #487: the boot window's loop against the hang watch's rule
+# (panic_record.c hang_overdue())
+if ! "$HOSTCC" -std=gnu99 -O1 -g -Wall -Wextra -Werror -Iapps \
+        -DPANIC_RECORD_HOST -Ifirmware/export \
+        -o "$TMP/test_bootwin" tests/bootstamp/test_bootwin.c \
+        -DBOOTSTAMP_HOST_TEST apps/ipodui/bootstamp_core.c \
+        firmware/common/panic_record.c 2>"$TMP/cc.log"; then
+    echo "FAIL: compiling test_bootwin ($HOSTCC)"
+    cat "$TMP/cc.log"
+    exit 1
+fi
+"$TMP/test_bootwin" || { echo "FAIL: boot window"; exit 1; }
+echo "ok   boot window feeds the hang watch each pass; a stalled check still trips it (#487)"

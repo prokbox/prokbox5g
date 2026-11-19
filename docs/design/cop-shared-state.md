@@ -157,6 +157,8 @@ The table lists 25 rows: 15 safe or not applicable, 8 hazards (H1–H8) in the r
 
 Recording, voice, software volume and bit-perfect are compiled out or absent. A video's soundtrack goes through pcmbuf like any track (H3–H5, H7). The stage 8b audio loop (`al_more`) runs only in a developer test and is unreachable in the release.
 
+Since 0.9.0 (#283) a start mixes nothing on the CPU: under the PCM lock, before the DMA starts, the CPU writes the two silent frames (`downmix_buf`, IRAM) and `next_size` (H8, uncached), and a channel started with no first buffer goes in empty (the channel tables, IRAM), so its first `get_more` runs in the FIQ like every later one (H3, H6). The walk's roots are unchanged; `tests/mixerfirst` checks it on the real `pcm_mixer.c` and `beep.c`.
+
 ### The boot proof and the fallback
 
 `apps/audio_cop.c`, after `audio_init()` and before anything can play:

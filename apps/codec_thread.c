@@ -680,7 +680,13 @@ static void run_codec(void)
     codec_queue_ack(Q_CODEC_RUN);
 
     trigger_cpu_boost();
+#ifdef PCMBUF_FMT_SWITCH
+    /* b16: the write side's rate, not the output's: at a seamless format
+       switch (#214) this run starts before the output reaches the track */
+    dsp_configure(ci.dsp, DSP_SET_OUT_FREQUENCY, pcmbuf_dsp_out_frequency());
+#else
     dsp_configure(ci.dsp, DSP_SET_OUT_FREQUENCY, mixer_get_frequency());
+#endif
 
     if (!encoder)
     {

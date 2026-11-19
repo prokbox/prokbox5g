@@ -158,7 +158,12 @@ static void ds_sample(uint32_t *cmds, uint32_t *lcd)
     /* the thread's slot, as devstats_io() files it (THREAD_ID_SLOT) */
     unsigned slot = thread_self() & 0xff;
 
-    *cmds = slot < DEVSTATS_SLOTS ? devstats.t[slot].cmds : 0;
+    /* less the font layer's glyph-record reads (devstats font_cmds): a
+     * CJK companion's glyph cache filling is the shell's work, not the
+     * module's (p090-notescjk: a Unicode note's kanji breached Notes'
+     * entry budget of 2) */
+    *cmds = slot < DEVSTATS_SLOTS
+            ? devstats.t[slot].cmds - devstats.t[slot].font_cmds : 0;
     *lcd = devstats.f3.lcd_updates;
 #else
     *cmds = *lcd = 0;

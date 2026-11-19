@@ -1,0 +1,94 @@
+# #487 (0.9.0 road test): Settings > Language > 日本語 while a song plays,
+# then a song opened from the Songs list. On the device that panicked:
+# "audio_reset_buffer(): OOM!". The language block, pinned, was cut off
+# the playing buffer's end by #170's reserve take; the song's cold start
+# freed the buffer and core_alloc_maximum() asked for the whole hole in
+# front of the pinned block, with no room for the new block's header.
+#
+# Now (owner, first-hand: the 7G's language change) the switch stops
+# playback, settles (the strings, the CJK glyph tier and pin, each timed,
+# under the header's busy glyph, nothing owed to a quiet moment and no
+# allocation from the playing buffer), and lands on the main menu in
+# Japanese with the music stopped. A song from the list then plays.
+# Red: the base (cef8d8f937, neither fix): the OOM panic at the song
+# from the list. The allocator fix alone: the song plays, but the switch
+# keeps playing and owes the tier ("cjk tier owed").
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p20-lang-ja-playing.script
+# needs: library
+# needs: npinfo
+# needs: cjk
+# timeout: 180
+# golden: skip
+# env: IPODUI_SIM_NOTICE=clear
+# log: language set japanese rc=0
+# logbetween: p0 p1 lang settle stop was=1
+# logbetween: p0 p1 lang settle strings rc=0 ms=
+# logbetween: p0 p1 cjk settle tier=1 apply ms=\d+ pin ms=\d+
+# logbetween: p0 p1 cjk pin glyphs=
+# logbetween: p0 p1 lang settle done japanese ms=
+# logbetween: p0 p1 settle glyph phase=
+# logbetween: p0 p1 vlist to root
+# logbetween: p0 p1 no cjk tier owed
+# logbetween: p0 p1 no audio reserve take
+# logbetween: p0 p1 no audio shrink want=\d+ status=[1-9]
+# logbetween: p1 p2 expect_playing ok
+# log: expect_stopped ok
+# nolog: expect_stopped failed
+# nolog: expect_playing failed
+# nolog: OOM
+# nolog: ipodui: fit cut
+
+wait 4000
+key SELECT           # the first-boot notice (unacknowledged): dismiss
+wait 1500
+wait_db 30000
+repeat one
+mkdir /NPINFO
+copy ../../build/npinfo-fixtures/cd16.mp3 /NPINFO/cd16.mp3
+play_files /NPINFO/cd16.mp3
+wait 1500
+expect_playing 300
+key MENU             # Now Playing (pushed by the play) -> main menu
+wait 1200
+wheel -10            # the first row
+wait 500
+wheel +3             # Settings (4th main-menu row)
+wait 500
+key SELECT
+wait 1500
+wheel +5             # Settings rows: About 0 ... Language 15 of 18
+wait 500
+wheel +5
+wait 500
+wheel +5             # Language
+wait 800
+key SELECT
+wait 1500
+ab_mark p0
+wheel +3             # 日本語 (English, Deutsch, Nederlands, 日本語)
+wait 600
+key SELECT
+wait 3000
+shot switched        # the main menu in Japanese, the music stopped
+expect_stopped
+ab_mark p1
+wheel -10            # the first row: Music
+wait 500
+key SELECT
+wait 1000
+wheel +3             # Songs
+wait 500
+key SELECT
+wait 2000
+shot songs
+audio_regrow         # a freed block (art, library), as on the device
+# (audio_regrow: the next cold start sizes the buffer, audio_reset_buffer)
+key SELECT           # the first song: that cold start
+wait 2500
+expect_playing 3000
+ab_mark p2
+shot playing
+audio_stop
+wait 1000
+lang_set -
+quit

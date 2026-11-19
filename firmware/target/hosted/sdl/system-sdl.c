@@ -225,6 +225,34 @@ uintptr_t *stackend;
  * pool 32 MB lower on a 32 MB unit, as on the device. */
 unsigned char probed_ramsize = 64;
 
+/* p090-floor2: the device's core pool, for the floor gate. The device's
+ * pool ends where the codec buffer starts and begins at _end, less the
+ * panic record (core_alloc.c); the simulator's is a fixed MEMORYSIZE - 1
+ * MB, so it never saw the image grow. IPODUI_SIM_DEVICE_POOL: the 64 MB
+ * unit's pool in bytes, read from the release-shape ELF by
+ * tests/perf/floor_gate.sh; IPODUI_SIM_DEVICE_PINNED: the bytes that
+ * device-only code pins at boot (fat.c's directory burst slots, the BCM
+ * job slots), held for the whole run. 0: the simulator's own pool. */
+unsigned long sim_device_pool;
+unsigned long sim_device_pinned;
+
+static unsigned long sim_env_bytes(const char *name)
+{
+    const char *e = getenv(name);
+    char *end;
+    unsigned long long v;
+
+    if (!e || !*e)
+        return 0;
+    v = strtoull(e, &end, 10);
+    if (*end || v == 0 || v > (64ULL << 20))
+    {
+        fprintf(stderr, "sim: %s=%s refused (bytes, 1 .. 64 MB)\n", name, e);
+        exit(2);
+    }
+    return (unsigned long)v;
+}
+
 static void sim_ram_init(void)
 {
     const char *e = getenv("IPODUI_SIM_RAM");
@@ -240,6 +268,12 @@ static void sim_ram_init(void)
         }
     }
     fprintf(stderr, "sim: ram %u MB\n", (unsigned)probed_ramsize);
+    sim_device_pool = sim_env_bytes("IPODUI_SIM_DEVICE_POOL");
+    sim_device_pinned = sim_env_bytes("IPODUI_SIM_DEVICE_PINNED");
+    if (sim_device_pool)
+        fprintf(stderr, "sim: device pool %lu B (64 MB unit), device-only "
+                "pinned %lu B\n", (unsigned long)sim_device_pool,
+                (unsigned long)sim_device_pinned);
 }
 #endif
 

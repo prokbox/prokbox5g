@@ -301,11 +301,25 @@ static bool sr_chevron(int row, void *data)
     {
         case SRCH_ARTIST:
         case SRCH_ALBUM:
-        case SRCH_BOOK:
-            return true;        /* they open a list or a book's page */
+            return true;        /* they open a list */
+        case SRCH_BOOK:         /* a book's page; one that can't play
+                                   opens nothing (#286, as Audiobooks) */
+            return !lib_row_unplayable(r->view, i);
         default:
             return false;
     }
+}
+
+/* #286: a result that can't play (a song, an episode, a book) draws
+ * greyed with the can't-play glyph, as in the library's lists */
+static int sr_unplayable(int row, void *data)
+{
+    const struct search *r = data;
+    int i;
+
+    if (row_type(r, row, &i) != ROW_RESULT)
+        return 0;
+    return lib_row_unplayable(r->view, i);
 }
 
 /* The art box: the light tile with the grey icon (none on "More...") */
@@ -677,6 +691,7 @@ static int sr_enter(struct ui_screen *s, const void *arg)
     r->list.draw_thumb = sr_thumb;
     r->list.draw_extra = sr_extra;
     r->list.overlay = sr_overlay;
+    r->list.unplayable = sr_unplayable;
     strip_show(r, true);
     live = r;
     return 0;
@@ -825,6 +840,13 @@ static void open_result(struct search *r, int i)
     int id;
     enum srch_kind k = result_kind(r, i, &id);
 
+    /* #286: a song, episode, book or video that can't play says why, as
+     * in the library's lists; nothing plays or stops, no page opens */
+    if (ui_noplay_row(r->view, i))
+    {
+        UPDATE_TRACE("search noplay select row=%d", i);
+        return;
+    }
     memset(&a, 0, sizeof(a));
     a.f.artist = a.f.album = a.f.genre = a.f.composer = LIB_ANY;
     a.title = shown_label(lib_label(r->view, i, title, sizeof(title)));

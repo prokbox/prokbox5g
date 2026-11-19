@@ -28,6 +28,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "sleep_wake_core.h"
+#ifndef PMU_RAW_HOST_NODIAG
+#define PMU_RAW_DIAG    /* b12: the RTC read's record (device test builds);
+                           run.sh also builds the release shape without it */
+#endif
 unsigned char host_i2c_rd(unsigned off);
 void host_i2c_wr(unsigned off, unsigned char v);
 uint32_t host_usec(void);

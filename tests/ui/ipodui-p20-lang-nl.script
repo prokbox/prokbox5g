@@ -1,0 +1,175 @@
+# P20 (Dutch and German shell, 0.9.0): the Dutch shell, toured for fit.
+# Boot 1 shows the first-boot notice in English; the language is set and
+# the device restarts with it unacknowledged, so boot 2 shows it in
+# Dutch. Then the main menu, Music, Extras, every Settings row, About,
+# Language, EQ, Legal, Now Playing and the USB screen, in Dutch. Last,
+# Settings > Language switches while running twice: to Deutsch (a larger
+# file than the Dutch block: a new block, sized for the largest shell
+# language) and back to English (the built-in strings).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p20-lang-nl.script
+# needs: library
+# timeout: 120
+# env: IPODUI_SIM_NOTICE=clear
+# log: notice shown key=
+# nolog: ipodui: fit cut
+# log: language set deutsch rc=0
+# log: language set english rc=0
+#
+# Every text cut with "..." is traced ("ipodui: fit cut ..."; paint.h
+# UI_FIT_TRACE): the language pass lists them from the run's log.
+
+wait 4000
+lang_set nederlands
+reboot
+
+wait 6000            # boot 2: settings_apply() loads nederlands.lng
+shot notice
+wheel +6
+wait 400
+shot notice-end
+key SELECT
+wait 1500
+shot main
+key SELECT           # Music
+wait 1500
+shot music
+wheel +8
+wait 600
+shot music-end
+key MENU
+wait 1200
+wheel +2             # Extras
+wait 400
+key SELECT
+wait 1500
+shot extras
+wheel +8
+wait 600
+shot extras-end
+key MENU
+wait 1200
+wheel +1             # Settings
+wait 400
+key SELECT
+wait 1500
+shot settings-0
+wheel +5
+wait 600
+shot settings-5
+wheel +5
+wait 600
+shot settings-10
+wheel +6
+wait 600
+shot settings-16
+wheel -16            # About
+wait 600
+key SELECT
+wait 1500
+shot about
+wheel +6
+wait 600
+shot about-end
+key MENU
+wait 1200
+wheel +40            # the last row (Reset Settings): row counts
+wait 600             # differ by build (int2 17 rows, 0.9.0 18: Audiophile)
+wheel -2             # Language (third from the end)
+wait 600
+key SELECT
+wait 1500
+shot language
+key MENU
+wait 1200
+wheel -40            # About (the first row)
+wait 600
+wheel +9             # EQ, the tenth row (the longest value-list rows)
+wait 600
+key SELECT
+wait 1500
+shot eq
+wheel +11
+wait 600
+shot eq-11
+wheel +11
+wait 600
+shot eq-end
+key MENU
+wait 1200
+wheel +40
+wait 600
+wheel -1             # Legal (second from the end)
+wait 400
+key SELECT
+wait 1500
+shot legal
+wheel +6
+wait 600
+shot legal-2
+wheel +6
+wait 600
+shot legal-3
+hold MENU 1200       # to the main menu
+wait 1500
+wheel +4             # Shuffle Songs
+wait 400
+key SELECT
+wait 3000
+shot nowplaying
+key SELECT
+wait 800
+shot nowplaying-2
+key SELECT
+wait 800
+shot nowplaying-3
+hold MENU 1200
+wait 1500
+usb_connect
+wait 2000
+shot usb
+usb_disconnect
+wait 2000
+
+wheel -20            # the top (Now Playing is a row now)
+wait 400
+wheel +3             # Settings
+wait 400
+key SELECT
+wait 1500
+wheel +40            # the last row (Reset Settings): row counts
+wait 600             # differ by build (int2 17 rows, 0.9.0 18: Audiophile)
+wheel -2             # Language (third from the end)
+wait 600
+key SELECT
+wait 1500
+wheel -1             # Deutsch
+wait 400
+key SELECT           # a larger file: a new block, then the main menu
+wait 2000
+shot main-de
+wheel -20
+wait 400
+wheel +3             # Settings
+wait 400
+key SELECT
+wait 1500
+wheel +40            # the last row (Reset Settings): row counts
+wait 600             # differ by build (int2 17 rows, 0.9.0 18: Audiophile)
+wheel -2             # Language (third from the end)
+wait 600
+key SELECT
+wait 1500
+wheel -1             # English
+wait 400
+key SELECT           # the built-in strings
+wait 2000
+shot main-en
+wheel -20
+wait 400
+wheel +3
+wait 400
+key SELECT
+wait 1500
+shot settings-en
+lang_set -
+quit

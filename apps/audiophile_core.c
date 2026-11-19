@@ -85,11 +85,42 @@ int audiophile_precut_total(int eq_db, int width_db)
     return t > 12 ? 12 : t;
 }
 
-int audiophile_pick_depth(int src_bits, bool crossfade, bool builtin_sink)
+unsigned long audiophile_test_ms(bool osr128)
+{
+    /* p090-osr128: Hi-Res 128x's long enough for an intermittent fault,
+       with a near-silent stretch (the owner's crackle) and true silence */
+    return osr128 ? 4000 : 600;
+}
+
+bool audiophile_rate_test_ok(unsigned long hz, unsigned long got_hz,
+                             unsigned long gap_us)
+{
+    return got_hz * 100 >= hz * 97 && got_hz * 100 <= hz * 103
+           && gap_us < AP_TEST_GAP_FAIL_US;
+}
+
+int audiophile_pick_depth(int src_bits, bool deep_codec, bool crossfade,
+                          bool builtin_sink)
 {
     /* crossfade mixes 16-bit frames (pcmbuf.c); another sink (USB, dock)
-       takes only 16-bit frames */
-    if (src_bits > 16 && !crossfade && builtin_sink)
+       takes only 16-bit frames. #289: libmad (28 fraction bits) and
+       libfaad (29) hand the DSP more than 16 bits whatever the file says,
+       so an all-MP3/AAC queue is 24-bit throughout: no depth toggles */
+    if ((src_bits > 16 || deep_codec) && !crossfade && builtin_sink)
         return 24;
     return 16;
+}
+
+unsigned long audiophile_max_byterate(int allowed, bool crossfade,
+                                      bool builtin_sink)
+{
+    /* the highest rate either family may reach, at the deepest frame:
+       8 bytes (two int32) at 24-bit, 4 at 16 */
+    unsigned long r44 = audiophile_pick_rate(352800, allowed);
+    unsigned long r48 = audiophile_pick_rate(384000, allowed);
+    unsigned long rate = r44 > r48 ? r44 : r48;
+    int bpf = audiophile_pick_depth(24, false, crossfade, builtin_sink) > 16
+              ? 8 : 4;
+
+    return rate * bpf;
 }

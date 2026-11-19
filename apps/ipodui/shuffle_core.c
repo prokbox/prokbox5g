@@ -39,11 +39,20 @@ static uint32_t mix32(uint32_t x)
 
 void shuf_perm_init(struct shuf_perm *p, uint32_t n, uint32_t seed)
 {
-    uint32_t h = 1;
+    uint32_t h = SHUF_HALF_MIN;
     int i;
 
     p->n = n;
-    /* smallest h >= 1 with 4^h >= n: the domain is < 4n */
+    /* smallest h >= SHUF_HALF_MIN with 4^h >= n: the domain is < 4n, or
+     * 1,024 for n <= 256. p090-shuffle: halves of 1-3 bits leave the
+     * round function so few values that small libraries were far from
+     * uniform (n = 7: chi-square 87,502 on 5,039 dof over the orders,
+     * 16x the 0.1% value; tests/nowplaying/test_shuffle.c test_uniform).
+     * 4-bit halves pass at the edge (worst 1.00 of the critical value, at
+     * n = 64), 5-bit with room (0.94, at n = 2,000, a width it does not
+     * change). Libraries over 256 songs keep exactly the order they had.
+     * The cost at n <= 256: ~1,024/n evaluations a lookup (n = 2: ~512,
+     * ~0.5 ms on the PP5022, once a track) */
     while (h < 15 && ((uint32_t)1 << (2 * h)) < n)
         h++;
     p->half_bits = h;

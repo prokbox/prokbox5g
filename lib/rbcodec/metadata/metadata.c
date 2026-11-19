@@ -100,7 +100,15 @@ const struct afmt_entry audio_formats[AFMT_NUM_CODECS] =
         AFMT_ENTRY("WV","wavpack","wavpack_enc",get_wavpack_metadata,"wv\0"),
     /* Apple Lossless Audio Codec */
     [AFMT_MP4_ALAC] =
+#ifdef HAVE_IPOD_UI
+        /* 0.9.0 (#286): m4p (a store's encrypted AAC) and Audible's
+         * aa/aax/aaxc are indexed for their tags and listed greyed out;
+         * never decoded (get_metadata_afmt(), metadata_protected_ext()) */
+        AFMT_ENTRY("ALAC",  "alac", "N/A",       get_mp4_metadata,
+                   "m4a\0m4b\0m4p\0aax\0aaxc\0aa\0"),
+#else
         AFMT_ENTRY("ALAC",  "alac", "N/A",       get_mp4_metadata,   "m4a\0m4b\0"),
+#endif
     /* Advanced Audio Coding in M4A container */
     [AFMT_MP4_AAC] =
 #if defined(HAVE_IPOD_UI) || defined(HAVE_BCMFW_VIDEO)
@@ -427,6 +435,79 @@ unsigned int probe_file_format(const char *filename)
     return AFMT_UNKNOWN;
 }
 
+#ifdef HAVE_IPOD_UI
+/* 0.9.0 (#286): Audible's protected formats, by extension: .aa (its own
+ * container) and .aax/.aaxc (MP4). Listed as books, never played: the
+ * firmware never decrypts them (owner, 2026-11-12). */
+static bool metadata_protected_ext(const char *path, bool *own_container)
+{
+    const char *ext = path ? strrchr(path, '.') : NULL;
+
+    if (!ext)
+        return false;
+    ext++;
+    *own_container = !strcasecmp(ext, "aa");
+    return *own_container || !strcasecmp(ext, "aax")
+           || !strcasecmp(ext, "aaxc");
+}
+
+/* 0.9.0 (#286): the tags of an Audible .aa file, for its library row: the
+ * header's table of contents, then a dictionary of key/value strings
+ * ("title", "author", ...; the layout FFmpeg's aadec.c reads). Nothing
+ * else of the file is read. */
+static bool get_aa_metadata(int fd, struct mp3entry *id3)
+{
+    uint32_t magic = 0, toc = 0, n = 0, i;
+    char *buf = id3->id3v2buf;
+    long left = sizeof(id3->id3v2buf);
+
+    if (lseek(fd, 4, SEEK_SET) != 4 || read_uint32be(fd, &magic) != 4
+        || magic != 0x57907536 || read_uint32be(fd, &toc) != 4
+        || toc < 2 || toc > 16)
+        return false;
+    /* an unknown word, toc entries of 12 B, a 24 B terminator */
+    if (lseek(fd, 4 + 12 * toc + 24, SEEK_CUR) < 0
+        || read_uint32be(fd, &n) != 4 || n > 256)
+        return false;
+    for (i = 0; i < n; i++)
+    {
+        uint32_t nkey = 0, nval = 0;
+        char key[16];
+        char **dest = NULL;
+
+        if (lseek(fd, 1, SEEK_CUR) < 0 || read_uint32be(fd, &nkey) != 4
+            || read_uint32be(fd, &nval) != 4 || nkey > 1024 || nval > 65536)
+            return false;
+        if (nkey < sizeof(key))
+        {
+            if (read(fd, key, nkey) != (ssize_t)nkey)
+                return false;
+            key[nkey] = '\0';
+            if (!strcmp(key, "title"))
+                dest = &id3->title;
+            else if (!strcmp(key, "author"))
+                dest = &id3->artist;
+        }
+        else if (lseek(fd, nkey, SEEK_CUR) < 0)
+            return false;
+        if (dest && !*dest && nval > 0
+            && (long)nval < MIN(left, ID3V2_MAX_ITEM_SIZE))
+        {
+            if (read(fd, buf, nval) != (ssize_t)nval)
+                return false;
+            buf[nval] = '\0';
+            *dest = buf;
+            buf += nval + 1;
+            left -= nval + 1;
+        }
+        else if (lseek(fd, nval, SEEK_CUR) < 0)
+            return false;
+    }
+    id3->filesize = ffilesize(fd);
+    return true;
+}
+#endif
+
 /* Get metadata for track - return false if parsing showed problems with the
  * file that would prevent playback. supply a filedescriptor <0 and the file will be opened
  * and closed automatically within the get_metadata call
@@ -443,6 +524,9 @@ bool get_metadata_afmt(struct mp3entry* id3, int fd, const char* trackname, int 
     int logfd = 0;
     DEBUGF("Read metadata for %s\n", trackname);
     const char *res_str = "\n";
+#ifdef HAVE_IPOD_UI
+    bool protected_ext = false, aa_container = false;
+#endif
 
     /* Clear the mp3entry to avoid having bogus pointers appear */
     wipe_mp3entry(id3);
@@ -478,7 +562,13 @@ bool get_metadata_afmt(struct mp3entry* id3, int fd, const char* trackname, int 
         res_str = " - [No parser]\n";
         success = false;
     }
+#ifdef HAVE_IPOD_UI
+    else if ((protected_ext = metadata_protected_ext(trackname, &aa_container))
+             && aa_container ? !get_aa_metadata(fd, id3)
+                             : !entry->parse_func(fd, id3))
+#else
     else if (!entry->parse_func(fd, id3))
+#endif
     {
         DEBUGF("parsing %s failed (format: %s)\n", trackname, entry->label);
         res_str = " - [Parser failed]\n";
@@ -494,6 +584,22 @@ bool get_metadata_afmt(struct mp3entry* id3, int fd, const char* trackname, int 
         /* id3->path is not filled in yet, so check the name here */
         id3->is_audiobook = true;
     }
+#ifdef HAVE_IPOD_UI
+    if (success)
+    {
+        /* 0.9.0 (#286): Audible's books are books, and protected */
+        if (protected_ext)
+        {
+            id3->is_audiobook = true;
+            METADATA_SET_UNPLAYABLE(id3, UNPLAYABLE_PROTECTED);
+        }
+        /* a file that can't play has no codec: playback skips it as it
+         * skips any file it can't decode (a video keeps its type: the
+         * Videos player refuses it from the record) */
+        if (METADATA_UNPLAYABLE(id3) && !id3->is_video)
+            id3->codectype = AFMT_UNKNOWN;
+    }
+#endif
 
 #ifdef HAVE_UTF8_NORMALIZE
     if (success && (flags & METADATA_EXCLUDE_NORMALIZE) == 0) {
@@ -510,6 +616,11 @@ bool get_metadata_afmt(struct mp3entry* id3, int fd, const char* trackname, int 
         utf8_normalize(id3->grouping);
 #ifdef HAVE_BCMFW_VIDEO
         utf8_normalize(id3->tv_show);
+#endif
+#ifdef HAVE_IPOD_UI
+        utf8_normalize(id3->sortartist);
+        utf8_normalize(id3->sortalbum);
+        utf8_normalize(id3->sortalbumartist);
 #endif
     }
 #endif
@@ -579,6 +690,11 @@ void adjust_mp3entry(struct mp3entry *entry, void *dest, const void *orig)
 #ifdef HAVE_BCMFW_VIDEO
     MOVE_ENTRY(entry->tv_show)
 #endif
+#ifdef HAVE_IPOD_UI
+    MOVE_ENTRY(entry->sortartist)       /* 0.9.0 (#235) */
+    MOVE_ENTRY(entry->sortalbum)
+    MOVE_ENTRY(entry->sortalbumartist)
+#endif
 }
 
 void copy_mp3entry(struct mp3entry *dest, const struct mp3entry *orig)
@@ -588,6 +704,29 @@ void copy_mp3entry(struct mp3entry *dest, const struct mp3entry *orig)
         memcpy(dest, orig, sizeof(struct mp3entry));
         adjust_mp3entry(dest, dest, orig);
     }
+}
+
+size_t metadata_primary_len(const char *s, unsigned len1)
+{
+    size_t n = s ? strlen(s) : 0;
+
+    /* a stale length (the string was replaced) never cuts elsewhere */
+    if (len1 && len1 + 2 < n && s[len1] == ',' && s[len1 + 1] == ' ')
+        return len1;
+    return n;
+}
+
+void metadata_keep_primary(struct mp3entry *id3)
+{
+    if (id3->artist)
+        id3->artist[metadata_primary_len(id3->artist, id3->artist_len1)] = 0;
+    if (id3->albumartist)
+        id3->albumartist[metadata_primary_len(id3->albumartist,
+                                              id3->albumartist_len1)] = 0;
+    if (id3->composer)
+        id3->composer[metadata_primary_len(id3->composer,
+                                           id3->composer_len1)] = 0;
+    id3->artist_len1 = id3->albumartist_len1 = id3->composer_len1 = 0;
 }
 
 /* A shortcut to simplify the common task of clearing the struct */

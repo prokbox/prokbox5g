@@ -28,12 +28,14 @@ wheel -1 200            # Settings
 wait 400
 key SELECT 50
 wait 1200
-wheel +11 40            # Clicker (row 11)
+wheel +12 40            # Clicker (row 12)
 wait 800
+text_mark               # Audiophile (row 11) must not open
 key SELECT 50           # Clicker is On by default (#142): this press clicks and turns it Off
 wait 800
 key SELECT 50           # On again (pressed while Off: no click)
 wait 800
+expect_not_drawn Hi-Res   # the presses toggled Clicker, they did not open Audiophile
 wheel +3 200            # 3 clicks, music stopped: be_svc plays them
 wait 300
 wheel -3 200            # 3 clicks

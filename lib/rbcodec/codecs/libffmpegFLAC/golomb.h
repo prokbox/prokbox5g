@@ -2,6 +2,7 @@
  * exp golomb vlc stuff
  * Copyright (c) 2003 Michael Niedermayer <michaelni@gmx.at>
  * Copyright (c) 2004 Alex Beregszaszi
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -86,7 +87,7 @@ static inline int get_ur_golomb_jpegls(GetBitContext *gb, int k, int limit,
             }
 
             buf += ((unsigned int)i << k);
-        } else if (i == limit - 1) {
+        } else if (i == limit - 1 && esc_len) {
             buf = SHOW_UBITS(re, gb, esc_len);
             LAST_SKIP_BITS(re, gb, esc_len);
 

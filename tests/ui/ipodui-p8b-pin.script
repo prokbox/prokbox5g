@@ -176,9 +176,11 @@ expect_playing 500
 key MENU 50
 wait 1000
 key MENU 50
+expect_playing 300      # still playing with the list up (checked before the
+                        # shot's wait: the book resumes near its end, and the
+                        # sim now plays at real time, so it ends within ~5 s)
 wait 1500
 shot scan_second        # A Field Guide, Lighthouse, Mini, Winter
-expect_playing 300
 audio_stop
 wait 2000
 quit

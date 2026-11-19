@@ -107,6 +107,47 @@ enum boot_digest_pace boot_digest_pace(long el_ms)
     return el_ms < BOOT_DIGEST_MAX_MS ? BOOT_PACE_BACKGROUND : BOOT_PACE_STOP;
 }
 
+enum boot_window_end boot_window_run(const struct boot_window_ops *o,
+                                     long end, long hz, int *st)
+{
+    long ws = -1;                       /* the walk's first sight */
+    int pm = 0;
+
+    for (;;)
+    {
+        long now, wel;
+
+        o->beat();                      /* a pass: progress */
+        *st = o->check(&pm);
+        if (*st == 2)
+            return BOOT_WIN_DONE;
+        if (o->event())
+            return BOOT_WIN_EVENT;      /* a key held or USB: the user's */
+        now = o->now();
+        if (now - end >= 0)
+            return BOOT_WIN_CAP;
+        /* a walk: hold on only if its projected end is inside the hold.
+         * Its rate counts from the walk's start, not the window's: the
+         * check's decision and the first build's count come before it,
+         * and a short walk that starts late is still inside the hold */
+        if (*st == 1 && ws < 0)
+            ws = now;
+        wel = *st == 1 ? now - ws : 0;
+        if (*st == 1 && wel >= hz / 2
+            && (pm <= 0 ? wel >= hz : ws + wel * 1000 / pm > end))
+            return BOOT_WIN_HANDOVER;
+        o->wait(hz / 20);
+    }
+}
+
+const char *boot_window_end_name(enum boot_window_end e)
+{
+    static const char *const names[] = { "done", "event", "cap",
+                                          "handover" };
+
+    return (unsigned)e < sizeof(names) / sizeof(names[0]) ? names[e] : "?";
+}
+
 const char *boot_why_name(enum boot_why w)
 {
     static const char *const names[BOOT_WHY__N] = {

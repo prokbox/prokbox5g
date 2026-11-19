@@ -1,0 +1,42 @@
+# p090-artrelease: PLAY after a library update published a new generation
+# while the art builder's pass still read the old one
+# (tests/perf/artrelease_check.sh, both units at their stress size, the
+# device's pool). The synthetic library has no covers, so a pass over its
+# ~6,500 albums probes for cover files for minutes: art_request starts one
+# on the boot's generation; the update (one file added, stopped) commits
+# and publishes the next generation while that pass runs. At its next pace
+# point or wait the pass ends ("art pass yield gen old=N new=M") and drops
+# its reference, so the retired generation's RAM cache goes back ("db
+# retired ram free") before PLAY sizes its buffer. Before, the pass held
+# it until its next album and the buffer was sized beside it all session
+# (64 MB at 65k: ~39.2 MB instead of ~48 MB). The checker compares the
+# buffer after the update's PLAY with the buffer of a PLAY before it.
+# golden: skip
+wait 4000
+wait_db 300000
+repeat all
+floor_watch begin
+snapshot_play
+wait 2500
+expect_playing 500
+floor base_play             # the steady session's buffer
+art_request                 # a pass on the boot's generation (owed)
+# the update while audio plays: deferred to the stop (as in
+# floor-65k.script's after_commit_regrow)
+copy ../../tests/ui/fixtures/refresh.mp3 /zz-artrelease.mp3
+db_mark
+update_db
+expect_playing 5000
+expect_snapshot_deferred 1000
+audio_stop                  # the pass and the commit run stopped
+expect_snapshot_after_playback 300000
+expect_db_grew 300000       # committed; it publishes now
+snapshot_play               # PLAY at once
+wait 2500
+expect_playing 500
+floor artrelease_play       # sized after the update
+shot end
+audio_stop
+wait 500
+floor_watch end all_cases
+quit

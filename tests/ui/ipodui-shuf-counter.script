@@ -5,12 +5,14 @@
 # library (302 music songs in the test library). M is lib_stats()'s
 # song count (the precompute); "np count" traces each drawn counter with
 # the queue position and the library numbers behind it
-# (q=<queue n>/<queue m> lib=<lap n>/<songs>).
+# (q=<queue n>/<queue m> lib=<lap n>/<songs>). p090-shuffle: the start
+# queues 4 and backfills to 50 behind the first sound; the first frame
+# already counts the library ("1 of 302" over a queue of 4).
 #   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-shuf-counter.script
 # needs: library
 # trace: shuf
-# log: shuf: start songs ok queued=50
-# log: np count 1 of 302 q=1/50 lib=1/302
+# log: shuf: start songs ok queued=4
+# log: np count 1 of 302 q=1/4 lib=1/302
 # log: shuf: refill +50
 # log: np count 56 of 302 q=56/100 lib=56/302
 # nolog: np count 56 of 100

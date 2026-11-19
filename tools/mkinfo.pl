@@ -101,10 +101,14 @@ printf O ("Manufacturer: %s\n", $ENV{'MANUFACTURER'});
 
 # Variables identifying Rockbox and bootloader properties. Possibly changing
 # every software upgrade.
-# ProkBox5g: the release version from git tags (scripts/version.sh, VERSION
-# overrides as in tools/version.sh); the Rockbox build id stays on its own line
+# ProkBox5g: the release version from git tags (scripts/version.sh); the
+# shown version's override PROKBOX_VERSION (scripts/release_build.sh, the same
+# one firmware.make gives About) wins, then VERSION as in tools/version.sh;
+# the Rockbox build id stays on its own line
 if (-x "$ENV{ROOTDIR}/scripts/version.sh") {
-    my $pv = (defined $ENV{VERSION} && $ENV{VERSION} ne "") ? $ENV{VERSION} : `$ENV{ROOTDIR}/scripts/version.sh $ENV{ROOTDIR}`;
+    my $pv = (defined $ENV{PROKBOX_VERSION} && $ENV{PROKBOX_VERSION} ne "") ? $ENV{PROKBOX_VERSION}
+           : (defined $ENV{VERSION} && $ENV{VERSION} ne "") ? $ENV{VERSION}
+           : `$ENV{ROOTDIR}/scripts/version.sh $ENV{ROOTDIR}`;
     $pv =~ s/\s+$//;
     printf O ("Version: %s\n", $pv ne '' ? $pv : 'unknown');
     printf O ("Build: %s", `$ENV{TOOLSDIR}/version.sh $ENV{ROOTDIR}`);

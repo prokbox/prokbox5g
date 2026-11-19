@@ -535,6 +535,10 @@ static volatile int hint_seq;       /* + 1 per new key */
 #ifdef SIMULATOR
 static volatile bool sim_blocked;   /* the thread waits for a request */
 static volatile long sim_panel_hold; /* art_panel_hold (ms) */
+/* art_panel_hold <ms> chapter (#511): only the chapter block takes the
+ * hold; a panel build or a Now Playing cover the same pass reaches first
+ * (the new album can join the panel set at random) passes it by */
+static volatile bool sim_hold_chapter;
 
 /* art_panel_hold's wait: the builder is idle for the hang watcher (a held
  * block is the test's, not a stuck thread; scripts/check_hang_rule.py) */
@@ -840,6 +844,21 @@ struct bwork {
 
 static uint8_t *slot_buf(struct bwork *w) { return (uint8_t *)w->area; }
 
+/* p090-artrelease: a library update published a new generation while this
+ * pass reads the one it began with. The pass's passive reference keeps
+ * that retired generation's RAM cache (~9 MB at 65k) from going back to
+ * the heap, and a PLAY meanwhile sized its buffer beside it for the whole
+ * session. So the pass gives way: the pace points stop deferring, the
+ * parks and waits end, io_go() refuses the album's next read or write
+ * (the user-came-back path: nothing half-written, the album again
+ * later), and wait_ready() ends the pass with EV_GEN; the builder owes a
+ * pass on the new generation (art_thread(), as for a request). Any
+ * thread: two volatile reads. */
+static bool pass_gen_moved(void)
+{
+    return bw && bw->context && bw->db_gen != tagcache_ui_generation();
+}
+
 /* An incomplete pass: the first reason in ipodui.log, as the source line
  * of this build (the boot line names the build), the phase and errno */
 #define FAIL(w) pass_fail((w), __LINE__)
@@ -896,7 +915,7 @@ static bool io_go(struct bwork *w, const char *rw, artcache_key_t key)
     /* A ready RAM library does not mean the directory scanner is idle.
      * Let that single storage walk finish before starting another image
      * read/write; the caller retries once wait_ready observes its release. */
-    if (lib_busy() || (play && !idle))
+    if (lib_busy() || (play && !idle) || pass_gen_moved())
     {
         w->lit = true;
         return false;
@@ -951,6 +970,10 @@ static void park_wake(void)
     if (park_wait && art_thread_id)
         art_post(ART_Q_IDLE);
 }
+
+/* p090-artrelease: lib_defer() and pace_defer() wait on this, so a
+ * publication ends their wait at once (artcache_library_published()) */
+static struct semaphore gen_wake;
 #ifdef SIMULATOR
 static volatile long sim_gate_spin; /* art_decode_spin (us per gate point) */
 static volatile bool sim_parked;    /* expect_art_parked */
@@ -1127,7 +1150,9 @@ static bool gate_hold(void)
         return false;
     /* #276: a decode or compose under way while the library is built
      * waits for it too, its state kept */
-    return (playing() && gate_watched()) || lib_busy();
+    /* p090-artrelease: never parked on the retired generation's behalf */
+    return ((playing() && gate_watched()) || lib_busy())
+           && !pass_gen_moved();
 }
 
 static void art_gate(void)
@@ -1450,7 +1475,13 @@ artcache_key_t artcache_key_for_id3(const struct mp3entry *id3)
 {
     if (!id3)
         return 0;
-    return artcache_key(id3->albumartist, id3->artist, id3->album, id3->path);
+    /* #167: the primary artists, as the library's album keys have them */
+    return artcache_key_n(id3->albumartist,
+                          metadata_primary_len(id3->albumartist,
+                                               id3->albumartist_len1),
+                          id3->artist,
+                          metadata_primary_len(id3->artist, id3->artist_len1),
+                          id3->album, id3->path, false);
 }
 
 void artcache_dim(enum artcache_size size, struct dim *out)
@@ -1517,7 +1548,7 @@ static void pace_defer(void)
     walk_drop("input");             /* #332 */
     resize_boost_release();
     fast_boost(false);              /* never boosted while it waits */
-    while (pace_input() && !stopped && !usb_owns_disk()
+    while (pace_input() && !stopped && !usb_owns_disk() && !pass_gen_moved()
            && !queue_peek_ex(&art_queue, NULL, 2, park_release))
     {
         long left = last_input + PACE_QUIET - current_tick;
@@ -1525,7 +1556,7 @@ static void pace_defer(void)
         if (npf_req)
             np_serve();
         hw = hang_idle_begin();     /* deferring to the wheel: idle, not hung */
-        sleep(MAX(left, HZ / 20));
+        semaphore_wait(&gen_wake, MAX(left, HZ / 20));
         hang_idle_end(hw);
     }
     if (fb)
@@ -1560,13 +1591,13 @@ static void lib_defer(void)
     resize_boost_release();
     fast_boost(false);              /* never boosted while it waits */
     while (lib_busy() && !stopped && !usb_owns_disk() && !sleep_hold
-           && !usb_quiescing
+           && !usb_quiescing && !pass_gen_moved()
            && !queue_peek_ex(&art_queue, NULL, 2, park_release))
     {
         if (npf_req)
             np_serve();
         hw = hang_idle_begin();     /* waiting for the library: idle */
-        sleep(HZ / 4);
+        semaphore_wait(&gen_wake, HZ / 4);
         hang_idle_end(hw);
     }
     if (fb)
@@ -1594,6 +1625,14 @@ static void art_pace_at(PACE_ARGS)
     if (ran < ART_PACE_US / 4)
         return;                     /* the cheap test, most points */
     SIM_LIBWORK("pace");
+    if (pass_gen_moved())
+    {
+        /* p090-artrelease: no wait for the library or the user on the
+         * retired generation's behalf: on to the album's next io_go() */
+        yield();
+        pace_t0 = pace_now();
+        return;
+    }
     input = pace_input();
     /* #276: the library first (never with a block held, pace_nodefer:
      * syn_pace() gives it back instead) */
@@ -2610,7 +2649,9 @@ void artcache_usb_finish(void)
 /* ======================================================================= */
 /* builder: waiting                                                        */
 /* ======================================================================= */
-enum { EV_REQ = 1, EV_USB = 2, EV_OFF = 4, EV_RETRY = 8 };
+/* EV_GEN (p090-artrelease): the pass's library was replaced
+ * (pass_gen_moved()): it ends and a pass on the new one is owed */
+enum { EV_REQ = 1, EV_USB = 2, EV_OFF = 4, EV_RETRY = 8, EV_GEN = 16 };
 
 /* buffering thread, a fill's end: the Now Playing look-ahead read
  * (np_serve(), storage still up). In the sim also its model of
@@ -2650,6 +2691,17 @@ static void idle_event(unsigned short id, void *data)
 void artcache_maint_kick(void)
 {
     idle_event(0, NULL);
+}
+
+/* p090-artrelease: the tagcache thread, a publication. A pass on the
+ * retired generation wakes from whichever wait holds it (wait_ready()'s
+ * pump, a park, lib_defer(), pace_defer()) and ends (pass_gen_moved()) */
+void artcache_library_published(void)
+{
+    if (!art_thread_id || !pass_gen_moved())
+        return;
+    semaphore_release(&gen_wake);
+    art_post(ART_Q_IDLE);
 }
 
 /* #92 review M2: maint_poll() (once a second) while stopped: the
@@ -2789,6 +2841,13 @@ void artcache_rotate_poll(void)
 }
 
 /* Waits up to 'ticks' for one event and handles it. */
+/* int4: the last pump() returned for Now Playing's bundle read (ART_Q_NP:
+ * a fill's look-ahead or NP's request), not for the builder: the done
+ * builder's loop logs it as "art np wake", never "art wake" (#58's
+ * idle rule is about the builder; #114's look-ahead runs at a fill's end
+ * with storage already up) */
+static bool pump_np;
+
 static int pump(int ticks)
 {
     struct queue_event ev;
@@ -2831,6 +2890,7 @@ static int pump(int ticks)
     case ART_Q_NP:
         np_serve();
         aux_serve();
+        pump_np = true;             /* int4: a service, not a builder wake */
         return 0;
     case SYS_USB_CONNECTED:
         artidx_close(&bw->rd);      /* the only fd held across a wait */
@@ -2961,6 +3021,8 @@ static int wait_ready(bool gap)
     pass_events = 0;
     if (ev)
         return ev;
+    if (pass_gen_moved())
+        return EV_GEN;              /* p090-artrelease: no gap, no wait */
     if (gap && !maintenance)
     {
         bool fb = FAST_BOOSTED();
@@ -2991,6 +3053,11 @@ static int wait_ready(bool gap)
         last_why = why;
         if (!why)
             break;
+        if (pass_gen_moved())
+        {
+            ev = EV_GEN;            /* p090-artrelease: polled here */
+            break;
+        }
         walk_drop(why);             /* #332: never held while it waits */
         if (FAST_BOOSTED())
         {
@@ -3002,6 +3069,8 @@ static int wait_ready(bool gap)
     idle_wait = false;
     if (unboosted)
         fast_boost(true);
+    if (!ev && pass_gen_moved())
+        ev = EV_GEN;                /* moved during the gap */
     return ev;
 }
 
@@ -6176,7 +6245,7 @@ static int panel_build(struct bwork *w, const struct artalb_rec *t,
     bool inplace;
 
 #ifdef SIMULATOR
-    if (sim_panel_hold)
+    if (sim_panel_hold && !sim_hold_chapter)
     {
         long ms = sim_panel_hold;
 
@@ -6945,7 +7014,7 @@ static void npr_run_impl(struct bwork *w)
         memset((char *)w->page + sizeof(*h), 0,
                ARTPANEL_HDR_BYTES - sizeof(*h));
 #ifdef SIMULATOR
-        if (sim_panel_hold)
+        if (sim_panel_hold && !sim_hold_chapter)
         {
             /* art_panel_hold (ipodui-np-sharp-events): a request or USB
              * arrives before the header's write (review H1) */
@@ -9213,6 +9282,21 @@ static void prog_log(struct art_prog *p)
     p->next_tick = current_tick + ART_PROG_TICKS;
 }
 
+/* p090-artrelease: the pass ends for a newer library (EV_GEN): its
+ * reference to the retired one goes now, before the commit's I/O (which
+ * needs no library), and the tagcache thread is kicked to give that
+ * generation's RAM cache back (ui_retired_ram_release()) */
+static void pass_yield_gen(struct bwork *w)
+{
+    if (!w->context)
+        return;
+    ui_log("art", "pass yield gen old=%d new=%d done=%d", w->db_gen,
+           tagcache_ui_generation(), status.done);
+    tagcache_context_release_passive(w->context);
+    w->context = NULL;
+    tagcache_quiet_kick();
+}
+
 static int run_pass_impl(void)
 {
     struct bwork *w = bw;
@@ -9287,7 +9371,9 @@ static int run_pass_impl(void)
         {
             /* a request: keep what is done (if storage may be used now;
              * else it is redone), and restart */
-            if (ev == EV_REQ && io_ok())
+            if (ev == EV_GEN)
+                pass_yield_gen(w);  /* the reference first, then the I/O */
+            if ((ev == EV_REQ || ev == EV_GEN) && io_ok())
                 commit(w, false);
             status.running = false;
             UPDATE_TRACE("art build stop ev=%d done=%d", ev, status.done);
@@ -9298,11 +9384,12 @@ static int run_pass_impl(void)
             /* a new RAM cache: rep_idx means other tracks now. Keep what
              * is done (if storage may be used now; else it is redone);
              * library.c writes a new table and requests again */
+            pass_yield_gen(w);      /* p090-artrelease */
             if (io_ok())
                 commit(w, false);
             status.running = false;
             UPDATE_TRACE("art build stop %s done=%d", "db", status.done);
-            return 0;
+            return EV_GEN;          /* p090-artrelease: owed again */
         }
         ART_PACE();
         if (w->n_delta >= DELTA_MAX && !commit(w, false))
@@ -9431,8 +9518,11 @@ static int run_pass(void)
     walk_ok = true;                 /* #332: find_file() may hold it */
     int result = run_pass_impl();
     walk_ok = false;
+    if (result & EV_GEN)
+        pass_yield_gen(bw);         /* (if not yet: a later phase's) */
     walk_drop(!result ? "done" : (result & EV_USB) ? "usb"
               : (result & EV_OFF) ? "off" : (result & EV_REQ) ? "req"
+              : (result & EV_GEN) ? "gen"
               : "retry");
     UPDATE_TRACE("art walk pass ev=%d probes=%lu cold=%lu held=%d", result,
                  walk_probes, walk_cold, (int)walk_held);
@@ -9558,12 +9648,15 @@ static void art_thread(void)
             /* done (#58: no poll, no wake until a request, USB or a
              * power-off), or work kept for the stop: woken by
              * idle_event() */
+            pump_np = false;
             ev = pump(stopped ? POLL_TICKS : retry_at
                       ? MAX(1, retry_at - current_tick) : TIMEOUT_BLOCK);
 #ifdef SIMULATOR
             sim_blocked = false;
 #endif
-            if (!stopped)
+            if (!stopped && pump_np && !ev)
+                UPDATE_TRACE("art np wake ev=%d", ev);
+            else if (!stopped)
             {
                 UPDATE_TRACE("art wake ev=%d", ev);
                 ui_log("art", "wake ev=%d up=%lu", ev,
@@ -9603,7 +9696,7 @@ static void art_thread(void)
          * a pass restarts it */
         if (ev != EV_RETRY)
             resume_gen = -1;        /* a full pass next time */
-        if (ev & (EV_REQ | EV_USB))
+        if (ev & (EV_REQ | EV_USB | EV_GEN))
         {
             want = true;
             retries = 0;
@@ -9833,6 +9926,13 @@ int sim_art_panels_grouped(void)
 /* art_panel_hold: the next panel block is held 'ms' longer */
 void sim_art_panel_hold(long ms)
 {
+    sim_hold_chapter = false;
+    sim_panel_hold = ms;
+}
+
+void sim_art_chapter_hold(long ms)
+{
+    sim_hold_chapter = true;
     sim_panel_hold = ms;
 }
 
@@ -10264,6 +10364,7 @@ bool artcache_reserve(void)
     add_event(PLAYBACK_EVENT_STOP_OR_PAUSE, idle_event);
     add_event(PLAYBACK_EVENT_TRACK_CHANGE, npr_track_event);
     queue_init(&art_queue, true);   /* receives USB / power-off broadcasts */
+    semaphore_init(&gen_wake, 1, 0);
     npf_buf = (char *)(blk + work_size + read_size);
     art_thread_id = create_thread(art_thread,
                                   blk + work_size + read_size + npf_size,

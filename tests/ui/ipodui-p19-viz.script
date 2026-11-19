@@ -20,7 +20,7 @@
 # log: viz clip h=240
 # log: np viz full=0
 # log: viz start style=0 path=bcm n=512
-# log: np mode shuffle -> visualizer ev=0
+# log: np mode info -> visualizer ev=0
 # log: viz light hold=1
 # log: viz style=1
 # log: viz start style=1
@@ -64,6 +64,8 @@ key SELECT          # Shuffle
 wait 600
 heap_tight          # no slack left: the view must not need a new allocation
 ab_mark v_in
+key SELECT          # Info (#277)
+wait 500
 key SELECT          # Visualizer
 wait 1500
 shot bars

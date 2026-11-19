@@ -86,15 +86,56 @@ static int scan_to(const char *pat, size_t len)
     }
 }
 
+/* #292: an estimate of the granule position at the start of the page just
+   added to os, for when the page before it was not read (the first page
+   after a seek): its own granule less the durations of the packets it
+   completes, found by reading them ahead and putting the stream's
+   counters back (ogg_stream_packetout only moves those).  On the last
+   page that is at most its end trim early, so the trim is then partly
+   lost: the padding's few ms play. */
+static int64_t page_start_granule(ogg_stream_state *os, int64_t granule)
+{
+    ogg_stream_state saved = *os;
+    ogg_packet op;
+    int64_t total = 0;
+    int r;
+
+    while ((r = ogg_stream_packetout(os, &op)) != 0) {
+        int n;
+        if (r < 0)
+            continue;               /* a gap (pages skipped before) */
+        n = opus_packet_get_nb_samples(op.packet, op.bytes, 48000);
+        if (n > 0)
+            total += n;
+    }
+    *os = saved;
+    return granule > total ? granule - total : 0;
+}
+
 /* seek to ogg page after given file position */
 static int seek_ogg_page(uint64_t filepos)
 {
     /* the capture pattern, version 0 and header type 0 (a page that starts
        a packet: a continuation page of the comment header is passed) */
-    static const char synccode[] = "OggS\0"; /* Note: there are two nulls here */
+    static const char synccode[] = "OggS"; /* and version 0: 5 bytes */
     ci->seek_buffer(filepos);
-    if (!scan_to(synccode, sizeof(synccode)))
-        return 0;
+    /* #292: header types 0 and 4 (the stream's last page) both start a
+       packet; only a continuation (bit 0) is passed.  Upstream matched
+       type 0 alone, so a stream whose audio is all on its last page (any
+       Opus file under about a second) never found its audio */
+    while (1) {
+        size_t got = 0;
+        const unsigned char *p;
+
+        if (!scan_to(synccode, sizeof(synccode)))
+            return 0;
+        p = ci->request_buffer(&got, 6);
+        if (!p || got < 6)
+            return 0;
+        if (!(p[5] & 1))
+            break;
+        ci->advance_buffer(1);
+    }
     LOGF("next page %jd", (intmax_t) ci->curpos);
     return 1;
 }
@@ -383,6 +424,9 @@ enum codec_status codec_run(void)
     int skip = 0;
     int64_t seek_target;
     uint64_t granule_pos;
+    int64_t end_granule;    /* #292: the last page's end; -1 on others */
+    int64_t pkt_granule = 0;
+    int64_t prev_granule = -1;  /* the last page's granule; -1: unknown */
 
     ogg_malloc_init();
 
@@ -428,6 +472,7 @@ enum codec_status codec_run(void)
                 LOGF("Opus seek page:%lld,%lld,%ld\n", (long long int)seek_target,
                      (long long int)page_granule, (long)param);
                 opus_seek_page_granule(seek_target, page_granule, oy, os);
+                prev_granule = -1;      /* #292: the page before is unread */
                 /* reset the state to help ensure that subsequent packets won't
                    use state set by unrelated packets processed before seek */
                 opus_decoder_ctl(st, OPUS_RESET_STATE);
@@ -442,6 +487,10 @@ enum codec_status codec_run(void)
     next_page:
         /*Get the ogg buffer for writing*/
         if (get_more_data(oy) < 1) {
+            /* #292: the end of the file is the end of the track, not an
+               error (it was reported as one after every Opus track) */
+            if (st != NULL)
+                error = CODEC_OK;
             goto done;
         }
 
@@ -461,7 +510,29 @@ enum codec_status codec_run(void)
             page_granule = ogg_page_granulepos(&og);
             granule_pos = page_granule;
 
-            while ((ogg_stream_packetout(os, &op) == 1) && !op.e_o_s) {
+            /* #292: the last page's granule position is where the track
+               ends: the encoder's padding after it is decoded but not
+               played (RFC 7845 4.4), for sample-exact gapless.  Its
+               packets are counted from the page's start: the page
+               before's granule (0, the identification header's, when the
+               audio is one page). */
+            end_granule = -1;
+            if (st != NULL && ogg_page_eos(&og) && page_granule >= 0) {
+                end_granule = page_granule;
+                pkt_granule = prev_granule >= 0 ? prev_granule
+                            : page_start_granule(os, page_granule);
+            }
+
+            /* every packet, the stream's last (e_o_s) too: upstream
+               stopped in front of it, losing up to its 20 ms.  And past
+               a gap (-1): the comment header's pages are skipped, so the
+               first audio page always starts with one; upstream stopped
+               there too, which left that page's packets for the next
+               page, and lost them when there was none (a file whose
+               audio is one page) */
+            while ((ret = ogg_stream_packetout(os, &op)) != 0) {
+                if (ret < 0)
+                    continue;
                 if (op.packetno == 0){
                     /* identification header */
 
@@ -514,6 +585,16 @@ enum codec_status codec_run(void)
                     /* Decode audio packets */
                     ret = opus_decode(st, op.packet, op.bytes, output, MAX_FRAME_SIZE, 0);
 
+                    if (ret > 0 && end_granule >= 0) {
+                        /* the last page: no further than its granule */
+                        int64_t room = end_granule - pkt_granule;
+                        pkt_granule += ret;
+                        if (room < ret)
+                            ret = room > 0 ? (int)room : 0;
+                        if (ret == 0)
+                            continue;   /* all padding */
+                    }
+
                     if (ret > skip) {
                         /* part of or entire output buffer is played */
                         ret -= skip;
@@ -533,6 +614,9 @@ enum codec_status codec_run(void)
                     }
                 }
             }
+            /* #292: where the next page's packets start */
+            if (st != NULL && page_granule >= 0)
+                prev_granule = page_granule;
         }
     }
     LOGF("Returned OK");

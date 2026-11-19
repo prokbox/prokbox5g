@@ -276,14 +276,16 @@ void     ui_arena_reset(uint16_t mark); /* mark <= top, else logged and
  * contract commit, target (ARM) / sim (64-bit): playlists 2,324 / 2,400,
  * browse 216 / 320, book page 148 / 224, choice 148 / 224. tests/arena
  * sums the deepest chains of section 4.1 from these bounds. */
-#define UI_ARENA_B_PLAYLISTS    2408    /* screens/playlists.c (U1); +8 sim:
-                                           #69 list has_mark */
+#define UI_ARENA_B_PLAYLISTS    2416    /* screens/playlists.c (U1); +8 sim:
+                                           #69 list has_mark; +8 sim: #286
+                                           the list's unplayable */
 #define UI_ARENA_B_BROWSE       512     /* screens/browse.c (U1) */
 #define UI_ARENA_B_BOOK_PAGE    320     /* screens/audiobooks.c (U1) */
 #define UI_ARENA_B_CHOICE       384     /* screens/settings.c choice (U2a) */
 #define UI_ARENA_B_OTG          320     /* screens/otglist.c (U1) */
-#define UI_ARENA_B_HOLD         264     /* screens/holdmenu.c (U1); +8 sim:
-                                           the list's is_off (#132) */
+#define UI_ARENA_B_HOLD         272     /* screens/holdmenu.c (U1); +8 sim:
+                                           the list's is_off (#132); +8
+                                           sim: its unplayable (#286) */
 #define UI_ARENA_B_SEARCH       2560    /* screens/search.c (U1) */
 #define UI_ARENA_B_SETTING      384     /* checklist, roller screens, About,
                                            Date & Time lists, Brightness,

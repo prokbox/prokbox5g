@@ -560,7 +560,16 @@ endif
 # (#80: a stale devstats.o linked against a larger struct).  -MT $@ would
 # put the absolute path into every cache key; rewriting the first line
 # after the compile keeps the hits shared.
-fix_dep_target = sed -e '1s|^[^:]*:|$@:|' $(@:.o=.d) > $(@:.o=.d)_ && \
+# The headers come out relative to the build dir too ("lang/lang.h",
+# "lang_enum.h"), while the rules that generate them name them by absolute
+# path: two different files to make, so the relative one (stat'ed at
+# whatever moment make reached it) could miss genlang's rewrite and leave
+# an object compiled against the old string enum for a second make
+# (p090-locale, ledger 3.19). Every relative path is made absolute here.
+fix_dep_target = sed -e '1s|^[^:]*:|$@:|' \
+	-e 's| \([^/ \\][^ ]*\)| $(BUILDDIR)/\1|g' \
+	-e 's|^\([^/ ][^ ]*:\)$$|$(BUILDDIR)/\1|' \
+	$(@:.o=.d) > $(@:.o=.d)_ && \
 	mv $(@:.o=.d)_ $(@:.o=.d)
 
 # when source and object are in different locations (normal):

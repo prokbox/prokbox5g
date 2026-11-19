@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2005 Dave Chapman
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -277,6 +278,48 @@ int string_option(const char *option, const char *const oplist[], bool ignore_ca
     return -1;
 }
 #endif
+/* ProkBox #167: s[0..len) holds values separated by NULs (an ID3v2.4
+ * list; empty values and a trailing NUL allowed). Join them in place with
+ * ", ", in at most cap bytes with the terminator (values that would not
+ * fit are dropped whole). Returns the new length; with more than one value
+ * kept, *first gets the first value's length. */
+int metadata_join_values(char *s, int len, int cap, uint16_t *first)
+{
+    int r, w = 0, n = 1, o;
+
+    for (r = 0; r < len; r++)       /* one NUL between values, none at ends */
+        if (s[r] || (w > 0 && s[w - 1]))
+            s[w++] = s[r];
+    while (w > 0 && !s[w - 1])
+        w--;
+    for (r = 0; r < w; r++)
+        n += !s[r];
+    while (n > 1 && w + n > cap)    /* each NUL becomes 2 bytes, plus 1 */
+    {
+        while (s[--w])
+            ;
+        n--;
+    }
+    if (n > 1)
+    {
+        *first = strlen(s);
+        o = w + n - 1;
+        for (r = w - 1, w = o; r >= 0; r--)  /* back to front: o >= r */
+        {
+            if (s[r])
+                s[--o] = s[r];
+            else
+            {
+                s[--o] = ' ';
+                s[--o] = ',';
+            }
+        }
+    }
+    if (w < cap)
+        s[w] = 0;
+    return w;
+}
+
 /* Parse the tag (the name-value pair) and fill id3 and buffer accordingly.
  * String values to keep are written to buf. Returns number of bytes written
  * to buf (including end nil).
@@ -286,6 +329,7 @@ long parse_tag(const char* name, char* value, struct mp3entry* id3,
 {
     long len = 0;
     char** p;
+    uint16_t *first = NULL;     /* ProkBox #167: a field that joins */
 
     enum
     {
@@ -293,7 +337,11 @@ long parse_tag(const char* name, char* value, struct mp3entry* id3,
         eYEAR, eDATE, eTITLE, eARTIST, eALBUM, eGENRE,
         eCOMPOSER, eCOMMENT, eALBUMARTIST, eALBUM_ARTIST,
         eENSEMBLE, eGROUPING, eCONTENTGROUP, eCONTENT_GROUP,
-        eMUSICBRAINZ1, eMUSICBRAINZ2, e_COUNT_TAG_COUNT
+        eMUSICBRAINZ1, eMUSICBRAINZ2,
+#ifdef HAVE_IPOD_UI
+        eARTISTSORT, eALBUMSORT, eALBUMARTISTSORT, eALBUMARTISTSORTORDER,
+#endif
+        e_COUNT_TAG_COUNT
     };
 
     static const char *tagops[e_COUNT_TAG_COUNT + 1] =
@@ -307,6 +355,13 @@ long parse_tag(const char* name, char* value, struct mp3entry* id3,
       [eCONTENTGROUP] = "contentgroup", [eCONTENT_GROUP] = "content group",
       [eMUSICBRAINZ1] = "musicbrainz_trackid",
       [eMUSICBRAINZ2] = "http://musicbrainz.org",
+#ifdef HAVE_IPOD_UI
+      /* 0.9.0 (#235): sort values (Vorbis comments, APEv2/WavPack keys
+       * ArtistSort ... case-insensitive) */
+      [eARTISTSORT] = "artistsort", [eALBUMSORT] = "albumsort",
+      [eALBUMARTISTSORT] = "albumartistsort",
+      [eALBUMARTISTSORTORDER] = "albumartistsortorder",
+#endif
       [e_COUNT_TAG_COUNT] = NULL
     };
 
@@ -350,6 +405,7 @@ long parse_tag(const char* name, char* value, struct mp3entry* id3,
     else if (item == eARTIST)
     {
         p = &(id3->artist);
+        first = &id3->artist_len1;
     }
     else if (item == eALBUM)
     {
@@ -362,6 +418,7 @@ long parse_tag(const char* name, char* value, struct mp3entry* id3,
     else if (item == eCOMPOSER)
     {
         p = &(id3->composer);
+        first = &id3->composer_len1;
     }
     else if (item == eCOMMENT)
     {
@@ -370,6 +427,8 @@ long parse_tag(const char* name, char* value, struct mp3entry* id3,
     else if (item == eALBUMARTIST || item == eALBUM_ARTIST || item == eENSEMBLE)
     {
         p = &(id3->albumartist);
+        if (item != eENSEMBLE)
+            first = &id3->albumartist_len1;
     }
     else if (item == eGROUPING || item == eCONTENTGROUP || item == eCONTENT_GROUP)
     {
@@ -379,6 +438,14 @@ long parse_tag(const char* name, char* value, struct mp3entry* id3,
     {
         p = &(id3->mb_track_id);
     }
+#ifdef HAVE_IPOD_UI
+    else if (item == eARTISTSORT)
+        p = &id3->sortartist;           /* the first of several is kept */
+    else if (item == eALBUMSORT)
+        p = &id3->sortalbum;
+    else if (item == eALBUMARTISTSORT || item == eALBUMARTISTSORTORDER)
+        p = &id3->sortalbumartist;
+#endif
     else
     {
         parse_replaygain(name, value, id3);
@@ -403,6 +470,31 @@ long parse_tag(const char* name, char* value, struct mp3entry* id3,
         else
         {
             len = 0;
+        }
+    }
+    else if (first && p && strcmp(*p, value))
+    {
+        /* ProkBox #167: a repeated artist, album artist or composer joins
+         * the first with ", ", within the item size; in place when the
+         * first value is the last string written (adjacent fields) */
+        size_t old = strlen(*p), add = strlen(value);
+        bool inplace = *p + old + 1 == buf;
+        long need = inplace ? (long)add + 2 : (long)(old + add + 3);
+
+        if (add > 0 && old + 2 + add <= ID3V2_MAX_ITEM_SIZE
+            && need <= buf_remaining)
+        {
+            char *d = inplace ? *p : buf;
+
+            if (!inplace)
+                memcpy(d, *p, old);
+            if (!*first)
+                *first = old;
+            d[old] = ',';
+            d[old + 1] = ' ';
+            memcpy(d + old + 2, value, add + 1);
+            *p = d;
+            len = need;
         }
     }
 

@@ -366,6 +366,15 @@ struct mp3entry {
     int chapter_count;
     struct audiobook_chapters *audiobook;
 
+    /* ProkBox #167: several artists, album artists or composers (repeated
+     * Vorbis/APE fields, an ID3v2.4 NUL-separated list) are joined with
+     * ", " for display; these hold the byte length of the first (primary)
+     * value, 0 = a single value. The library indexes the primary only
+     * (metadata_keep_primary()). */
+    uint16_t artist_len1;
+    uint16_t albumartist_len1;
+    uint16_t composer_len1;
+
 #if defined(HAVE_IPOD_UI) || defined(HAVE_BCMFW_VIDEO)
     /* Classification must work even when the Videos UI/player is omitted:
      * a real video track never belongs to the Music library. Chapter-image
@@ -391,7 +400,54 @@ struct mp3entry {
 #ifdef HAVE_METADATA_EXTRAS
     struct embedded_lyrics lyrics;
 #endif
+
+#ifdef HAVE_IPOD_UI
+    /* ProkBox 0.9.0 (#235): the sort values ("Sort Artist", "Sort Album",
+     * "Sort Album Artist": ID3 TSOP/TSOA/TSO2, MP4 soar/soal/soaa, Vorbis
+     * and APE ARTISTSORT/ALBUMSORT/ALBUMARTISTSORT, ASF WM/...SortOrder),
+     * in id3v2buf like the display strings and relocated by
+     * adjust_mp3entry(); NULL = none. The library sorts by them and shows
+     * the display strings. Only the first of several values is kept.
+     * Sort Title and Sort Composer are not read (owner, #235 Q: not
+     * stored). */
+    char *sortartist;
+    char *sortalbum;
+    char *sortalbumartist;
+    /* ProkBox 0.9.0 (#286): why this file can't play, from its own
+     * headers at index time (enum unplayable_reason; 0 = it plays). Set
+     * by the format's parser; get_metadata() clears the entry first, so a
+     * parser that knows nothing leaves NONE. The LAST member on purpose:
+     * every other field keeps its offset (codecs and plugins reach the
+     * entry through a pointer; nothing outside this tree sizes it). */
+    uint8_t unplayable_reason;
+#endif
 };
+
+#ifdef HAVE_IPOD_UI
+/* ProkBox 0.9.0 (#286): mp3entry.unplayable_reason. Append-only: the
+ * values are stored in the database (apps/tagcache.h,
+ * TAGCACHE_UI_UNPLAYABLE_*: four bits, so at most 15 reasons) and never
+ * renumbered; a new value is added before UNPLAYABLE_COUNT. A file of a
+ * format we play but whose particular stream we refuse at decode time
+ * only (a rate too high for real time) is not on this list: the reason
+ * must come from headers read at index time. 32-bit FLAC is not on it
+ * either: 0.9.0 plays it (#318). */
+enum unplayable_reason {
+    UNPLAYABLE_NONE = 0,        /* plays */
+    UNPLAYABLE_DRM,             /* encrypted store purchase (.m4p: drms/p608) */
+    UNPLAYABLE_PROTECTED,       /* Audible's .aa / .aax / .aaxc: never decrypted */
+    UNPLAYABLE_CODEC,           /* a container we read, a stream we can't
+                                   decode (an audio codec, or for a video a
+                                   profile, level or size the player refuses) */
+    UNPLAYABLE_COUNT
+};
+#define METADATA_SET_UNPLAYABLE(id3, why) \
+    ((id3)->unplayable_reason = (uint8_t)(why))
+#define METADATA_UNPLAYABLE(id3) ((id3)->unplayable_reason)
+#else
+#define METADATA_SET_UNPLAYABLE(id3, why) ((void)(id3), (void)(why))
+#define METADATA_UNPLAYABLE(id3) ((void)(id3), 0)
+#endif
 
 unsigned int probe_file_format(const char *filename); /* returns audio_fmt */
 bool get_metadata(struct mp3entry* id3, int fd, const char* trackname);
@@ -400,6 +456,14 @@ bool get_metadata_afmt(struct mp3entry* id3, int fd, const char* trackname, int 
 void adjust_mp3entry(struct mp3entry *entry, void *dest, const void *orig);
 void copy_mp3entry(struct mp3entry *dest, const struct mp3entry *orig);
 void wipe_mp3entry(struct mp3entry *id3);
+/* ProkBox #167: the byte length of the primary (first) value of 's', a
+ * string a joined multi-value tag may have produced with length 'len1'
+ * (its *_len1 field); strlen(s) for a single value, 0 for NULL. */
+size_t metadata_primary_len(const char *s, unsigned len1);
+/* ProkBox #167: cut artist, album artist and composer back to their
+ * primary value, in place (for an indexer's own copy: the library keys
+ * its Artists and Composers on the primary). */
+void metadata_keep_primary(struct mp3entry *id3);
 
 void fill_metadata_from_path(struct mp3entry *id3, const char *trackname);
 int get_audio_base_codec_type(int type);

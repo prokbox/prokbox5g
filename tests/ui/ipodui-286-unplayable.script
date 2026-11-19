@@ -1,0 +1,365 @@
+# #286: songs and books the player can't play stay in the library, drawn
+# greyed with the can't-play glyph at the right edge (apps/ipodui/list.c).
+# SELECT on such a row says why (owner, 2026-11-13; screens/noplay.c): a
+# light page over the list, "Can't Play Song" / "Can't Play Audiobook",
+# a heading and one sentence for the reason (protected, or format not
+# supported), OK. Nothing plays, nothing stops, the queue is untouched;
+# OK (SELECT) or MENU returns to the list on the same row and scroll
+# (# same: the list before the press == the list after the page). The
+# video kind (the "Can't Play Video" page) needs the sim with the player:
+# ipodui-p14a-fallback. The reason comes
+# from the parsers at scan time (TAGCACHE_UI_UNPLAYABLE() of the flag
+# word); the lists read it from RAM. Fixtures (tests/fixtures/
+# make_p090f1_fixtures.py), on a disk of their own:
+#   Music/plain.m4a       "Plain", AAC: plays
+#   Music/drm.m4p         "Plain", a protected store purchase (reason 1)
+#   Music/ac3.m4a         "AC3", AC-3 in MP4: no decoder (reason 3)
+#   Music/plain.mp3       "Plain Song": plays
+#   Audiobooks/book.aax   "Plain", a protected audiobook (reason 2)
+#   Audiobooks/book.aa    "Protected Book", Audible .aa (reason 2)
+#   Audiobooks/type.m4b   "Classify Type Book": plays
+#   Podcasts/ac3.m4a      "AC3" again, a podcast episode (the folder):
+#                         no decoder (reason 3)
+# The loose ends (2026-11-13, p090-286tail), each asserted below:
+#   - Search draws a result that can't play greyed with the glyph, as
+#     the library's lists (one helper: the list's unplayable callback on
+#     lib_row_unplayable(); a book result reads its book's file):
+#     "noplay row=... why=3" between ab_mark s0/s1 (the "ac" results),
+#     "why=2" between b0/b1 (the "pro" results, Protected Book); SELECT
+#     on the book result shows the page (kind=book), not the
+#     book's own page; on the episode result "Can't Play Episode".
+#   - On-The-Go draws its unplayable rows greyed (o0/o1: row 1, the
+#     .m4p, why=1); SELECT on it shows the page ("otg list noplay
+#     select row=1 why=1") and plays nothing (expect_stopped); SELECT on
+#     a playable row plays from there, as before (expect_queue 2
+#     /Music/plain.m4a).
+#   - A podcast episode gets "Can't Play Episode" (kind=episode), in
+#     Podcasts and in Search.
+#   - The hold menu never offers Add to On-The-Go for a row that can't
+#     play (the item is left out, as for a video; the menu has no greyed
+#     items): the .m4p song items=76 (Browse Album, Browse Artist,
+#     Cancel), the protected book and the episode items=64 (Cancel).
+#     A playable album row keeps it (items=65) and adds both its songs.
+#   - (p090-int3; orchestrator, 2026-11-13) a row that can't play shows
+#     no blue "unplayed" dot: the never-played AC3 episode (podcast) and
+#     its show, whose only episode it is (podcast_shows). The golden
+#     regions cover the dot column only, every row (episodes x 0-16,
+#     shows x 56-78). Red on the p090-int3 merge sim (library.c before
+#     the fix): 76 dot pixels in each region.
+# Red (the p090-286why sim, before these): no search/OTG "noplay row"
+# lines between the marks, OTG SELECT plays (no "otg list noplay"),
+# kind=song for the episode, items=77/65 on the greyed rows.
+# The sim build has no video player (HAVE_BCMFW_VIDEO), so Videos is not
+# shown; the album track list (Unknown Album) stands in for it.
+# Red without the greying: no "noplay row" line (list.c's sim trace of a
+# greyed row); without the SELECT guard (screens/browse.c) the press
+# plays the list from that row and expect_stopped fails. Red (2026-11-13)
+# with the guard back to "does nothing": no "noplay page" lines, the
+# page shots equal the lists; with the page stopping the audio: the
+# "audio=1" lines and expect_playing fail.
+# The glyph's place (list.c's "noplay glyph" trace: its ink's top-left,
+# 13 px square, in the row; owner 2026-11-13, option A, a little bigger
+# and centred): right-aligned to x 313, where the chevron's ink ends;
+# centred on the text, so y 14 in a 44 px song row (the two-line block,
+# 6-34), y 20 in a 55 px book row (block 12-40) and y 6 in a 25 px track
+# row (cap rows 7-17). Red: a 1 px move (y=15 in the song row) fails.
+# The queue [playable, unplayable, playable] skips the middle entry:
+# wait_index 3 reaches the third.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-286-unplayable.script
+# disk: bare
+# disk-file: tests/fixtures/f1/plain.m4a Music/plain.m4a
+# disk-file: tests/fixtures/f1/drm.m4p Music/drm.m4p
+# disk-file: tests/fixtures/f1/ac3.m4a Music/ac3.m4a
+# disk-file: tests/fixtures/plain.mp3 Music/plain.mp3
+# disk-file: tests/fixtures/f1/book.aax Audiobooks/book.aax
+# disk-file: tests/fixtures/f1/book.aa Audiobooks/book.aa
+# disk-file: tests/ui/fixtures/p146/type.m4b Audiobooks/type.m4b
+# disk-file: tests/fixtures/f1/ac3.m4a Podcasts/ac3.m4a
+# log: noplay row=
+# log: why=1 sel=
+# log: why=2 sel=
+# log: why=3 sel=
+# log: noplay glyph row=0 x=301 y=14 d=13 h=44
+# log: noplay glyph row=1 x=301 y=20 d=13 h=55
+# log: noplay glyph row=1 x=301 y=6 d=13 h=25
+# log: noplay page why=3 kind=song audio=0
+# log: noplay page why=1 kind=song audio=0
+# log: noplay page why=2 kind=book audio=1
+# log: noplay page why=1 kind=song audio=1
+# log: noplay page dismiss key=menu audio=0
+# log: noplay page dismiss key=select audio=0
+# log: noplay page dismiss key=menu audio=1
+# log: noplay page dismiss key=select audio=1
+# expect-file: /.rockbox/ipodui.log list can't play why=2 kind=1
+# log: expect_queue ok n=2
+# log: expect_playing ok
+# log: stats finish idx=0
+# nolog: stats finish idx=1
+# nolog: expect_playing failed
+# nolog: expect_queue failed
+# nolog: splash-suppressed
+# same: songs songs_back
+# same: songs_drm songs_drm_back
+# same: books books_back
+# same: album album_back
+# same: search search_back
+# log: search noplay select row=
+# log: noplay page why=3 kind=song audio=1
+# logbetween: s0 s1 noplay row=\d+ why=3 sel=
+# logbetween: s0 s1 noplay page why=3 kind=episode
+# logbetween: b0 b1 noplay row=\d+ why=2 sel=
+# logbetween: b0 b1 noplay page why=2 kind=book
+# logbetween: o0 o1 noplay row=1 why=1 sel=
+# logbetween: o0 o1 otg list noplay select row=1 why=1
+# logbetween: o0 o1 noplay page why=1 kind=song audio=0
+# logbetween: p0 p1 noplay page why=3 kind=episode audio=0
+# logbetween: p0 p1 hold open ctx=song items=64
+# logbetween: h0 h1 hold open ctx=song items=76
+# logbetween: h2 h3 hold open ctx=group items=64
+# logbetween: h4 h5 hold open ctx=group items=65
+# logbetween: h4 h5 hold act add rc=2
+# log: expect_queue ok n=2 first=/Music/plain.m4a
+# nolog: hold open ctx=song items=77
+# nolog: otg list noplay select row=0
+# same: otg_sel otg_back
+# same: podcast podcast_back
+# golden: skip songs songs_back song_format songs_drm songs_drm_back song_protected hold_song books books_back book_protected hold_book album album_back album_page search search_page search_back search_ep episode_search_page search_book search_book_page otg otg_sel otg_page otg_back episode_page podcast_back hold_episode
+# golden-region: podcast_shows 56 20 79 240
+# golden-region: podcast 0 20 17 240
+# timeout: 300
+
+wait 1000
+wait_db 30000
+repeat off
+key SELECT          # Music
+wait 800
+wheel +3            # Songs
+wait 300
+key SELECT
+wait 2000
+shot songs          # AC3 selected (greyed, can't play), the rest below
+expect_drawn AC3
+expect_drawn Plain Song
+
+# SELECT on the unplayable row: the page says why; nothing plays
+key SELECT
+wait 1500
+shot song_format    # Can't Play Song: Format not supported
+expect_stopped
+key MENU            # back to Songs, AC3 still selected
+wait 1200
+shot songs_back
+wheel +2            # the second "Plain": the protected purchase (.m4p)
+wait 600
+shot songs_drm
+key SELECT
+wait 1500
+shot song_protected # Can't Play Song: Protected file
+expect_stopped
+key SELECT          # OK
+wait 1200
+shot songs_drm_back
+ab_mark h0
+hold SELECT 1500    # the hold menu on the .m4p: no Add to On-The-Go
+wait 600
+shot hold_song      # Browse Album / Browse Artist / Cancel
+key MENU            # Cancel
+wait 800
+ab_mark h1
+key MENU            # Music
+wait 700
+
+# Now with a song playing (two in the queue, the first on repeat one, so
+# the playing track and its mark hold still): the pages leave it alone
+repeat one
+play_files /Music/plain.mp3 /Music/plain.m4a
+wait 800
+expect_playing 300
+wheel +3            # Audiobooks (Songs + 3)
+wait 300
+key SELECT
+wait 2000
+wheel +1            # "Plain" (.aax): greyed
+wait 600
+shot books
+expect_drawn Protected Book
+expect_drawn Classify Type Book
+key SELECT          # Can't Play Audiobook: Protected file
+wait 1500
+shot book_protected
+expect_playing 500
+expect_queue 2 /Music/plain.mp3
+key MENU            # back to Audiobooks, "Plain" still selected
+wait 1200
+shot books_back
+expect_playing 300
+ab_mark h2
+hold SELECT 1500    # the protected book: Cancel only
+wait 600
+shot hold_book
+key MENU
+wait 800
+ab_mark h3
+key MENU            # Music
+wait 700
+
+wheel -4            # Albums
+wait 300
+key SELECT
+wait 800
+wheel +2            # Plain Artist's Unknown Album
+wait 300
+key SELECT          # its track list: Plain (plays), Plain (.m4p)
+wait 2000
+expect_drawn Plain
+wheel +1            # the .m4p: greyed
+wait 600
+shot album
+key SELECT
+wait 1500
+shot album_page     # Can't Play Song: Protected file, over the album
+expect_playing 300
+expect_queue 2 /Music/plain.mp3
+key SELECT          # OK
+wait 1200
+shot album_back
+expect_playing 300
+key MENU            # Albums
+wait 600
+ab_mark h4
+hold SELECT 1500    # Plain Artist's Unknown Album: it plays, so Add
+wait 600
+key SELECT          # Add to On-The-Go: Plain (.m4a), Plain (.m4p)
+wait 800
+ab_mark h5
+key MENU            # Music, Albums selected
+wait 600
+
+# Search: a result that can't play gets the same page (search.c)
+wheel +5 300        # Search (Albums + 5: no Compilations here)
+wait 400
+ab_mark s0
+key SELECT
+wait 800
+type ac
+wait 800
+key MENU            # the strip hides: the first result selected
+wait 800
+shot search
+expect_drawn AC3
+key SELECT
+wait 1500
+shot search_page    # Can't Play Song: Format not supported
+expect_playing 300
+expect_queue 2 /Music/plain.mp3
+key MENU
+wait 1200
+shot search_back
+expect_playing 300
+wheel +1 300        # the episode "AC3" (its podcast)
+wait 600
+shot search_ep
+key SELECT
+wait 1500
+shot episode_search_page    # Can't Play Episode: Format not supported
+expect_playing 300
+key MENU
+wait 1200
+ab_mark s1
+audio_stop
+repeat off
+wait 500
+key MENU            # Music (the strip is hidden: MENU leaves Search)
+wait 600
+
+# Search again: a book result that can't play (Protected Book)
+ab_mark b0
+key SELECT          # Search
+wait 800
+type pro
+wait 800
+key MENU            # the strip hides: the first result selected
+wait 800
+shot search_book
+expect_drawn Protected Book
+key SELECT
+wait 1500
+shot search_book_page   # Can't Play Audiobook: Protected file
+expect_stopped
+key MENU
+wait 1200
+ab_mark b1
+key MENU            # Music
+wait 600
+
+# On-The-Go: Plain (plays), Plain (.m4p, greyed)
+wheel -7 300        # Playlists (Search - 7)
+wait 400
+key SELECT
+wait 800
+ab_mark o0
+key SELECT          # On-The-Go
+wait 1200
+shot otg
+wheel +1 300        # the .m4p
+wait 600
+shot otg_sel
+key SELECT
+wait 1500
+shot otg_page       # Can't Play Song: Protected file
+expect_stopped
+key MENU
+wait 1200
+shot otg_back
+ab_mark o1
+wheel -1 300        # Plain (.m4a): plays On-The-Go from there
+wait 600
+key SELECT
+wait 1500
+expect_playing 300
+expect_queue 2 /Music/plain.m4a
+audio_stop
+wait 500
+key MENU            # Now Playing -> On-The-Go
+wait 800
+key MENU            # Playlists
+wait 600
+key MENU            # Music
+wait 600
+key MENU            # main menu
+wait 600
+
+# Podcasts: the episode that can't play
+wheel +1 300        # Podcasts
+wait 400
+key SELECT
+wait 800
+shot podcast_shows  # the show: no unplayed dot (its one episode can't play)
+key SELECT          # the show (Unknown Album)
+wait 1200
+ab_mark p0
+shot podcast
+key SELECT
+wait 1500
+shot episode_page   # Can't Play Episode: Format not supported
+expect_stopped
+key MENU
+wait 1200
+shot podcast_back
+hold SELECT 1500    # an episode that can't play: Cancel only
+wait 600
+shot hold_episode
+key MENU
+wait 800
+ab_mark p1
+key MENU            # Podcasts
+wait 600
+key MENU            # main menu
+wait 600
+
+# The queue: playable, unplayable, playable
+play_files /Music/plain.mp3 /Music/drm.m4p /Music/plain.m4a
+wait 500
+expect_playing 500
+wait_index 3 30000  # the third (plain.m4a, ~1 s) after the first
+quit

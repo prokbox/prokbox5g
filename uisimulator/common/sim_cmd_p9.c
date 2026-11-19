@@ -123,13 +123,18 @@ static void alloc_dump(void)
 /* the core lang_size of a .lng (subheader 0), as apps/language.c reads it */
 static int lng_core_size(const char *path)
 {
-    unsigned char hdr[10];
+    /* tools/genlang: a 4-byte header (version 6), or 8 with the shell's
+     * string-table hash (version 0x87), then the core subheader */
+    unsigned char hdr[14];
     int size = -1;
     int fd = open(path, O_RDONLY);
     if (fd < 0)
         return -1;
     if (read(fd, hdr, sizeof hdr) == (ssize_t)sizeof hdr)
-        size = (hdr[6] << 8) | hdr[7];
+    {
+        int h = hdr[1] == 0x87 ? 8 : 4;
+        size = (hdr[h + 2] << 8) | hdr[h + 3];
+    }
     close(fd);
     return size;
 }

@@ -99,6 +99,8 @@
 #include "errno.h"
 #if defined(HAVE_IPOD_UI) && !defined(PLUGIN) && !defined(__PCTOOL__)
 #include "ipodui/sortkey.h"
+#include "ipodui/libstamp.h"  /* p090-upgpage: the library stamp */
+#include "version.h"          /* prokversion: the stamp's fw */
 #include "audio.h"
 #include "power.h"
 #include "powermgmt.h"   /* #237: battery_level() */
@@ -226,6 +228,19 @@ static volatile bool tagcache_usb_quiescing;
  * test) only re-sorts the tag files once (ui_resort_owed()). Not for the db_commit plugin (PLUGIN): it sorts the stock way,
  * so it must not write a database the shell takes as its own. */
 #define TAGCACHE_MAGIC  (0x544348a0 + SORTKEY_VERSION)
+/* p090-upgpage: the library stamp's format field is this magic */
+typedef char tagcache_libstamp_check[
+    TAGCACHE_MAGIC == LIBSTAMP_DB_MAGIC ? 1 : -1];
+/* 0.9.0 (docs/changes-from-rockbox.md 3.1): the 0.8.x format, SORTKEY_VERSION
+ * 2, whose library the first 0.9.0 boot rebuilds once. It is read for one
+ * thing only: the statistics export that the rebuild imports
+ * (ui_upgrade_export()), so play counts, ratings and resume points come
+ * over whole; every other reader refuses it as before. Moves with the
+ * next bump (tests/p090 pins both numbers). */
+#define TAGCACHE_UI_UPGRADE_FROM 2
+#define TAGCACHE_MAGIC_PREV (0x544348a0 + TAGCACHE_UI_UPGRADE_FROM)
+typedef char tagcache_ui_upgrade_check[
+    TAGCACHE_UI_UPGRADE_FROM < SORTKEY_VERSION ? 1 : -1];
 #else
 #define TAGCACHE_MAGIC  0x54434810
 #endif
@@ -322,6 +337,17 @@ typedef char tagcache_ui_flag_check_all[
         | FLAG_UI_STATS_FOLDED))
     == 0
     && (TAGCACHE_UI_VIDEO_CHECKED & TAGCACHE_UI_VIDEO_OTHER) == 0 ? 1 : -1];
+/* 0.9.0 (#286): the unplayable reason's four bits are apart from every
+ * other bit, and hold every reason */
+typedef char tagcache_ui_unplayable_check[
+    (TAGCACHE_UI_UNPLAYABLE_MASK
+     & (TAGCACHE_UI_AUDIOBOOK | TAGCACHE_UI_PODCAST | TAGCACHE_UI_COMPILATION
+        | TAGCACHE_UI_VIDEO | TAGCACHE_UI_TV | TAGCACHE_UI_VIDEO_CHECKED
+        | TAGCACHE_UI_VIDEO_OTHER | FLAG_DELETED | FLAG_DIRCACHE
+        | FLAG_DIRTYNUM | FLAG_TRKNUMGEN | FLAG_RESURRECTED
+        | FLAG_UI_STATS_PENDING | FLAG_UI_STATS_REPLAYED
+        | FLAG_UI_STATS_FOLDED)) == 0
+    && UNPLAYABLE_COUNT - 1 <= 0xf ? 1 : -1];
 #endif
 #ifdef HAVE_BCMFW_VIDEO
 typedef char tagcache_ui_video_flag_check[
@@ -742,6 +768,7 @@ static long ui_changelog_scan(char *name);
 static bool ui_candidate_publish(void);
 static bool ui_candidate_stats_prepare(void);
 static bool ui_candidate_stats_finish(void *buffer, size_t bytes);
+static bool ui_candidate_stats_settle(void);
 static void ui_candidate_stats_release(void);
 #ifdef SIMULATOR
 static void sim_commit_hold(int point);
@@ -964,6 +991,27 @@ static unsigned ui_yields;
 /* ui_candidate_publish() refused only because a reader holds the active
  * library (retried within a second: no yield for that) */
 static bool ui_publish_busy;
+/* p090-floor3: a cold start of playback asks this thread to give back
+ * what the library holds that the audio buffer could have, before the
+ * buffer is sized (tagcache_ui_play_release(), audio thread). The
+ * request: ui_play_req and its sequence number (the audio thread's);
+ * ui_play_cand: the candidate's RAM cache goes too (only when the buffer
+ * would be short); ui_play_done_seq: the request served (this thread's).
+ * ui_publish_cuttable: a publication not yet in its locked part, which
+ * a request stops at its next cancel check. tc_in_wait: this thread is
+ * in its queue wait (the request posts a kick). */
+static volatile bool ui_play_req, ui_play_cand, ui_publish_cuttable;
+static volatile unsigned ui_play_req_seq, ui_play_done_seq;
+static volatile bool tc_in_wait;
+static bool ui_walk_play_cut;   /* the deleted pass stopped for PLAY */
+#define UI_PLAY_WAIT_MS   150   /* PLAY waits at most this long */
+/* p090-artrelease: of which the retired generation's reader may take */
+#define UI_PLAY_RETRY_TICKS (HZ / 10)
+/* the buffer's slack above the floor that needs no release: the worst
+ * stack of shell transients the floor gate measures below the size the
+ * buffer starts at (1.0 MB at 65k) and the statistics replay after a
+ * publication (0.85 MB), rounded up */
+#define UI_PLAY_HEADROOM  (2 * 1024 * 1024)
 /* beside the commit's own peak, a window's take covers two generation
  * buffers (UI_GENERATION_BYTES) and a margin for small allocations */
 #define UI_MAINT_SLACK (2 * 16 * 1024 + 64 * 1024)
@@ -1481,6 +1529,15 @@ static int NO_INLINE remove_db_file(TC_CTX_PARAM const char* filename)
     return remove(buf);
 }
 
+#if defined(UI_COLLATE) && defined(UI_COMMIT)
+/* 0.9.0 (3.1): true only while ui_upgrade_export() reads the 0.8.x
+ * library; tagcache thread only */
+static bool ui_upgrade_read;
+#define UI_UPGRADE_MAGIC(m) (ui_upgrade_read && (m) == TAGCACHE_MAGIC_PREV)
+#else
+#define UI_UPGRADE_MAGIC(m) false
+#endif
+
 static int open_tag_fd(TC_CTX_PARAM struct tagcache_header *hdr, int tag, bool write)
 {
     int fd;
@@ -1504,7 +1561,7 @@ static int open_tag_fd(TC_CTX_PARAM struct tagcache_header *hdr, int tag, bool w
 
     /* Check the header. */
     if (read_tagcache_header(TC_CTX_ARG(ctx) fd, hdr) != sizeof(struct tagcache_header) ||
-        hdr->magic != TAGCACHE_MAGIC
+        (hdr->magic != TAGCACHE_MAGIC && !UI_UPGRADE_MAGIC(hdr->magic))
 #ifdef UI_COMMIT
         || hdr->datasize < 0 || hdr->entry_count < 0
         || ffilesize(fd) < (off_t)sizeof(*hdr) + hdr->datasize
@@ -1555,7 +1612,7 @@ static int open_master_fd(TC_CTX_PARAM struct master_header *hdr, bool write)
     /* Tagcache files can have either endianness. A device will always
      * create files in its native endianness, but we accept non-native
      * endian files for compatibility reasons. */
-    if (hdr->tch.magic == TAGCACHE_MAGIC)
+    if (hdr->tch.magic == TAGCACHE_MAGIC || UI_UPGRADE_MAGIC(hdr->tch.magic))
         TC_STAT(ctx).econ = false;
 #ifdef TAGCACHE_SUPPORT_FOREIGN_ENDIAN
     else if (hdr->tch.magic == swap32(TAGCACHE_MAGIC))
@@ -1624,6 +1681,11 @@ static void remove_files(void)
  * !ready). Set at the boot's select or header check; cleared at USB (the
  * host may remove it), never by a candidate's own header check. */
 static bool ui_master_dirty;
+/* p090-upgpage: the boot found another firmware's library (its stamp not
+ * ours: ipodui/libstamp.h): it cannot be shown at all, so its rebuild is a
+ * first build's, behind the library page (tagcache_ui_no_library() 2),
+ * not a silent one. Until this firmware's library is published. */
+static bool ui_upgrade_owed;
 #endif
 
 static bool check_all_headers(TC_CTX_ONLY)
@@ -2035,6 +2097,8 @@ struct ui_name_key {
     uint32_t h1, h2;
     int32_t idx_id;
 };
+/* the largest such table ui_import_table() allocates */
+#define UI_IMPORT_TABLE_MAX (2 * 1024 * 1024)
 /* A sorted table of them (ui_import_table()), movable */
 struct ui_import {
     long masterfd;
@@ -3593,6 +3657,49 @@ static inline void write_item(const char *item)
     write(cachefd, item, len);
 }
 
+#ifdef UI_COLLATE
+/* 0.9.0 (#235, docs/changes-from-rockbox.md 3.11): every sorted string
+ * tag is stored as "display NUL sort NUL" (the sort value empty for all
+ * but artist, album, album artist and the canonical artist), in the temp
+ * file and in the tag files, so the RAM cache holds the sort value right
+ * behind the display string (ui_sort_of(), sortkey.h) for the lists, at no
+ * index cost. Readers that take the entry as a C string see the display
+ * string only, as before (the entries were already NUL padded). */
+static const char *tc_sort_value(const char *sort)
+{
+    return sort && sort[0] ? sort : "";
+}
+
+static int tc_sort_len(const char *sort, int display_len)
+{
+    int len = strlen(tc_sort_value(sort));
+
+    /* both fit TAG_MAXLEN or the sort value is dropped */
+    return display_len + len + 1 > TAG_MAXLEN ? 1 : len + 1;
+}
+
+static inline void write_item2(const char *item, const char *sort)
+{
+    int len = strlen(item) + 1;
+    int slen = tc_sort_len(sort, len);
+
+    write_item(item);
+    data_size += slen;
+    if (slen > 1)
+        write(cachefd, tc_sort_value(sort), slen);
+    else
+        write(cachefd, "", 1);
+}
+
+/* The bytes of a stored sorted-tag string: display and sort value */
+static inline int tc_entry_len(const char *str)
+{
+    int len = strlen(str) + 1;
+
+    return len + strlen(str + len) + 1;
+}
+#endif
+
 static int check_if_empty(char **tag)
 {
     int length;
@@ -3728,6 +3835,16 @@ static void NO_INLINE add_tagcache(char *path, unsigned long mtime)
         entry.tag_length[tag] = check_if_empty(data); \
         entry.tag_offset[tag] = offset;               \
         offset += entry.tag_length[tag]
+#ifdef UI_COLLATE
+    /* 0.9.0 (#235): a sorted tag carries its sort value (write_item2()) */
+    #define ADD_TAG2(entry, tag, data, sort) \
+        ADD_TAG(entry, tag, data); \
+        entry.tag_length[tag] += tc_sort_len(sort, entry.tag_length[tag]); \
+        offset = entry.tag_offset[tag] + entry.tag_length[tag]
+#else
+    #define ADD_TAG2(entry, tag, data, sort) ADD_TAG(entry, tag, data)
+    #define write_item2(item, sort) write_item(item)
+#endif
 
     struct mp3entry id3;
     struct temp_file_entry entry;
@@ -3943,6 +4060,8 @@ static void NO_INLINE add_tagcache(char *path, unsigned long mtime)
                      | TAGCACHE_UI_VIDEO_OTHER;
 #endif
     }
+    /* 0.9.0 (#286): the parser's reason, for every list (tagcache.h) */
+    entry.flag |= TAGCACHE_UI_UNPLAYABLE_FLAG(id3.unplayable_reason);
 #endif
 
     /* Numeric tags */
@@ -3953,35 +4072,49 @@ static void NO_INLINE add_tagcache(char *path, unsigned long mtime)
     entry.tag_offset[tag_bitrate] = id3.bitrate;
     entry.tag_offset[tag_mtime] = mtime;
 
-    /* String tags. */
+    /* String tags. ProkBox #167: Artists and Composers key on the primary
+     * (first) of several values; Now Playing shows them joined. */
+    metadata_keep_primary(&id3);
     has_artist = id3.artist != NULL
         && strlen(id3.artist) > 0;
     has_grouping = id3.grouping != NULL
         && strlen(id3.grouping) > 0;
 
+#ifdef UI_COLLATE
+    /* 0.9.0 (#235): the sort values, none for an untagged field */
+    const char *s_artist = id3.artist && id3.artist[0] ? id3.sortartist : NULL;
+    const char *s_album = id3.album && id3.album[0] ? id3.sortalbum : NULL;
+    const char *s_aartist = id3.albumartist && id3.albumartist[0]
+                            ? id3.sortalbumartist : NULL;
+#else
+#define s_artist NULL
+#define s_album NULL
+#define s_aartist NULL
+#endif
     ADD_TAG(entry, tag_filename, &path);
-    ADD_TAG(entry, tag_title, &id3.title);
-    ADD_TAG(entry, tag_artist, &id3.artist);
-    ADD_TAG(entry, tag_album, &id3.album);
-    ADD_TAG(entry, tag_genre, &id3.genre_string);
-    ADD_TAG(entry, tag_composer, &id3.composer);
-    ADD_TAG(entry, tag_comment, &id3.comment);
-    ADD_TAG(entry, tag_albumartist, &id3.albumartist);
+    ADD_TAG2(entry, tag_title, &id3.title, NULL);
+    ADD_TAG2(entry, tag_artist, &id3.artist, s_artist);
+    ADD_TAG2(entry, tag_album, &id3.album, s_album);
+    ADD_TAG2(entry, tag_genre, &id3.genre_string, NULL);
+    ADD_TAG2(entry, tag_composer, &id3.composer, NULL);
+    ADD_TAG2(entry, tag_comment, &id3.comment, NULL);
+    ADD_TAG2(entry, tag_albumartist, &id3.albumartist, s_aartist);
     if (has_artist)
     {
-        ADD_TAG(entry, tag_virt_canonicalartist, &id3.artist);
+        ADD_TAG2(entry, tag_virt_canonicalartist, &id3.artist, s_artist);
     }
     else
     {
-        ADD_TAG(entry, tag_virt_canonicalartist, &id3.albumartist);
+        ADD_TAG2(entry, tag_virt_canonicalartist, &id3.albumartist,
+                 s_aartist);
     }
     if (has_grouping)
     {
-        ADD_TAG(entry, tag_grouping, &id3.grouping);
+        ADD_TAG2(entry, tag_grouping, &id3.grouping, NULL);
     }
     else
     {
-        ADD_TAG(entry, tag_grouping, &id3.title);
+        ADD_TAG2(entry, tag_grouping, &id3.title, NULL);
     }
     entry.data_length = offset;
 
@@ -3990,33 +4123,40 @@ static void NO_INLINE add_tagcache(char *path, unsigned long mtime)
 
     /* And tags also... Correct order is critical */
     write_item(path);
-    write_item(id3.title);
-    write_item(id3.artist);
-    write_item(id3.album);
-    write_item(id3.genre_string);
-    write_item(id3.composer);
-    write_item(id3.comment);
-    write_item(id3.albumartist);
+    write_item2(id3.title, NULL);
+    write_item2(id3.artist, s_artist);
+    write_item2(id3.album, s_album);
+    write_item2(id3.genre_string, NULL);
+    write_item2(id3.composer, NULL);
+    write_item2(id3.comment, NULL);
+    write_item2(id3.albumartist, s_aartist);
     if (has_artist)
     {
-        write_item(id3.artist);
+        write_item2(id3.artist, s_artist);
     }
     else
     {
-        write_item(id3.albumartist);
+        write_item2(id3.albumartist, s_aartist);
     }
     if (has_grouping)
     {
-        write_item(id3.grouping);
+        write_item2(id3.grouping, NULL);
     }
     else
     {
-        write_item(id3.title);
+        write_item2(id3.title, NULL);
     }
 
     total_entry_count++;
 
     #undef ADD_TAG
+    #undef ADD_TAG2
+#ifndef UI_COLLATE
+#undef write_item2
+#undef s_artist
+#undef s_album
+#undef s_aartist
+#endif
 }
 #endif /*!defined(PLUGIN)*/
 
@@ -4209,10 +4349,45 @@ static void bt_ramimg(void)
 #define BT_END()    do { } while (0)
 #endif
 
+#ifdef UI_COLLATE
+/* 0.9.0 (#235): one tag-file entry per case-class of a display string
+ * (#47), so one sort value per class: the newest non-empty one read wins.
+ * The temp file's entries come after the old tag file's in an update (a
+ * re-read file's edited Sort Artist re-sorts its class); in a full build
+ * the last file scanned with one wins. An empty sort value never clears
+ * one (another file of the class may simply lack the tag). The entry is
+ * copied again into the commit buffer when the value changes; no room:
+ * the old value stays, logged. */
+static void ui_sort_refresh(struct tempbuf_searchidx *e, const char *str,
+                            int len)
+{
+    const char *ns = ui_sort_of(str), *os = ui_sort_of(e->str);
+
+    if (ns == str || (os != e->str && !strcmp(ns, os)))
+        return;
+    if (tempbuf_left - 4 - len < 0)
+    {
+        logf("tagcache: sort value kept (buffer)");
+        return;
+    }
+    e->str = &tempbuf[tempbuf_pos];
+    memcpy(e->str, str, len);
+    tempbuf_pos += len;
+    tempbuf_left -= len;
+}
+#define UI_SORT_REFRESH(e, str, len) ui_sort_refresh(e, str, len)
+#else
+#define UI_SORT_REFRESH(e, str, len) ((void)0)
+#endif
+
 static bool tempbuf_insert(char *str, int id, int idx_id, bool unique)
 {
     struct tempbuf_searchidx *index = (struct tempbuf_searchidx *)tempbuf;
+#ifdef UI_COLLATE
+    int len = tc_entry_len(str);    /* display and sort value (#235) */
+#else
     int len = strlen(str)+1;
+#endif
     int i;
     unsigned *crcbuf = (unsigned *)&tempbuf[tempbuf_size-4];
     unsigned crc32 = 0xffffffff;
@@ -4240,6 +4415,7 @@ static bool tempbuf_insert(char *str, int id, int idx_id, bool unique)
                 return false;
             }
             lookup[id] = &index[i];
+            UI_SORT_REFRESH(&index[i], str, len);
             return true;
         }
     }
@@ -4283,6 +4459,7 @@ static bool tempbuf_insert(char *str, int id, int idx_id, bool unique)
                 }
 
                 lookup[id] = &index[i];
+                UI_SORT_REFRESH(&index[i], str, len);
                 return true;
             }
         }
@@ -4310,6 +4487,7 @@ static bool tempbuf_insert(char *str, int id, int idx_id, bool unique)
                 }
 
                 lookup[id] = &index[i];
+                UI_SORT_REFRESH(&index[i], str, len);
                 return true;
             }
         }
@@ -4399,12 +4577,12 @@ static int compare(const void *p1, const void *p2)
 
         if (!a)
         {
-            ui_groupkey(e1->str, k1, sizeof(k1));
+            ui_groupkey(ui_sort_of(e1->str), k1, sizeof(k1));
             a = k1;
         }
         if (!b)
         {
-            ui_groupkey(e2->str, k2, sizeof(k2));
+            ui_groupkey(ui_sort_of(e2->str), k2, sizeof(k2));
             b = k2;
         }
         r = strcmp(a, b);
@@ -4412,10 +4590,12 @@ static int compare(const void *p1, const void *p2)
             return r;
         /* #47: the shell's group order (library.c cmp_groups()): the
          * group key, then the case-folded name (#245: equal bytes are
-         * equal case-folded: the same title on many tracks) */
+         * equal case-folded: the same title on many tracks); 0.9.0
+         * (#235): ui_sortcmp()'s levels, the sort value first */
         if (!strcmp(e1->str, e2->str))
             return 0;
-        return ui_casefold_cmp(e1->str, e2->str);
+        r = ui_casefold_cmp(ui_sort_of(e1->str), ui_sort_of(e2->str));
+        return r ? r : ui_casefold_cmp(e1->str, e2->str);
     }
 #else
     return strncasecmp(e1->str, e2->str, TAG_MAXLEN);
@@ -4436,7 +4616,7 @@ static void ui_precompute_keys(struct tempbuf_searchidx *index, int count)
 
     for (i = 0; i < count; i++)
     {
-        int len = ui_groupkey(index[i].str, key, sizeof(key)) + 1;
+        int len = ui_groupkey(ui_sort_of(index[i].str), key, sizeof(key)) + 1;
 
         if (tempbuf_left - 4 - len < 0)
             break;
@@ -4533,7 +4713,11 @@ static int tempbuf_sort(int fd)
         }
 
         index[i].seek = TC_TELL(fd);
+#ifdef UI_COLLATE
+        length = tc_entry_len(index[i].str);    /* with its sort value */
+#else
         length = strlen(index[i].str) + 1;
+#endif
         fe.tag_length = length;
         fe.idx_id = index[i].idx_id;
 
@@ -5647,16 +5831,30 @@ static bool ui_commit_buffer(const struct tagcache_header *tmph,
            (unsigned long)reload, audio ? ", audio on" : "");
 
     /* #88: paused, inside the window, one partial shrink makes room for
-     * the commit's peak (its buffer, or the reload after it, and two
-     * generation buffers), if the audio buffer stays above the floor */
+     * the commit's peak, if the audio buffer stays above the floor. The
+     * commit's buffer is freed when commit() returns, before the
+     * publication's phase: the RAM cache load (allocate_tagcache()), the
+     * statistics lookup the candidate's prepare builds (ui_import_table(),
+     * 12 B an entry) and the view pool its publication takes
+     * (lib_generation_pool_prepare()). So the peak is the larger of the
+     * two phases, not their sum, plus two generation buffers and a margin
+     * (UI_MAINT_SLACK). p090-floor: the sum, with the pool guessed at 16
+     * B an entry, asked 0.35 MB more of the paused buffer than the job
+     * holds at 65k (the 64 MB floor, docs/hardware.md). p090-floor2: the
+     * lookup is freed before the pool is taken
+     * (ui_candidate_stats_settle()), so the second phase holds the reload
+     * and the larger of the two, not both (-780 KB at 65k). */
     if (audio && (avail < reload || (steal < need && avail < need + 64)))
     {
-        /* after the commit: the reload, the candidate's view pool
-         * (lib_generation_pool_prepare(), ~12 B an entry + 64 KB) */
-        size_t pool = (size_t)(current_tcmh.tch.entry_count + tmph->entry_count)
-                      * 16 + 64 * 1024;
-        size_t peak = MAX(steal < need ? need + 64 : 0, reload) + pool
-                      + UI_MAINT_SLACK;
+        long n = (long)current_tcmh.tch.entry_count + tmph->entry_count;
+        size_t pool = lib_generation_pool_want(n);
+        size_t stats = (size_t)n * sizeof(struct ui_name_key);
+        size_t peak;
+
+        if (stats > UI_IMPORT_TABLE_MAX)
+            stats = 0;              /* the sequential lookup: no table */
+        peak = MAX(steal < need ? need + 64 : 0,
+                   reload + MAX(stats, pool)) + UI_MAINT_SLACK;
 
         ui_maint_need = peak;
         if (maint_take(MAINT_COMMIT, peak))
@@ -5805,7 +6003,8 @@ static bool ui_generation_cancel(void *opaque)
             || queue_peek_ex(&tagcache_queue, NULL, 0,
                              QPEEK_FILTER1(SYS_USB_CONNECTED));
     }
-    return check_event_queue() || ui_commit_cancel;
+    return check_event_queue() || ui_commit_cancel
+        || (ui_publish_cuttable && ui_play_req);   /* p090-floor3 */
 }
 
 /* 0..5 for the six runtime statistics, -1 for any other tag */
@@ -6020,13 +6219,20 @@ static void ui_generation_note(const char *line)
     ui_log("db", "%s", line);
 }
 
+/* p090-upgpage: this firmware's library stamp (written into every
+ * manifest it publishes) and the last stale one the boot's selection
+ * refused; the tagcache thread's only (every dbgen call is made there) */
+static struct libstamp ui_stamp_ours, ui_stamp_found;
+
 static struct dbgen_ops ui_generation_ops(struct ui_generation_io *io)
 {
+    if (!ui_stamp_ours.db_magic)
+        libstamp_ours(&ui_stamp_ours, prokversion);
     struct dbgen_ops ops = {
         ui_generation_files, ARRAYLEN(ui_generation_files),
         ui_generation_validate, ui_generation_cancel, io,
         ui_generation_chain, ui_generation_note, chain_cache_drop,
-        io ? io->crc : NULL
+        io ? io->crc : NULL, &ui_stamp_ours, &ui_stamp_found
     };
     return ops;
 }
@@ -6083,6 +6289,10 @@ static bool ui_begin_mem_wait;
  * until the holder's wait ends, fb-stall) */
 static volatile bool ui_begin_held;
 
+#ifdef UI_COLLATE
+static void ui_upgrade_export(void);
+#endif
+
 static bool ui_candidate_begin(void)
 {
     struct tagcache_context *next;
@@ -6098,6 +6308,10 @@ static bool ui_candidate_begin(void)
         return true;
     if (!ui_retry_due(UI_RETRY_BEGIN))
         return false;
+#ifdef UI_COLLATE
+    if (ui_generation_fresh)
+        ui_upgrade_export();    /* 0.9.0: a 0.8.x library's statistics */
+#endif
     /* #109 (4.2.3-4): a database queue's rebase or materialization still
      * needs the retained generation (or dbq.hdr isn't loaded yet): the
      * next one waits */
@@ -6305,16 +6519,46 @@ static bool ui_candidate_publish(void)
 #ifdef SIMULATOR
     sim_commit_hold(100);       /* commit_hold 100: PLAY during publication */
 #endif
+    /* p090-floor3: a cold start of playback stops the publication before
+     * its locked part (here, after the read-back and the settle, and at
+     * the staging's cancel checks): the thread serves PLAY's request at
+     * its next pass, and publishes at the stop */
+    ui_publish_cuttable = true;
+    if (ui_play_req)
+        goto cut;
     if (!ui_candidate_readback())
     {
+        ui_publish_cuttable = false;
         ui_candidate_abandon(DBGEN_READBACK);
         return false;
     }
-    if (!lib_generation_pool_prepare(ui_build))
+    if (ui_play_req)
+        goto cut;
+    /* p090-floor2: the lookup table goes before the pool comes */
+    if (!ui_candidate_stats_settle())
+    {
+        ui_publish_cuttable = false;
+        if (ui_stats_restart)
+        {
+            ui_candidate_stats_release();
+            ui_stats_restart = false;
+        }
+        ui_retry_later(UI_RETRY_PUBLISH, "cand stats settle", -1);
         return false;
+    }
+    if (ui_play_req)
+        goto cut;
+    if (!lib_generation_pool_prepare(ui_build))
+    {
+        ui_publish_cuttable = false;
+        return false;
+    }
     h = ui_generation_buffer(&io);
     if (h <= 0)
+    {
+        ui_publish_cuttable = false;
         return false;
+    }
     struct dbgen_ops ops = ui_generation_ops(&io);
     struct dbgen_publication publication;
     bool already_published = false;
@@ -6340,6 +6584,7 @@ static bool ui_candidate_publish(void)
             ui_retry_later(UI_RETRY_PUBLISH, "publish", rc);
         goto out;
     }
+    ui_publish_cuttable = false;    /* p090-floor3: the locked part */
     mutex_lock(&command_queue_mutex);
     int level = disable_irq_save();
     bool busy = ui_active->operations != 0;
@@ -6383,6 +6628,7 @@ static bool ui_candidate_publish(void)
     /* its master holds absolutes only: replay the journal into its RAM */
     ui_boot_stats_replayed = false;
     ui_generation_fresh = false;
+    ui_upgrade_owed = false;    /* p090-upgpage: this firmware's library */
     ui_retry[UI_RETRY_PUBLISH].delay = 0;
     ui_yields = 0;
     ui_retry[UI_RETRY_YIELD].delay = 0;
@@ -6405,6 +6651,17 @@ unlock:
         ui_resort_published();
 #endif
         ui_candidate_stats_release();
+        /* p090-floor3: the database queue's rebase now, not at the
+         * thread's next pass, so its hold on the retired library ends
+         * before a PLAY can size the audio buffer beside it */
+        ui_sleep_job = true;
+        if (!ui_sleep_cut)          /* P18: none starts at sleep entry */
+            dbq_tc_rebase_now();
+        ui_sleep_job = false;
+        /* p090-artrelease: an art pass on the retired generation gives
+         * way now (its next wait would be up to a second); its release
+         * kicks this thread, whose pass frees the RAM cache */
+        artcache_library_published();
         ui_retired_ram_release();   /* unless still held: the thread's poll */
         /* #88: published, and no commit still owed (a reload-only
          * generation is not the job's end): the window's memory goes
@@ -6417,9 +6674,14 @@ unlock:
         }
     }
 out:
+    ui_publish_cuttable = false;
     core_free(h);
     audio_buffer_regrow();
     return ok;
+cut:
+    ui_publish_cuttable = false;
+    ui_log("db", "publish cut by play");
+    return false;
 }
 
 #ifdef SIMULATOR
@@ -6464,6 +6726,84 @@ static bool ui_generation_quick(struct ui_generation_io *io)
 }
 
 /* io: a held buffer (the boot's), or NULL to take one */
+#ifdef UI_COLLATE
+/* 0.9.0 (docs/changes-from-rockbox.md 3.1): the stale library's folder,
+ * when the boot's selection refused it for its stamp (DBGEN_STALE) and
+ * this firmware can still read its master index (this format or the one
+ * before); empty: none. The fresh build that replaces it first exports
+ * its statistics (ui_upgrade_export()). */
+static char ui_upgrade_path[DBGEN_PATH_MAX];
+
+/* p090-upgpage: dbgen_select() said STALE (path: the refused library's
+ * folder, ui_stamp_found: its stamp): logged with the reason; its
+ * statistics are exported when its master's magic is one this firmware
+ * reads (4 bytes read; the old 0.8.x path: no stamp, magic 2). */
+static void ui_upgrade_detect(const char *path)
+{
+    char name[DBGEN_PATH_MAX + 20], from[24], to[24];
+    char fw[LIBSTAMP_FW_LEN + 1];
+    uint32_t magic = 0;
+    int fd;
+
+    ui_upgrade_path[0] = '\0';
+    /* two lines: a log line holds 64 bytes */
+    ui_log("db", "upgrade owed from=%s to=%s why=%s",
+           libstamp_format(&ui_stamp_found, from, sizeof(from)),
+           libstamp_format(&ui_stamp_ours, to, sizeof(to)),
+           libstamp_why_name(libstamp_check(&ui_stamp_found,
+                                            &ui_stamp_ours)));
+    ui_log("db", "upgrade from fw=%s",
+           libstamp_fw(&ui_stamp_found, fw, sizeof(fw)));
+    snprintf(name, sizeof(name), "%s/" TAGCACHE_FILE_MASTER, path);
+    fd = open(name, O_RDONLY);
+    if (fd < 0)
+        return;
+    if (read(fd, &magic, sizeof(magic)) != (ssize_t)sizeof(magic))
+        magic = 0;
+    close(fd);
+    if (magic != TAGCACHE_MAGIC_PREV && magic != (uint32_t)TAGCACHE_MAGIC)
+    {
+        ui_log("db", "upgrade export none: magic %08lx",
+               (unsigned long)magic);
+        return;
+    }
+    strmemccpy(ui_upgrade_path, path, sizeof(ui_upgrade_path));
+}
+
+/* The upgrade's statistics: the stale master's play counts, ratings and
+ * resume points exported, into its own folder, as the changelog the fresh
+ * build imports (the newest export there is: ui_changelog_scan()). Once
+ * per boot, on the tagcache thread, as the fresh candidate begins
+ * (ui_candidate_begin(), while the build context is still the active
+ * one). A
+ * failure only logs: the build then imports the best older changelog, as
+ * a 0.8.x rebuild did. */
+static int ui_export_changelog(void);
+static void ui_upgrade_export(void)
+{
+    char saved[sizeof(tc_stat.db_path)];
+    int rc;
+
+    if (!ui_upgrade_path[0])
+        return;
+    if (ui_build != ui_active)
+    {
+        ui_log("db", "upgrade export later: candidate begun");
+        return;
+    }
+    strmemccpy(saved, tc_stat.db_path, sizeof(saved));
+    strmemccpy(tc_stat.db_path, ui_upgrade_path, sizeof(tc_stat.db_path));
+    ui_upgrade_read = true;
+    rc = ui_export_changelog();
+    ui_upgrade_read = false;
+    strmemccpy(tc_stat.db_path, saved, sizeof(tc_stat.db_path));
+    ui_upgrade_path[0] = '\0';
+    ui_log("db", "upgrade export rc=%d", rc);
+}
+#else
+#define ui_upgrade_detect(path) ((void)0)
+#endif
+
 static bool ui_generation_select_io(struct ui_generation_io *held)
 {
     struct ui_generation_io own, *io = held ? held : &own;
@@ -6490,7 +6830,7 @@ static bool ui_generation_select_io(struct ui_generation_io *held)
         if (rc == DBGEN_SALVAGED)
             ui_pre_request = true;
     }
-    else if (rc == DBGEN_CORRUPT)
+    else if (rc == DBGEN_CORRUPT || rc == DBGEN_STALE)
     {
         /* Definitive format/CRC failure is not ambiguous I/O. A fresh
          * scratch generation may be built if both manifest references are
@@ -6498,6 +6838,14 @@ static bool ui_generation_select_io(struct ui_generation_io *held)
         ui_generation_fresh = true;
         tc_stat.ready = false;
         ui_master_dirty = true;         /* #237: a library was there */
+        /* p090-upgpage: another firmware's library (its stamp): none of
+         * it is shown, so the rebuild is a first build's, behind the
+         * library page; its statistics come over when readable */
+        if (rc == DBGEN_STALE)
+        {
+            ui_upgrade_owed = true;
+            ui_upgrade_detect(path);
+        }
         tc_stat.readyvalid = true;
     }
     if (h > 0)
@@ -6507,11 +6855,11 @@ static bool ui_generation_select_io(struct ui_generation_io *held)
     }
     ui_log("db", "gen select rc=%d", rc);
 #ifdef SIMULATOR
-    strmemccpy(sim_selected, rc == DBGEN_LEGACY ? ui_db_root : path,
-               sizeof(sim_selected));
+    strmemccpy(sim_selected, rc == DBGEN_LEGACY ? ui_db_root
+               : rc == DBGEN_STALE ? "" : path, sizeof(sim_selected));
 #endif
     return rc == DBGEN_OK || rc == DBGEN_LEGACY || rc == DBGEN_CORRUPT
-        || rc == DBGEN_SALVAGED;
+        || rc == DBGEN_SALVAGED || rc == DBGEN_STALE;
 }
 
 static bool ui_generation_select(void)
@@ -6626,7 +6974,8 @@ long sim_tagcache_commits_ended(void)
  * exactly there. 0: before the USB check (nothing changed yet), 1: just
  * after the dirty mark, k + 1: after build_index() of commit step k;
  * 100: a candidate's publication, before its view pool (P16); 101: inside
- * it, readers held off (#272). */
+ * it, readers held off (#272); 102: the statistics' finish, after the
+ * settle (p090-floor3). */
 static volatile int sim_hold = -1, sim_held = -1;
 
 void sim_tagcache_commit_hold(int point)
@@ -6650,7 +6999,9 @@ static void sim_commit_hold(int point)
         return;
     sim_held = point;
     DEBUGF("tagcache: commit held at %d\n", point);
-    while (sim_hold == point && !UI_SLEEP_CUT)  /* P18: a safe point */
+    while (sim_hold == point && !UI_SLEEP_CUT   /* P18: a safe point */
+           && !(point == 100 && ui_play_req))   /* p090-floor3: the
+                                 * publication's cancel checks see PLAY */
         sleep(HZ / 50);
     sim_held = -1;
 }
@@ -8258,8 +8609,8 @@ static bool read_tag(char *dest, long size,
  * the entry's index, sorted, so a line costs a binary search and no
  * disk read until its index entry. 12 B per entry (600 KB at 50k),
  * allocated only when it fits beside playback, at most
- * UI_IMPORT_TABLE_MAX; else the sequential lookup is used. */
-#define UI_IMPORT_TABLE_MAX (2 * 1024 * 1024)
+ * UI_IMPORT_TABLE_MAX (with struct ui_name_key); else the sequential
+ * lookup is used. */
 static bool ui_import_lookup_io_failed;
 
 static int ui_name_key_cmp(const void *a, const void *b)
@@ -8673,10 +9024,70 @@ static bool ui_candidate_stats_prepare(void)
 }
 
 
+/* p090-floor2: the prepared lookup table (12 B an entry, 780 KB at 65k)
+ * is not held beside the view pool. Just before the publication takes
+ * the pool, the journal is drained and replayed into the candidate up to
+ * now with the table, and the table is freed (the master and the cursor
+ * stay). The publication's peak is then the larger of the two, not their
+ * sum (ui_commit_buffer()). Anything journalled between this and
+ * ui_candidate_stats_finish() (a few ms of staging, a retry's backoff)
+ * would need the table again: the finish refuses and the next try
+ * prepares anew (ui_stats_restart), as for a compacted journal. Tagcache
+ * thread, command_queue_mutex not held. */
+static bool ui_candidate_stats_settle(void)
+{
+    struct ui_generation_io io;
+    enum dbjournal_result rc = DBJOURNAL_INVALID;
+    bool ok;
+    int h;
+
+    if (!ui_stats_prepared)
+        return false;
+    if (ui_stats_lookup.handle <= 0)
+        return true;                    /* settled by an earlier try */
+    h = ui_generation_buffer(&io);
+    if (h <= 0)
+        return false;
+    mutex_lock(&command_queue_mutex);
+    ok = ui_command_drain_locked(io.buffer, io.size, false);
+    if (ok)
+    {
+        rc = dbjournal_replay_since(&ui_stats_journal, &ui_stats_cursor,
+                                    ui_stats_apply, &ui_stats_lookup);
+        ok = rc == DBJOURNAL_OK;
+        if (rc == DBJOURNAL_INVALID)
+            ui_stats_restart = true;
+    }
+    ui_stats_journal.scratch = NULL;
+    mutex_unlock(&command_queue_mutex);
+    core_free(h);
+    if (ok)
+    {
+        core_free(ui_stats_lookup.handle);
+        ui_stats_lookup.handle = 0;
+        ui_stats_lookup.count = 0;
+    }
+    return ok;
+}
+
 static bool ui_candidate_stats_finish(void *buffer, size_t bytes)
 {
+#ifdef SIMULATOR
+    sim_commit_hold(102);       /* commit_hold 102: a statistic queued
+                                 * between the settle and the finish */
+#endif
     if (!ui_stats_prepared || !ui_command_drain_locked(buffer, bytes, false))
         return false;
+    /* p090-floor2: settled (no table): nothing may have come since */
+    if (ui_stats_lookup.handle <= 0
+        && (ui_stats_cursor.seq != ui_stats_journal.seq
+            || ui_stats_cursor.end != ui_stats_journal.end))
+    {
+        ui_log("db", "cand stats moved after settle: prepare again");
+        ui_stats_restart = true;
+        ui_stats_journal.scratch = NULL;
+        return false;
+    }
     enum dbjournal_result rc = dbjournal_replay_since(&ui_stats_journal,
         &ui_stats_cursor, ui_stats_apply, &ui_stats_lookup);
     bool ok = rc == DBJOURNAL_OK;
@@ -10238,6 +10649,15 @@ static bool check_file_refs_walk(bool auto_update)
     while (!STOP_REQUESTED())
     {
 #ifdef UI_COMMIT
+        /* p090-floor3: PLAY's request stops the candidate's pass (it
+         * holds the candidate's RAM cache); check_deleted_files() owes
+         * it again */
+        if (ui_play_req && !ui_probe)
+        {
+            ui_walk_play_cut = true;
+            ret = false;
+            break;
+        }
         off_t entry_pos = lseek(fd, 0, SEEK_CUR);
 #endif
         int res = read_tagfile_entry_and_tag(TC_CTX_ARG(ui_build) fd, &tfe, buf, bufsz);
@@ -10411,7 +10831,17 @@ static bool check_deleted_files(void)
     }
     ui_deleted_owed = false;
     ui_probe_owed = false;
+    ui_walk_play_cut = false;
     bool ok = check_file_refs(true);
+    if (ui_walk_play_cut)
+    {
+        /* p090-floor3: cut by PLAY: the whole pass again, with the
+         * deferred update (at the stop or a paused window) */
+        ui_walk_play_cut = false;
+        ui_deleted_owed = ui_scan_pending = true;
+        ui_log("db", "deleted pass cut by play: owed");
+        return false;
+    }
     /* a candidate begun here (the lazy clone) has no RAM cache yet: the
      * publication needs it, as after a scan */
     ui_load_missing();
@@ -10669,6 +11099,25 @@ static DIR *tc_child_parent;
 static const struct dirent *tc_child_entry;
 #endif
 
+#ifdef UI_COMMIT
+/* #403: is this walk path the hidden folder? With HAVE_MULTIVOLUME (the
+ * device: ATA with LBA48) the walk's "/" root is rewritten to its volume's
+ * root ("/<0>"), so its paths carry a volume specifier that the boot
+ * digest's ("/" as set) never do: compared whole, "/<0>/.rockbox" was not
+ * the hidden folder, the walk's digest took in its changing contents, and
+ * no boot digest ever matched the stamp (a walk at every boot). The
+ * simulator has one volume and no specifier, so its paths always matched. */
+static bool ui_walk_is_hidden(const char *path)
+{
+#ifdef HAVE_MULTIVOLUME
+    const char *rest = path;
+    path_strip_volume(path, &rest, false);
+    path = rest;
+#endif
+    return !strcasecmp(path, ROCKBOX_DIR);
+}
+#endif
+
 static bool check_dir(const char *dirname, int add_files)
 {
     int success = false;
@@ -10755,7 +11204,7 @@ static bool check_dir(const char *dirname, int add_files)
         /* #89: the tree as read, for the boot stamp (bootstamp.c walks it
          * the same way); the hidden folder changes at every run */
         bool ui_hidden = (info.attribute & ATTR_DIRECTORY)
-                         && !strcasecmp(curpath, ROCKBOX_DIR);
+                         && ui_walk_is_hidden(curpath);
         if (ui_hidden)
             ui_walk_mute++;
         else if (!ui_walk_mute)
@@ -11585,6 +12034,7 @@ static bool ui_precompute_event(void)
     struct queue_event ev;
 
     return tagcache_usb_quiescing || ui_commit_cancel || ui_sleep_cut
+           || ui_play_req           /* p090-floor3: PLAY's request */
            || queue_peek(&tagcache_queue, &ev);
 }
 
@@ -11644,10 +12094,13 @@ static bool ui_yield_reload_due(void)
            && (audio_status() == 0 || maint_window_open());
 }
 
-static void ui_candidate_ram_yield(void)
+/* play_start (p090-floor3): for a cold start of playback, before its
+ * buffer is sized (ui_play_release_run()): audio is still stopped */
+static void ui_candidate_ram_yield(bool play_start)
 {
-    if (ui_build == ui_active || audio_status() == 0
-        || maint_window_open() || tcramcache.handle <= 0
+    if (ui_build == ui_active
+        || (!play_start && (audio_status() == 0 || maint_window_open()))
+        || tcramcache.handle <= 0
         || ui_candidate_maybe_published
         || ui_build->readers || ui_build->operations || read_lock)
         return;
@@ -11661,8 +12114,9 @@ static void ui_candidate_ram_yield(void)
     ui_generation++;
     tcramcache.hdr = NULL;
     tcramcache.handle = core_free(tcramcache.handle);
-    ui_log("db", "cand ram yield bytes=%ld stats=%d",
-           (long)tc_stat.ramcache_allocated, (int)stats);
+    ui_log("db", "cand ram yield bytes=%ld stats=%d%s",
+           (long)tc_stat.ramcache_allocated, (int)stats,
+           play_start ? " at play" : "");
     tc_stat.ramcache_allocated = 0;
     ui_ram_yielded = ui_build;
     ui_yield_note();
@@ -11674,6 +12128,132 @@ static void ui_candidate_ram_yield(void)
         maint_done(MAINT_COMMIT, false);
     }
     audio_buffer_regrow();
+}
+
+/* p090-floor3: what a cold start of playback may ask back. The candidate
+ * (unpublished, with its RAM cache: *cand) or the generation the last
+ * publication retired, while its RAM cache is still there (the database
+ * queue's rebase holds it, or a search). Any thread: a hint, the
+ * tagcache thread checks again. */
+static bool ui_play_releasable(bool *cand)
+{
+    struct tagcache_context *act = ui_active, *bld = ui_build;
+    struct tagcache_context *old =
+        act == &ui_context_a ? &ui_context_b : &ui_context_a;
+
+    *cand = bld != act && bld->ram.handle > 0
+            && !ui_candidate_maybe_published;
+    return *cand || (old != bld && old->ram.handle > 0);
+}
+
+/* p090-artrelease: the generation the last publication retired still has
+ * its RAM cache (a reader holds it: the database queue's rebase, a
+ * search, the art pass's passive pin until it gives way). Any thread. */
+static bool ui_play_retired_ram(void)
+{
+    struct tagcache_context *act = ui_active, *bld = ui_build;
+    struct tagcache_context *old =
+        act == &ui_context_a ? &ui_context_b : &ui_context_a;
+
+    return old != bld && old->ram.handle > 0;
+}
+
+/* the request served, on this thread at a safe point (the top of its
+ * loop, after its wait): the candidate's RAM cache if asked (the same
+ * yield a publication refused while audio plays makes, so it loads and
+ * publishes again at the stop), then the database queue's rebase, so
+ * the retired library is free (unless a search holds it) */
+static void ui_play_release_run(void)
+{
+    unsigned seq = ui_play_req_seq;
+    long t0 = current_tick;
+    bool cand = ui_play_cand;
+
+    if (!ui_play_req)
+        return;
+    if (cand)
+        ui_candidate_ram_yield(true);
+    ui_sleep_job = true;
+    if (!ui_sleep_cut)
+        dbq_tc_rebase_now();
+    ui_sleep_job = false;
+    ui_retired_ram_release();
+    /* p090-artrelease: an art pass on the retired generation was woken
+     * at the publication and drops its pin within a few ticks: wait for
+     * it here (bounded, inside PLAY's own wait), not until the poll */
+    while (ui_play_retired_ram()
+           && TIME_BEFORE(current_tick, t0 + UI_PLAY_RETRY_TICKS))
+    {
+        sleep(1);
+        ui_retired_ram_release();
+    }
+    ui_play_req = false;
+    ui_play_done_seq = seq;
+    ui_log("db", "play release cand=%d ms=%ld", (int)cand,
+           (long)(current_tick - t0) * 1000 / HZ);
+}
+
+/* PLAY from a stop (playback.c, audio thread, just before the buffer is
+ * sized; never the paused window's restart). room: the buffer it would
+ * get now (the current one and the free heap). Nothing waits unless the
+ * library holds memory to give back and the room is under the floor's
+ * slack (UI_PLAY_HEADROOM): then the tagcache thread is asked and PLAY
+ * waits for it, UI_PLAY_WAIT_MS at most. Not while a window's take is
+ * in its give (maint_taking(): that thread waits for this one, and this
+ * one would wait for it). A wait that runs out is logged as a fallback:
+ * the buffer is then sized beside the library's memory, as before, and
+ * grows at the next cold start or paused window. */
+void tagcache_ui_play_release(size_t room)
+{
+    bool cand;
+    long t0 = current_tick;
+
+    bool short_room = room < maint_floor() + UI_PLAY_HEADROOM;
+
+    /* p090-artrelease: a retired generation's RAM cache still allocated
+     * (rare: only just after a publication, while a reader holds it) is
+     * waited for whatever the room (32 MB at 50k: 7 MB of buffer for the
+     * session); the candidate only when the buffer would be short */
+    if (!ui_play_releasable(&cand)
+        || (!short_room && !ui_play_retired_ram()))
+        return;
+    cand = cand && short_room;
+    if (maint_taking())
+    {
+        ui_log("db", "play release FALLBACK: a window take runs, "
+               "the buffer is sized beside the library room=%lu",
+               (unsigned long)room);
+        return;
+    }
+    unsigned seq = ui_play_req_seq + 1;
+    ui_play_req_seq = seq;
+    ui_play_cand = cand;
+    ui_play_req = true;
+#ifdef TC_QUIET_WAIT
+    {
+        int level = disable_irq_save();
+        bool post = tc_in_wait;
+        tc_in_wait = false;
+        restore_irq(level);
+        if (post)
+            queue_post(&tagcache_queue, Q_QUIET_KICK, 0);
+    }
+#endif
+    while (ui_play_done_seq != seq)
+    {
+        if (TIME_AFTER(current_tick, t0 + UI_PLAY_WAIT_MS * HZ / 1000)
+            || maint_taking())
+        {
+            ui_play_req = false;
+            ui_log("db", "play release FALLBACK: no answer in %d ms, "
+                   "the buffer is sized beside the library room=%lu cand=%d",
+                   UI_PLAY_WAIT_MS, (unsigned long)room, (int)cand);
+            return;
+        }
+        sleep(1);
+    }
+    ui_log("db", "play release waited ms=%ld room=%lu",
+           (long)(current_tick - t0) * 1000 / HZ, (unsigned long)room);
 }
 
 /* Runs a due library precompute (tagcache thread only). It runs at any
@@ -11756,7 +12336,7 @@ static void ui_precompute_run(void)
             if (due)
             {
                 ui_retry_later(UI_RETRY_PUBLISH, "cand stats", -1);
-                ui_candidate_ram_yield();   /* publishes at the stop */
+                ui_candidate_ram_yield(false);   /* publishes at the stop */
             }
             ui_pre_pending = true;
             return;
@@ -11789,7 +12369,7 @@ static void ui_precompute_run(void)
          * library (published within a second) */
         if (ui_build != ui_active && !ui_publish_busy
             && !(rc != LIB_PRE_DONE && ui_precompute_event()))
-            ui_candidate_ram_yield();
+            ui_candidate_ram_yield(false);
     }
 }
 #endif
@@ -12416,6 +12996,13 @@ int tagcache_boot_check(int *permille)
 }
 #endif /* UI_COMMIT */
 
+#if defined(HAVE_IPOD_UI) && !defined(UI_COMMIT)
+void tagcache_ui_play_release(size_t room)
+{
+    (void)room;                 /* no generations: nothing to give back */
+}
+#endif
+
 #ifdef HAVE_IPOD_UI
 void tagcache_quiet_kick(void)
 {
@@ -12673,6 +13260,7 @@ static void tagcache_thread(void)
         run_command_queue(false);
 #if defined(UI_COMMIT) && defined(HAVE_IPOD_UI)
         ui_boot_stamp_settle();     /* npfix: a settled walk's stamp */
+        ui_play_release_run();      /* p090-floor3: PLAY asked meanwhile */
 #endif
 
 #ifdef TC_QUIET_WAIT
@@ -12687,7 +13275,13 @@ static void tagcache_thread(void)
             long tmo = tc_quiet_wait(check_done);
             if (tmo == HZ)
                 tc_quiet_blocked = false;   /* the old poll: no kick */
+            /* p090-floor3: PLAY's request kicks any wait; one already
+             * made (ui_play_req) waits for nothing */
+            tc_in_wait = true;
+            if (ui_play_req)
+                tmo = 0;
             queue_wait_w_tmo(&tagcache_queue, &ev, tmo);
+            tc_in_wait = false;
             tc_quiet_blocked = false;
             DEVSTATS_POLL(DEVSTATS_POLL_TAGCACHE, ev.id == SYS_TIMEOUT);
             /* review L1: no kick may stay queued (one that raced the
@@ -12702,6 +13296,7 @@ static void tagcache_thread(void)
             }
             if (ev.id == Q_QUIET_KICK)
                 ev.id = SYS_TIMEOUT;        /* a pass, as the poll's */
+            ui_play_release_run();          /* p090-floor3 */
         }
 #else
         queue_wait_w_tmo(&tagcache_queue, &ev, HZ);
@@ -13911,9 +14506,16 @@ int tagcache_ui_no_library(void)
 
     if (!st->readyvalid)
         return -1;
+    if (st->ready)
+        return 0;
+    /* p090-upgpage: another firmware's library (an upgrade, a downgrade,
+     * one from before 0.9.0) cannot be shown: its rebuild is a first
+     * build's, behind the library page */
+    if (ui_upgrade_owed)
+        return 2;
     /* a dirty library is still a library: its rebuild runs silently, the
      * menus saying "Updating Library..." (docs/hardware.md, commit row) */
-    return !st->ready && !ui_master_dirty;
+    return !ui_master_dirty;
 }
 #endif
 

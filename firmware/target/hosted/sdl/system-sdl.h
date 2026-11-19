@@ -68,6 +68,10 @@ extern long start_tick;
  * device's crt0 probe gives it (system-pp502x.c); the simulator takes it
  * from IPODUI_SIM_RAM=32|64 at system_init(), default 64 */
 extern unsigned char probed_ramsize;
+/* p090-floor2: the device's pool shape for the floor gate (system-sdl.c);
+ * 0 when not given */
+extern unsigned long sim_device_pool;
+extern unsigned long sim_device_pinned;
 #endif
 
 #endif /* _SYSTEM_SDL_H_ */

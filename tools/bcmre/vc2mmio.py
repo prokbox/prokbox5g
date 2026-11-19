@@ -626,6 +626,13 @@ class LcdPanel:
         self.fifo_stray = 0         # FIFO words with no run armed
         self.dreq_enabled = True    # False: a dead request line (tests)
         self.gate = None            # callable: False = interface clock off
+        # The bus's clock in kHz (None: runs untimed, the DMA model's own
+        # rate).  Set, a pixel run's transfers go out at the speed timing
+        # word 1 gives (lcd.md section 3 [silicon S6, S7, s4c]: the sum of
+        # its four fields, each plus one, in bus cycles a transfer; the
+        # bus follows the core, 27 MHz on the crystal, 150 on the PLL)
+        self.bus_khz = None
+        self.scan = None            # PanelScan: told of every run's start
 
     def _now(self):
         t = self.bus.timer if self.bus is not None else None
@@ -693,6 +700,8 @@ class LcdPanel:
                 if v & 9 == 9:
                     self.run_left = self.ctl.get(4, 0)
                     self.runs.append((self.run_left, self.ctl.get(8), v))
+                    if self.scan is not None:
+                        self.scan.run(self, self._now())
                 else:
                     self.run_left = 0
 
@@ -771,10 +780,111 @@ class LcdPanel:
             elif c == 0x21:
                 self.cur[0] = v
 
+    def transfer_us(self):
+        """Microseconds a bus transfer takes in a pixel run (None:
+        untimed): timing word 1 of chip select 0, at bus_khz"""
+        if not self.bus_khz:
+            return None
+        w = self.ctl.get(0x14, 0)
+        cyc = (w & 0x7f) + (w >> 8 & 0x7f) + (w >> 16 & 0x3f) + (w >> 24 & 0x3f) + 4
+        return cyc * 1000.0 / self.bus_khz
+
+    def paced_wpu(self):
+        """FIFO words a microsecond a run takes (two transfers a word),
+        or None (untimed)"""
+        t = self.transfer_us()
+        return None if t is None else 0.5 / t
+
     def sequence(self):
         """Events without time stamps, interface writes to the window and
         pixel registers only (what a power-on sequence is made of)."""
         return [e[:-1] for e in self.events]
+
+
+# --------------------------------------------------------------------------
+# The panel's refresh: its tearing-effect line and its scan (#339).
+
+class PanelScan:
+    """The panel refreshing its glass from its own memory, and a tear
+    detector for the writes that race it (lcd.md "Tearing").
+
+    Model [hypothesis; quirk 52 measured the line on silicon]: TE (GPIO 49,
+    bit 17 of 0x10002824) is high for pulse_us from each rising edge, the
+    edges period_us apart from phase_us.  The scan visits panel row r at
+    edge + row0_us + r x period / lines in every period (lines: the rows
+    and the porches).  A pixel run started at time t0 writes its window's
+    rows one after another, transfer_us a pixel (LcdPanel.transfer_us), so
+    row r of the window (from its top) is written from t0 + r w tx to t0 +
+    (r + 1) w tx.  The run is torn when one refresh shows some of its rows
+    old and others new, or a row half written: for every row, the number
+    of scans of that row before its write starts and before it ends must
+    be one and the same count.
+
+    Use: bus.rule(0x10002824, 0x10002824, scan) for the line (it keeps the
+    panel ID bits as panel_rule gives them), panel.scan = scan for the
+    runs.  scan.runs lists (t0, y0, h, w, tx, torn row or None, the least
+    time between write and scan in us)."""
+
+    TE_BIT = 1 << 17
+
+    def __init__(self, timer, panel_id, period_us=14740.0, pulse_us=58,
+                 lines=256, row0_us=-2000.0, phase_us=0.0, rows=240):
+        self.timer = timer
+        self.base = ((panel_id >> 1) & 1) << 18 | (panel_id & 1) << 19
+        self.period, self.pulse = float(period_us), pulse_us
+        self.lines, self.row0, self.phase = lines, float(row0_us), float(phase_us)
+        self.rows = rows
+        self.runs = []
+        self.reads = 0
+
+    # the level register, as a bus rule (Rule.read's signature)
+    def read(self, last, since_write=1 << 30):
+        self.reads += 1
+        t = self.timer.clo
+        high = ((t - self.phase) % self.period) < self.pulse
+        return self.base | (self.TE_BIT if high else 0)
+
+    def scans_before(self, t, r):
+        """Visits of panel row r before time t (from a fixed origin)"""
+        import math
+        return math.floor((t - self.phase - self.row0 - r * self.period / self.lines)
+                          / self.period)
+
+    def torn_row(self, t0, y0, h, w, tx):
+        """The first row of a run whose write a scan crosses, or None"""
+        n0 = None
+        for i in range(h):
+            r = y0 + i
+            a = self.scans_before(t0 + i * w * tx, r)
+            b = self.scans_before(t0 + (i + 1) * w * tx, r)
+            if n0 is None:
+                n0 = a
+            if a != n0 or b != n0:
+                return r
+        return None
+
+    def margin(self, t0, y0, h, w, tx):
+        """The least time between the run's write and the scan, over its
+        rows (us; 0 when torn)"""
+        m = self.period
+        for i in range(h):
+            r = y0 + i
+            for t in (t0 + i * w * tx, t0 + (i + 1) * w * tx):
+                f = (t - self.phase - self.row0 - r * self.period / self.lines) % self.period
+                m = min(m, f, self.period - f)
+        return 0.0 if self.torn_row(t0, y0, h, w, tx) is not None else m
+
+    def run(self, panel, t0):
+        x0, y0, x1, y1 = panel.win
+        w, h = x1 - x0 + 1, y1 - y0 + 1
+        tx = panel.transfer_us()
+        if tx is None:
+            raise ValueError('PanelScan needs a timed bus (LcdPanel.bus_khz)')
+        self.runs.append((t0, y0, h, w, tx, self.torn_row(t0, y0, h, w, tx),
+                          self.margin(t0, y0, h, w, tx)))
+
+    def torn(self):
+        return [r for r in self.runs if r[5] is not None]
 
 
 # --------------------------------------------------------------------------
@@ -838,6 +948,10 @@ class DmaEngine:
         self.errors = []
         self.sources_touched = set()
         self._t = None
+        # line -> callable() giving words a us (or None: paced_wpu), the
+        # LCD's timed bus (LcdPanel.paced_wpu); fractions carried over
+        self.rate = {}
+        self._carry = {}
 
     def attach_dreq(self, line, fn):
         self.dreq[line] = fn
@@ -1031,7 +1145,15 @@ class DmaEngine:
         dt = (now - self._t) & MASK
         self._t = now
         for (ch, k), st in list(self.subs.items()):
-            budget = dt * (self.paced_wpu if st['paced'] else self.mem_wpu)
+            r = self.rate.get(st['line']) if st['paced'] else None
+            r = r() if r is not None else None
+            if r is not None:
+                budget = dt * r + self._carry.get((ch, k), 0.0)
+                words = max(1, st['unit'] // 4)
+                self._carry[(ch, k)] = budget % words
+                budget = int(budget // words) * words
+            else:
+                budget = dt * (self.paced_wpu if st['paced'] else self.mem_wpu)
             words = max(1, st['unit'] // 4)
             while budget >= words and (ch, k) in self.subs:
                 st = self.subs[(ch, k)]

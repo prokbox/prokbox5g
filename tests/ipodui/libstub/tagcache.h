@@ -46,6 +46,14 @@ enum tag_type {
 #define TAGCACHE_UI_TV          0x0200
 #define TAGCACHE_UI_VIDEO_OTHER 0x1000
 #define TAGCACHE_UI_ANY_VIDEO   (TAGCACHE_UI_VIDEO | TAGCACHE_UI_VIDEO_OTHER)
+/* #286: the unplayable reason, bits 16-19 (as apps/tagcache.h) */
+#define TAGCACHE_UI_UNPLAYABLE_SHIFT 16
+#define TAGCACHE_UI_UNPLAYABLE_MASK  (0xfL << TAGCACHE_UI_UNPLAYABLE_SHIFT)
+#define TAGCACHE_UI_UNPLAYABLE_FLAG(reason) \
+    ((int32_t)((reason) & 0xf) << TAGCACHE_UI_UNPLAYABLE_SHIFT)
+#define TAGCACHE_UI_UNPLAYABLE(flag) \
+    ((int)(((flag) & TAGCACHE_UI_UNPLAYABLE_MASK) \
+           >> TAGCACHE_UI_UNPLAYABLE_SHIFT))
 #define TAGCACHE_UI_VIEW_BYTES  12
 
 struct tagcache_search {

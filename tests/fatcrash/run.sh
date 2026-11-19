@@ -59,6 +59,49 @@ cc $CFLAGS -DMAX_VIRT_SECTOR_SIZE=2048 -DDEFAULT_VIRT_SECTOR_SIZE=2048 \
 "$out/fsreplay" records 32 2048 >"$out/records.txt" 2>&1 || {
     echo "fsreplay records FAILED"; cat "$out/records.txt"; exit 1; }
 echo "fsreplay records (2048-byte sectors): $(tr '\n' ' ' <"$out/records.txt")"
+# dcidx (#355): a pointer inside a disk-cache buffer finds its slot, the
+# last one included (a directory entry there was never marked dirty).
+# Host run: the logic, -Os and -O2.  Target run: the same test compiled
+# by the firmware's compiler and flags, run under qemu-system-arm; only
+# the 32-bit target compile showed the fold.  Control: the upstream macro
+# put back must fail the target run.
+for o in -Os -O2; do
+    cc -std=gnu99 $o -w -I"$out/inc" -I"$fs" -o "$out/dcidx$o" \
+       "$here/dcidx.c" "$fs/linked_list.c"
+    "$out/dcidx$o" >"$out/dcidx$o.txt" 2>&1 && grep -q '^dcidx: PASS' \
+        "$out/dcidx$o.txt" || { echo "dcidx host $o FAILED"
+                                cat "$out/dcidx$o.txt"; exit 1; }
+done
+echo "dcidx host -Os/-O2: $(head -1 "$out/dcidx-O2.txt")"
+if command -v qemu-system-arm >/dev/null 2>&1 &&
+   command -v arm-none-eabi-gcc >/dev/null 2>&1; then
+    for o in -Os -O2; do
+        sh "$here/armrun/dcidx_arm.sh" "$out/inc" "$out/arm" "$fs" $o \
+            >"$out/dcidx-arm$o.txt" 2>&1 || {
+            echo "dcidx target $o FAILED"; cat "$out/dcidx-arm$o.txt"; exit 1; }
+    done
+    echo "dcidx target -Os/-O2 (arm-none-eabi-gcc, qemu): $(grep '^dcidx: [0-9]' "$out/dcidx-arm-Os.txt")"
+    if [ -z "$FATCRASH_NO_CONTROLS" ]; then
+        mkdir -p "$out/dcidx_ctl"
+        awk '/^#define DCIDX_FROM_DCE/ { print "#undef DCIDX_FROM_BUF";
+                 print "#define DCIDX_FROM_BUF(buf) \\";
+                 print "    ((uint8_t (*)[DC_CACHE_BUFSIZE])(buf) - cache_buffer)" }
+             { print }' "$fs/disk_cache.c" >"$out/dcidx_ctl/disk_cache.c"
+        grep -q 'cache_buffer)$' "$out/dcidx_ctl/disk_cache.c" ||
+            { echo "dcidx control: could not put the upstream macro back"; exit 1; }
+        rc=0
+        sh "$here/armrun/dcidx_arm.sh" "$out/inc" "$out/arm_ctl" \
+            "$out/dcidx_ctl" -Os >"$out/dcidx-ctl.txt" 2>&1 || rc=$?
+        if [ $rc -ne 1 ]; then
+            echo "dcidx negative control (upstream macro) rc=$rc, want 1 (FAIL): no teeth"
+            cat "$out/dcidx-ctl.txt"; exit 1
+        fi
+        echo "dcidx negative control (upstream macro) caught: $(grep '^dcidx: [0-9]' "$out/dcidx-ctl.txt")"
+    fi
+else
+    echo "dcidx target run SKIPPED: no qemu-system-arm or arm-none-eabi-gcc" \
+         "(the host run cannot show the #355 fold; install qemu)"
+fi
 if [ -z "$FATCRASH_NO_CONTROLS" ] && git -C "$top" cat-file -e 9507ca6c6e 2>/dev/null; then
     git -C "$top" show 9507ca6c6e:firmware/common/file.c >"$out/file_0b.c"
     # shellcheck disable=SC2086

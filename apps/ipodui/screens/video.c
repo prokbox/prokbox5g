@@ -203,7 +203,7 @@ static unsigned long sim_at[2]; /* its elapsed and offset */
 /* -- the failure prompt (cold) -------------------------------------------- */
 
 enum verr { VE_NONE, VE_FORMAT, VE_LARGE, VE_DAMAGED, VE_OTHER, VE_CHECK,
-            VE_COUNT };
+            VE_PROTECTED, VE_COUNT };
 
 static const short verr_lang[VE_COUNT][2] = {
     [VE_FORMAT]  = { LANG_IPODUI_VIDEO_ERR_FORMAT_HEAD,
@@ -218,9 +218,13 @@ static const short verr_lang[VE_COUNT][2] = {
        report carries the reason (owner, 2026-10-26) */
     [VE_CHECK]   = { LANG_IPODUI_VIDEO_ERR_CHECK_HEAD,
                      LANG_IPODUI_VIDEO_ERR_CHECK_BODY },
+    /* #286: a greyed row only (the index read it as copy-protected); the
+       song page's words */
+    [VE_PROTECTED] = { LANG_IPODUI_NOPLAY_PROTECTED,
+                       LANG_IPODUI_NOPLAY_PROTECTED_BODY },
 };
 static const char *const verr_name[VE_COUNT] = {
-    "none", "format", "large", "damaged", "other", "check"
+    "none", "format", "large", "damaged", "other", "check", "protected"
 };
 static const short verr_ok[1] = { LANG_IPODUI_OK };
 
@@ -845,6 +849,28 @@ void ui_video_play(const char *path, int tc_idx)
     if (ui_push(&video_ops, NULL) < 0)
         video_end();                        /* fail entirely: no picture,
                                                no sound */
+}
+
+/* #286: SELECT on a greyed row (screens/noplay.c): the refused-start
+ * page with the index's reason, and nothing else: the player is never
+ * asked, the audio never stopped, so the music keeps playing; leave()'s
+ * video_end() finds no session (playlist_end_video_ipodui() does nothing
+ * without one). The list's own SELECT never reaches here while a video
+ * plays (the video screen is on top), but a session is never cut. */
+bool ui_video_show_why(int why)
+{
+    if (vs.owned)
+        return false;
+    memset(&vs, 0, sizeof(vs));
+    vs.err = (why == UNPLAYABLE_DRM || why == UNPLAYABLE_PROTECTED)
+             ? VE_PROTECTED : why == UNPLAYABLE_CODEC ? VE_FORMAT : VE_OTHER;
+    ui_log("video", "can't play why=%d err=%s", why, verr_name[vs.err]);
+    if (ui_push(&video_ops, NULL) < 0)
+    {
+        vs.err = VE_NONE;
+        return false;
+    }
+    return true;
 }
 
 /* -- the screen ---------------------------------------------------------- */

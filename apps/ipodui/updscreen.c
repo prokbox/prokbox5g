@@ -610,8 +610,11 @@ void ui_upd_boot(void)
     while ((none = tagcache_ui_no_library()) < 0
            && TIME_BEFORE(current_tick, t0 + 2 * HZ))
         sleep(HZ / 50);
+    /* 2 (p090-upgpage): another firmware's library, owed a full
+     * rebuild: the same page as a first build's */
     ui_log("db", "library page at boot: %s",
-           none > 0 ? "no library" : none < 0 ? "unknown" : "library");
+           none > 1 ? "no library (other version)"
+           : none > 0 ? "no library" : none < 0 ? "unknown" : "library");
     if (none > 0)
         upd_push(MODE_BOOT, true);
 }

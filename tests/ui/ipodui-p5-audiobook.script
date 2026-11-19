@@ -1,11 +1,11 @@
 # Phase 5 (#4, audiobooks): the album line is the chapter title, the counter
 # reads chapter N of M, the Scrubber bar spans the book with chapter ticks,
-# the cycle is Normal, Scrubber, Rating, Normal (no Shuffle), PREV/NEXT jump
+# the cycle is Normal, Scrubber, Rating, Info, Normal (no Shuffle), PREV/NEXT jump
 # by chapter, and a fast wheel snaps to chapter starts.
 #   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p5-audiobook.script
 # needs: music
 # trace: np
-# golden: skip slide
+# golden: skip slide info
 # Needs a pristine primed disk (the gate and golden_capture.sh clone one per
 # run): the book's saved resume offset (tagcache autoresume) survives on a
 # reused disk, so a rerun on the same disk starts where the last one
@@ -43,6 +43,9 @@ wait 600
 shot rating          # Rating (a book has it)
 key SELECT
 wait 700
-shot normal_again    # Normal: no Shuffle step
+shot info            # Info (#277): no Shuffle step before it
+key SELECT
+wait 700
+shot normal_again    # Normal
 audio_stop
 quit

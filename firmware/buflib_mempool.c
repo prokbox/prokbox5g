@@ -925,8 +925,9 @@ buflib_allocatable(struct buflib_context* ctx)
         }
 
         /* an unmovable section resets the count as free space
-         * can't be contigous */
-        if (!IS_MOVABLE(block))
+         * can't be contigous (ProkBox: a pinned block is unmovable too;
+         * move_block() refuses it) */
+        if (!IS_MOVABLE(block) || block[BUFLIB_IDX_PIN].pincount > 0)
         {
             if (max_free_space < free_space)
                 max_free_space = free_space;
@@ -936,6 +937,14 @@ buflib_allocatable(struct buflib_context* ctx)
 
     /* select the best */
     max_free_space = MAX(max_free_space, free_space);
+    /* ProkBox (0.9.0 OOM panic, #487; the same fix as RockWheel
+     * 29b0ba105): a hole must also hold the new block's header, as
+     * free_space_at_end() allows for; without this,
+     * buflib_alloc_maximum() asks for the hole's whole size and fails */
+    if (max_free_space > BUFLIB_NUM_FIELDS)
+        max_free_space -= BUFLIB_NUM_FIELDS;
+    else
+        max_free_space = 0;
     max_free_space *= sizeof(union buflib_data);
     max_free_space = MAX(max_free_space, free_space_at_end(ctx));
 

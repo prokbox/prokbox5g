@@ -87,6 +87,12 @@
 #define HP_CAP_MPEG4_SP      0x0004
 #define HP_CAP_SCALE         0x0010
 #define HP_CAP_LCD_DMA       0x0020
+#define HP_CAP_CORE_FLUSH    0x0040 /* #466: the image flushes its own cache
+                                       at OVERLAY, in the cold form, before it
+                                       calls the new code (hp_code_flush_cold):
+                                       the host must not write the cache word
+                                       while the core runs (no host code
+                                       flush; quirks #60) */
 #define HP_CAP_JOBS_2D       0x0100
 #define HP_CAP_OVERLAY       0x0200 /* HP_OP_OVERLAY */
 #define HP_CAP_AUDIO         0x0400 /* HP_OP_AUDIO (stage 8b) */
@@ -808,6 +814,12 @@ void hp_heartbeat(void);
  * core or the host, before the first call into it; interrupts off.
  * Returns re-requests << 12 | polls */
 uint32_t hp_code_flush(void);
+/* #466: the cold form, made by the core (quirks.md #56's recipe 1): bits
+ * 31:30 cleared, then the enable's 0 -> 1 edge with the request (drops
+ * the instruction lines: #59 H(a)), then the request alone (drains the
+ * data lines the window made), then the cache off as it was.  The caller
+ * has interrupts off and runs nothing else */
+uint32_t hp_code_flush_cold(void);
 #endif
 
 #endif /* BCMFW_HOSTPROTO_H */

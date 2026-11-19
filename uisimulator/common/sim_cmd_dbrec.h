@@ -39,7 +39,7 @@
  *                            manifest's generation
  *   dbrec corrupt_referenced the same in both manifests' generations
  *   dbrec truncate_newest_manifest   cut the newest manifest to 100 bytes
- *   dbrec foreign_manifests  both manifests: version 2, CRC re-sealed
+ *   dbrec foreign_manifests  both manifests: version 99, CRC re-sealed
  *   dbrec partial_legacy <path> <rating>
  *                            a pre-generation root: no manifests or
  *                            journal; the root keeps only idx/0-3 (copied

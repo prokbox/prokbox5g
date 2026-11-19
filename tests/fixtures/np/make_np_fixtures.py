@@ -31,6 +31,8 @@ Scripts copy them into the sim disk with the `copy` command, e.g.
     copy ../../build/np-fixtures/lyr23.mp3 /NPTest/lyr23.mp3
 
   long_title.mp3   30 s, an 90-char title (marquee), embedded square cover
+  long_all.mp3     30 s, title, joined artists ("A, B, C") and album all too
+                   wide for their lines (#180: the marquee takes turns)
   lyr23.mp3        30 s, ID3v2.3 USLT lyrics (24 lines)
   lyr24.mp3        30 s, ID3v2.4 USLT lyrics
   lyr.m4a          30 s, MP4 (c)lyr lyrics
@@ -52,7 +54,7 @@ Original gradients only (ffmpeg lavfi), no third-party art.
 """
 import os, struct, subprocess, sys
 
-VERSION = 6
+VERSION = 7
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 OUT = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else
                       os.path.join(ROOT, 'build', 'np-fixtures'))
@@ -93,6 +95,10 @@ sq = cover('cover_sq.jpg', 300, 300, 3)
 tone('long_title.mp3', 30, 330,
      {'title': 'A Remarkably Long Track Title That Has To Scroll Across The Screen Twice',
       'artist': 'Marquee Artist', 'album': 'NP Marquee'}, sq)
+tone('long_all.mp3', 30, 349,
+     {'title': 'Turns Title Long Enough To Need A Marquee Of Its Own',
+      'artist': 'First Turns Artist, Second Turns Artist, Third Turns Artist',
+      'album': 'An Album Name Far Too Long For The Now Playing Line'}, sq)
 def synch(n):
     return bytes([(n >> 21) & 127, (n >> 14) & 127, (n >> 7) & 127, n & 127])
 

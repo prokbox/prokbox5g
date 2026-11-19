@@ -141,6 +141,24 @@ void pcm_pp_reset_max(void);
  * since the last call; then start over (system-pp502x.c) */
 void cache_discard_take_stats(unsigned int core, uint32_t *max_us,
                               uint32_t *over, uint32_t *n);
+/* 0.9.0 fiqstall (#436): before a whole-cache write-back on the core that
+ * takes the PCM's FIQ, wait (FIQ open) until the playing piece has need_us
+ * left or the next piece is armed (pcm-pp.c).  0: no wait, 1: waited,
+ * 2: gave up at the bound */
+int pcm_pp_fiq_window(uint32_t need_us);
+/* The cache maintenance stalls on a core (system-pp502x.c): the longest
+ * whole-cache write-back or drop measured (us) and the clock then (MHz),
+ * the window's waits and bound hits, since the last take; est_us: the
+ * stall the window protects now (decaying maximum, not reset) */
+struct cache_mstall
+{
+    uint32_t max_us;
+    uint32_t mhz;
+    uint32_t waits;
+    uint32_t bound;
+    uint32_t est_us;
+};
+void cache_mstall_take_stats(unsigned int core, struct cache_mstall *out);
 
 #endif /* HAVE_CORE_LAYOUT_A */
 #endif /* CORELAYOUT_H */

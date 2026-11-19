@@ -156,5 +156,9 @@ enum { STS_UNLOAD = 0, STS_LOAD, STS_GO, STS_RUN, STS_POST, STS_IN,
 void audio_start_trace_step(int step);
 uint32_t audio_start_trace_in_begin(void);
 void audio_start_trace_in_end(uint32_t t0);
+/* p090-shuffle: entries were only appended at the playlist's end: keep
+ * the buffered tracks (audio_flush_and_reload_tracks() drops every one
+ * after the current); the flush still runs where the state needs it */
+void audio_playlist_appended(void);
 #endif
 #endif /* _PLAYBACK_H */

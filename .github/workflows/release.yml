@@ -52,7 +52,7 @@ env:
   # PRIVATE packages linked to this repository: CI downloads them, it never
   # builds GCC. Rebuild and re-push (and update these digests) only when a
   # Dockerfile changes.
-  TOOLCHAIN_IMAGE: ghcr.io/prokbox/prokbox5g-toolchain@sha256:ce11db75441b3d6a494d25883547ccc38b8d1267b8170de2909a36b8db47a692
+  TOOLCHAIN_IMAGE: ghcr.io/prokbox/prokbox5g-toolchain@sha256:d8efb59fa41f756c60593997c4d85e8f00a436dd1992fad4c84303152f81768a
   DOCS_IMAGE: ghcr.io/prokbox/prokbox5g-docs@sha256:261c0936fc83e235b10a9ddbb0b59cc3d48489474a7b2902396a018a51a2e44a
 
 jobs:

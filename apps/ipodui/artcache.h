@@ -331,6 +331,10 @@ void artcache_note_input(void);
  * when the paused window opens with chapter-image books owed */
 bool artcache_user_idle(void);
 void artcache_maint_kick(void);
+/* p090-artrelease (tagcache.c, a publication): a pass still reading the
+ * retired generation gives way now, so its RAM cache can go back before
+ * a PLAY sizes the audio buffer */
+void artcache_library_published(void);
 /* #92/#90: the builder owes a maintenance window work (the panels.pak
  * regroup, the signature fill): maint_poll() kicks it when the window
  * opens */

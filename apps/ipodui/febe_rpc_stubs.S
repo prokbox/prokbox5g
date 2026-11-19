@@ -163,8 +163,10 @@ febe_invoke:
     FEBE_STUB audio_resume
     FEBE_STUB audio_stop
     FEBE_STUB audiophile_fallback_ack
+    FEBE_STUB audiophile_osr128_selftest
     FEBE_STUB audiophile_selftest
     FEBE_STUB audiophile_set_hirate
+    FEBE_STUB audiophile_set_osr128
     FEBE_STUB audiophile_set_width
     FEBE_STUB batcal_boot
     FEBE_STUB batcal_poweroff
@@ -189,6 +191,7 @@ febe_invoke:
     FEBE_STUB core_free
     FEBE_STUB core_heap_walk
     FEBE_STUB core_pin
+    FEBE_STUB core_shrink
     FEBE_STUB core_unpin
     FEBE_STUB default_event_handler
     FEBE_STUB devbench_vclk_gov
@@ -202,6 +205,9 @@ febe_invoke:
     FEBE_STUB fat_get_fsinfo
     FEBE_STUB fat_slot_fault_get
     FEBE_STUB fdprintf
+    FEBE_STUB lang_core_builtin
+    FEBE_STUB lang_core_file_size
+    FEBE_STUB lang_core_switch
     FEBE_STUB lcd_awake
     FEBE_STUB lcd_sleep
     FEBE_STUB lib_shuffle_active

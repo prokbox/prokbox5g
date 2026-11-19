@@ -1,0 +1,65 @@
+# p090-shuffle: a library shuffle's refill only appends at the end of the
+# playlist, so the audio thread keeps the tracks it has buffered after the
+# current one ("audio append kept=<tracks> kb=<buffered KB>"). Before,
+# every refill's playlist_sync() flushed them ("audio flush dropped=<n>
+# kb=<KB>") and read them again. Two refills: the start's backfill, and a
+# mid-run refill (shuf_refill_force). Nothing here changes the upcoming
+# tracks, so no append may fall through to the flush in a state that
+# keeps them (filling, full, end of playlist, finished; no skip pending,
+# or an automatic change).
+# A frequency switch (STATE_STOPPED, fill=7) still flushes: the test
+# library mixes rates, so that one is allowed. Then a shelf mode change
+# (which does replace them) must still flush.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-shuf-append.script
+# needs: library
+# trace: shuf
+# log: shuf: refill +46 -0
+# log: shuf: refill +50
+# logbetween: start modechg audio append kept=
+# logbetween: start modechg no audio flush dropped=\d+ kb=\d+ append=1 fill=[1234] skip=[01]\b
+# logbetween: modechg end audio flush dropped=
+# logbetween: modechg end shuf: mode albums ok
+# log: shuf_expect_settled ok
+# nolog: shuf_expect_settled failed
+# nolog: bad command
+# fulls-extra: 8   (Now Playing's pushes and pops)
+# golden: skip
+# timeout: 240
+
+wait 1000
+wait_db 30000
+art_wait 120000
+charger off
+repeat off
+sim_clock 15:08
+
+wheel +4                # "Shuffle Songs"
+wait 500
+ab_mark start
+key SELECT              # 4 queued, plays; the backfill appends 46
+wait 3000
+ab_mark mid
+shuf_refill_force       # a mid-run refill: appends 50
+wait 3000
+shuf_expect_settled
+
+shot playing
+ab_mark modechg
+key PLAY                # paused: the 2 s tracks would change track
+wait 300
+key SELECT
+wait 500
+key SELECT
+wait 500
+key SELECT              # Shuffle shelf
+wait 700
+wheel +2 300            # Albums
+wait 300
+key SELECT              # replaces what is queued: a flush
+wait 3000
+shot albums
+shuf_expect_settled
+ab_mark end
+audio_stop
+wait 500
+quit

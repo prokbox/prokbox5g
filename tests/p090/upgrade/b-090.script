@@ -1,0 +1,17 @@
+# p090 upgrade, steps B and C (tests/p090/upgrade.sh): run by this tree's
+# simulator on step A's disk, twice. B: the 0.8.x library is rebuilt once
+# (upgrade.sh checks the log) and the rating comes over; C (the same
+# script on the next boot): nothing is rebuilt, the rating stays.
+# golden: skip
+# timeout: 300
+# boot-stamp: keep
+# env: SIM_SCAN_SLOW_MS=5000
+# (p090-upgpage: the rebuild's walk lasts seconds, so the boot page is
+# decided while the library is still being made, as on the device)
+wait 4000
+wait_db 120000
+dbrec expect_published 90000
+dbrec expect_not_updating 90000
+wait 10000
+expect_rating /Library/Basalt/Columns/03%20Jagged%20Lantern.mp3 7
+quit

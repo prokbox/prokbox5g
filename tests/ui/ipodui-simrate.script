@@ -1,0 +1,19 @@
+# The sim plays at the speed of sound: a track's position advances 1 s per
+# wall second (95..105 %), measured on the host's monotonic clock
+# (p090-simrate). A slow sink (a 24-bit frame counted at the wrong size, a
+# double pacing delay) made every timing script of the gate time out.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-simrate.script
+# needs: music
+# timeout: 120
+# golden: skip
+# fulls-extra: 1   (the main menu gains its Now Playing row at the play_files)
+wait 3000
+repeat off
+wait_db 30000
+play_files /Music/Tone%20Collective/Sine%20Studies/03%20Warble.mp3
+wait_pos 3000 60000 Warble
+rate_mark
+wait 15000
+expect_rate 95 105
+shot end            # state, not pixels (no golden)
+quit

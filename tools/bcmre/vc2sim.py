@@ -147,6 +147,22 @@ class StaleCode(SimError):
     exception (what silicon does there is unknown)."""
 
 
+# --------------------------------------------------------------------------
+# The instruction side's line store (#257; program-swap.md section 6; BCM
+# quirks.md #56, #59).  Off (Sim.icache None) the decoder reads memory at
+# a first fetch and any flush drops what it decoded: a flush is perfect.
+# On (a harness sets Sim.icache = {}), every line the core fetched is kept
+# and served again, whatever memory holds now, until the harness discards
+# it (Sim.icache_discard) on the event its knob names (hello_test.Bench:
+# 'host30', 'core30', 'edge31').  Silicon: code at reused addresses after
+# a bit-30 request with bit 31 clear ran the old code (the warm swap,
+# sitting 4gh; the overlay swap, sitting b11), so a harness's default is
+# 'edge31': only a 0 -> 1 change of bit 31 drops the lines [hypothesis,
+# the only knob both findings fit].  Unbounded: the worst case (silicon's
+# 16 KB holds less; nothing here depends on eviction).
+ILINE = 32
+
+
 def _strict_env():
     v = os.environ.get('VC2SIM_STRICT_ALIGN', 'trap')     # trap by default (2026-10-25)
     return {'0': '', 'off': '', '1': 'trap', 'on': 'trap'}.get(v, v)
@@ -777,6 +793,10 @@ class Sim:
         self.code = {}             # addr -> (handler, size, ins)
         self.code_view = None      # memory at the last cache flush (strict
                                    # code coherence), or None: unchecked
+        self.icache = None         # line -> bytes the core fetched (the
+                                   # instruction side's line store), or
+                                   # None: a flush drops everything
+        self._ifilled = False      # this decode filled a line from memory
         self.images = []
         self.vmcs = None
         self.stubs = {}            # addr -> (name, fn)
@@ -849,7 +869,8 @@ class Sim:
     def fetch(self, pc):
         h = self.code.get(pc)
         if h is None:
-            ins = D.decode(self._rd16, pc)
+            self._ifilled = False
+            ins = D.decode(self._rd16 if self.icache is None else self._rd16_i, pc)
             if ins is None:
                 raise Undefined('undecodable instruction at 0x%08x (%04x)' %
                                 (pc, self.mem.r16(pc)))
@@ -860,7 +881,10 @@ class Sim:
                 fn = _counted(fn, cover_key(ins))
             h = (fn, ins.size, ins)
             v = self.code_view
-            if v is not None and pc + ins.size <= len(v) and \
+            # served from kept lines: what the instruction side holds,
+            # stale or not, is the line store's to model, not refused
+            if v is not None and (self.icache is None or self._ifilled) and \
+                    pc + ins.size <= len(v) and \
                     v[pc:pc + ins.size] != self.mem.b[pc:pc + ins.size]:
                 raise StaleCode('instruction at 0x%08x (%s) written since the '
                                 'last cache flush: silicon unknown; Apple '
@@ -869,13 +893,35 @@ class Sim:
             self.code[pc] = h
         return h
 
-    def cache_flushed(self, size=0x140000):
+    def cache_flushed(self, size=0x140000, discard=True):
         """A whole-cache flush (0x10000C00 bit 30): memory as it is now
         becomes what instruction fetches may read (strict code coherence),
-        and every decoded instruction is dropped."""
+        and, if discard (always without the line store), every decoded
+        instruction and kept line is dropped."""
         self.code_view = bytes(self.mem.b[0:size])   # the RAM itself, past
                                                      # any test's read hook
+        if discard or self.icache is None:
+            self.icache_discard()
+
+    def icache_discard(self):
+        """The instruction side forgets every line (and decoded instruction)"""
+        if self.icache is not None:
+            self.icache.clear()
         self.code.clear()
+
+    def _rd16_i(self, a):
+        """A halfword through the line store: a kept line as it was
+        fetched, else the line from memory as it is now, kept"""
+        ln = a & ~(ILINE - 1)
+        d = self.icache.get(ln)
+        if d is None:
+            if ln + ILINE > len(self.mem.b):
+                return self._rd16(a)
+            d = bytes(self.mem.b[ln:ln + ILINE])
+            self.icache[ln] = d
+            self._ifilled = True
+        o = a - ln
+        return d[o] | d[o + 1] << 8
 
     def _rd16(self, a):
         try:

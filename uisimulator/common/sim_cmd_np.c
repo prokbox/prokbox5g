@@ -26,6 +26,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include "config.h"
 #include "system.h"
 #include "kernel.h"
@@ -39,6 +40,7 @@
 #include "sim_db.h"
 #include "pcmbuf.h"
 #include "codec_cop.h"       /* p083-copclock: cop_demand */
+#include "playback.h"        /* #487: audio_buffer_regrow() */
 int sim_mkdir(const char *path);   /* filesystem-sim.c */
 #include "sim_cmd_np.h"
 
@@ -154,6 +156,18 @@ bool sim_cmd_np(const char *cmd, char *argv[], int argc, int lineno)
                          atoi(argv[1]), lineno);
         return true;
     }
+#ifdef HAVE_IPOD_UI
+    if (!strcmp(cmd, "audio_regrow"))
+    {
+        /* #487: a transient block was freed (an art pass, a library
+         * update, a screen's state off the arena: audio_buffer_regrow()),
+         * so the next start while playing sizes the buffer anew through
+         * audio_reset_buffer(), as on the owner's road test */
+        audio_buffer_regrow();
+        fprintf(stderr, "sim_script: audio_regrow\n");
+        return true;
+    }
+#endif
     if (!strcmp(cmd, "expect_stopped"))
     {
         /* #281: playback is stopped now (audio_status() 0) */
@@ -183,6 +197,43 @@ bool sim_cmd_np(const char *cmd, char *argv[], int argc, int lineno)
 
         np_pb_sim_pin(ms, vol);
         fprintf(stderr, "sim_script: np_pin %ld %d\n", ms, vol);
+        return true;
+    }
+    if (!strcmp(cmd, "rate_mark") || (!strcmp(cmd, "expect_rate") && argc >= 3))
+    {
+        /* rate_mark: remember the playing track's position and the host's
+         * monotonic clock. expect_rate <lo> <hi>: the position advance
+         * since the mark as a percentage of the wall time elapsed (100 =
+         * real time); fails outside lo..hi. The one place that measures
+         * whether the sim plays at the speed of sound (wait_pos counts
+         * loop passes, not the clock) */
+        static long mark_pos = -1;
+        static long long mark_wall;
+        struct timespec ts;
+        struct mp3entry *id3 = audio_current_track();
+        long long wall;
+        long pos = id3 ? (long)id3->elapsed : -1;
+
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        wall = (long long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+        if (!strcmp(cmd, "rate_mark"))
+        {
+            mark_pos = pos;
+            mark_wall = wall;
+            fprintf(stderr, "sim_script: rate_mark pos=%ld\n", pos);
+            return true;
+        }
+        long lo = atol(argv[1]), hi = atol(argv[2]);
+        long long dw = wall - mark_wall;
+        long pct = dw > 0 ? (long)((pos - mark_pos) * 100 / dw) : -1;
+
+        if (mark_pos < 0 || pos < mark_pos || pct < lo || pct > hi)
+            fprintf(stderr, "sim_script:%d: expect_rate failed: %ld%% "
+                    "(pos %ld -> %ld in %lld ms wall; want %ld..%ld%%)\n",
+                    lineno, pct, mark_pos, pos, dw, lo, hi);
+        else
+            fprintf(stderr, "sim_script: expect_rate ok: %ld%% (pos %ld -> "
+                    "%ld in %lld ms wall)\n", pct, mark_pos, pos, dw);
         return true;
     }
     if ((!strcmp(cmd, "wait_pos") || !strcmp(cmd, "wait_index"))

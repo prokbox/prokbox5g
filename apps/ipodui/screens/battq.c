@@ -75,43 +75,12 @@ static const char *bq_label(int idx, void *data)
     return str(bq_rows[idx]);
 }
 
-/* greedy centred word wrap in the current font, at most 'max' lines */
+/* centred, wrapped as every shell text is (ui_wrap_next(): words, or
+ * East Asian characters), at most 'max' lines from baseline y_base */
 static void bq_note_centre(int y_base, int pitch, int max_w, int max,
                            const char *s)
 {
-    char line[96];
-    int w, h, ln = 0;
-
-    while (*s && ln < max)
-    {
-        const char *p = s, *brk = NULL;
-        int n;
-
-        for (;;)
-        {
-            while (*p && *p != ' ')
-                p++;
-            n = MIN((int)(p - s), (int)sizeof(line) - 1);
-            memcpy(line, s, n);
-            line[n] = 0;
-            font_getstringsize((unsigned char *)line, &w, &h,
-                               lcd_current_viewport->font);
-            if (w > max_w && brk)
-                break;
-            brk = p;
-            if (!*p)
-                break;
-            p++;
-        }
-        n = MIN((int)(brk - s), (int)sizeof(line) - 1);
-        memcpy(line, s, n);
-        line[n] = 0;
-        ui_paint_text_centre(LCD_WIDTH / 2, y_base + ln * pitch, max_w, line);
-        ln++;
-        s = brk;
-        while (*s == ' ')
-            s++;
-    }
+    ui_paint_text_wrap_top(LCD_WIDTH / 2, y_base, max_w, max, pitch, s);
 }
 
 static void bq_note(void)

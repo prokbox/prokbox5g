@@ -1,0 +1,54 @@
+# #270 p090-apstall: a real stall is still caught. PROKBOX_HIRATE_FAULT=stall
+# stops the output's progress word when a high-rate track first plays (a
+# dead codec clock), and the stall watch itself (apps/audiophile.c
+# ap_tick(), not the forced fault of =run) must find it: the fault line
+# with the simulator's window (250 ms), the popup, and the re-pick to a
+# standard rate. Playback carries on. Its partner,
+# ipodui-audiophile-switch.script, proves the legitimate silences don't
+# trip it.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-audiophile-stall.script
+# env: PROKBOX_HIRATE_FAULT=stall
+# needs: library
+# golden: skip
+# reset: mainmenu
+# timeout: 120
+# log: audiophile test mask=0x83 on=1
+# logbetween: p0 p1 output 96000 Hz
+# logbetween: p0 p1 high rate sim: the output clock stops now
+# logbetween: p0 p1 high rate fault at 96000 Hz: no output for 250 ms
+# logbetween: p0 p1 audiophile popup shown
+# logbetween: p0 p1 output 48000 Hz 16-bit for 96000 Hz
+wait 4000
+copy fixtures/rate96k.flac /Music/rate96k.flac
+wait 500
+
+wheel +3 300            # Settings
+wait 400
+key SELECT 50
+wait 1200
+wheel +11 300           # Audiophile
+wait 1000
+key SELECT 50
+wait 1200
+key SELECT 50           # High Sample Rate: the warning
+wait 1000
+wheel -1 300            # Continue
+wait 300
+key SELECT 50
+wait 3800
+key SELECT 50           # the result: OK
+wait 1500
+ab_mark p0
+play_files /Music/rate96k.flac
+wait 2500               # the clock stops at once; the watch finds it
+expect_playing 500      # re-picked at 48 kHz, still playing
+ab_mark p1
+shot popup
+key SELECT 50           # the popup closed
+wait 1200
+key SELECT 50           # High Sample Rate Off (leave the disk as found)
+wait 3000
+audio_stop
+wait 800
+rm_file /Music/rate96k.flac
+quit

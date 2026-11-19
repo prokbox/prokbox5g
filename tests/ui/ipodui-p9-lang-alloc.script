@@ -2,13 +2,15 @@
 # IPODUI_TRIM_MISC (apps/language.c lang_core_load). The 38,232 B static
 # is gone; a loaded .lng gets one pinned core_alloc of exactly its core
 # lang_size, made at boot by settings_apply() before audio starts.
-#  - lang_file = deutsch, reboot: the boot load allocates one pinned block
-#    of deutsch.lng's core size (lang_alloc_check), and a stock string the
-#    shell draws is translated: the developer list shows "Entwicklerbereich"
-#    and "Zurück" (lang_str, and the shot).
-#  - A larger .lng (francais, 22,140 B core vs deutsch's 20,516 B) loaded
-#    while running is refused until the next boot ("p9 lang ... next
-#    boot", rc 2) and the German strings stay.
+#  - lang_file = francais, reboot: the boot load allocates one pinned block
+#    of francais.lng's core size (lang_alloc_check), and a stock string the
+#    shell draws is translated: the developer list shows "Déboguage
+#    (Attention !)" and "Revenir" (lang_str, and the shot).
+#  - A larger .lng (deutsch, with the 0.9.0 shell strings translated,
+#    larger than francais, which has none) loaded while running is refused
+#    until the next boot ("p9 lang ... next boot", rc 2) and the French
+#    strings stay. (Until 0.9.0 int4 the roles were swapped: francais was
+#    the larger file then.)
 #  - lang_file is cleared again at the end (the disk is shared outside the
 #    gate).
 #   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p9-lang-alloc.script
@@ -24,13 +26,13 @@
 # logbetween: dev_in dev_shown \bsim lcd push x=0 y=0 w=320 h=240\b
 
 wait 3000
-lang_set deutsch
+lang_set francais
 reboot
 
-wait 5000           # boot; settings_apply() loads deutsch.lng
-lang_alloc_check /.rockbox/langs/deutsch.lng
-lang_str Debug_(Keep_Out!) Entwicklerbereich
-lang_str Back Zurück
+wait 5000           # boot; settings_apply() loads francais.lng
+lang_alloc_check /.rockbox/langs/francais.lng
+lang_str Debug_(Keep_Out!) Déboguage_(Attention_!)
+lang_str Back Revenir
 
 wheel +3            # Settings (4th main-menu row)
 wait 400
@@ -44,10 +46,10 @@ wait 1000
 shot developer      # the stock list, translated
 ab_mark dev_shown
 
-lang_load /.rockbox/langs/francais.lng 2
-lang_alloc_check /.rockbox/langs/deutsch.lng
-lang_str Back Zurück
-wheel -1            # the Back row ("Zurück"), the last
+lang_load /.rockbox/langs/deutsch.lng 2
+lang_alloc_check /.rockbox/langs/francais.lng
+lang_str Back Revenir
+wheel -1            # the Back row ("Revenir"), the last
 wait 400
 key SELECT          # leave developer mode
 wait 1500

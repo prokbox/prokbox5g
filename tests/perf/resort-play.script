@@ -7,7 +7,9 @@
 # publishes at the stop ("db resort done ok=1"). PLAY also comes while
 # that publication runs (commit_hold 100): refused, the candidate yields
 # its RAM and its prepared statistics lookup, and publishes at the next
-# stop. Then the same after a USB session that adds a file: its commit
+# stop. p090-floor3: where the buffer would be short (64 MB at 65k) PLAY
+# asks for that before its buffer is sized: the held publication stops
+# ("publish cut by play") and the yield comes at the PLAY. Then the same after a USB session that adds a file: its commit
 # runs stopped, PLAY follows.
 # golden: skip
 wait 300

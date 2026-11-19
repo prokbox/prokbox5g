@@ -6,6 +6,9 @@
 # nav_transition_ticks() (D7) into ui_main.c's slide code -- both now
 # pass against build/sim-ui.)
 # (Phase 5: ab-chapterkeys and shuffle-albums pass now and are un-pended.)
+# (0.9.0 int3: with Audiophile and the info page on, ipodui-audiophile-128x,
+# the ipodui-eqtable-bypass/-loaded pair and ipodui-180-np-lines-turns (#167's
+# mv_v24 fixture is in) pass against build/sim-ui and are un-pended.)
 
 # (Phase 8a: every ipodui-p8a-* script un-pended at integration.)
 # (Phase 6: every ipodui-p6-* script passes and is un-pended at integration;
@@ -13,14 +16,5 @@
 
 # (Phase 11: U1's three Search scripts un-pended at integration, once
 # U2a's menu.c pointed Music > Search at ui_search_screen.)
-# Phase 11 (wave 2): the cross-area tour runs only once every screen has landed.
-ipodui-p11-tour
-# 0.8.3 scope (owner 2026-11-12, "do 24 bit now audiophile later"):
-# Settings > Audiophile (#270) and the Now Playing info page (#277) are
-# built out by IPODUI_AUDIOPHILE / IPODUI_NP_INFO (ipodvideo.h). Their
-# scripts wait for 0.9.0, which defines both and un-pends these.
-ipodui-audiophile
-ipodui-audiophile-none
-ipodui-audiophile-popup
-ipodui-audiophile-test96
-ipodui-np-info
+# (Phase 11 wave 2's cross-area tour, ipodui-p11-tour, un-pended at 0.9.0
+# int4 once its "# needs: np" line made build/np-fixtures before boot.)

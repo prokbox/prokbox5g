@@ -49,6 +49,50 @@ S_MASK = T.S.MASK
 JDEFS = ('BCMFW_HOSTPROTO=1', 'BCMFW_JOBS=1')
 
 
+# The PP's code flush before an overlay load into a region whose code has
+# run since the image started (#257; bcmjob-core.c host_code_flush, the
+# same words in the same order): the cache word kept but for bits 31:30;
+# the cold start's request (bits 31 and 30: the enable's edge, then the
+# request), re-requested while bit 0 reads 1 at once, polled; then @25a's
+# request (bit 30 alone, the enable off); then the word as kept.  Done
+# before the region is rewritten (a dirty data line of the old overlay's
+# goes back first: #257 H(b)) and again after it, before OVERLAY (the
+# instruction side drops the old overlay's lines: H(a)).
+# JOBS_OVL_HOSTFLUSH=0: the loads without it (the red run).
+CACHE_CTL = 0x10000C00
+OVL_HOSTFLUSH = os.environ.get('JOBS_OVL_HOSTFLUSH', '1') != '0'
+
+
+def host_code_flush(b, drain_only=False):
+    """bcmjob-core.c host_code_flush; drain_only (#466, an image with
+    HP_CAP_CORE_FLUSH): the request alone, the enable left off"""
+    keep = b.r32(CACHE_CTL) & 0x3FFFFFFF
+    done = True
+    for form in ((0x40000000,) if drain_only else (0xC0000000, 0x40000000)):
+        for _ in range(15):
+            b.w32(CACHE_CTL, keep | form)
+            if not b.r32(CACHE_CTL) & 1:
+                break
+            b.w32(CACHE_CTL, keep)
+        for _ in range(64):
+            if b.r32(CACHE_CTL) & 1:
+                break
+            b.run(20)
+        else:
+            done = False
+    b.w32(CACHE_CTL, keep)
+    return done
+
+
+def set_icache(b, knob):
+    """The bench's instruction-side knob from now on (hello_test.ICACHE)"""
+    b.icache = knob
+    if knob == 'off':
+        b.sim.icache = None
+    elif b.sim.icache is None:
+        b.sim.icache = {}
+
+
 def jobs_constants():
     import re
     text = open(os.path.join(T.FW, 'jobs.h')).read()
@@ -568,14 +612,48 @@ class Suite(H.Suite):
             row.check(st == K['HP_E_BUSY'], 'PARK with a session open: %d' % st)
             op, st, _ = vp.call(K['HP_OP_CLOSE'], [p[0] if p else 0, 0])
             row.check(st == K['HP_OK'], 'CLOSE: %d' % st)
-            # sitting 4g's A/B: in by the cold start's flush, back by @25a's
-            vp = self.swap(row, b, h, vp, JDEFS, 'back', flush='25a')
+            # both ways by the cold start's flush, as the device's lab
+            # (vplayer.c warm swap: WARM_FL_COLD) does since sitting 4gh
+            # (quirks.md #56; t_park_25a: @25a's)
+            vp = self.swap(row, b, h, vp, JDEFS, 'back')
             row.check(vp.caps & K['HP_CAP_JOBS_2D'], 'the display-only image: caps %x' % vp.caps)
             prog, rep, img = self.image(JDEFS)
             self.metrics['park stub bytes'] = (prog.symbols['bcmfw_park_stub_end'] -
                                                prog.symbols['bcmfw_park_stub'])
         except (T.Fail, H.Timeout) as e:
             row.check(False, str(e))
+
+    def t_park_25a(self):
+        """Sitting 4gh's A/B on the line store (quirks.md #56): the swap
+        to the video image by the cold form, back by @25a's form; on
+        silicon the second never said ready (step word: timer_init, the
+        old hot loop's addresses).  Under 'edge31' (the bench default)
+        the back swap must fail too, or the model no longer shows it;
+        under 'host30' it passes (the model before 2026-11-10)"""
+        row = T.Row('warm swap: back by @25a\'s host flush fails as on silicon (#56)')
+        self.rows.append(row)
+        if T.ICACHE != 'edge31':
+            row.check(True, 'skipped: VC2SIM_ICACHE=%s' % T.ICACHE)
+            return
+        for knob, fails in (('edge31', True), ('host30', False)):
+            scratch = T.Row('scratch')
+            try:
+                b, h, vp = self.setup(3)
+                set_icache(b, knob)
+                self.lcd_frame(scratch, b, h, 'display-only image frame')
+                vp = self.swap(scratch, b, h, vp, self.VIDEO_SHIPPED, 'to video')
+                row.check(not scratch.fails, '%s: the cold swap to video failed: %s' % (
+                    knob, scratch.fails[:2]))
+                n0 = len(scratch.fails)
+                vp = self.swap(scratch, b, h, vp, JDEFS, 'back', flush='25a')
+                if vp is not None:
+                    scratch.check(vp.caps & K['HP_CAP_JOBS_2D'], 'caps %x' % vp.caps)
+                bad = scratch.fails[n0:]
+            except (T.Fail, H.Timeout) as e:
+                bad = [str(e)]
+            row.check(bool(bad) == fails, '%s: back by @25a %s (%s)' % (
+                knob, 'failed' if bad else 'passed', bad[:2]))
+            self.metrics['@25a back swap under %s' % knob] = bad[0] if bad else 'passed'
 
     def t_park_unflushed(self):
         """B13 on silicon (2026-10-25, three builds): PARK answered, the
@@ -1626,9 +1704,22 @@ class Suite(H.Suite):
         if st != K['HP_OK']:
             raise T.Fail('FILL: %d' % st)
 
-    def ovl_load(self, vp, words, sums=None, n=None, defines=JDEFS):
-        """The PP's load: the words at the region's base, then OVERLAY"""
+    def ovl_load(self, vp, words, sums=None, n=None, defines=JDEFS, hostflush=None):
+        """The PP's load: the words at the region's base, then OVERLAY;
+        into a region whose code has run since this start, the PP's code
+        flush before the rewrite and before OVERLAY (host_code_flush),
+        unless hostflush is False (default: OVL_HOSTFLUSH); 'drain' (#466,
+        the driver with HP_CAP_CORE_FLUSH): the request alone before the
+        rewrite, nothing before OVERLAY"""
+        b = vp.b
+        fl = OVL_HOSTFLUSH if hostflush is None else hostflush
+        reuse = fl and getattr(b, 'ovl_ran', None) == b.starts
+        if reuse and not host_code_flush(b, fl == 'drain'):
+            raise T.Fail('the code flush before the rewrite never finished')
         vp.wr_block(H.B.config_value('BCMFW_JOBS_OVL', defines), words)
+        if reuse and fl != 'drain' and not host_code_flush(b):
+            raise T.Fail('the code flush before OVERLAY never finished')
+        b.ovl_ran = b.starts
         if sums is None:
             sums = f16w([h for w in words for h in (w & 0xFFFF, w >> 16)])
         vp.tag = (vp.tag + 1) & 0x7fff or 1
@@ -2067,14 +2158,17 @@ class Suite(H.Suite):
     # overlay region (decode_image_test.py MERGED_OVL)
     MERGED_OVL = VIDEO_SHIPPED + ('BCMFW_JOBS=1', 'BCMFW_JOBS_MERGED_OVL=1')
 
-    def merged_overlay(self, kind):
+    def merged_overlay(self, kind, defs=None):
         """An overlay of kind ('viz', 'decode') linked against the merged
-        image: (Program, report, the PP's upload as words)"""
-        key = ('movl', kind)
+        image (or the image built with defs): (Program, report, the PP's
+        upload as words)"""
+        defs = self.MERGED_OVL if defs is None else defs
+        key = ('movl', kind, defs)
         if key not in self.builds:
-            res = self.image(self.MERGED_OVL)[0]
-            out = os.path.join(T.ROOT, 'build', 'bcmfw', 'test-movl-' + kind)
-            prog, rep = H.B.build_overlay(res, out, list(self.MERGED_OVL), listing=False,
+            res = self.image(defs)[0]
+            out = os.path.join(T.ROOT, 'build', 'bcmfw', 'test-movl-' + kind +
+                               ('' if defs == self.MERGED_OVL else '-%d' % len(self.builds)))
+            prog, rep = H.B.build_overlay(res, out, list(defs), listing=False,
                                           kind=kind)
             img = open(os.path.join(out, ('viz-ovl' if kind == 'viz' else 'dec-ovl') +
                                     '.bin'), 'rb').read()
@@ -2155,6 +2249,109 @@ class Suite(H.Suite):
             row.check(st == K['HP_OK'] and jops() == ops0, 'RESET: J_OPS %08x' % jops())
         except (T.Fail, H.Timeout) as e:
             row.check(False, '%s: %s' % (what, e))
+
+    def swap_once(self, b, vp, defs, first, second, fix):
+        """One overlay swap in a fresh merged image: first loaded and
+        its init run, then second over it (with or without the PP's code
+        flush), then one op of second's.  Returns a reason it failed, or
+        None"""
+        jb = b.r32(J['HP_JOBS'])
+        st = self.ovl_load(vp, first[1], defines=defs, hostflush=fix)
+        if st != K['HP_OK']:
+            return 'the first load: %d' % st
+        try:
+            st = self.ovl_load(vp, second[1], defines=defs, hostflush=fix)
+        except H.Timeout as e:
+            return 'the swap: %s (core at %x)' % (e, b.pc)
+        if st != K['HP_OK']:
+            return 'the swap: status %d' % st
+        ops = b.r32(jb + J['J_OPS'])
+        if not ops & second[2]:
+            return 'the swap: J_OPS %08x lacks %08x' % (ops, second[2])
+        try:
+            if second[0] == 'viz':
+                op, st, _ = self.jcall(vp, J['J_OP_BARS'], [
+                    J['J_SURF_FRONT'], xy(8, 8), xy(40, 20), 4 | 6 << 8 | 2 << 16,
+                    0xF800 | 0x1F << 16, 0, J['J_BARS_BG'], 0x14100A05, 0])
+                if st != K['HP_OK']:
+                    return 'BARS after the swap: %d' % st
+            # every swap: the image's own jobs still run after it
+            op, st, _ = self.jcall(vp, J['J_OP_FILL'], [J['J_SURF_FRONT'], 0, xy(4, 4), 0x1234])
+            if st != K['HP_OK']:
+                return 'FILL after the swap: %d' % st
+        except H.Timeout as e:
+            return 'after the swap: %s (core at %x)' % (e, b.pc)
+        return None
+
+    def t_ovl_swap_cache(self):
+        """#257 (sitting b11: the merged image hung in OVERLAY both ways
+        when one overlay was loaded over the other at 0x12B000) and #466
+        (sitting b17: the host's flush on a running core, quirks #60).
+        Each of the cache hypotheses as a model (hello_test.Bench): H(a)
+        the instruction side keeps the old overlay's lines through the
+        core's own @25a request ('edge31', the bench default); H(b) a dirty
+        data line of the old overlay written back over the new one at the
+        next request (Bench.dwatch over the region, instruction side
+        'off').  Two builds of the merged image, both directions:
+         - the shipped one (BCMFW_CORE_FLUSH, #466: OVERLAY flushes in the
+           cold form itself and says so, HP_CAP_CORE_FLUSH): with the PP's
+           drain alone before the rewrite (the request, the enable never
+           set by the host) every swap passes, under every model;
+         - the red build (BCMFW_CORE_FLUSH=0, the @25a form, b9bcbe57 to
+           aa92d47b): without the PP's flush the swap must fail under H(a)
+           (the model still sees the b11 fault), with it every swap passes"""
+        row = T.Row('merged image: overlay swap under the cache models (#257, #466)')
+        self.rows.append(row)
+        models = (('H(a) edge31', 'edge31', False), ('H(b) dirty data', 'off', True),
+                  ('both', 'edge31', True), ('host30', 'host30', False),
+                  ('off', 'off', False))
+        for build, defs in (('core flush', self.MERGED_OVL),
+                            ('red: @25a', self.MERGED_OVL + ('BCMFW_CORE_FLUSH=0',))):
+            core = build == 'core flush'
+            viz = ('viz', self.merged_overlay('viz', defs)[2],
+                   1 << (J['J_OP_SPECTRUM'] - 0x20) | 1 << (J['J_OP_BARS'] - 0x20))
+            dec = ('decode', self.merged_overlay('decode', defs)[2],
+                   1 << (J['J_OP_DECODE'] - 0x20))
+            base = H.B.config_value('BCMFW_JOBS_OVL', defs)
+            size = H.B.config_value('BCMFW_JOBS_OVL_SIZE', defs)
+            red = {}
+            for name, knob, dirty in models:
+                for first, second in ((viz, dec), (dec, viz)):
+                    for fix in (('drain',) if core else (False, True)):
+                        what = '%s: %s, %s over %s, %s' % (
+                            build, name, second[0], first[0],
+                            'host drain only' if fix == 'drain' else
+                            'host-flushed' if fix else 'no host flush')
+                        try:
+                            b, h, vp = self.setup(3, defines=defs)
+                            set_icache(b, knob)
+                            caps = b.r32(K['HP_CAPS'])
+                            row.check(bool(caps & K['HP_CAP_CORE_FLUSH']) == core,
+                                      '%s: HP_CAPS %04x' % (what, caps))
+                            if dirty:
+                                b.dwatch(base, base + size)
+                            n0 = len(b.cc_log)
+                            why = self.swap_once(b, vp, defs, first, second, fix)
+                            if core:
+                                hw = sum(1 for hst, v in b.cc_log[n0:]
+                                         if hst and v & 0x80000000)
+                                row.check(hw == 0, '%s: %d host writes set the cache\'s '
+                                          'enable (bit 31) on a running core' % (what, hw))
+                        except (T.Fail, H.Timeout) as e:
+                            why = str(e)
+                        if dirty:
+                            self.metrics['#257 %s: lines written back' % what] = b.dwritebacks
+                        if core or fix:
+                            row.check(why is None, '%s: %s' % (what, why))
+                        else:
+                            red[(name, second[0])] = why
+                            self.metrics['#257 %s' % what] = why or 'passed'
+            if not core:
+                # the model still sees the silicon fault: H(a) fails both ways
+                for d in ('decode', 'viz'):
+                    row.check(red.get(('H(a) edge31', d)) is not None,
+                              'red build, H(a): %s over the other passed with no host '
+                              'flush: the model no longer shows the b11 hang' % d)
 
     def mix_model(self, surfs, case):
         """A FADE or AVG case (kind, dst, dxy, wh, a, axy, b, bxy, weight,
@@ -2384,12 +2581,12 @@ class Suite(H.Suite):
 
     def run(self):
         t0 = time.time()
-        tests = (self.t_block, self.t_draw, self.t_slot, self.t_park, self.t_park_unflushed,
+        tests = (self.t_block, self.t_draw, self.t_slot, self.t_park, self.t_park_25a, self.t_park_unflushed,
                  self.t_park_sticky,
                  self.t_window,
                  self.t_scroll, self.t_mix, self.t_blit, self.t_retained, self.t_marquee,
                  self.t_phase, self.t_gate, self.t_variants, self.t_viz, self.t_ovl,
-                 self.t_ovl_merged, self.t_staged, self.t_staged_merged, self.t_idle_tick)
+                 self.t_ovl_merged, self.t_ovl_swap_cache, self.t_staged, self.t_staged_merged, self.t_idle_tick)
         if self.args.audit:
             tests = (self.t_audit,)
         elif self.args.only:

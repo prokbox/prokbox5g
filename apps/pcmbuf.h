@@ -145,4 +145,31 @@ long pcmbuf_full_wait_ticks(void);
 unsigned long pcmbuf_track_change_lag_us(bool *dry);
 #endif
 
+#if defined(HAVE_PCM_24BIT_OUT) && defined(HAVE_PLAY_FREQ)
+/* #214: a seamless output-format switch between tracks. Each chunk
+ * carries the rate and depth it was written at; the codec's next track
+ * writes at its own format from the track boundary on, and the PCM
+ * callback stops at the first chunk of another format; the audio thread
+ * then re-clocks the output and restarts it, with no re-buffer */
+#define PCMBUF_FMT_SWITCH
+/* audio thread, between the codec's tracks: the format the codec's next
+ * track writes at (the DSP's output follows) */
+void pcmbuf_set_write_format(unsigned long rate, int depth);
+/* the write side's format now: rate in Hz, *depth 16 or 24 */
+unsigned long pcmbuf_write_format(int *depth);
+/* audio thread (Q_AUDIO_FMT_SWITCH): re-clock to the waiting chunk's
+ * format and restart, if the output stopped at one */
+void pcmbuf_fmt_switch(void);
+/* switches done; their sample checks that failed (counts handed to the
+ * output differed from those written before the boundary) */
+unsigned long pcmbuf_fmt_switches(void);
+unsigned long pcmbuf_fmt_check_fails(void);
+/* switches whose edge (out or in) still stepped after the soft ramp */
+unsigned long pcmbuf_fmt_hard_edges(void);
+/* b16: the rate the codec's DSP converts to at a run's start
+ * (codec_thread.c run_codec()): the write side's, which across a track
+ * boundary leads the output (still at the outgoing track's format) */
+unsigned long pcmbuf_dsp_out_frequency(void);
+#endif
+
 #endif /* PCMBUF_H */

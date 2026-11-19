@@ -754,6 +754,9 @@ struct user_settings
     bool ipodui_locked;
     /* Date & Time > Time in Title (owner: default Off, section 1.2 T1) */
     bool ipodui_time_in_title;
+    /* Date & Time > 24 Hour Clock set by the owner: until then the clock
+     * follows the language (LANG_IPODUI_CLOCK_DEFAULT, P20) */
+    bool ipodui_clock_set;
     /* Date & Time > Time Zone: a stable city id (tzcity.h) */
     int ipodui_tz_city;
     /* Extras > Clocks (P12 W1-C): the clocks' city ids, "3,42,79" (up to
@@ -761,8 +764,14 @@ struct user_settings
     unsigned char ipodui_clocks[24];
     /* Settings > Sort By: Last (sort names by last name) */
     bool ipodui_sort_last;
-    /* Settings > EQ: 0 Off, 1..22 the presets (eq.c) */
+    /* Settings > EQ: 0 Off, 1..22 the presets, 23..25 Custom 1-3 (eq.c) */
     int ipodui_eq_preset;
+    /* #82: the custom EQ slots (ipodui_eq_preset 23..25), one line each in
+     * the export format (ipodui/eqlab_core.h eqlab_format(), at most
+     * EQLAB_TEXT_LEN - 1 characters); empty is flat */
+    unsigned char ipodui_eq_custom1[64];
+    unsigned char ipodui_eq_custom2[64];
+    unsigned char ipodui_eq_custom3[64];
     /* About page 3 (hidden; set in config.cfg; an empty one is hidden) */
     unsigned char ipodui_serial[17];
     unsigned char ipodui_model[17];
@@ -791,6 +800,11 @@ struct user_settings
     bool ipodui_hirate;
     int ipodui_hirate_ok;
     int ipodui_width3d;
+    /* 0.9.0 Hi-Res 128x: the DAC's 128x oversampling at 88.2/96 kHz
+     * output (Off by default: 64x), and the rates its own self-test
+     * passed (AP_RATE_* | AP_TESTED; 0 untested) */
+    bool ipodui_osr128;
+    int ipodui_osr128_ok;
 #endif
     /* one-build WP3: the fitted battery, the first-start question's
      * answer (enum battcell, ipodui/battcurve.h: 0 not answered, 1 the

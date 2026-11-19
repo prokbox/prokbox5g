@@ -17403,6 +17403,23 @@
   </voice>
 </phrase>
 <phrase>
+  id: LANG_IPODUI_DATE_TIME_HEAD
+  desc: iPod UI shell, Settings > Date & Time: the screen's header title (the split header holds about 86 px of Bold 12; the Settings row is LANG_IPODUI_DATE_TIME and may be longer)
+  user: core
+  <source>
+    *: none
+    ipodui: "Date & Time"
+  </source>
+  <dest>
+    *: none
+    ipodui: "Date & Time"
+  </dest>
+  <voice>
+    *: none
+    ipodui: ""
+  </voice>
+</phrase>
+<phrase>
   id: LANG_IPODUI_SORT_BY
   desc: iPod UI shell (Settings and split-screen panels)
   user: core
@@ -22741,16 +22758,186 @@
   </voice>
 </phrase>
 <phrase>
-  id: LANG_IPODUI_PANEL_DATE
-  desc: iPod UI shell, main-menu Extras panel date under the clock: month abbreviation (%s), day (%d), year (%d), e.g. "Oct 6 2026"
+  id: LANG_IPODUI_DECIMAL_SEP
+  desc: iPod UI shell, the decimal mark in numbers the code prints ("88.2 kHz", "28.1 GB", "2.2 kHz"): "." or ","
   user: core
   <source>
     *: none
-    ipodui: "%s %d %d"
+    ipodui: "."
   </source>
   <dest>
     *: none
-    ipodui: "%s %d %d"
+    ipodui: "."
+  </dest>
+  <voice>
+    *: none
+    ipodui: ""
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_CLOCK_DEFAULT
+  desc: iPod UI shell, Settings > Date & Time: the clock this language uses until the owner sets 24 Hour Clock: "12" or "24" (not shown)
+  user: core
+  <source>
+    *: none
+    ipodui: "12"
+  </source>
+  <dest>
+    *: none
+    ipodui: "12"
+  </dest>
+  <voice>
+    *: none
+    ipodui: ""
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_TIME_12H
+  desc: iPod UI shell, a time on the 12-hour clock, e.g. "7:05 AM": $g hour 1-12, $i minute 00-59, $A LANG_IPODUI_AM or _PM
+  user: core
+  <source>
+    *: none
+    ipodui: "$g:$i $A"
+  </source>
+  <dest>
+    *: none
+    ipodui: "$g:$i $A"
+  </dest>
+  <voice>
+    *: none
+    ipodui: ""
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_TIME_24H
+  desc: iPod UI shell, a time on the 24-hour clock, e.g. "07:05": $H hour 00-23, $G hour 0-23, $i minute 00-59
+  user: core
+  <source>
+    *: none
+    ipodui: "$H:$i"
+  </source>
+  <dest>
+    *: none
+    ipodui: "$H:$i"
+  </dest>
+  <voice>
+    *: none
+    ipodui: ""
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_DATE_PANEL
+  desc: iPod UI shell, main-menu Extras panel: the date under the clock, e.g. "Nov 13 2026"; fields: $j day, $d day 01, $n month, $m month 01, $M month name (LANG_MONTH_*), $y year 26, $Y year 2026, $D weekday (LANG_WEEKDAY_*), $l weekday in full, $t the time (LANG_IPODUI_TIME_*); $_M, $_D, $_l lower-case the first letter (mid-line in Dutch); other text as written
+  user: core
+  <source>
+    *: none
+    ipodui: "$M $j $Y"
+  </source>
+  <dest>
+    *: none
+    ipodui: "$M $j $Y"
+  </dest>
+  <voice>
+    *: none
+    ipodui: ""
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_DATE_ALARM
+  desc: iPod UI shell, Extras > Alarms: the panel under the alarm clock, when an alarm next rings, e.g. "Fri 13 Nov, 7:00 AM"; the panel is 148 px wide (#329); fields: $j day, $d day 01, $n month, $m month 01, $M month name (LANG_MONTH_*), $y year 26, $Y year 2026, $D weekday (LANG_WEEKDAY_*), $l weekday in full, $t the time (LANG_IPODUI_TIME_*); $_M, $_D, $_l lower-case the first letter (mid-line in Dutch); other text as written
+  user: core
+  <source>
+    *: none
+    ipodui: "$D $j $M, $t"
+  </source>
+  <dest>
+    *: none
+    ipodui: "$D $j $M, $t"
+  </dest>
+  <voice>
+    *: none
+    ipodui: ""
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_DATE_SHORT
+  desc: iPod UI shell, a date in figures (Extras: a to-do's due date, an alarm's date, the stopwatch logs), e.g. "11/13/26"; its order of day, month and year also orders the date rollers; fields: $j day, $d day 01, $n month, $m month 01, $M month name (LANG_MONTH_*), $y year 26, $Y year 2026, $D weekday (LANG_WEEKDAY_*), $l weekday in full, $t the time (LANG_IPODUI_TIME_*); $_M, $_D, $_l lower-case the first letter (mid-line in Dutch); other text as written
+  user: core
+  <source>
+    *: none
+    ipodui: "$n/$j/$y"
+  </source>
+  <dest>
+    *: none
+    ipodui: "$n/$j/$y"
+  </dest>
+  <voice>
+    *: none
+    ipodui: ""
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_DATE_DAY
+  desc: iPod UI shell, Extras > Calendars: a day's title with its year, e.g. "Friday, Nov 13, 2026"; fields: $j day, $d day 01, $n month, $m month 01, $M month name (LANG_MONTH_*), $y year 26, $Y year 2026, $D weekday (LANG_WEEKDAY_*), $l weekday in full, $t the time (LANG_IPODUI_TIME_*); $_M, $_D, $_l lower-case the first letter (mid-line in Dutch); other text as written
+  user: core
+  <source>
+    *: none
+    ipodui: "$l, $M $j, $Y"
+  </source>
+  <dest>
+    *: none
+    ipodui: "$l, $M $j, $Y"
+  </dest>
+  <voice>
+    *: none
+    ipodui: ""
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_DATE_DAY_THIS_YEAR
+  desc: iPod UI shell, Extras > Calendars: a day's title in this year, e.g. "Friday, Nov 13"; fields: $j day, $d day 01, $n month, $m month 01, $M month name (LANG_MONTH_*), $y year 26, $Y year 2026, $D weekday (LANG_WEEKDAY_*), $l weekday in full, $t the time (LANG_IPODUI_TIME_*); $_M, $_D, $_l lower-case the first letter (mid-line in Dutch); other text as written
+  user: core
+  <source>
+    *: none
+    ipodui: "$l, $M $j"
+  </source>
+  <dest>
+    *: none
+    ipodui: "$l, $M $j"
+  </dest>
+  <voice>
+    *: none
+    ipodui: ""
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_DATE_MONTH
+  desc: iPod UI shell, Extras > Calendars: a month's title, e.g. "Nov 2026"; fields: $j day, $d day 01, $n month, $m month 01, $M month name (LANG_MONTH_*), $y year 26, $Y year 2026, $D weekday (LANG_WEEKDAY_*), $l weekday in full, $t the time (LANG_IPODUI_TIME_*); $_M, $_D, $_l lower-case the first letter (mid-line in Dutch); other text as written
+  user: core
+  <source>
+    *: none
+    ipodui: "$M $Y"
+  </source>
+  <dest>
+    *: none
+    ipodui: "$M $Y"
+  </dest>
+  <voice>
+    *: none
+    ipodui: ""
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_DATE_CAPTION
+  desc: iPod UI shell, Settings > Date & Time: the date under the calendar in the panel, e.g. "Nov 13, 2026"; fields as LANG_IPODUI_DATE_PANEL
+  user: core
+  <source>
+    *: none
+    ipodui: "$M $j, $Y"
+  </source>
+  <dest>
+    *: none
+    ipodui: "$M $j, $Y"
   </dest>
   <voice>
     *: none
@@ -28096,23 +28283,6 @@
   </voice>
 </phrase>
 <phrase>
-  id: LANG_IPODUI_X_ALARM_PANEL_WHEN
-  desc: iPod UI shell, Extras > Alarms: the panel under the alarm clock, line 1 for an alarm: when it next rings. %s = weekday (3 letters, LANG_WEEKDAY_*), %d = day of the month, %s = month (3 letters, LANG_MONTH_*), %s = the time (12 or 24 hour), e.g. "Fri 13 Nov, 7:00 AM"; keep it short, the panel is 148 px wide (#329)
-  user: core
-  <source>
-    *: none
-    ipodui: "%s %d %s, %s"
-  </source>
-  <dest>
-    *: none
-    ipodui: "%s %d %s, %s"
-  </dest>
-  <voice>
-    *: none
-    ipodui: "%s %d %s, %s"
-  </voice>
-</phrase>
-<phrase>
   id: LANG_IPODUI_X_ALARM_PANEL_IN_ONE
   desc: iPod UI shell, Extras > Alarms: the panel under the alarm clock, line 2 for an alarm: how far off it is in one unit (%s = e.g. "5 minutes", "2 days") (#329)
   user: core
@@ -28265,3 +28435,669 @@
     ipodui: "1 minute"
   </voice>
 </phrase>
+#
+# ===== 0.9.0 package blocks (p090) =====
+# One block per 0.9.0 work package. A package appends its new <phrase>s
+# only inside its own block, between its BEGIN and END lines, so no two
+# packages edit the same lines. Phrases stay at the end of the file (new
+# IDs only; never move or renumber one above). Comment lines are ignored
+# by tools/genlang and kept by tools/updatelang. String freeze: Wed
+# 2026-11-18 18:00. List your new IDs in your hand-back report.
+#
+# ----- BEGIN 0.9.0 package A: Audiophile on, Now Playing (#270, #277, #180) -----
+# ----- END 0.9.0 package A -----
+#
+# ----- BEGIN 0.9.0 package B: output path: seamless rate and depth switch, 24-bit lossy (#214, #289) -----
+# ----- END 0.9.0 package B -----
+#
+# ----- BEGIN 0.9.0 package C: COP and memory safety (#283, #170, #292 cross-core reads) -----
+# ----- END 0.9.0 package C -----
+#
+# ----- BEGIN 0.9.0 package D: DAC and EQ: loudness, custom EQ, AMUTE (#203, #82, #327) -----
+<phrase>
+  id: LANG_IPODUI_EQ_CUSTOM_1
+  desc: iPod UI shell, Settings > EQ: custom EQ slot name (#82)
+  user: core
+  <source>
+    *: none
+    ipodui: "Custom 1"
+  </source>
+  <dest>
+    *: none
+    ipodui: "Custom 1"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Custom 1"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_EQ_CUSTOM_2
+  desc: iPod UI shell, Settings > EQ: custom EQ slot name (#82)
+  user: core
+  <source>
+    *: none
+    ipodui: "Custom 2"
+  </source>
+  <dest>
+    *: none
+    ipodui: "Custom 2"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Custom 2"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_EQ_CUSTOM_3
+  desc: iPod UI shell, Settings > EQ: custom EQ slot name (#82)
+  user: core
+  <source>
+    *: none
+    ipodui: "Custom 3"
+  </source>
+  <dest>
+    *: none
+    ipodui: "Custom 3"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Custom 3"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_EQED_BAND_1
+  desc: iPod UI shell, EQ editor: band name (#82)
+  user: core
+  <source>
+    *: none
+    ipodui: "Bass"
+  </source>
+  <dest>
+    *: none
+    ipodui: "Bass"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Bass"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_EQED_BAND_2
+  desc: iPod UI shell, EQ editor: band name (#82)
+  user: core
+  <source>
+    *: none
+    ipodui: "Low mid"
+  </source>
+  <dest>
+    *: none
+    ipodui: "Low mid"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Low mid"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_EQED_BAND_3
+  desc: iPod UI shell, EQ editor: band name (#82)
+  user: core
+  <source>
+    *: none
+    ipodui: "Mid"
+  </source>
+  <dest>
+    *: none
+    ipodui: "Mid"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Mid"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_EQED_BAND_4
+  desc: iPod UI shell, EQ editor: band name (#82)
+  user: core
+  <source>
+    *: none
+    ipodui: "Presence"
+  </source>
+  <dest>
+    *: none
+    ipodui: "Presence"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Presence"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_EQED_BAND_5
+  desc: iPod UI shell, EQ editor: band name (#82)
+  user: core
+  <source>
+    *: none
+    ipodui: "Treble"
+  </source>
+  <dest>
+    *: none
+    ipodui: "Treble"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Treble"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_EQED_NARROW
+  desc: iPod UI shell, EQ editor: a band's width (#82)
+  user: core
+  <source>
+    *: none
+    ipodui: "narrow"
+  </source>
+  <dest>
+    *: none
+    ipodui: "narrow"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "narrow"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_EQED_WIDE
+  desc: iPod UI shell, EQ editor: a band's width (#82)
+  user: core
+  <source>
+    *: none
+    ipodui: "wide"
+  </source>
+  <dest>
+    *: none
+    ipodui: "wide"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "wide"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_EQED_CAP_BAND
+  desc: iPod UI shell, EQ editor: caption over the band (#82)
+  user: core
+  <source>
+    *: none
+    ipodui: "Band"
+  </source>
+  <dest>
+    *: none
+    ipodui: "Band"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Band"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_EQED_CAP_FREQ
+  desc: iPod UI shell, EQ editor: caption over the frequency (#82)
+  user: core
+  <source>
+    *: none
+    ipodui: "Frequency"
+  </source>
+  <dest>
+    *: none
+    ipodui: "Frequency"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Frequency"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_EQED_CAP_LEVEL
+  desc: iPod UI shell, EQ editor: caption over the level (#82)
+  user: core
+  <source>
+    *: none
+    ipodui: "Level"
+  </source>
+  <dest>
+    *: none
+    ipodui: "Level"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Level"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_EQED_HINT_BAND
+  desc: iPod UI shell, EQ editor hint, choosing a band (#82)
+  user: core
+  <source>
+    *: none
+    ipodui: "Select: edit   Play: compare   Hold Select: reset"
+  </source>
+  <dest>
+    *: none
+    ipodui: "Select: edit   Play: compare   Hold Select: reset"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Select: edit   Play: compare   Hold Select: reset"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_EQED_HINT_FREQ
+  desc: iPod UI shell, EQ editor hint, setting the frequency (#82)
+  user: core
+  <source>
+    *: none
+    ipodui: "Wheel: frequency   Select: level   Menu: back"
+  </source>
+  <dest>
+    *: none
+    ipodui: "Wheel: frequency   Select: level   Menu: back"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Wheel: frequency   Select: level   Menu: back"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_EQED_HINT_LEVEL
+  desc: iPod UI shell, EQ editor hint, setting the level (#82)
+  user: core
+  <source>
+    *: none
+    ipodui: "Wheel: level   Select: done   Menu: back"
+  </source>
+  <dest>
+    *: none
+    ipodui: "Wheel: level   Select: done   Menu: back"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Wheel: level   Select: done   Menu: back"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_EQED_HINT_LEVEL_W
+  desc: iPod UI shell, EQ editor hint, setting the level of a band with a width (#82)
+  user: core
+  <source>
+    *: none
+    ipodui: "Wheel: level   Select: done   Hold Select: width"
+  </source>
+  <dest>
+    *: none
+    ipodui: "Wheel: level   Select: done   Hold Select: width"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Wheel: level   Select: done   Hold Select: width"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_EQED_COMPARE
+  desc: iPod UI shell, EQ editor: compare is showing the unequalised sound (#82)
+  user: core
+  <source>
+    *: none
+    ipodui: "EQ off   Play: back to your curve"
+  </source>
+  <dest>
+    *: none
+    ipodui: "EQ off   Play: back to your curve"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "EQ off   Play: back to your curve"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_X_EQ
+  desc: iPod UI shell, Extras: the custom EQ editor's row and list title (#82)
+  user: core
+  <source>
+    *: none
+    ipodui: "Custom EQ"
+  </source>
+  <dest>
+    *: none
+    ipodui: "Custom EQ"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Custom EQ"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_AP_OSR128
+  desc: iPod UI shell, Settings > Audiophile row: the DAC's 128x oversampling at 88.2/96 kHz output on or off (owner's label, 2026-11-13)
+  user: core
+  <source>
+    *: none
+    ipodui: "Hi-Res 128x"
+  </source>
+  <dest>
+    *: none
+    ipodui: "Hi-Res 128x"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Hi-Res 128x"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_AP_CAP_OSR128_ON
+  desc: iPod UI shell, Settings > Audiophile > Hi-Res 128x panel caption while on (and Hi-Res on): 88.2/96 kHz output, so also 176.4/192 kHz sources converted to them
+  user: core
+  <source>
+    *: none
+    ipodui: "128x at 88.2 kHz and up"
+  </source>
+  <dest>
+    *: none
+    ipodui: "128x at 88.2 kHz and up"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "128x at 88.2 kHz and up"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_AP_CAP_OSR128_OFF
+  desc: iPod UI shell, Settings > Audiophile > Hi-Res 128x panel caption while off (and Hi-Res on): the default 64x
+  user: core
+  <source>
+    *: none
+    ipodui: "64x at 88.2 kHz and up"
+  </source>
+  <dest>
+    *: none
+    ipodui: "64x at 88.2 kHz and up"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "64x at 88.2 kHz and up"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_AP_CAP_OSR128_NEEDS
+  desc: iPod UI shell, Settings > Audiophile > Hi-Res 128x panel caption while Hi-Res itself is off: the row has no effect then
+  user: core
+  <source>
+    *: none
+    ipodui: "Needs Hi-Res on"
+  </source>
+  <dest>
+    *: none
+    ipodui: "Needs Hi-Res on"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Needs Hi-Res on"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_AP_OSR128_WARN_HEAD
+  desc: iPod UI shell, Hi-Res 128x first turn-on prompt: heading
+  user: core
+  <source>
+    *: none
+    ipodui: "Turn on 128x?"
+  </source>
+  <dest>
+    *: none
+    ipodui: "Turn on 128x?"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Turn on 128x?"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_AP_OSR128_WARN_BODY
+  desc: iPod UI shell, Hi-Res 128x first turn-on prompt: body (own words; up to 6 lines)
+  user: core
+  <source>
+    *: none
+    ipodui: "Runs the audio chip's filter at its full 128x rate for music at 88.2 kHz and up. That is the most work the chip does, at a clock above its rating. A short test runs first."
+  </source>
+  <dest>
+    *: none
+    ipodui: "Runs the audio chip's filter at its full 128x rate for music at 88.2 kHz and up. That is the most work the chip does, at a clock above its rating. A short test runs first."
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Runs the audio chip's filter at its full 128x rate for music at 88.2 kHz and up. That is the most work the chip does, at a clock above its rating. A short test runs first."
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_AP_OSR128_RESULT_BOTH
+  desc: iPod UI shell, Hi-Res 128x self-test result: both rates passed (up to 4 lines)
+  user: core
+  <source>
+    *: none
+    ipodui: "88.2 and 96 kHz both passed at 128x. Hi-Res 128x is on."
+  </source>
+  <dest>
+    *: none
+    ipodui: "88.2 and 96 kHz both passed at 128x. Hi-Res 128x is on."
+  </dest>
+  <voice>
+    *: none
+    ipodui: "88.2 and 96 kHz both passed at 128x. Hi-Res 128x is on."
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_AP_OSR128_RESULT_88
+  desc: iPod UI shell, Hi-Res 128x self-test result: only 88.2 kHz passed (up to 4 lines)
+  user: core
+  <source>
+    *: none
+    ipodui: "88.2 kHz passed at 128x and 96 kHz did not, so 96 kHz keeps the 64x filter."
+  </source>
+  <dest>
+    *: none
+    ipodui: "88.2 kHz passed at 128x and 96 kHz did not, so 96 kHz keeps the 64x filter."
+  </dest>
+  <voice>
+    *: none
+    ipodui: "88.2 kHz passed at 128x and 96 kHz did not, so 96 kHz keeps the 64x filter."
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_AP_OSR128_RESULT_96
+  desc: iPod UI shell, Hi-Res 128x self-test result: only 96 kHz passed (up to 4 lines)
+  user: core
+  <source>
+    *: none
+    ipodui: "96 kHz passed at 128x and 88.2 kHz did not, so 88.2 kHz keeps the 64x filter."
+  </source>
+  <dest>
+    *: none
+    ipodui: "96 kHz passed at 128x and 88.2 kHz did not, so 88.2 kHz keeps the 64x filter."
+  </dest>
+  <voice>
+    *: none
+    ipodui: "96 kHz passed at 128x and 88.2 kHz did not, so 88.2 kHz keeps the 64x filter."
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_AP_OSR128_RESULT_NONE
+  desc: iPod UI shell, Hi-Res 128x self-test result: neither rate passed (up to 4 lines)
+  user: core
+  <source>
+    *: none
+    ipodui: "Neither rate passed at 128x on this unit, so Hi-Res 128x stays off."
+  </source>
+  <dest>
+    *: none
+    ipodui: "Neither rate passed at 128x on this unit, so Hi-Res 128x stays off."
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Neither rate passed at 128x on this unit, so Hi-Res 128x stays off."
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_EQ_HIRATE_PAUSE
+  desc: iPod UI shell, Settings > EQ caption: a preset plays flat while the output runs at 88.2/96 kHz (no preset table for that rate yet; custom EQs still apply) (#352)
+  user: core
+  <source>
+    *: none
+    ipodui: "Presets are paused for 88.2 kHz and up"
+  </source>
+  <dest>
+    *: none
+    ipodui: "Presets are paused for 88.2 kHz and up"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Presets are paused for 88.2 kHz and up"
+  </voice>
+</phrase>
+# ----- END 0.9.0 package D -----
+#
+# ----- BEGIN 0.9.0 package E: codecs: 32-bit FLAC, Opus (#318, #292) -----
+# ----- END 0.9.0 package E -----
+#
+# ----- BEGIN 0.9.0 package F: library: sort tags, unplayable songs, multi-artist (#235, #286, #167, #163) -----
+<phrase>
+  id: LANG_IPODUI_NOPLAY_SONG_TITLE
+  desc: iPod UI shell, the page SELECT opens on a greyed song that can't play (#286): header title
+  user: core
+  <source>
+    *: none
+    ipodui: "Can't Play Song"
+  </source>
+  <dest>
+    *: none
+    ipodui: "Can't Play Song"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Can't Play Song"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_NOPLAY_BOOK_TITLE
+  desc: iPod UI shell, the page SELECT opens on a greyed audiobook that can't play (#286): header title
+  user: core
+  <source>
+    *: none
+    ipodui: "Can't Play Audiobook"
+  </source>
+  <dest>
+    *: none
+    ipodui: "Can't Play Audiobook"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Can't Play Audiobook"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_NOPLAY_EPISODE_TITLE
+  desc: iPod UI shell, the page SELECT opens on a greyed podcast episode that can't play (#286): header title
+  user: core
+  <source>
+    *: none
+    ipodui: "Can't Play Episode"
+  </source>
+  <dest>
+    *: none
+    ipodui: "Can't Play Episode"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Can't Play Episode"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_NOPLAY_PROTECTED
+  desc: iPod UI shell, can't-play page of a song, audiobook or video (#286): heading, the file is copy-protected (a locked store purchase or a protected audiobook)
+  user: core
+  <source>
+    *: none
+    ipodui: "Protected file"
+  </source>
+  <dest>
+    *: none
+    ipodui: "Protected file"
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Protected file"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_NOPLAY_PROTECTED_BODY
+  desc: iPod UI shell, can't-play page of a song, audiobook or video (#286): one sentence under the Protected heading; say it in plain words, no product or store names
+  user: core
+  <source>
+    *: none
+    ipodui: "This file is copy-protected and won't play here."
+  </source>
+  <dest>
+    *: none
+    ipodui: "This file is copy-protected and won't play here."
+  </dest>
+  <voice>
+    *: none
+    ipodui: "This file is copy-protected and won't play here."
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_IPODUI_NOPLAY_FORMAT
+  desc: iPod UI shell, can't-play page of a song or audiobook (#286): one sentence under the heading LANG_IPODUI_VIDEO_ERR_FORMAT_HEAD, the file's format isn't one the player decodes
+  user: core
+  <source>
+    *: none
+    ipodui: "This file is in a format that can't be played here."
+  </source>
+  <dest>
+    *: none
+    ipodui: "This file is in a format that can't be played here."
+  </dest>
+  <voice>
+    *: none
+    ipodui: "This file is in a format that can't be played here."
+  </voice>
+</phrase>
+# ----- END 0.9.0 package F -----
+#
+# ----- BEGIN 0.9.0 package G: CJK text drawing (#235 fonts and glyph I/O) -----
+# ----- END 0.9.0 package G -----
+#
+# ----- BEGIN 0.9.0 package H: languages: Dutch, German, Japanese (#273, #266) -----
+# ----- END 0.9.0 package H -----
+#
+# ----- BEGIN 0.9.0 package I: docs and Settings > Legal text (#317, legal) -----
+<phrase>
+  id: LANG_IPODUI_LEGAL_7
+  desc: iPod UI shell, Legal: paragraph 7, the Noto Sans CJK glyphs in the ShellCJK companion fonts (0.9.0 package I, SIL OFL 1.1)
+  user: core
+  <source>
+    *: none
+    ipodui: "Japanese, Korean and Chinese characters: Noto Sans CJK, used under the SIL Open Font License."
+  </source>
+  <dest>
+    *: none
+    ipodui: "Japanese, Korean and Chinese characters: Noto Sans CJK, used under the SIL Open Font License."
+  </dest>
+  <voice>
+    *: none
+    ipodui: "Japanese, Korean and Chinese characters: Noto Sans CJK, used under the SIL Open Font License."
+  </voice>
+</phrase>
+# ----- END 0.9.0 package I -----
+#
+# ===== end of the 0.9.0 package blocks =====

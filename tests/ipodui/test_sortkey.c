@@ -412,6 +412,322 @@ static void test_casefold(void)
           "group key of a Latin name");
 }
 
+/* -- #235: CJK collation ------------------------------------------------ */
+
+/* each name's key strictly below the next one's */
+static void check_increasing(const char *what, const char *const *names,
+                             int n)
+{
+    for (int i = 0; i + 1 < n; i++)
+        CHECK(strcmp(K(names[i]), K(names[i + 1])) < 0,
+              "%s: \"%s\" not before \"%s\"", what, names[i], names[i + 1]);
+}
+
+#define N_OF(a) ((int)(sizeof(a) / sizeof((a)[0])))
+
+static void test_kana(void)
+{
+    /* gojuon: every base syllable, in order (the weight table) */
+    static const char *const gojuon[] = {
+        "あ", "ああ", "あい", "い", "う", "え", "お",
+        "か", "き", "く", "け", "こ", "さ", "し", "す", "せ", "そ",
+        "た", "ち", "つ", "て", "と", "な", "に", "ぬ", "ね", "の",
+        "は", "ひ", "ふ", "へ", "ほ", "ま", "み", "む", "め", "も",
+        "や", "ゆ", "よ", "ら", "り", "る", "れ", "ろ",
+        "わ", "ゐ", "ゑ", "を", "ん",
+    };
+    /* names with the same key (the later levels of ui_sortcmp() order
+     * them) */
+    static const char *const same[][2] = {
+        { "カタカナ", "かたかな" },          /* Katakana = Hiragana */
+        { "ガ", "か" }, { "が", "か" },      /* voiced = base */
+        { "は", "ば" }, { "ば", "ぱ" },      /* ha = ba = pa */
+        { "ぁ", "あ" }, { "ッ", "つ" },      /* small = full size */
+        { "ゃゅょ", "やゆよ" }, { "ゎ", "わ" }, { "ゕゖ", "かけ" },
+        { "ｶﾀｶﾅ", "かたかな" },              /* half width */
+        { "ｶﾞｷﾞ", "がぎ" },                  /* + voicing mark */
+        { "ﾊﾟﾝ", "ぱん" }, { "ｯ", "つ" }, { "ｦ", "を" },
+        { "か\xe3\x82\x99", "か" },          /* combining voicing mark */
+        { "カー", "かあ" },                  /* long vowel: the vowel */
+        { "ラーメン", "らあめん" }, { "ｶﾞｰ", "かあ" },
+        { "キー", "きい" }, { "ユーロ", "ゆうろ" }, { "ヨー", "よお" },
+        { "ルー", "るう" }, { "ンー", "んん" }, { "ヲー", "をお" },
+        { "ーあ", "あ" },                    /* dropped at the start */
+        { "いすゞ", "いすす" }, { "こゝろ", "こころ" },  /* iteration */
+        { "ヽあ", "あ" }, { "バナナヾ", "ばななな" },
+        { "ヴ", "う" }, { "ゔ", "う" },
+        { "ヷヸヹヺ", "わゐゑを" },
+    };
+    for (int i = 0; i < N_OF(same); i++)
+        CHECK(!strcmp(K(same[i][0]), K(same[i][1])),
+              "\"%s\" and \"%s\" have different keys", same[i][0],
+              same[i][1]);
+    check_increasing("gojuon", gojuon, N_OF(gojuon));
+    /* the key's units */
+    const unsigned char *k = (const unsigned char *)K("ゆず");
+    CHECK(k[0] == 0xf8 && k[1] == 0x80 + 37 && k[2] == 0xf8
+          && k[3] == 0x80 + 13 && k[4] == 0, "key of ゆず");
+    k = (const unsigned char *)K("ん");
+    CHECK(k[0] == 0xf8 && k[1] == 0x80 + 48 && k[2] == 0, "key of ん");
+    /* long-vowel mark after a non-kana: dropped */
+    CHECK(!strcmp(K("aー"), K("a")), "aー");
+    CHECK(!strcmp(K("あ ーい"), K("あ い")), "ー after a space");
+    /* ties: code-point order (small < full, unvoiced < voiced <
+     * semi-voiced, Hiragana < Katakana) */
+    CHECK(ui_sortcmp("ぁ", NULL, "あ", NULL) < 0, "ぁ < あ");
+    CHECK(ui_sortcmp("は", NULL, "ば", NULL) < 0, "は < ば");
+    CHECK(ui_sortcmp("ば", NULL, "ぱ", NULL) < 0, "ば < ぱ");
+    CHECK(ui_sortcmp("か", NULL, "カ", NULL) < 0, "か < カ");
+    /* code-point order puts every Hiragana before every Katakana */
+    CHECK(ui_sortcmp("が", NULL, "カ", NULL) < 0, "が < カ");
+}
+
+static void test_hangul(void)
+{
+    static const char *const order[] = {
+        "ㄱ", "가", "각", "갂", "간", "개", "거", "고", "기", "깋",
+        "ㄲ", "까", "ㄴ", "나", "ㄷ", "다", "ㄸ", "따", "ㄹ", "라", "ㅁ", "마",
+        "ㅂ", "바", "ㅃ", "빠", "ㅅ", "사", "ㅆ", "싸", "ㅇ", "아", "애", "야",
+        "이", "ㅈ", "자", "ㅉ", "짜", "ㅊ", "차", "ㅋ", "카", "ㅌ", "타",
+        "ㅍ", "파", "ㅎ", "하", "힣",
+    };
+    static const char *const same[][2] = {
+        { "ㅏ", "아" }, { "ㅣ", "이" }, { "ㅢ", "의" },  /* bare vowels */
+        { "ㄳ", "ㄱ" }, { "ㄶ", "ㄴ" }, { "ㅀ", "ㄹ" },  /* final clusters */
+        { "ㄺ", "ㄹ" }, { "ㅄ", "ㅂ" },
+    };
+    check_increasing("hangul", order, N_OF(order));
+    for (int i = 0; i < N_OF(same); i++)
+        CHECK(!strcmp(K(same[i][0]), K(same[i][1])),
+              "\"%s\" and \"%s\" have different keys", same[i][0],
+              same[i][1]);
+    const unsigned char *k = (const unsigned char *)K("한");
+    /* U+D55C: L 18, V 0, T 4 */
+    CHECK(k[0] == 0xf9 && k[1] == 0x80 + 18 && k[2] == 0x81 && k[3] == 0x84
+          && k[4] == 0, "key of 한");
+    /* conjoining jamo stay raw, in the '#' group */
+    CHECK(((const unsigned char *)K("\xe1\x84\x80"))[0] == 0xfe,
+          "U+1100 not in the '#' group");
+}
+
+static void test_kanji_fullwidth(void)
+{
+    /* kanji: code-point order (radical-stroke) */
+    static const char *const order[] = {
+        "\xe3\x90\x80" /* U+3400 */, "一", "東京", "東京事変", "椎名林檎",
+        "\xe9\xbf\xbf" /* U+9FFF */, "\xef\xa4\x80" /* U+F900 */,
+    };
+    check_increasing("kanji", order, N_OF(order));
+    const unsigned char *k = (const unsigned char *)K("東");
+    CHECK(k[0] == 0xfa && !strcmp((const char *)k + 1, "東"), "key of 東");
+    /* full-width ASCII */
+    CHECK(!strcmp(K("ＡＢＣ"), K("abc")), "ＡＢＣ != abc");
+    CHECK(!strcmp(K("Ｂ＇ｚ"), K("B'z")), "Ｂ＇ｚ != B'z");
+    CHECK(!strcmp(K("１２３"), K("123")), "１２３ != 123");
+    CHECK(ui_sortletter("Ｚｅｎ") == 'Z', "letter(Ｚｅｎ)");
+    CHECK(!strcmp(K("あ　い"), K("あ い")), "ideographic space");
+}
+
+static void test_groups(void)
+{
+    /* A-Z < kana < Hangul < kanji < '#' */
+    static const char *const groups[5][6] = {
+        { "AKB48", "B'z", "Zoë", "zzz", NULL },
+        { "あいみょん", "ゆず", "カーネーション", "ｱｲ", "ん", NULL },
+        { "ㄱ", "가수", "힙합", "ㅣ", NULL },
+        { "東京事変", "一", "\xef\xa4\x80", NULL },
+        { "123", "!!!", "\xce\xa9mega", "\xe1\x84\x80", "\xff bad", NULL },
+    };
+    static const unsigned char lead[5] = { 0, 0xf8, 0xf9, 0xfa, 0xfe };
+    for (int g = 0; g < 5; g++)
+        for (int i = 0; groups[g][i]; i++)
+        {
+            unsigned char b = (unsigned char)K(groups[g][i])[0];
+            CHECK(g == 0 ? (b >= 'a' && b <= 'z') : b == lead[g],
+                  "\"%s\": group byte 0x%02x", groups[g][i], b);
+            for (int h = g + 1; h < 5; h++)
+                for (int j = 0; groups[h][j]; j++)
+                    CHECK(strcmp(K(groups[g][i]), K(groups[h][j])) < 0,
+                          "\"%s\" not before \"%s\"", groups[g][i],
+                          groups[h][j]);
+        }
+    /* mixed names, each character on its own */
+    CHECK(!strcmp(K("AKB48"), "akb48"), "AKB48 key \"%s\"", K("AKB48"));
+    CHECK(!strcmp(K("B'z"), "b'z"), "B'z key");
+    static const char *const inside[] = {
+        "a1", "az", "a\xce\xa9", "aあ", "a가", "a東",
+    };
+    check_increasing("inside a key", inside, N_OF(inside));
+    /* a malformed byte never makes a group lead */
+    const unsigned char *k = (const unsigned char *)K("a\xf8\xfa\xfe");
+    CHECK(k[1] == 0xf7 && k[2] == 0xf7 && k[3] == 0xf7, "raw bytes kept");
+    /* quick-scroll letters of CJK names */
+    CHECK(ui_sortletter("ゆず") == '#' && ui_sortletter("가수") == '#'
+          && ui_sortletter("東京事変") == '#', "CJK letter not '#'");
+}
+
+static const char *const cjk_corpus[] = {
+    "ゆず", "ユズ", "ﾕｽﾞ", "カーネーション", "かあねえしょん", "東京事変",
+    "東京", "가수", "ㄱ", "ㅏ", "아", "ＡＢＣ", "abc", "ABC", "B'z", "AKB48",
+    "いすゞ", "いすず", "Ωmega", "ωMEGA", "Élan", "élan", "Elan", "1東",
+};
+
+static void test_cjk_grouping(void)
+{
+    /* #47: names equal under ui_casefold_cmp() share a group key */
+    for (int i = 0; i < N_OF(cjk_corpus); i++)
+        for (int j = 0; j < N_OF(cjk_corpus); j++)
+            if (!ui_casefold_cmp(cjk_corpus[i], cjk_corpus[j]))
+                CHECK(geq(cjk_corpus[i], cjk_corpus[j]),
+                      "group key %s = %s", cjk_corpus[i], cjk_corpus[j]);
+    CHECK(geq("ゆず", "ユズ") && geq("ＡＢＣ", "abc"), "group key folds");
+    /* every code point of the CJK ranges: a character and its fold
+     * share a group key, and the key is a whole unit */
+    static const unsigned ranges[][2] = {
+        { 0x3000, 0x31ff }, { 0xac00, 0xad00 }, { 0xd700, 0xd7ff },
+        { 0x4e00, 0x4e40 }, { 0xf900, 0xf920 }, { 0xff00, 0xffef },
+    };
+    char a[8], ka[KEYLEN], kb[KEYLEN];
+    for (int r = 0; r < N_OF(ranges); r++)
+        for (unsigned c = ranges[r][0]; c <= ranges[r][1]; c++)
+        {
+            put8(c, a);
+            int la = ui_sortkey(a, ka, sizeof(ka));
+            int lb = ui_groupkey(a, kb, sizeof(kb));
+            CHECK(la == lb && !strcmp(ka, kb), "U+%04X: group key", c);
+            CHECK(la == 0 || (unsigned char)ka[0] != 0xfe
+                  || ((unsigned char)ka[1] < 0xf8),
+                  "U+%04X: '#' then a group lead", c);
+        }
+}
+
+static void test_sortcmp(void)
+{
+    /* the sort value wins over the display order: 東京事変 (U+6771)
+     * displays before 椎名林檎 (U+690E) by code point, sorts after it
+     * by reading (to < shi) */
+    CHECK(strcmp(K("東京事変"), K("椎名林檎")) < 0, "kanji code-point order");
+    CHECK(ui_sortcmp("東京事変", "とうきょうじへん", "椎名林檎",
+                     "しいなりんご") > 0, "sort value not used");
+    CHECK(ui_sortcmp("椎名林檎", "しいなりんご", "東京事変",
+                     "とうきょうじへん") < 0, "sort value not used (swapped)");
+    CHECK(ui_sortcmp("椎名林檎", NULL, "東京事変", NULL) > 0,
+          "display fallback");
+    CHECK(ui_sortcmp("Beatles", "Beatles", "Abba", "") > 0, "empty sort");
+    /* level 1 equal, level 2: the case-folded sort values */
+    CHECK(ui_sortcmp("x", "Elan", "y", "Élan") < 0, "level 2");
+    CHECK(ui_sortcmp("y", "ゆず", "x", "ユズ") < 0, "level 2 (kana)");
+    /* levels 1-2 equal, level 3: the case-folded display names */
+    CHECK(ui_sortcmp("b", "same", "a", "SAME") > 0, "level 3");
+    /* levels 1-3 equal, level 4: the bytes */
+    CHECK(ui_sortcmp("ELAN", "e", "elan", "E") < 0, "level 4");
+    CHECK(ui_sortcmp("elan", "e", "elan", "e") == 0, "equal");
+    CHECK(ui_sortcmp("x", "", "x", NULL) == 0, "\"\" sort = NULL sort");
+    CHECK(ui_sortcmp(NULL, NULL, "", NULL) == 0, "NULL display");
+    CHECK(ui_sortcmp(NULL, NULL, "a", NULL) < 0, "NULL display first");
+    /* antisymmetric over the corpus */
+    for (int i = 0; i < N_OF(cjk_corpus); i++)
+        for (int j = 0; j < N_OF(cjk_corpus); j++)
+        {
+            int x = ui_sortcmp(cjk_corpus[i], NULL, cjk_corpus[j], NULL);
+            int y = ui_sortcmp(cjk_corpus[j], NULL, cjk_corpus[i], NULL);
+            CHECK((x < 0) == (y > 0) && (x == 0) == (y == 0)
+                  && (x == 0) == (i == j || !strcmp(cjk_corpus[i],
+                                                     cjk_corpus[j])),
+                  "sortcmp %s / %s", cjk_corpus[i], cjk_corpus[j]);
+        }
+
+    /* ui_sort_of(): "display\0sort\0" */
+    static const char both[] = "Beatles\0Beatles, The\0";
+    static const char none[] = "Abba\0\0";
+    static const char nodisp[] = "\0x\0";
+    CHECK(!strcmp(ui_sort_of(both), "Beatles, The"), "sort_of(both)");
+    CHECK(ui_sort_of(none) == none, "sort_of(none)");
+    CHECK(!strcmp(ui_sort_of(nodisp), "x"), "sort_of(no display)");
+    CHECK(ui_sort_of(NULL) == NULL, "sort_of(NULL)");
+}
+
+static void test_sortindex(void)
+{
+    static const struct { const char *name; int id; } ids[] = {
+        { "Abba", 0 }, { "The Zephyrs", 25 }, { "Ｚｅｎ", 25 },
+        { "あいみょん", 26 }, { "ぁ", 26 }, { "がっこう", 27 }, { "ｶ", 27 },
+        { "サ", 28 }, { "ぢ", 29 }, { "な", 30 }, { "ぱ", 31 }, { "も", 32 },
+        { "ゃ", 33 }, { "ユズ", 33 }, { "ろ", 34 }, { "わ", 35 },
+        { "ゐ", 35 }, { "を", 35 }, { "ん", 35 }, { "ーア", 26 },
+        { "ㄱ", 36 }, { "까", 36 }, { "ㄳ", 36 }, { "나", 37 }, { "따", 38 },
+        { "라", 39 }, { "마", 40 }, { "빠", 41 }, { "싸", 42 }, { "ㅏ", 43 },
+        { "아", 43 }, { "짜", 44 }, { "차", 45 }, { "카", 46 }, { "타", 47 },
+        { "파", 48 }, { "힣", 49 },
+        { "東京事変", 50 }, { "123", 50 }, { "\xce\xa9mega", 50 },
+        { "", 50 }, { NULL, 50 },
+    };
+    for (int i = 0; i < N_OF(ids); i++)
+        CHECK(ui_sortindex(ids[i].name) == ids[i].id,
+              "sortindex(%s) = %d, want %d", ids[i].name ? ids[i].name
+              : "NULL", ui_sortindex(ids[i].name), ids[i].id);
+    static const struct { int id; const char *label; } labels[] = {
+        { 0, "A" }, { 25, "Z" }, { 26, "あ" }, { 27, "か" }, { 33, "や" },
+        { 35, "わ" }, { 36, "ㄱ" }, { 43, "ㅇ" }, { 49, "ㅎ" }, { 50, "#" },
+        { -1, "#" }, { 51, "#" },
+    };
+    for (int i = 0; i < N_OF(labels); i++)
+        CHECK(!strcmp(ui_sortindex_label(labels[i].id), labels[i].label),
+              "label(%d) = %s, want %s", labels[i].id,
+              ui_sortindex_label(labels[i].id), labels[i].label);
+    /* every label is its own row */
+    for (int id = 0; id < UI_SORTINDEX_COUNT - 1; id++)
+        CHECK(ui_sortindex(ui_sortindex_label(id)) == id,
+              "sortindex(label(%d)) = %d", id,
+              ui_sortindex(ui_sortindex_label(id)));
+    /* ids never go down along a list in key order */
+    static const char *const list[] = {
+        "Abba", "Zoë", "あ", "か", "が", "ゃ", "ん", "ㄱ", "가", "ㄲ", "나",
+        "하", "힣", "一", "東京", "!!!", "123",
+    };
+    for (int i = 0; i + 1 < N_OF(list); i++)
+        CHECK(strcmp(K(list[i]), K(list[i + 1])) <= 0
+              && ui_sortindex(list[i]) <= ui_sortindex(list[i + 1]),
+              "index goes back at %s / %s", list[i], list[i + 1]);
+}
+
+static void test_cjk_truncation(void)
+{
+    static const char *const names[] = {
+        "東京事変", "가나다라", "ああああ", "1東京", "カーカー", "ｶﾞｶﾞｶﾞ",
+        "a東b가cあ",
+    };
+    char full[KEYLEN], key[KEYLEN];
+    for (int i = 0; i < N_OF(names); i++)
+    {
+        int fl = ui_sortkey(names[i], full, sizeof(full));
+        for (int kl = 1; kl <= 16; kl++)
+        {
+            memset(key, 'X', sizeof(key));
+            int len = ui_sortkey(names[i], key, kl);
+            CHECK(len >= 0 && len < kl && key[len] == '\0'
+                  && len <= fl && !memcmp(key, full, len),
+                  "\"%s\" keylen %d: len %d, not a prefix", names[i], kl,
+                  len);
+            CHECK(key[kl] == 'X', "\"%s\" keylen %d: wrote past", names[i],
+                  kl);
+            /* never mid-unit: the cut is where the full key has a unit
+             * boundary (the next byte is a lead, ' ', or the end) */
+            unsigned char nx = (unsigned char)full[len];
+            CHECK(len == 0 || nx == 0 || nx == ' ' || nx < 0x80
+                  || nx >= 0xf8, "\"%s\" keylen %d: cut mid-unit at %d",
+                  names[i], kl, len);
+        }
+    }
+    /* 96 bytes of kanji: whole 4-byte units */
+    char longname[3 * 40 + 1];
+    for (int i = 0; i < 40; i++)
+        memcpy(longname + 3 * i, "東", 3);
+    longname[120] = '\0';
+    int len = ui_sortkey(longname, key, 96);
+    CHECK(len == 92, "40 kanji at 96: len %d, want 92", len);
+}
+
 int main(void)
 {
     test_the();
@@ -420,6 +736,14 @@ int main(void)
     test_order();
     test_edges();
     test_casefold();
+    test_kana();
+    test_hangul();
+    test_kanji_fullwidth();
+    test_groups();
+    test_cjk_grouping();
+    test_sortcmp();
+    test_sortindex();
+    test_cjk_truncation();
     printf("   sortkey: %d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;
 }

@@ -75,8 +75,8 @@ static inline bool bookclass_eq(const char *s, const char *name)
 /* Book genres: English (iTunes/Audible/ID3 names) plus Dutch and German
  * (1.0 languages). Radio plays (Hoerspiel) are left out on purpose: they
  * are often music-like. Non-ASCII names are listed literally. ID3v1
- * numeric genre 101 is "Speech" (not a book); 183 (Audiobook) is beyond
- * the parser's table and arrives as no genre, so it needs the folder. */
+ * numeric genre 101 is "Speech" (not a book); 183 arrives as "Audiobook"
+ * and 186 as "Podcast" (#163: the parser's table runs to 191). */
 #define BOOKCLASS_GENRES                                                   \
     "Audiobook", "Audiobooks", "Audio Book", "Audio Books",                \
     "Book", "Books", "Spoken Word", "Spoken & Audio", "Books & Spoken",    \

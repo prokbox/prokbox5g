@@ -330,3 +330,11 @@ The owner found that hard square dot too sharp next to the anti-aliased letters 
 ## Round 6: character coverage (2026-11-06)
 
 Real tags and subtitles carry more than Latin letters: "♪ The Simpsons ♪" cues, `„“` and `«»` quotes, `€`, `№`, `ﬁ` pasted from PDFs. The three text fonts now draw Latin-1 and Latin Extended-A in full, Heros' part of Extended-B (ș ț included), the music notes ♩ ♪ ♫ ♬ and the common typographic punctuation and signs, all 32 C1 slots in use, through one table shared by the converter and `firmware/font.c` (`firmware/include/font_shell_map.h`). Heros lacks ten of them; they come from DejaVu Sans, fitted to Heros' weight. Cost +7,316 B over the three fonts (110,104 B in all); no metric or existing glyph changed (`fntcheck.py`). The set, the sources, the licence reasoning (no OFL glyphs inside a GUST font) and what is still missing (Greek, Cyrillic: ~41 KB, better as an on-demand font) are in `apps/ipodui/fonts/README.md`, "Coverage" and "Glyph sources".
+
+## Round 7: Chinese hanzi in the CJK companions (2026-11-13)
+
+The ShellCJK companions (see `apps/ipodui/fonts/README.md`) held kana, JIS X 0208 kanji and Hangul, so a Simplified name such as 周杰伦 drew its 伦 as a blank. GB2312 level 1 and Big5 level 1 are now in the cut: 2,065 more glyphs (20,508 in the windows, 20,561 code points), +753,725 B across the three fonts (14 px 3,348,660 B, each 11 px 2,077,164 B), +0 B RAM.
+
+- **Source decision:** the JP face has a glyph for every one of the 2,065 (checked by rendering against the missing-glyph box), but draws 216 of the 1,371 new GB2312 hanzi and 662 of the 932 new Big5 hanzi in Japanese forms. Those come from Noto Sans CJK SC (GB2312 ones) and TC (Big5-only ones), same release, same licence. Characters already in cut A keep the Japanese shape.
+- **Shots:** `scripts/shots.sh tests/ui/ipodui-cjk-chinese.script` (`out/shots/ipodui-cjk-chinese/`, 3x sheet `zoom3x.png`).
+- **Credit text for package I (`docs/legal.md` and Settings > Legal):** "ShellCJK fonts are bitmap conversions of Noto Sans CJK JP, SC and TC 2.004 (Bold and Regular), Copyright 2014-2021 Adobe, under the SIL Open Font License 1.1." The licence file `OFL-NOTO-CJK.txt` already ships with it and now names all three faces.

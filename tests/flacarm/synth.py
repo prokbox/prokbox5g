@@ -24,7 +24,7 @@
 
 """A FLAC writer that makes every decoder path happen on purpose.
 
-    synth.py OUT.flac BITS BLOCKSIZE FRAMES SEED [var]
+    synth.py OUT.flac BITS BLOCKSIZE FRAMES SEED [var] [rate=HZ]
 
 var: a variable-blocksize stream, frame f of BLOCKSIZE + f % 12 samples,
 so that every count of outputs left over by a loop that makes two, three
@@ -125,6 +125,11 @@ def levinson(x, order):
     return a[1:]  # x[i] ~ sum a[j] x[i-1-j]
 
 
+def fits32(res):
+    """Every residual a signed 32-bit value, as the format requires."""
+    return all(-(1 << 31) <= v < (1 << 31) for v in res)
+
+
 def rice_param(vals, limit):
     m = sum(abs(v) for v in vals) / max(1, len(vals))
     k = 0
@@ -164,8 +169,8 @@ class Writer:
                 b.put(esc, pbits)       # zero-width escape
                 b.put(0, 5)
                 continue
-            if (self.k + p) % 7 == 3 or not part:
-                w = max([abs(v).bit_length() + 1 for v in part] + [1])
+            w = max([abs(v).bit_length() + 1 for v in part] + [1])
+            if ((self.k + p) % 7 == 3 or not part) and w <= 31:
                 b.put(esc, pbits)
                 b.put(w, 5)
                 for v in part:
@@ -178,7 +183,7 @@ class Writer:
                 b.unary(u >> k)
                 b.put(u, k)
 
-    def subframe(self, b, x, bps, indep):
+    def subframe(self, b, x, bps, indep, const=False):
         """Write x (ints, each fits bps signed) as one subframe.  Only an
         independent channel may decode to something other than x (the
         constant and silent cases): a side channel that changed could put
@@ -188,6 +193,8 @@ class Writer:
         kind = self.k % 11
         if kind == 0 and not indep:
             kind = 1
+        if const:           # a side channel that is constant as it is
+            kind = 0
         wasted = 0
         if kind == 5 and bps > 4:  # wasted bits: drop the low w bits first
             wasted = 1 + self.k % 7
@@ -202,22 +209,20 @@ class Writer:
             b.put(c, sbps)
             return [c << wasted] * bs
         if kind == 1:   # verbatim
-            b.put(1, 6)
-            self.wasted(b, wasted)
-            for v in y:
-                b.put(v, sbps)
-            return x
+            return self.verbatim(b, y, sbps, wasted)
         if kind in (2, 3, 4) or kind == 9:  # fixed, orders 0..4
             order = self.k % 5
-            b.put(8 | order, 6)
-            self.wasted(b, wasted)
-            for v in y[:order]:
-                b.put(v, sbps)
             if indep and order <= 1 and self.k % 2 == 0:
                 # silence (order 0) or a held value (order 1): every
                 # residual zero, the zero-width escape's case
                 y = y[:order] + [y[0] if order else 0] * (bs - order)
             res = [y[i] - self.fixed_pred(y, i, order) for i in range(order, bs)]
+            if not fits32(res):     # 30..33-bit samples: verbatim instead
+                return self.verbatim(b, y, sbps, wasted)
+            b.put(8 | order, 6)
+            self.wasted(b, wasted)
+            for v in y[:order]:
+                b.put(v, sbps)
             self.residual(b, res, order, self.k % 2)
             return [v << wasted for v in y]
         # LPC: order, precision and shift all cycle
@@ -250,6 +255,20 @@ class Writer:
             # so add K * (y[i-order+1] - y[i-order]) to the predictor (a
             # small change on a smooth signal) until the sum reaches that
             coeffs = self.widen(coeffs, sbps, lim, y, q)
+        res = []
+        for i in range(order, bs):
+            s = sum(coeffs[j] * y[i - 1 - j] for j in range(order))
+            p = s >> q
+            r = y[i] - p
+            # the format's residual is 32-bit; up to 29 bits a sample the
+            # decoder wraps the same way.  Wider (30..33 bits: a 32-bit
+            # stream's side channel) a residual must fit as it is, or the
+            # subframe goes verbatim, as an encoder does.
+            if sbps <= 29:
+                r = ((r + (1 << 31)) & 0xffffffff) - (1 << 31)
+            res.append(r)
+        if not fits32(res):
+            return self.verbatim(b, y, sbps, wasted)
         b.put(32 | (order - 1), 6)
         self.wasted(b, wasted)
         for v in y[:order]:
@@ -258,14 +277,6 @@ class Writer:
         b.put(q, 5)
         for c in coeffs:
             b.put(c, prec)
-        res = []
-        for i in range(order, bs):
-            s = sum(coeffs[j] * y[i - 1 - j] for j in range(order))
-            p = s >> q
-            r = y[i] - p
-            # the format's residual is 32-bit; the decoder wraps the same way
-            r = ((r + (1 << 31)) & 0xffffffff) - (1 << 31)
-            res.append(r)
         self.residual(b, res, order, self.lpc_k % 2)
         return x
 
@@ -363,6 +374,13 @@ class Writer:
         self.residual(b, res, order, 1)
         return [lo] * self.bs
 
+    def verbatim(self, b, y, sbps, wasted):
+        b.put(1, 6)
+        self.wasted(b, wasted)
+        for v in y:
+            b.put(v, sbps)
+        return [v << wasted for v in y]
+
     @staticmethod
     def fixed_pred(y, i, order):
         if order == 0:
@@ -386,9 +404,12 @@ class Writer:
 
 def main():
     out, bits, bs0, frames, seed = sys.argv[1:6]
-    var = sys.argv[6:7] == ["var"]
+    var = "var" in sys.argv[6:]
     bps, bs0, frames = int(bits), int(bs0), int(frames)
-    rate = 96000
+    rate = 96000    # STREAMINFO's only: the frames say "as STREAMINFO"
+    for a in sys.argv[6:]:
+        if a.startswith("rate="):
+            rate = int(a[5:])
     w = Writer(bps, bs0, int(seed))
     if var:
         # a smooth, low signal (so the 64-bit filter can be forced at low
@@ -420,6 +441,21 @@ def main():
             R.append(max(-full - 1, min(full, int(r * full))))
         t += bs
         mode = f % 4   # independent, left/side, right/side, mid/side
+        # 32 bits: one frame in 8 has a constant side channel of 33 bits
+        # (left - right = 2^31 + 5 throughout), left/side
+        const = bps == 32 and f % 8 == 5
+        if const:
+            L = [5 + (abs(v) >> 1) for v in L]
+            R = [v - (1 << 31) - 5 for v in L]
+        # and one in 8 of each other side assignment has left and right
+        # loud and of opposite signs, so the side channel leaves 32 bits
+        # for whole stretches (the 64-bit history, the mid/side step's
+        # 33rd bit): frames 1, 2 and 3 of every 8 (left/side, right/side,
+        # mid/side)
+        if bps == 32 and f % 8 in (1, 2, 3):
+            pk = max(1, max(abs(v) for v in L))
+            L = [v * (full - full // 20) // pk for v in L]     # peaks at 95 %
+            R = [-v for v in L]
         edge = f % 8 == 7 and bps <= 29   # the 32-bit filter's bound (edge_subframe)
         wide_esc = f % 8 == 3 and not var and bps <= 24   # escapes of 26..31 bits
         if edge or wide_esc:
@@ -438,7 +474,8 @@ def main():
         b.put(7, 4)                                   # blocksize: 16 bits at end
         b.put(0, 4)                                   # rate: STREAMINFO
         b.put(code, 4)
-        b.put({16: 4, 24: 6}.get(bps, 0), 3)          # other widths: STREAMINFO
+        # 32: the frame header's own code (RFC 9639), every other frame
+        b.put({16: 4, 24: 6, 32: 7 if f % 2 else 0}.get(bps, 0), 3)  # others: STREAMINFO
         b.put(0, 1)
         for byte in utf8(t - bs if var else f):
             b.put(byte, 8)
@@ -450,7 +487,7 @@ def main():
             elif wide_esc:
                 w.escape_subframe(b, cb, 26 + (f // 8 * 2 + n) % 6)
             else:
-                w.subframe(b, ch, cb, mode == 0)
+                w.subframe(b, ch, cb, mode == 0, const and n == 1)
         b.align()
         b.put(crc16(bytes(b.out)), 16)
         minf, maxf = min(minf, len(b.out)), max(maxf, len(b.out))

@@ -24,6 +24,7 @@
 /* #146 host test: audiobook/podcast classification (apps/ipodui/bookclass.h) */
 #include <stdio.h>
 #include <stdint.h>
+#include <string.h>
 #include <strings.h>
 #include "bookclass.h"
 #include "sortkey.h"
@@ -32,7 +33,7 @@
  * SORTKEY_VERSION (the database magic) so devices rebuild once. The hash
  * below covers every row of the table; when it changes on purpose, bump
  * SORTKEY_VERSION and set both values to what this test prints. */
-#define EXPECTED_VERSION 2
+#define EXPECTED_VERSION 3   /* 3: the 0.9.0 format (p090); same rules */
 #define EXPECTED_HASH    0xfce5c0ffu
 
 #define M BOOKCLASS_MUSIC
@@ -107,10 +108,22 @@ static const struct row rows[] = {
     { 0, "Podcast Talk", "/Music/a/01.mp3",                        M },
 };
 
-int main(void)
+int main(int argc, char **argv)
 {
     unsigned i, fails = 0, n = sizeof(rows) / sizeof(rows[0]);
     uint32_t h = 2166136261u;
+
+    /* run.sh's parser rows (#163): the class of a genre the real parser
+     * produced. test_bookclass --one GENRE PATH -> music|book|podcast */
+    if (argc == 4 && !strcmp(argv[1], "--one"))
+    {
+        static const char *const names[] = { "music", "book", "podcast" };
+        enum bookclass c = bookclass_of(0, argv[2][0] ? argv[2] : NULL,
+                                        argv[3]);
+
+        puts((unsigned)c < 3 ? names[c] : "?");
+        return 0;
+    }
 
     for (i = 0; i < n; i++)
     {

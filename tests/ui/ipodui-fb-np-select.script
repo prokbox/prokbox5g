@@ -10,6 +10,8 @@
 # trace: np
 # golden: skip rated_normal shuffled_normal scrubbed_normal
 # log: np mode rating -> shuffle ev=0
+# log: np mode shuffle -> info ev=0
+# log: np mode info -> visualizer ev=0
 # log: np mode rating -> normal ev=0
 # log: np mode shuffle -> normal ev=0
 # log: np mode scrubber -> normal ev=0
@@ -38,6 +40,8 @@ wait 500
 key SELECT          # Rating (untouched)
 wait 500
 key SELECT          # Shuffle (advanced)
+wait 500
+key SELECT          # Info (#277)
 wait 500
 key SELECT          # Visualizer (music: #126, full screen)
 wait 800

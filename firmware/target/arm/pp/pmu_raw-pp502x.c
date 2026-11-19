@@ -46,9 +46,15 @@
 #include "config.h"
 #include "system.h"
 #include "power_sleep.h"
+#ifdef HAVE_BCMFW_DEVTEST
+#define PMU_RAW_DIAG        /* b12: the RTC read's steps, recorded */
+#endif
 #define RAW_RD(off)     (*(volatile unsigned char *)(I2C_BASE + (off)))
 #define RAW_WR(off, v)  (*(volatile unsigned char *)(I2C_BASE + (off)) = (v))
 #define RAW_USEC()      ((uint32_t)USEC_TIMER)
+#endif
+#ifdef PMU_RAW_DIAG
+#include <string.h>
 #endif
 
 /* i2c-pp.c's register map [rockbox-derived] */
@@ -61,9 +67,21 @@
 #define STATUS_BUSY 0x40
 
 #define PMU_ADDR        0x08    /* the PCF50605 */
-#define PMU_RAW_WAIT_US 2000    /* one transaction of <= 4 bytes at the
-                                 * bus's ~100 kHz is ~0.5 ms [estimate]; a
-                                 * line held low ends here, never hangs */
+/* b12 round 2 (#255): the busy wait's bound is Apple's, 100 ms (fw 1.3's
+ * I2C wait at 0x100F913C polls STATUS bit 6 against USEC_TIMER with a
+ * 100,000 us limit, called right after SEND as here) [apple-RE].  It was
+ * 2 ms, from a ~100 kHz estimate the silicon never confirmed (the bus
+ * speed is unknown, gpio-i2c.md section 6), and the first raw RTC read at
+ * a sleep entry failed on silicon both times (b11).  A line held low
+ * still ends here, never hangs; only a dead bus waits this long */
+#define PMU_RAW_WAIT_US 100000
+#define PMU_RAW_RTC_TRIES 2     /* b12: the RTC read, and one retry */
+#define PMU_RAW_RETRY_US  1000  /* before the retry */
+
+#ifdef PMU_RAW_DIAG
+/* b12 (#255): the longest busy wait of the RTC read in progress, us */
+static uint32_t diag_wait_us;
+#endif
 
 static bool raw_idle(void)
 {
@@ -71,7 +89,16 @@ static bool raw_idle(void)
 
     while (RAW_RD(R_STATUS) & STATUS_BUSY)
         if (RAW_USEC() - t0 > PMU_RAW_WAIT_US)
+        {
+#ifdef PMU_RAW_DIAG
+            diag_wait_us = PMU_RAW_WAIT_US + 1;
+#endif
             return false;
+        }
+#ifdef PMU_RAW_DIAG
+    if (RAW_USEC() - t0 > diag_wait_us)
+        diag_wait_us = RAW_USEC() - t0;
+#endif
     return true;
 }
 
@@ -156,12 +183,73 @@ bool pmu_raw_core_voltage(uint8_t code)
 #endif /* HAVE_PP_GOV_DVS */
 #endif
 
-bool pmu_raw_rtc_seconds(uint32_t *s)
+/* One RTC read: PMU_RAW_STEP_OK, or the step that failed (r holds what
+ * was read up to it) */
+static int rtc_once(uint8_t r[7], uint32_t *s)
 {
     static const uint8_t reg = 0x0A;
-    uint8_t r[7];
 
-    if (!raw_send(&reg, 1) || !raw_read(r, 4) || !raw_read(r + 4, 3))
-        return false;
-    return sleep_rtc_from_bcd(r, s);
+    if (!raw_send(&reg, 1))
+        return PMU_RAW_STEP_SEND;
+    if (!raw_read(r, 4))
+        return PMU_RAW_STEP_READ1;
+    if (!raw_read(r + 4, 3))
+        return PMU_RAW_STEP_READ2;
+    return sleep_rtc_from_bcd(r, s) ? PMU_RAW_STEP_OK : PMU_RAW_STEP_BCD;
 }
+
+/* b12 (#255): a failed read is tried once more after about 1 ms (a
+ * transaction caught at its end, a seconds roll-over between the two
+ * block reads); the entry's refusal (SLEEP_REFUSE_RTC) stays for a bus
+ * that still does not answer.  Bounded either way: at most two reads */
+#ifdef PMU_RAW_DIAG
+bool pmu_raw_rtc_read(uint32_t *s, struct pmu_raw_rtc_diag *d)
+#else
+bool pmu_raw_rtc_seconds(uint32_t *s)
+#endif
+{
+    uint8_t r[7];
+    int k, step = PMU_RAW_STEP_OK;
+
+    for (k = 0; k < PMU_RAW_RTC_TRIES; k++)
+    {
+        if (k)
+        {
+            uint32_t t0 = RAW_USEC();
+
+            while (RAW_USEC() - t0 < PMU_RAW_RETRY_US)
+                ;
+        }
+#ifdef PMU_RAW_DIAG
+        diag_wait_us = 0;
+        memset(r, 0, sizeof(r));
+#endif
+        step = rtc_once(r, s);
+#ifdef PMU_RAW_DIAG
+        if (d)
+        {
+            int i;
+
+            d->tries = k + 1;
+            d->step[k] = step;
+            d->status[k] = RAW_RD(R_STATUS);
+            d->wait_us[k] = diag_wait_us;
+            for (i = 0; i < 7; i++)
+                d->r[k][i] = r[i];
+        }
+#endif
+        if (step == PMU_RAW_STEP_OK)
+            return true;
+    }
+    return false;
+}
+
+#ifdef PMU_RAW_DIAG
+/* the last read's record, for the shell's refusal line */
+struct pmu_raw_rtc_diag pmu_raw_rtc_last;
+
+bool pmu_raw_rtc_seconds(uint32_t *s)
+{
+    return pmu_raw_rtc_read(s, &pmu_raw_rtc_last);
+}
+#endif

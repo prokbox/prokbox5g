@@ -158,6 +158,8 @@ Each needs a vc2sim model that can show the fault first. Today vc2sim treats **a
 5. **Restart through the start register without a power cut** (`0x1000_0400 = 0xA5A5_0002` on a running core, after the upload). Untested; what it resets (GPIO 48, the panel's reset line; the caches) is unknown, so it risks the panel. Only after recipe 1 fails.
 6. **Cold restart** (Apple's method for a whole-image change): proven, 0.37–0.62 s dark. The host's fallback today and the baseline every recipe must beat.
 
+**Update (2026-11-10, #257):** the model asked for above exists. vc2sim keeps every line the core fetched (`Sim.icache`) and drops them on the knob's event (`hello_test.ICACHE`, `VC2SIM_ICACHE`: `edge31` by default, `host30`, `core30`, `off`). Under `edge31` the warm swap back by @25a's host flush fails and the cold form passes (`jobs_image_test.py` `t_park_25a`), as in sitting 4gh, and the overlay swap hangs without the driver's flush, both ways, as in sitting b11 (`t_ovl_swap_cache`; BCM `quirks.md` #59). Sitting b11 also answers half of question 1 below: a bit-30 request **the core makes**, with bit 31 clear, did not drop the old overlay's instruction lines, so `core30` and `host30` are both ruled out and `edge31` is the only knob left that fits every silicon result.
+
 ## 7. Open questions only silicon can answer
 
 1. Does a bit-30 request with bit 31 clear discard instruction lines? Does a 0 → 1 change of bit 31? Does it matter whether the core or the host makes the request? (Recipe 3; then `boot-and-clocks.md` §2.)

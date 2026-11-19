@@ -142,6 +142,34 @@ enum boot_digest_pace {
     BOOT_PACE_STOP,
 };
 enum boot_digest_pace boot_digest_pace(long el_ms);
+
+/* The boot window's loop (maint_boot_window(), #87), here so a host test
+ * can drive it on its own clock. Each pass first reports progress to the
+ * hang watch (beat(): the shell's thread is at work, not stuck; 0.9.0
+ * road test: a first boot in Japanese read "ui no progress 6 s" while
+ * this loop held the screen), then asks the library's boot check (2
+ * done, 1 a walk with *pm its progress, else waiting). It ends at done,
+ * at a key or USB (event()), at 'end', or when a walk can't end inside
+ * the hold; otherwise it waits 'hz'/20 ticks. A check that never returns
+ * gives no beat, so a real stall still trips the watch. Ticks compare as
+ * TIME_BEFORE() does. Returns how it ended; *st: the check's last
+ * answer. */
+enum boot_window_end {
+    BOOT_WIN_DONE = 0,
+    BOOT_WIN_EVENT,
+    BOOT_WIN_CAP,
+    BOOT_WIN_HANDOVER,
+};
+struct boot_window_ops {
+    int  (*check)(int *pm);
+    bool (*event)(void);
+    long (*now)(void);
+    void (*wait)(long ticks);
+    void (*beat)(void);
+};
+enum boot_window_end boot_window_run(const struct boot_window_ops *o,
+                                     long end, long hz, int *st);
+const char *boot_window_end_name(enum boot_window_end e);
 static inline bool boot_why_trusted(enum boot_why w)
 {
     return w == BOOT_WHY_TRUST;

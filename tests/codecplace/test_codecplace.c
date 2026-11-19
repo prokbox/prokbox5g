@@ -395,7 +395,9 @@ void *codec_pcm_window(int used, unsigned long elapsed, off_t offset,
 
 /* ---- 0.8.3 colocate: a fake buffering ring and one audio handle ------- */
 
-#define RLEN    4096                /* the ring */
+#ifndef RLEN
+#define RLEN    4096                /* the ring (run.sh's second build: 512 KB) */
+#endif
 #define RGUARD  512                 /* bufgetdata's guard past its end */
 #define FHID    7
 static unsigned char fring[RLEN + RGUARD];
@@ -591,7 +593,7 @@ static size_t f_read(void *dst, size_t n)
  * insert, advance); then reads to the file's end and past it. Every byte
  * checked */
 #define MP4_HDR     2000            /* 4-byte table reads */
-#define MP4_GAP     600             /* the picture's bytes between chunks */
+static uint32_t mp4_gap = 600;     /* the picture's bytes between chunks */
 #define MP4_FRAMES  4
 #define MP4_FRAME   150
 static bool mp4_codec;              /* codec_run_proc runs mp4_run() */
@@ -626,10 +628,10 @@ static void mp4_run(void)
             mp4_bad++;
         mp4_check(b, off, n);
     }
-    while ((uint32_t)seen->curpos + MP4_GAP + MP4_FRAMES * MP4_FRAME + 16
+    while ((uint32_t)seen->curpos + mp4_gap + MP4_FRAMES * MP4_FRAME + 16
            <= (uint32_t)seen->filesize)
     {
-        uint32_t to = (uint32_t)seen->curpos + MP4_GAP;
+        uint32_t to = (uint32_t)seen->curpos + mp4_gap;
 
         if (!seen->seek_buffer(to) || (uint32_t)seen->curpos != to)
             mp4_bad++;
@@ -733,11 +735,25 @@ static void wma_run(void)
  * upstream merge) is now served from the ring too. Modelled: seek to 0,
  * scan a comment header with embedded art a byte at a time, then
  * get_more_data()'s chunk reads to the end (16 KB on the device's MB
- * ring; 1 KB here, so the 4 KB ring still holds a chunk) */
+ * ring; 1 KB here, so the 4 KB ring still holds a chunk). Each chunk is
+ * OPUS_PKTS packets, and opus.c reports progress at each one
+ * (set_offset(curpos), set_elapsed) before its insert (#292: the p083-int2
+ * rehearsal's ~2,750 calls a run were these) */
 #define OPUS_TAGS_AT  12000         /* the byte the scan stops on */
 #define OPUS_CHUNK    1024
+#define OPUS_PKTS     4             /* packets a chunk (20 ms each) */
 static bool opus_codec;             /* codec_run_proc runs opus_run() */
-static long opus_bad, opus_bytes, opus_reads;
+static long opus_bad, opus_bytes, opus_reads, opus_pkts;
+static size_t f_offset;             /* the CPU's set_offset saw it */
+static long f_offsets;
+static void f_set_offset(size_t v)
+{
+    if (fremote)
+        colo_applies_bad++;         /* a handler runs detached */
+    f_offsets++;
+    f_offset = v;
+    ((struct mp3entry *)id3_obj)->offset = (off_t)v;
+}
 
 static void opus_run(void)
 {
@@ -766,7 +782,15 @@ static void opus_run(void)
         mp4_check(b, off, n);
         opus_bytes += (long)n;
         opus_reads++;
-        seen->pcmbuf_insert(NULL, NULL, colo_ins);
+        for (int k = 0; k < OPUS_PKTS; k++)
+        {
+            seen->set_offset((size_t)seen->curpos);
+            seen->set_elapsed((unsigned long)(opus_pkts * 20));
+            if (seen->id3->offset != seen->curpos)
+                opus_bad++;         /* the report did not land */
+            opus_pkts++;
+            seen->pcmbuf_insert(NULL, NULL, colo_ins);
+        }
         if (opus_bytes > (long)seen->filesize)
         {
             opus_bad++;             /* the reads never reach the end */
@@ -1235,6 +1259,7 @@ static void colo_setup(uint32_t filesize)
     real.seek_buffer = f_seek;
     real.read_filebuf = f_read;
     real.set_elapsed = f_set_elapsed;
+    real.set_offset = f_set_offset;
     seen = codec_cop_select(&real, false);
 }
 
@@ -1523,33 +1548,107 @@ static void test_small_reads(void)
 
     /* Opus: a byte scan of 12,000 bytes, then 1 KB chunks to the end */
     opus_codec = true;
-    opus_bad = opus_bytes = opus_reads = 0;
+    opus_bad = opus_bytes = opus_reads = opus_pkts = f_offsets = 0;
     mp4_bad = 0;
     if (read_run(size, &calls))
     {
-        printf("opus reads: reads=%ld bytes=%ld calls=%u (limit %u)\n",
-               opus_reads, opus_bytes, (unsigned)calls, (unsigned)limit);
+        printf("opus reads: reads=%ld bytes=%ld packets=%ld calls=%u "
+               "(limit %u) cpu offsets=%ld\n", opus_reads, opus_bytes,
+               opus_pkts, (unsigned)calls, (unsigned)limit, f_offsets);
         CHECK(opus_bad == 0 && mp4_bad == 0);
+        CHECK(opus_pkts >= 100);    /* the reports ran: more than limit */
+        CHECK(f_offsets == 0);      /* none crossed */
+        /* the last report is the CPU's view after the run */
+        CHECK(((struct mp3entry *)id3_obj)->offset == (off_t)size);
         CHECK(opus_bytes == (long)(size - OPUS_TAGS_AT));
         CHECK(opus_reads >= OPUS_TAGS_AT);
         CHECK(calls <= limit);
     }
     opus_codec = false;
 
-    /* 0.8.3: a video's soundtrack stays on the CPU (moving it is #283,
-     * 0.9.0): a load while a video plays is not bound */
+    /* #283: a video's soundtrack (an MP4 with the picture's samples
+     * between its audio chunks) is bound to the COP like any track, and
+     * its table reads and chunk seeks make no call. 0.8.3 kept it on the
+     * CPU (the guard, 6e9fecc4a8): red there */
     video_on = true;
-    colo_codec = true;
-    colo_setup(size);
-    CHECK(seen == &real);
-    codec_cop_unload();
-    colo_codec = false;
+    mp4_codec = true;
+    mp4_bad = 0;
+    if (read_run(size, &calls))
+    {
+        printf("soundtrack: frames=%ld calls=%u (limit %u) tail=%ld\n",
+               colo_frames, (unsigned)calls, (unsigned)limit, mp4_tail);
+        CHECK(mp4_bad == 0 && colo_frames > 0 && mp4_tail > 0);
+        CHECK(calls <= limit);
+    }
+    mp4_codec = false;
     video_on = false;
 
     win_grant = 1000;
     real_init();
 }
 
+#ifdef BIG_RING
+/* #283: a film's soundtrack with the picture's bytes between its audio
+ * chunks as on the 5.5G (a 512 KB ring, a 6 MB file). Gaps of 96 KB
+ * (768 kbps H.264, a chunk a second) and 200 KB are local seeks: the
+ * calls are the refills, not the chunks (at 64 KB, 0.9.0's first cut,
+ * one a chunk: red). Past 256 KB each seek still calls (the literal limit,
+ * pinned here, not read from codec_cop.c) */
+static uint32_t big_run(uint32_t size, uint32_t gap, long *chunks)
+{
+    uint32_t calls = 0;
+
+    mp4_codec = true;
+    mp4_gap = gap;
+    mp4_bad = 0;
+    if (!read_run(size, &calls))
+        calls = 0;
+    *chunks = colo_frames / MP4_FRAMES;
+    CHECK(mp4_bad == 0 && mp4_tail > 0);
+    mp4_codec = false;
+    mp4_gap = 600;
+    return calls;
+}
+
+static void test_big_seeks(void)
+{
+    const uint32_t size = 6u << 20;
+    const uint32_t limit = 3 * (size / RLEN + 2);   /* 42 */
+    uint32_t calls;
+    long chunks;
+
+    codec_cop_set_place(CPL_MODE_COP);
+    at(10, true, true);
+    win_grant = 1 << 20; win_hold = true;
+
+    calls = big_run(size, 96 * 1024, &chunks);
+    printf("film 96 KB gaps: chunks=%ld calls=%u (limit %u)\n",
+           chunks, (unsigned)calls, (unsigned)limit);
+    CHECK(chunks >= 60 && calls <= limit);
+    calls = big_run(size, 200 * 1024, &chunks);
+    printf("film 200 KB gaps: chunks=%ld calls=%u (limit %u)\n",
+           chunks, (unsigned)calls, (unsigned)limit);
+    CHECK(chunks >= 25 && calls <= limit);
+    calls = big_run(size, 300 * 1024, &chunks);
+    printf("film 300 KB gaps: chunks=%ld calls=%u (a call each)\n",
+           chunks, (unsigned)calls);
+    CHECK(chunks >= 15 && calls >= (uint32_t)chunks);
+
+    win_grant = 1000;
+    real_init();
+}
+
+int main(void)
+{
+    test_big_seeks();
+    if (fails)
+    {
+        fprintf(stderr, "%d check(s) failed\n", fails);
+        return 1;
+    }
+    return 0;
+}
+#else
 int main(void)
 {
     test_rule();
@@ -1575,3 +1674,4 @@ int main(void)
     }
     return 0;
 }
+#endif /* BIG_RING */

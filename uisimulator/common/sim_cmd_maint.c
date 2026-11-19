@@ -209,12 +209,24 @@ bool sim_cmd_maint(const char *cmd, char *argv[], int argc, int lineno)
     }
     if (!strcmp(cmd, "expect_title"))
     {
-        char buf[160];
+        char buf[160], want[128] = "";
+        int i, w = 0;
 
+        /* expect_title [title]: the words given, joined by one space, are
+         * the whole title (p090-playfix: which song a row started) */
+        for (i = 1; i < argc && w < (int)sizeof(want) - 1; i++)
+            w += snprintf(want + w, sizeof(want) - w, "%s%s",
+                          i > 1 ? " " : "", argv[i]);
         if (!h_title)
             fprintf(stderr, "sim_script: expect_title unavailable\n");
-        else if (h_title(buf, sizeof(buf)))
+        else if (h_title(buf, sizeof(buf))
+                 && (!want[0]
+                     || (!strncmp(buf, want, strlen(want))
+                         && !strncmp(buf + strlen(want), " length=", 8))))
             fprintf(stderr, "sim_script: expect_title ok: %s\n", buf);
+        else if (want[0])
+            fprintf(stderr, "sim_script:%d: expect_title failed: %s "
+                    "(want %s)\n", lineno, buf, want);
         else
             fprintf(stderr, "sim_script:%d: expect_title failed: %s\n",
                     lineno, buf);

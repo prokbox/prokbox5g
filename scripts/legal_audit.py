@@ -33,11 +33,15 @@ for a first run on a tree that has not been triaged yet.
 Checks (numbers match docs/legal.md section 3, "Audit n"):
   1 upstream files keep their licence/copyright header lines
   2 deleted upstream files that look like licence/notice files
-  3 new source files carry a GPL (or other valid licence) header
+  3 new source files grant a licence they may carry: GPL-2.0-or-later, or
+    what docs/legal.md section 4.1's table lists for that file (the dual
+    MIT OR GPL-2.0-or-later set, third-party licences); a ProkBox banner
+    with no grant, or with another licence, fails
   4 modified upstream files carry "Modified for ProkBox5g" (--require-modnotice)
   5 licence files present (and in a release --zip)
   6 Apple marks: added paths (report-only), --asset-names (strict),
-    english.lang ipodui: strings (strict, allow-list)
+    ipodui: strings of the shell's languages (english, deutsch,
+    nederlands, japanese .lang; strict, allow-list)
   7 image/binary provenance against docs/legal.md section 5
   8 secret scanner, and --apple-fw byte-window search
 
@@ -58,7 +62,8 @@ Allow-list lines:  kind|glob-or-id|reason   (reason mandatory)
   kinds: deleted (check 2), header (check 3), image (check 7),
          lang (check 6 LANG ids), name (check 6 asset names)
 Limits: renames are not followed (a renamed file is one deletion plus one
-addition); only the leading comment block of a file is compared.
+addition); check 1 compares only the leading comment block of a file;
+check 3 reads the comment blocks and docstrings in a file's first 80 lines.
 """
 import argparse, collections, fnmatch, hashlib, os, re, shutil, subprocess, sys, zipfile
 
@@ -240,19 +245,141 @@ def glob_to_re(g):
     return re.compile('^' + out + '$')
 
 
-def lang_ipodui_strings(root):
-    p = os.path.join(root, 'apps/lang/english.lang')
-    if not os.path.exists(p):
-        return []
-    txt = open(p, encoding='utf-8', errors='replace').read()
-    res = []
-    for ph in txt.split('<phrase>')[1:]:
-        m = re.search(r'^\s*id:\s*(\S+)', ph, re.M)
-        if not m:
+GPL2PLUS = 'GPL-2.0-or-later'
+DUAL = 'MIT OR GPL-2.0-or-later'
+TABLE_RE = re.compile(r'<!-- audit3-licences-begin -->(.*?)<!-- audit3-licences-end -->', re.S)
+
+
+def parse_licence_table(root):
+    """docs/legal.md section 4.1: [(compiled glob, licence id)].  Missing
+    markers or an empty table fail check 3 (it would accept nothing
+    outside GPL-2.0-or-later, silently)."""
+    try:
+        txt = open(os.path.join(root, 'docs/legal.md'), encoding='utf-8').read()
+    except OSError:
+        txt = ''
+    m = TABLE_RE.search(txt)
+    rows = []
+    for row in (m.group(1) if m else '').split('\n'):
+        cells = row.split('|')
+        if len(cells) < 4 or row.startswith('|---') or not row.startswith('|'):
             continue
-        for s in re.findall(r'^\s*ipodui:\s*"(.*)"\s*$', ph, re.M):
-            if LANG_MARKS.search(s) and (m.group(1), s) not in res:
-                res.append((m.group(1), s))
+        lic = re.findall(r'`([^`]+)`', cells[2])
+        for g in re.findall(r'`([^`]+)`', cells[1]):
+            if len(lic) == 1:
+                rows.append((glob_to_re(g), lic[0]))
+    if not rows:
+        add(3, 'fail', 'docs/legal.md', 'no licence table between the audit3-licences markers (section 4.1)')
+    return rows
+
+
+def header_blocks(text, nlines=80):
+    """The comment blocks (and docstrings) that start at the beginning of
+    a line in the first nlines lines; code lines are never header text."""
+    lines = text.lstrip('﻿').split('\n')[:nlines]
+    blocks, i = [], 0
+    while i < len(lines):
+        s = lines[i].lstrip()
+        if i == 0 and s.startswith('#!'):
+            i += 1
+        elif s.startswith('/*'):
+            b = []
+            while i < len(lines):
+                b.append(lines[i]); i += 1
+                if '*/' in b[-1]:
+                    break
+            blocks.append(b)
+        elif s.startswith('#') or s.startswith('//'):
+            pref = '#' if s.startswith('#') else '//'
+            b = []
+            while i < len(lines) and lines[i].lstrip().startswith(pref):
+                b.append(lines[i]); i += 1
+            blocks.append(b)
+        elif s.startswith('"""') or s.startswith("'''"):
+            q, b = s[:3], [lines[i]]
+            i += 1
+            if s.count(q) < 2:
+                while i < len(lines):
+                    b.append(lines[i]); i += 1
+                    if q in b[-1]:
+                        break
+            blocks.append(b)
+        else:
+            i += 1
+    return blocks
+
+
+def licences(block_text):
+    """Licence ids granted by normalised header text: SPDX lines, the
+    '(L)GPL ... either version N of the License, or (at your option) any
+    later version' grant, MIT/BSD/Apache/public-domain wording, and
+    'unrecognised' for licence words that grant nothing we can name."""
+    ids = set()
+    for sp in re.findall(r'SPDX-License-Identifier:\s*([A-Za-z0-9.+-]+(?: (?:OR|AND|WITH) [A-Za-z0-9.+-]+)*)', block_text):
+        sp = sp.strip()
+        ids.add({'GPL-2.0+': GPL2PLUS}.get(sp, sp))
+    for v in re.findall(r'either version (\d+(?:\.\d+)?) of the License, or \(at your option\) any later version',
+                        block_text, re.I):
+        lesser = re.search(r'(Lesser|Library) General Public License', block_text, re.I)
+        v = v if '.' in v else v + '.0'
+        ids.add(('LGPL-%s-or-later' if lesser else 'GPL-%s-or-later') % v)
+    for pat, lid in ((r'Permission is hereby granted', 'MIT'), (r'Redistribution and use in source', 'BSD'),
+                     (r'Apache License', 'Apache'), (r'public domain', 'public domain')):
+        if re.search(pat, block_text, re.I):
+            ids.add(lid)
+    if not ids and OTHER_LICENCE.search(block_text):
+        ids.add('unrecognised')
+    return ids
+
+
+def check_licence(rel, text, table):
+    """None if rel's header grants a licence it may carry, else why not."""
+    blocks = [' '.join(norm(l) for l in b) for b in header_blocks(text)]
+    listed = [lic for rx, lic in table if rx.match(rel)]
+    banner = [b for b in blocks if PROKBOX_MARK in b]
+    ids = licences(banner[0] if banner else ' '.join(blocks))
+    if not ids:
+        return ('ProkBox banner but no licence grant' if banner
+                else 'new source file has no GPL/licence header')
+    if DUAL in ids:
+        if DUAL not in listed:
+            return 'dual licence (%s) outside the files docs/legal.md section 4.1 allows it on' % DUAL
+        if ids != {DUAL}:
+            return 'dual licence and another grant together (%s): the dual header replaces the GPL lines' \
+                % ', '.join(sorted(ids))
+        return None
+    if ids == {GPL2PLUS}:
+        return None
+    if not banner and len(ids) == 1 and listed and ids <= set(listed):
+        return None
+    what = ', '.join(sorted(ids))
+    if 'unrecognised' in ids:
+        what = 'wording not recognised as a grant (use the template\'s %s lines)' % GPL2PLUS
+    if banner:
+        return 'ProkBox banner with licence %s (ours is %s; others only as docs/legal.md section 4.1 lists)' \
+            % (what, GPL2PLUS)
+    return 'licence %s: not listed for this file in docs/legal.md section 4.1' % what
+
+
+# The shell's languages (P20: apps/ipodui/screens/language.c): the same
+# check over every one of them, translations included.
+SHELL_LANGS = ('english', 'deutsch', 'nederlands', 'japanese')
+
+
+def lang_ipodui_strings(root):
+    res = []
+    for lang in SHELL_LANGS:
+        p = os.path.join(root, 'apps/lang/%s.lang' % lang)
+        if not os.path.exists(p):
+            continue
+        txt = open(p, encoding='utf-8', errors='replace').read()
+        for ph in txt.split('<phrase>')[1:]:
+            m = re.search(r'^\s*id:\s*(\S+)', ph, re.M)
+            if not m:
+                continue
+            for s in re.findall(r'^\s*ipodui:\s*"(.*)"\s*$', ph, re.M):
+                if LANG_MARKS.search(s) and (m.group(1), s) not in res:
+                    res.append((m.group(1), s))
     return res
 
 
@@ -330,14 +457,17 @@ def run_audit(a):
             add(2, 'fail', rel, 'deleted upstream file: ' + why + ' (review, then allow-list)')
     rd.close()
 
-    # 3 headers on new source files
+    # 3 headers on new source files, and the licence they grant
+    table = parse_licence_table(tree if os.path.exists(os.path.join(tree, 'docs/legal.md')) else root)
+    n3 = 0
     for rel in added:
         if not is_src(rel) or allowed(al, 'header', rel):
             continue
-        head = decode(read(rel)[:6000])
-        if PROKBOX_MARK in head or OTHER_LICENCE.search('\n'.join(head.split('\n')[:80])):
-            continue
-        add(3, 'fail', rel, 'new source file has no GPL/licence header')
+        n3 += 1
+        msg = check_licence(rel, decode(read(rel)[:12000]), table)
+        if msg:
+            add(3, 'fail', rel, msg)
+    print('# check 3: %d added source files, %d licence-table rows' % (n3, len(table)))
 
     # 5 licence files
     need = list(REQUIRED)
@@ -366,7 +496,7 @@ def run_audit(a):
     for lid, s in lang_ipodui_strings(root if not a.tree else tree):
         if re.match(r'LANG_IPODUI_(LEGAL|NOTICE)', lid) or allowed(al, 'lang', lid):
             continue
-        add(6, 'fail', lid, 'english.lang ipodui string has an Apple mark: %r' % s[:80])
+        add(6, 'fail', lid, 'shell language string has an Apple mark: %r' % s[:80])
 
     # 7 provenance
     pats = [glob_to_re(g) for g in parse_provenance(tree if os.path.exists(os.path.join(tree, 'docs/legal.md')) else root)]

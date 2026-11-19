@@ -27,6 +27,22 @@
 #include <string.h>
 #include "config.h"
 #include "sim_cmd_video.h"
+#include "audio.h"
+
+/* audio_pause on|off: the playing audio paused or resumed without the
+   shell's keys. Built in every sim (p090-int3): the #180 marquee scripts
+   hold a track on sim-ui, which has no video player */
+static bool cmd_audio_pause(const char *cmd, char *argv[], int argc)
+{
+    if (strcmp(cmd, "audio_pause") || argc < 2)
+        return false;
+    if (!strcmp(argv[1], "on"))
+        audio_pause();
+    else
+        audio_resume();
+    fprintf(stderr, "sim_script: audio_pause %s\n", argv[1]);
+    return true;
+}
 
 #ifdef HAVE_BCMFW_VIDEO
 #include <fcntl.h>
@@ -158,16 +174,8 @@ bool sim_cmd_video(const char *cmd, char *argv[], int argc, int lineno)
         fprintf(stderr, "sim_script:%d: video_seek %lu\n", lineno, ms);
         return true;
     }
-    if (!strcmp(cmd, "audio_pause") && argc >= 2)
-    {
-        /* the audio the video follows, without the shell's keys */
-        if (!strcmp(argv[1], "on"))
-            audio_pause();
-        else
-            audio_resume();
-        fprintf(stderr, "sim_script: audio_pause %s\n", argv[1]);
-        return true;
-    }
+    if (cmd_audio_pause(cmd, argv, argc))
+        return true;    /* the audio the video follows, too */
     if (!strcmp(cmd, "wheel_touch"))
     {
         /* a finger set on the wheel without turning it */
@@ -371,10 +379,7 @@ bool sim_cmd_video(const char *cmd, char *argv[], int argc, int lineno)
 #else
 bool sim_cmd_video(const char *cmd, char *argv[], int argc, int lineno)
 {
-    (void)cmd;
-    (void)argv;
-    (void)argc;
     (void)lineno;
-    return false;
+    return cmd_audio_pause(cmd, argv, argc);
 }
 #endif

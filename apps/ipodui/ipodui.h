@@ -48,6 +48,11 @@ unsigned long ui_seek_span_ms(long held);
 bool ui_now_playing_visible(void);
 /* Shuffles all music in the library (lib_shuffle_all) and shows the WPS. */
 void ui_shuffle_songs(void);
+/* #487: a step that runs on the shell's thread for a while (the main loop
+ * does not run meanwhile; Settings > Language's settle) shows the
+ * header's busy glyph by hand: phase 1..8 its lead dot, 0 off. Drawn and
+ * pushed at once, on a lit screen with the normal header only. */
+void ui_header_busy_step(int phase);
 
 /* apps/misc.c check_bootfile(): the firmware file changed while the computer
  * had the disk. Pushes the native "New Software" prompt (Restart | Later;

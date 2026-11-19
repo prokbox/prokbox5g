@@ -276,6 +276,11 @@ static void labels_init(void)
     ui_podcasts_arg.title = str(LANG_IPODUI_PODCASTS);
 }
 
+void ui_menu_relabel(void)
+{
+    labels_init();
+}
+
 /* -- menu screen -------------------------------------------------------- */
 
 static struct menu_state *state(struct ui_screen *s)

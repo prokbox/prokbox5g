@@ -66,7 +66,8 @@
 # lowers it).
 # A "wait_db", "update_db_wait" or "rebuild_db" script command that times
 # out fails the run, and so does a failed "expect_*" or
-# "update_db_wait_change" command. A "reboot" command runs the rest of the
+# "update_db_wait_change" command, and so does any command the sim does
+# not know ("bad command"). A "reboot" command runs the rest of the
 # script in a new boot of the sim (same disk; logs joined in sim.log).
 # SIMDISK=<dir> points the sim at another disk image instead of
 # $SIM_BUILD/simdisk (--root, see firmware/target/hosted/sdl/system-sdl.c),
@@ -80,7 +81,20 @@
 # same callbacks in real time without the host device. Export another
 # driver to override (e.g. SDL_AUDIODRIVER=coreaudio to listen).
 # See uisimulator/common/sim_script.c for the script format.
+# An ipodui-* script is then judged against its own expectations exactly as
+# scripts/validate.sh judges it (p090-int3): scripts/check_trace.py on its
+# sim.log (the "# log:", "# logbetween:" lines and the trace rules, with the
+# gate's --rows/--header-h), its "# same:" shot pairs pixel-identical, and its
+# "# ref:" images reported (a FAIL only with GATE_REF_STRICT=1). Any failure
+# exits 1, so a green hand run means what a green gate run means. Goldens are
+# not compared here (the gate does that). Opt out with --no-check as the first
+# argument or SHOTS_CHECK=0 in the environment: the gate and the UBSan pass
+# export it, since they run check_trace themselves or not at all.
+#
+#   scripts/shots.sh [--no-check] <script> [outdir]
 set -e
+if [ "${1:-}" = "--no-check" ]; then SHOTS_CHECK=0; shift; fi
+SHOTS_CHECK=${SHOTS_CHECK:-1}
 export SDL_AUDIODRIVER=${SDL_AUDIODRIVER:-dummy}
 # The host-jitter watcher (uisimulator/common/sim_cmd_load.c) logs how late the
 # host wakes a 10 ms sleeper: "sim_load: run jitter ..." at the end, which
@@ -110,7 +124,7 @@ TIMEOUT=${SHOTS_TIMEOUT:-60}
 SIMDISK=${SIMDISK:-"$SIM/simdisk"}
 case "$SIMDISK" in /*) ;; *) SIMDISK="$ROOT/$SIMDISK" ;; esac
 
-[ -n "$1" ] || { echo "usage: $0 <script> [outdir]" >&2; exit 2; }
+[ -n "${1:-}" ] || { echo "usage: $0 [--no-check] <script> [outdir]" >&2; exit 2; }
 [ -f "$1" ] || { echo "no such script: $1" >&2; exit 2; }
 [ -x "$SIM/rockboxui" ] || { echo "build the sim first: $SIM" >&2; exit 2; }
 
@@ -231,9 +245,18 @@ fi
 # Phase 5 Now Playing fixtures (lyrics, wide/tall/banner covers, a book
 # with chapter images) under build/np-fixtures, idempotent; scripts copy
 # them into the sim disk with "copy ../../build/np-fixtures/<f> /<dst>"
-if grep -qE '^#[[:space:]]*needs:[[:space:]]*np' "$script"; then
+if grep -qE '^#[[:space:]]*needs:[[:space:]]*np([[:space:]]|$)' "$script"; then
     python3 "$ROOT/tests/fixtures/np/make_np_fixtures.py" \
         || { echo "np fixtures failed" >&2; exit 2; }
+fi
+# #277/#270 Now Playing info and Hi-Res fixtures (MP3, 192 and 96 kHz
+# 24-bit FLAC, AAC; tests/fixtures/npinfo/make_npinfo_fixtures.sh, ffmpeg)
+# under build/npinfo-fixtures, idempotent; "# needs: npinfo" makes them
+# before boot, scripts copy them in with "copy ../../build/npinfo-fixtures/<f>".
+# No ffmpeg: refused (exit 2), never a run on a disk without the files.
+if grep -qE '^#[[:space:]]*needs:[[:space:]]*npinfo' "$script"; then
+    sh "$ROOT/tests/fixtures/npinfo/make_npinfo_fixtures.sh" \
+        || { echo "npinfo fixtures failed" >&2; exit 2; }
 fi
 # P19 19-1c playback fixtures (long and hi-res FLAC, MP3, a gapless pair)
 # under build/p19c-fixtures, idempotent; the ipodui-p19c-* scripts (or
@@ -246,6 +269,22 @@ esac
 if [ $needs_p19c = 1 ]; then
     sh "$ROOT/tests/fixtures/p19c/make_p19c_fixtures.sh" \
         || { echo "p19c fixtures failed" >&2; exit 2; }
+fi
+# #266: the ShellCJK companion fonts (kana, kanji, Hangul) for a Japanese
+# shell or CJK tags, generated once under build/cjk-fonts
+# (tests/fixtures/cjk/make_cjk_fonts.sh, keyed on its inputs) and copied
+# into the sim disk's fonts before boot: "# needs: cjk"
+if grep -qE '^#[[:space:]]*needs:[[:space:]]*cjk' "$script"; then
+    sh "$ROOT/tests/fixtures/cjk/make_cjk_fonts.sh" "$SIMDISK/.rockbox/fonts" \
+        || { echo "cjk fonts failed" >&2; exit 2; }
+fi
+# .lng files the sim must refuse (tests/fixtures/lng/make_lng_fixtures.sh:
+# German numbered for another string table, and the old header), made
+# with this sim's own tools and features under build/lng-fixtures; scripts
+# copy them in with "copy ../../build/lng-fixtures/<f>": "# needs: lng"
+if grep -qE '^#[[:space:]]*needs:[[:space:]]*lng([[:space:]]|$)' "$script"; then
+    sh "$ROOT/tests/fixtures/lng/make_lng_fixtures.sh" "$SIM" >/dev/null \
+        || { echo "lng fixtures failed" >&2; exit 2; }
 fi
 # Day 4c's long-play episode (tests/fixtures/videos/mksoak.sh: 12 min at
 # the converter's settings) under build/soak-fixtures, idempotent; scripts
@@ -420,10 +459,10 @@ fi
 # Settings > Audiophile (#270): Hi-Res, its self-test result and Stereo
 # Width persist too (a script that turned Hi-Res on would play every later
 # script's 88.2/96 kHz music at its own rate): every script starts Off and
-# untested.
+# untested. Hi-Res 128x and its own test result (0.9.0) likewise.
 for cfg in "$SIMDISK/.rockbox/config.cfg" "$SIMDISK/.rockbox/config.cfg.new"; do
     [ -f "$cfg" ] || continue
-    { grep -v -E '^(backlight timeout( plugged)?|ipodui lock code|ipodui locked|ipodui (high rate( ok)?|stereo width)):' "$cfg" || true; } \
+    { grep -v -E '^(backlight timeout( plugged)?|ipodui lock code|ipodui locked|ipodui (high rate( ok)?|stereo width|hi-res 128x( ok)?)):' "$cfg" || true; } \
         >"$cfg.tmp" && mv -f "$cfg.tmp" "$cfg"
 done
 
@@ -583,6 +622,12 @@ while IFS= read -r bmp; do
 done <"$out/.shots"
 rm -f "$out/.shots"
 
+# A command the sim doesn't know (a typo, a misspelt expect_, a command
+# built only into another sim, too few arguments) was skipped with a
+# "bad command" line and the run passed: the check it held never ran.
+if grep -qE "^sim_script:[0-9]+: bad command " "$log"; then
+    echo "script holds a command this sim does not know (log: $log)" >&2; exit 1
+fi
 [ $found -eq 1 ] || { echo "no screenshots taken (log: $log)" >&2; exit 1; }
 if grep -qE "wait_db (timed out|commit delayed)|wait_db_settled timed out|update_db_wait timed out|wait_commit timed out|wait_pos timed out|rebuild_db timed out|update_db_wait_change failed|dirty_db failed" "$log"; then
     echo "wait_db/update_db_wait: database not usable (log: $log)" >&2; exit 1
@@ -631,3 +676,51 @@ if grep -qE "expect_[a-z_]+ failed|wait_(pos|index) failed" "$log"; then
     echo "script expectation failed (log: $log)" >&2; exit 1
 fi
 [ $status -eq 0 ] || exit $status
+# The script's own expectations, as scripts/validate.sh judges an ipodui-*
+# script (keep the two in step: same tool, same --rows/--header-h as the
+# gate's LIST_ROWS/HEADER_H, same "# same:"/"# ref:" rules). Printed to
+# stderr; stdout stays the list of PNGs.
+case "$name" in ipodui-*) ;; *) exit 0 ;; esac
+[ "$SHOTS_CHECK" = 0 ] && exit 0
+cfail=0
+if tr=$("$ROOT/scripts/check_trace.py" "$log" "$script" \
+            --rows 9,5,4 --header-h 20 2>&1); then
+    printf '%s\n' "$tr" >&2
+else
+    printf '%s\n' "$tr" >&2
+    echo "shots: check_trace.py failed for $name (log: $log)" >&2
+    cfail=1
+fi
+while read -r sa sb _rest; do
+    [ -n "$sa" ] || continue
+    fa=$out/$sa.png; fb=$out/$sb.png
+    if [ ! -f "$fa" ] || [ ! -f "$fb" ]; then
+        echo "FAIL: same $name: shot not taken ($sa or $sb)" >&2; cfail=1
+    elif rel=$("$ROOT/scripts/pngdiff.py" "$fa" "$fb" --threshold 0 2>&1); then
+        echo "ok   same $name: $sa == $sb" >&2
+    else
+        echo "FAIL: same $name: $sa != $sb ($rel)" >&2; cfail=1
+    fi
+done <<EOF_SAME
+$(sed -n 's/^#[[:space:]]*same:[[:space:]]*//p' "$script")
+EOF_SAME
+while read -r sa rp _rest; do
+    [ -n "$sa" ] || continue
+    fa=$out/$sa.png
+    case "$rp" in /*) ;; *) rp=$ROOT/$rp ;; esac
+    if [ ! -f "$fa" ]; then
+        echo "FAIL: ref $name: shot $sa not taken" >&2; cfail=1
+    elif [ ! -f "$rp" ]; then
+        echo "FAIL: ref $name: no reference file $rp" >&2; cfail=1
+    elif rel=$("$ROOT/scripts/pngdiff.py" "$fa" "$rp" --threshold 0 --rgb565 2>&1); then
+        echo "ok   ref $name: $sa == ${rp#$ROOT/} (at RGB565)" >&2
+    elif [ "${GATE_REF_STRICT:-0}" = 1 ]; then
+        echo "FAIL: ref $name: $sa != ${rp#$ROOT/} ($rel)" >&2; cfail=1
+    else
+        echo "note ref $name: $sa != ${rp#$ROOT/} ($rel); needs sign-off (GATE_REF_STRICT=1 makes it fail)" >&2
+    fi
+done <<EOF_REF
+$(sed -n 's/^#[[:space:]]*ref:[[:space:]]*//p' "$script")
+EOF_REF
+[ $cfail = 0 ] || { echo "shots: $name: the script's own expectations failed (SHOTS_CHECK=0 skips them)" >&2; exit 1; }
+exit 0

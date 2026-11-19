@@ -649,6 +649,30 @@ static void usb_draw_text(void)
     lcd_set_viewport(NULL);
 }
 
+/* #266: the USB screen draws while the disk belongs to the host, when a
+ * disk-cached font (the ShellCJK companions) can draw only the glyphs in
+ * its RAM cache. Measuring its three lines first, while the disk is still
+ * ours, loads every glyph they need (reads only, nothing written). A Latin
+ * language reads nothing: ShellSans is whole in RAM. */
+void ui_usb_prime_fonts(void)
+{
+    static const int lines[][2] = {
+        { LANG_IPODUI_USB_CONNECTED, 0 }, { LANG_IPODUI_OK_TO_DISCONNECT, 0 },
+        { LANG_IPODUI_USB_EJECT_FIRST, 1 },
+    };
+    unsigned i;
+
+    if (!ui_shell_started())
+        return;
+    for (i = 0; i < sizeof(lines) / sizeof(lines[0]); i++)
+    {
+        int w, h;
+        font_getstringsize((const unsigned char *)str(lines[i][0]), &w, &h,
+                           lines[i][1] ? ui_theme->font_small
+                                       : ui_theme->font_ui);
+    }
+}
+
 /* Header, body and text straight into the framebuffer (no push) */
 static void usb_draw_static(const struct usb_hdr *h, bool shell)
 {

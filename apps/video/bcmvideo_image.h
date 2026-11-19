@@ -27,29 +27,29 @@
  * with HAVE_BCMFW_MERGED_VIDEO (configure --bcmfw-merged), else the plain
  * one (bcmprobe_image.h).  vplayer.c refuses a file whose size or FNV-1a
  * differs.
- * merged sha256 1be9c361b57472ff3cc9b702c87f093d8b13f76acd46e55eb246d1965d071e37 */
+ * merged sha256 18e4a1a191feb7b1b34da3664faa3c484e9e801e5d93a06966aed39bd7b7a372 */
 #ifndef BCMVIDEO_IMAGE_H
 #define BCMVIDEO_IMAGE_H
 #include "bcmprobe_image.h"
-#define BCMVIDEO_MERGED_BYTES 215064
-#define BCMVIDEO_MERGED_FNV   0xb9bcbe57u
+#define BCMVIDEO_MERGED_BYTES 215192
+#define BCMVIDEO_MERGED_FNV   0x6b5c8758u
 /* dec-ovl.bin, DECODE's overlay linked against the merged image
  * (album-render.md 5.3; bcmjob_pp.h bcmjob_dec_ops): its bytes, FNV-1a,
  * ABI word, the word's offset in the image, the region's base.
- * sha256 8e6c7fdb61d75729028d556a7e51d14f94ba128d587abb30257e4e57f8882b26 */
+ * sha256 cbb39ed53aa6d434e248bc11269a7461f375ae031cac20b47efb472f5a26aaa0 */
 #define BCMVIDEO_DECOVL_BYTES  23884
-#define BCMVIDEO_DECOVL_FNV    0x009f5680u
-#define BCMVIDEO_DECOVL_ABI    0x4130f255u
-#define BCMVIDEO_DECOVL_ABI_AT 89538
+#define BCMVIDEO_DECOVL_FNV    0xa56deda7u
+#define BCMVIDEO_DECOVL_ABI    0xea48bc89u
+#define BCMVIDEO_DECOVL_ABI_AT 89650
 #define BCMVIDEO_DECOVL_BASE   0x12b000
 /* viz-ovl-m.bin, the visualizer's overlay linked against the merged
  * image, in the same region (one overlay resident at a time; visualizer.md
  * 8.5; bcmjob_pp.h BCMJOB_OVL_VIZ): the same five words.
- * sha256 8c597406151b867f214340170a59019acd6d0b62870dadbefa3f7cc31d6a7a65 */
+ * sha256 6a8a86f2978ac19735e7795f8baf57eca3d24c47b044993c52a7f4ba24e8054c */
 #define BCMVIDEO_VIZOVL_BYTES  22432
-#define BCMVIDEO_VIZOVL_FNV    0x96c934e6u
-#define BCMVIDEO_VIZOVL_ABI    0x4130f255u
-#define BCMVIDEO_VIZOVL_ABI_AT 89538
+#define BCMVIDEO_VIZOVL_FNV    0xd44b2641u
+#define BCMVIDEO_VIZOVL_ABI    0xea48bc89u
+#define BCMVIDEO_VIZOVL_ABI_AT 89650
 #define BCMVIDEO_VIZOVL_BASE   0x12b000
 #ifdef HAVE_BCMFW_MERGED_VIDEO
 #define BCMVIDEO_IMAGE_BYTES BCMVIDEO_MERGED_BYTES

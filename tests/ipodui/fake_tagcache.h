@@ -57,5 +57,7 @@ extern char fake_last_uilog[128];
 extern long fake_ticks_per_yield;
 extern int fake_numeric_calls, fake_yields, fake_boost, fake_trace_rows;
 extern int fake_pl_n, fake_pl[], fake_pl_start, fake_pl_shuffled;
+extern int fake_pl_create_fail, fake_pl_creates, fake_pl_splashes;
+extern int fake_pl_garbage;
 extern unsigned long fake_pl_elapsed;
 #endif

@@ -205,4 +205,34 @@ bool sleep_rtc_from_bcd(const uint8_t r[7], uint32_t *s);
 uint32_t sleep_rtc_from_date(int year, int mon, int day,
                              int hour, int min, int sec);
 
+/* b12 (#255): where a raw RTC read stopped (pmu_raw-pp502x.c): the
+ * register-address write, the first (4-byte) or second (3-byte) block
+ * read, timed out on the controller's busy bit; or the bytes were not a
+ * date (sleep_rtc_from_bcd()) */
+#define PMU_RAW_STEP_OK     0
+#define PMU_RAW_STEP_SEND   1
+#define PMU_RAW_STEP_READ1  2
+#define PMU_RAW_STEP_READ2  3
+#define PMU_RAW_STEP_BCD    4
+static inline const char *pmu_raw_step_name(unsigned int step)
+{
+    static const char *const n[] = { "ok", "send", "read1", "read2",
+                                     "bcd" };
+    return step < sizeof(n) / sizeof(n[0]) ? n[step] : "?";
+}
+
+/* One raw RTC read's record (device test builds, and the host test):
+ * each try's step, the controller's status byte after it, its longest
+ * busy wait (us; PMU_RAW_WAIT_US + 1: the wait that timed out) and the
+ * bytes read (0 where nothing was read) */
+struct pmu_raw_rtc_diag {
+    uint8_t  tries;                 /* 1, or 2 with the retry */
+    uint8_t  step[2];
+    uint8_t  status[2];
+    uint32_t wait_us[2];
+    uint8_t  r[2][7];
+};
+bool pmu_raw_rtc_read(uint32_t *s, struct pmu_raw_rtc_diag *d);
+extern struct pmu_raw_rtc_diag pmu_raw_rtc_last; /* the last read's */
+
 #endif /* _SLEEP_WAKE_CORE_H_ */

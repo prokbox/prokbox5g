@@ -176,7 +176,7 @@ key SELECT
 wait 1500
 wheel -10
 wait 600
-wheel +12             # Date & Time
+wheel +13             # Date & Time (after Audiophile, #270)
 wait 600
 key SELECT
 wait 1500
@@ -216,7 +216,7 @@ key SELECT
 wait 1500
 wheel -10
 wait 600
-wheel +12             # Date & Time
+wheel +13             # Date & Time (after Audiophile, #270)
 wait 600
 key SELECT
 wait 1500

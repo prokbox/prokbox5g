@@ -537,8 +537,7 @@ static void draw_empty(void)
     const struct ui_theme *t = ui_theme;
     const char *s = str(LANG_IPODUI_X_NOTES_EMPTY);
     struct viewport vp;
-    char line[2][80];
-    int w, h, n = 0, i, cut, y;
+    int n, y;
 
     memset(&vp, 0, sizeof(vp));
     vp.y = t->header_h;
@@ -550,40 +549,14 @@ static void draw_empty(void)
     lcd_set_viewport(&vp);
     lcd_set_foreground(t->list_bg);
     lcd_fillrect(0, 0, vp.width, vp.height);
-    /* two lines at most: break at the last space that fits */
-    while (*s && n < 2)
-    {
-        int len = strlen(s);
-
-        cut = MIN(len, (int)sizeof(line[0]) - 1);
-        for (;;)
-        {
-            memcpy(line[n], s, cut);
-            line[n][cut] = '\0';
-            font_getstringsize((const unsigned char *)line[n], &w, &h,
-                               t->font_small);
-            if (w <= LCD_WIDTH - 4 * MARGIN || cut <= 1)
-                break;
-            while (cut > 1 && s[cut - 1] != ' ')
-                cut--;
-            while (cut > 1 && s[cut - 1] == ' ')
-                cut--;
-        }
-        s += cut;
-        while (*s == ' ')
-            s++;
-        n++;
-    }
+    /* two lines at most, wrapped as every shell text is (ui_wrap_next():
+     * Japanese breaks between characters, P20), centred */
     lcd_set_drawmode(DRMODE_FG);
     lcd_set_foreground(t->list_fg_dim);
+    n = ui_paint_text_wrap_lines(LCD_WIDTH - 4 * MARGIN, 2, s);
     y = (vp.height - n * LINE_PITCH) / 2 - LINE_PITCH / 2;
-    for (i = 0; i < n; i++)
-    {
-        font_getstringsize((const unsigned char *)line[i], &w, &h,
-                           t->font_small);
-        lcd_putsxy((LCD_WIDTH - w) / 2, y + i * LINE_PITCH,
-                   (const unsigned char *)line[i]);
-    }
+    ui_paint_text_wrap_top(LCD_WIDTH / 2, y + font_get(vp.font)->ascent,
+                           LCD_WIDTH - 4 * MARGIN, 2, LINE_PITCH, s);
     lcd_set_viewport(NULL);
 }
 

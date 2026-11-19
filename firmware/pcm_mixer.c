@@ -462,6 +462,23 @@ static void mixer_start_pcm(void)
 #endif
     mix_idle_max_set();
 
+#ifdef HAVE_CORE_LAYOUT_A
+    /* ProkBox #283 (owner, 2026-11-12: all audio on the COP, +2 frames at
+       a start, 11.6 ms at 44.1 kHz): the PCM starts on two silent frames
+       and the FIQ, on the COP, mixes from the third, so no channel's
+       audio is fetched or mixed on the CPU. The frames are IRAM and
+       downmix_index/next_size XCORE_BSS (uncached); the FIQ cannot run
+       before pcm_play_data() starts the DMA, and the caller holds the
+       lock. The first FIQ's mix goes into the start frame, which has
+       played by then, as at every frame */
+    memset(downmix_buf[0], 0, mix_frame_size);
+    memset(downmix_buf[1], 0, mix_frame_size);
+    next_size = mix_frame_size;
+    pcm_play_data(mixer_pcm_callback, mixer_buffer_callback,
+                  downmix_buf[downmix_index ^ 1], mix_frame_size);
+    return;
+#endif
+
     /* Prepare initial frames and set up the double buffer */
     mixer_buffer_callback(PCM_DMAST_STARTED);
 
@@ -552,6 +569,35 @@ void mixer_channel_play_data(enum pcm_mixer_channel channel,
                      * I2C, so never under pcm_play_lock (P15 review H3) */
 #endif
     ALIGN_AUDIOBUF(start, size);
+
+#ifdef HAVE_CORE_LAYOUT_A
+    /* ProkBox #283: a channel started with no first buffer (music, a
+       beep, a video's soundtrack): its first frame is the mix's to fetch,
+       like every later one, so get_more runs in the FIQ (on the COP),
+       never here. The channel goes in empty under the lock; the next mix
+       finds size 0 and calls get_more. A stopped PCM starts on two silent
+       frames (mixer_start_pcm()). Every get_more the shell passes is
+       already the FIQ's for every later frame, its state uncached
+       (pcmbuf.c, beep.c), so nothing needs a write-back; and the CPU
+       never calls it, so it cannot be re-entered. */
+    if (!(start && size) && cbs && cbs->get_more)
+    {
+        pcm_play_lock();
+        chan->status = CHANNEL_PLAYING;
+        chan->start = NULL;
+        chan->size = 0;
+        chan->last_size = 0;
+        chan->play_cbs = cbs;
+        mixer_activate_channel(chan);
+        mixer_start_pcm();
+#ifdef HAVE_DEVSTATS
+        if (channel == PCM_MIXER_CHAN_PLAYBACK)
+            DEVSTATS_PCM_START();   /* M0: tap to first PCM */
+#endif
+        pcm_play_unlock();
+        return;
+    }
+#endif
 
     if (!(start && size) && cbs && cbs->get_more)
     {

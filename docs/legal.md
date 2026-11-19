@@ -36,6 +36,8 @@ The shell's internal names still say "ipod": `HAVE_IPOD_UI`, `--ipodui`, `apps/i
 
 These are written in our own words. Use them verbatim, and change them only here.
 
+**Translations** of the on-device texts (`LANG_IPODUI_NOTICE_*`, `LANG_IPODUI_LEGAL_*` in `apps/lang/`) say the same thing as the English here, in each language's usual legal terms, and change only when the English does or a review finds a mistranslation. German (0.9.0 review): "warranty" is "Gewährleistung" in both the notice and Legal (it was "Garantie" in the notice), and the sentences no longer address the reader as "Sie"; the meaning is unchanged.
+
 Every text opens with the same plain statement, **"ProkBox5g is not Apple software."** (owner, 2026-10-24: disavow any suggestion that Apple made, approved or supports it). Nothing comes before it except the name.
 
 **Short** (release notes, site footer, announcements):
@@ -59,7 +61,7 @@ How the notice is shown:
 - **Dismissing it:** only Select dismisses it, and Select is ignored for the first 3 seconds, so a habitual click can't skip it unread. The wheel scrolls it if it is longer than the screen; the other buttons do nothing. Select saves the acknowledgement once; nothing is written before then.
 - **Reading it again:** the same text is the top of Settings › Legal, so it can be reread at any time.
 
-**On device: Settings › Legal**, which can be read at any time: `LANG_IPODUI_LEGAL_1..6`. It opens with the notice's heading and first paragraph; the independence and trademark paragraphs follow the long text.
+**On device: Settings › Legal**, which can be read at any time: `LANG_IPODUI_LEGAL_1..4`, `_7` (the Noto Sans CJK credit, 0.9.0), then `_5` and `_6`. It opens with the notice's heading and first paragraph; the independence and trademark paragraphs follow the long text.
 
 ### Wording we deliberately avoid
 - **"Theme" or "skin":** ProkBox5g is a fork of the whole firmware.
@@ -81,7 +83,7 @@ Status values: **met** (in place and checked), **partial**, or **todo**. "Audit 
 | L5a | **Prebuilt ipodpatcher** (#127) | `ProkBox5g-<ver>-ipodpatcher-{macos-universal,linux-x86_64,windows-x86_64.exe}` are built by CI from the tagged tree's unmodified `utils/ipodpatcher` (Dave Chapman and Rockbox contributors; `arc4.c` by PeerSec Networks; all GPL v2 or later, headers kept in the files). Same release, same `SHA256SUMS`, same corresponding source (§3(a)): the source tarball contains `utils/ipodpatcher/` and `utils/libtools.make`. The tool is built without embedded bootloaders, so it carries no third-party firmware. Its own output says "Rockbox" and Dave Chapman's copyright; that is the tool's required notice, not our shell (rule 1 covers the firmware UI). The guide credits it and gives the source location | Release workflow job `ipodpatcher`; guide getting-started | met in the workflow; verify on the first tag |
 | L6 | **Rockbox credit** | README, the site, Settings › Legal, the first-boot notice and every announcement. Upstream history is kept in the public repo | Review | partial (README, Legal) |
 | L7 | **Third-party licences** (`lib/`, `docs/LICENSES`) | Kept in the tree and the source tarball; the licence texts the binary zip needs are copied into it | Audit 5 | todo (audit) |
-| L8 | **Fonts** | TeX Gyre Heros "ShellSans" under the GUST Font License (`apps/ipodui/fonts/GUST-FONT-LICENSE.txt`), with ten glyphs Heros lacks (music notes ♩ ♫ ♬, primes, thin space, ĸ ŉ Ŧ ŧ) from DejaVu Sans 2.37 under the Bitstream Vera Fonts licence, DejaVu changes public domain (`apps/ipodui/fonts/DEJAVU-FONT-LICENSE.txt`; notice kept, no "Bitstream"/"Vera" in the name). No OFL glyphs inside ShellSans: they would make the font OFL-only, against the GUST licence. Source Sans 3 is not shipped (it would need the SIL OFL 1.1 credit if it ever were). No Apple fonts, Podium Sans included. Settings › Legal credits exactly what ships: Heros under the GUST licence (`LANG_IPODUI_LEGAL_3`) and the DejaVu Sans glyphs under the Bitstream Vera licence (`LANG_IPODUI_LEGAL_4`) | Audit 5, `apps/ipodui/fonts/MANIFEST` | met |
+| L8 | **Fonts** | TeX Gyre Heros "ShellSans" under the GUST Font License (`apps/ipodui/fonts/GUST-FONT-LICENSE.txt`), with ten glyphs Heros lacks (music notes ♩ ♫ ♬, primes, thin space, ĸ ŉ Ŧ ŧ) from DejaVu Sans 2.37 under the Bitstream Vera Fonts licence, DejaVu changes public domain (`apps/ipodui/fonts/DEJAVU-FONT-LICENSE.txt`; notice kept, no "Bitstream"/"Vera" in the name). No OFL glyphs inside ShellSans: they would make the font OFL-only, against the GUST licence. Source Sans 3 is not shipped (it would need the SIL OFL 1.1 credit if it ever were). No Apple fonts, Podium Sans included. From 0.9.0 the ShellCJK companion fonts (kana, kanji, Hangul and level-1 hanzi for names and the Japanese menus) are cut from Noto Sans CJK JP, SC and TC 2.004 under the SIL OFL 1.1 (`apps/ipodui/fonts/README.md`, "ShellCJK"); they are separate font files, so ShellSans stays GUST, and the release zip carries their licence text as `.rockbox/fonts/OFL-NOTO-CJK.txt` (`scripts/release_flags.sh` requires it). Settings › Legal credits exactly what ships: Heros under the GUST licence (`LANG_IPODUI_LEGAL_3`), the DejaVu Sans glyphs under the Bitstream Vera licence (`LANG_IPODUI_LEGAL_4`) and Noto Sans CJK under the SIL Open Font License (`LANG_IPODUI_LEGAL_7`) | Audit 5, `apps/ipodui/fonts/MANIFEST` | met |
 | L9 | **Trademarks** | §1 naming rules; §2 texts | Audit 6 covers names and LANG strings | partial |
 | L10 | **Trade dress**: no Apple logo, icons, fonts, artwork, marketing images or firmware | Our own boot glyph and icons, generated from our own geometry. Screenshots come from our simulator or our own devices, framed so Apple's logo isn't shown. `docs/reference/*/` stays private (gitignored) | Audit 7 (image provenance) and 8 (Apple firmware bytes) | partial (no consult, owner 2026-10-24; L14) |
 | L11 | **Non-commercial posture** | Free only. No donation link in v1.0 | Review | met |
@@ -101,6 +103,22 @@ Code that is never compiled is stripped **from the public tree only** (owner, 20
 4. **Publish** as a labelled commit sequence: upstream Rockbox history up to our merge-base, then **"strip: remove code ProkBox5g never compiles"**, then one **"ProkBox5g <ver>"** import commit per release, then normal public development. The strip commit only deletes. Every remaining upstream file keeps its header. `scripts/release_import.py` makes the import commit (one commit, fixed public author, no trailers) and refuses any history that carries private data; it prints the push and tag commands and never pushes.
 
 Stripping never removes a notice the remaining code needs. If a kept file's licence text sits in a file that would otherwise be stripped, that licence file is kept (audit 2 and 5).
+
+### 4.1 The licences audit 3 accepts in files we added (#483)
+
+Audit 3 reads the licence grant in the header of every source file we added, not just whether a header is there. A file with the ProkBox banner must carry the GPL-2.0-or-later grant of `docs/templates/prokbox-header.txt` ("... either version 2 of the License, or (at your option) any later version", or an `SPDX-License-Identifier: GPL-2.0-or-later` line). So must a file without the banner, unless it is listed below. The dual licence is accepted only on the files listed for it, and a third-party licence only on the files listed with it. A banner with no grant, a grant in another wording ("GPL v2 or later"), or any other licence fails. A file joins this table only with the owner's decision or the third-party source that sets its licence, and the reason goes in the row. The audit reads the table between the markers; keep one file glob per backtick pair.
+
+<!-- audit3-licences-begin -->
+| Files | Licence | Why |
+|---|---|---|
+| `apps/ipodui/sdk/sdk.h`, `apps/ipodui/sdk/sdk_abi.h`, `apps/ipodui/sdk/sdk.sym`, `apps/ipodui/sdk/sdk_stubs.S`, `apps/ipodui/modules/module.lds`, `tools/modpak.py`, `tools/sdk/game.mk`, `tools/sdk/template/*`, `tools/sdk/README.md`, `tools/sdk_export.py` | `MIT OR GPL-2.0-or-later` | The game SDK's shipped files (owner, 2026-11-15; §8.1), and its exporter, dual since the same change (commit `afcc2d8bb9`) though §8.1's table does not list it |
+| `bcmfw/r3d/*.c`, `bcmfw/r3d/*.h`, `bcmfw/r3d/host/*.c`, `bcmfw/tests/r3d_test.py` | `MIT OR GPL-2.0-or-later` | The r3d renderer (owner, 2026-11-17; the files change header on branch `lic-r3d-mit`, which records the provenance). Allowed, not yet applied on this line |
+| `bcmfw/mpeg4/idct.c`, `bcmfw/mpeg4/vlc_data.py`, `bcmfw/mpeg4/vlc_tables.c` | `LGPL-2.1-or-later` | FFmpeg's arithmetic and tables (n7.1), ported with FFmpeg's notice kept (#185) |
+<!-- audit3-licences-end -->
+
+The reflective surface (owner, 2026-11-17, #476) joins the dual row when it moves into its own files and they take the dual header.
+
+**LGPL files in a GPL release (owner, 2026-11-19, #509).** The firmware, its zips and the public tree are distributed as a whole under the GNU GPL, version 2 or later (`docs/COPYING`); we ship no separate LGPL text. Section 3 of the LGPL 2.1 lets anyone distribute LGPL-2.1 code under the ordinary GPL instead, and the combined work takes the GPL's terms. That covers our three FFmpeg-derived files above and the LGPL files that came with upstream Rockbox (about 112 under `lib/rbcodec`, which upstream has always shipped with the GPL text alone). Each of those files keeps its own LGPL notice and copyright lines unchanged: we never alter a licence or copyright notice (CLAUDE.md rule 6), so the files still say where they came from, and this paragraph is the record of the terms the release is distributed under.
 
 ## 5. Asset provenance
 
@@ -124,6 +142,7 @@ Anything else fails audit 7.
 | `tests/ui/fixtures/**` | generated test fixtures (flat test art, leftover-file cases) | GPL-2.0-or-later |
 | `tests/fixtures/*.m4b`, `tests/fixtures/*.mp3` | generated by ffmpeg from synthetic sources (sine tones, silence, flat colour art) with synthetic chapter titles: `tests/fixtures/make_fixtures.sh` (`nero_chapters.m4b`, `apple_chapters.m4b`, `plain.mp3`), `make_chapcap_fixtures.py` (`chapters_*`), `make_meta_fixtures.py` (`rich_chapters.m4b`, `id3v2*.mp3`), `make_short_chpl_fixture.py` (`short_chpl.m4b`); `rich_chapters_badjpg.m4b` is `rich_chapters.m4b` with bytes of its art deliberately overwritten (`tests/ui/ipodui-art-chap-retry.script`) | GPL-2.0-or-later |
 | `tests/fixtures/sim-art/*.jpg`, `tests/fixtures/sim-art/*.png` | encoded by `tests/fixtures/sim-art/export.sh` from synthetic art only (procedural patterns and gradients drawn by `tests/ui/setup_library.py` and ffmpeg filters), checked by its `SHA256SUMS` | GPL-2.0-or-later |
+| `tests/fixtures/f1/*.mp4` | generated by ffmpeg from synthetic sources (testsrc video, sine audio): `tests/fixtures/make_p090f1_fixtures.py` (`base.mp4` Baseline, `high.mp4` High profile) | GPL-2.0-or-later |
 | `tests/gate/mutants/**` | our simulator renders, deliberately altered as gate self-test mutants (`scripts/gate_mutants.sh`) | GPL-2.0-or-later |
 | `docs/design/logo/`, `docs/design/unlit/` | our own design work | GPL-2.0-or-later (to confirm generator per file in the audit) |
 | `docs/user/images/getting-started-main-menu.png` | our simulator render (`scripts/docs_shots.sh`: `tests/ui/readme/readme-stills.script` on the release-shaped sim), of the synthetic test library (`tests/ui/setup_library.py`) and the generated video fixtures' posters (`tests/fixtures/videos/mkvideos.sh`): no owner media | GPL-2.0-or-later |

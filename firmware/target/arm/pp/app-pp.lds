@@ -80,6 +80,8 @@ SECTIONS
         *libfirmware.a:lcd-16bit.o(.data*)
         *libfirmware.a:bidi.o(.data*)       /* its text drawing (copfileio) */
         *libfirmware.a:diacritic.o(.data*)
+#endif
+#ifdef HAVE_IPOD_UI
         . = ALIGN(CACHEALIGN_SIZE);
         /* p19-copfileio (bench 4f): the file layer and the storage driver
          * on lines of their own too, so no static another object writes
@@ -87,7 +89,10 @@ SECTIONS
          * FAT or disk cache's lists, or the ATA state.  Bench 4f linked
          * disk_cache.c's cache_lru and bidi.c's bidi_buf on one line: the
          * COP's text drawing wrote the line back with a stale LRU head
-         * ("file_cache_alloc - OOM").  xcore_line_check.py checks both */
+         * ("file_cache_alloc - OOM").  xcore_line_check.py checks both.
+         * Every shell build since 0.9.0 (int4-dcache, #355): the release
+         * has no UI split, but its COP decodes and runs jobs, and its map
+         * had cache_lru and bidi_buf on one line as well */
         *libfirmware.a:file.o(.data*)
         *libfirmware.a:dir.o(.data*)
         *libfirmware.a:file_internal.o(.data*)
@@ -202,9 +207,11 @@ SECTIONS
         *libfirmware.a:lcd-16bit.o(.bss* COMMON)
         *libfirmware.a:bidi.o(.bss* COMMON)
         *libfirmware.a:diacritic.o(.bss* COMMON)
+#endif
+#ifdef HAVE_IPOD_UI
         . = ALIGN(CACHEALIGN_SIZE);
         /* p19-copfileio: the file layer's and the storage driver's, as in
-         * .data above */
+         * .data above (every shell build, int4-dcache) */
         *libfirmware.a:file.o(.bss* COMMON)
         *libfirmware.a:dir.o(.bss* COMMON)
         *libfirmware.a:file_internal.o(.bss* COMMON)

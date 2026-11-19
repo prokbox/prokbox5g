@@ -93,11 +93,16 @@ void beep_play(unsigned int frequency, unsigned int duration,
 #endif
 
     /* If it fits - avoid cb overhead */
-    const void *start;
-    size_t size;
+    const void *start = NULL;
+    size_t size = 0;
 
+#ifndef HAVE_CORE_LAYOUT_A
     /* Generate first frame here */
     beep_get_more(&start, &size);
+#endif
+    /* ProkBox #283 (layout A): no first frame here; the mixer's FIQ (on
+       the COP) makes it with the rest (pcm_mixer.c), also when the PCM was
+       stopped (it starts on two silent frames) */
 
     mixer_channel_set_amplitude(PCM_MIXER_CHAN_BEEP, MIX_AMP_UNITY);
     static struct mixer_play_cbs cbs XCORE_BSS;  /* the COP's mix reads it */

@@ -68,7 +68,7 @@ run() {
 
 run test_np_scrub "$T/test_np_scrub.c" "$S/np_scrub.c"
 run test_np_state "$T/test_np_state.c" "$S/np_state.c" "$S/np_scrub.c"
-run test_shuffle "$T/test_shuffle.c" "$S/shuffle_core.c"
+run test_shuffle "$T/test_shuffle.c" "$S/shuffle_core.c" -lm
 # Phase 5 contracts (docs/phase5-brief.md, "Contracts (committed)")
 run test_pbcore "$T/test_pbcore.c" "$S/np_pbcore.c" "$S/np_scrub.c" \
     "$S/np_state.c"

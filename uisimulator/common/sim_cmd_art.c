@@ -111,6 +111,15 @@ void sim_art_panel_hold(long ms)
     fprintf(stderr, "sim_script: art_panel_hold unavailable\n");
 }
 
+/* art_panel_hold <ms> chapter (#511): only the next chapter block is
+ * held; a panel or cover block reached first is not */
+void sim_art_chapter_hold(long ms) __attribute__((weak));
+void sim_art_chapter_hold(long ms)
+{
+    (void)ms;
+    fprintf(stderr, "sim_script: art_panel_hold chapter unavailable\n");
+}
+
 /* npfix review M1/M2: art_post_flood <n> posts n of each of the
  * builder's own events (raw, past art_post()'s one-of-each rule, and n
  * through it); expect_art_parked <0|1> [ms]: the builder is (not) parked
@@ -578,8 +587,14 @@ bool sim_cmd_art(const char *cmd, char *argv[], int argc, int lineno)
     }
     else if (!strcmp(cmd, "art_panel_hold") && argc >= 2)
     {
-        fprintf(stderr, "sim_script: art_panel_hold %s ms\n", argv[1]);
-        sim_art_panel_hold(atol(argv[1]));
+        bool chapter = argc >= 3 && !strcmp(argv[2], "chapter");
+
+        fprintf(stderr, "sim_script: art_panel_hold %s ms%s\n", argv[1],
+                chapter ? " chapter" : "");
+        if (chapter)
+            sim_art_chapter_hold(atol(argv[1]));
+        else
+            sim_art_panel_hold(atol(argv[1]));
     }
     else if (!strcmp(cmd, "audio_buf"))
         audio_buf(argc >= 2 ? argv[1] : "", lineno);

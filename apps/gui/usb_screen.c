@@ -298,6 +298,9 @@ void gui_usb_screen_run(bool early_usb, intptr_t seqnum)
     if(!early_usb)
     {
         /* The font system leaves the .fnt fd's open, so we need for force close them all */
+#ifdef HAVE_IPOD_UI
+        ui_usb_prime_fonts();   /* #266: CJK glyphs into RAM while we may read */
+#endif
         font_disable_all();
     }
     /* A queued tag-cache scan can otherwise run for minutes before its

@@ -20,7 +20,7 @@ wheel +1             # Shuffle
 wait 400
 key SELECT           # Shuffle -> Songs (something to reset)
 wait 600
-wheel +15            # Reset Settings
+wheel +16            # Reset Settings
 wait 400
 key SELECT
 wait 1500

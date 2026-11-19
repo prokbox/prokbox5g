@@ -22,7 +22,9 @@ copy ../../build/np-fixtures/book_held.mp3 /NPBook/book_held.mp3
 # fixed 9 s wait). There is no sim wait for "holding", so the timing is a
 # window: play starts at W=25 s (needs A < 25) and the hold (A + 45 s) must
 # end during playback (A + 45 < 25 + 40, i.e. A < 20 s, ~3x the idle time).
-art_panel_hold 45000   # the builder keeps its block for 45 s
+art_panel_hold 45000 chapter   # the builder keeps its chapter block for 45 s
+# ("chapter", #511: the book's album can join the panel set at random, and
+# a bare hold went to that panel build instead: no "chapter block held")
 update_db_wait_change 60000
 art_request
 wait 25000            # holding by now, still inside the hold

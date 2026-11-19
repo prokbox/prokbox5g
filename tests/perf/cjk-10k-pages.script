@@ -1,0 +1,33 @@
+# #235 (package G): the full glyph tier with the library glyph file on the
+# 10,000-song CJK disk (tests/perf/cjk10k.sh first; the glyph file is
+# written into the database folder for the loaded commit, until package
+# F's commit writes it). Expect "cjk tier full glyphs=<n>" and no
+# "libglyph stale"; the shots must match cjk-10k's.
+# needs: cjk
+# golden: skip
+# timeout: 600
+
+wait 5000
+wait_db 120000
+wait 3000
+key SELECT          # Music
+wait 1000
+wheel +1 300        # Artists
+wait 600
+key SELECT
+wait 1500
+shot artists
+wheel +40 50        # 40 rows, 50 ms apart
+wait 2500
+shot artists_40
+key MENU
+wait 1000
+wheel +2 300        # Songs
+wait 600
+key SELECT
+wait 1500
+shot songs
+wheel +100 50
+wait 3000
+shot songs_100
+quit

@@ -130,10 +130,14 @@
 -Wl,--undefined=audio_stop
 -Wl,--wrap=audiophile_fallback_ack
 -Wl,--undefined=audiophile_fallback_ack
+-Wl,--wrap=audiophile_osr128_selftest
+-Wl,--undefined=audiophile_osr128_selftest
 -Wl,--wrap=audiophile_selftest
 -Wl,--undefined=audiophile_selftest
 -Wl,--wrap=audiophile_set_hirate
 -Wl,--undefined=audiophile_set_hirate
+-Wl,--wrap=audiophile_set_osr128
+-Wl,--undefined=audiophile_set_osr128
 -Wl,--wrap=audiophile_set_width
 -Wl,--undefined=audiophile_set_width
 -Wl,--wrap=batcal_boot
@@ -182,6 +186,8 @@
 -Wl,--undefined=core_heap_walk
 -Wl,--wrap=core_pin
 -Wl,--undefined=core_pin
+-Wl,--wrap=core_shrink
+-Wl,--undefined=core_shrink
 -Wl,--wrap=core_unpin
 -Wl,--undefined=core_unpin
 -Wl,--wrap=default_event_handler
@@ -208,6 +214,12 @@
 -Wl,--undefined=fat_slot_fault_get
 -Wl,--wrap=fdprintf
 -Wl,--undefined=fdprintf
+-Wl,--wrap=lang_core_builtin
+-Wl,--undefined=lang_core_builtin
+-Wl,--wrap=lang_core_file_size
+-Wl,--undefined=lang_core_file_size
+-Wl,--wrap=lang_core_switch
+-Wl,--undefined=lang_core_switch
 -Wl,--wrap=lcd_awake
 -Wl,--undefined=lcd_awake
 -Wl,--wrap=lcd_sleep

@@ -98,6 +98,8 @@ start:  DMA0_RAM_ADDR = physical buffer address
 | 4 | Clock changes (`scale_suspend_core()` stops the other core around each `CLOCK_SOURCE` write) | the governor moves with the COP's demand (p083-copclock) | the stop is a few register writes long; the lock wait runs at 24 MHz with both cores running | [rockbox-derived] code; [hypothesis] for the length |
 | 5 | The handler's own length at 24-bit | the s24 mix runs in the FIQ | it runs after the re-arm, and 1.3 ms is far longer than any mix measured | [ours] code reading |
 
+**b16 (2026-11-16): candidate 3 it is, for the cache write-back** [silicon b16]. The probe refused the queue on our unit, so the one-channel path ran. 71 of the 73 late FIQs logged had interrupted `commit_dcache()`'s wait loop for the controller's busy bit, with the FIQ open, 250–760 µs late at 24–30 MHz. Why the core waits is still a hypothesis: the vector's cached fetch (`quirks.md` 96). The fix times each whole-cache write-back so that no piece ends inside it (`pcm_pp_fiq_window()`, `../data-paths.md` R7 item 8). The log lines `pcm fiq rows` and `pcm fiq win` measure the stalls.
+
 **Options to make continuity independent of FIQ latency:**
 
 | Option | What | Evidence | Verdict |

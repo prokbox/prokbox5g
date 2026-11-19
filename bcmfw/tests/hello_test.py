@@ -107,13 +107,27 @@ class Fail(Exception):
     pass
 
 
+# The cache models (#257; BCM quirks.md #56, #59; program-swap.md section
+# 6).  VC2SIM_ICACHE names what drops the instruction side's kept lines
+# (vc2sim.Sim.icache): 'edge31' (default; a 0 -> 1 change of bit 31 of
+# 0x10000C00, from the host or the core: the only knob both silicon
+# findings fit), 'host30' (any bit-30 request), 'core30' (a bit-30
+# request the core makes), 'off' (no line store: any bit-30 request is a
+# perfect flush, the model before 2026-11-10).  Bench.dwatch() adds the
+# data side's write-back hypothesis over one range (H(b) of #257).
+ICACHE_KNOBS = ('edge31', 'host30', 'core30', 'off')
+ICACHE = os.environ.get('VC2SIM_ICACHE', 'edge31')
+if ICACHE not in ICACHE_KNOBS:
+    raise SystemExit('VC2SIM_ICACHE=%s: one of %s' % (ICACHE, ', '.join(ICACHE_KNOBS)))
+
+
 # --------------------------------------------------------------------------
 # The BCM side: vc2sim with the modelled bus, timer, interrupt controller
 # and panel.
 
 class Bench:
     def __init__(self, image, panel_id, entry, reset_pc=None, us_per_read=4,
-                 exceptions=True):
+                 exceptions=True, icache=None):
         self.image = image
         self.entry = entry
         self.reset_pc = entry if reset_pc is None else reset_pc
@@ -132,9 +146,16 @@ class Bench:
             sim.mem.on_write[a] = self.panel.gpio_write
         sim.mem.on_write[0x10000400] = self._run_control
         # strict code coherence (vc2sim.StaleCode): a flush request by the
-        # host or the core makes SRAM as it is the instruction side's view
-        sim.mem.on_write[0x10000C00] = \
-            lambda bus, a, v: v & 0x40000000 and sim.cache_flushed()
+        # host or the core makes SRAM as it is the instruction side's view;
+        # the line store's knob says which events drop the kept lines
+        self.icache = ICACHE if icache is None else icache
+        sim.icache = None if self.icache == 'off' else {}
+        self.host_writing = False   # a write through the port (w32), not the core
+        self.cc_last = 0            # the cache word as last written
+        self.cc_log = []            # (host?, value) of every cache-word write
+        self.discards = 0           # instruction-side discards (the knob's events)
+        self.dw = None              # the data side's watched range (dwatch)
+        sim.mem.on_write[0x10000C00] = self._cache_ctl
         sim.on_sleep = lambda nxt: S._sleep(sim, nxt)
         sim.irq_ctx = {}
         self.sim, self.bus = sim, sim.mem
@@ -160,10 +181,69 @@ class Bench:
     def w32(self, a, v):
         a &= ~3
         if a >= 0x10000000:
-            self.bus.dev_write(a, 4, v)
+            self.host_writing = True
+            try:
+                self.bus.dev_write(a, 4, v)
+            finally:
+                self.host_writing = False
             self.host_seqs.add(self.bus.seq)
         else:
+            self._host_wr(a, 4)
             self.bus.w32(a, v)
+
+    # -- the cache word (0x10000C00) and the models behind it
+    def _cache_ctl(self, bus, a, v):
+        host, last = self.host_writing, self.cc_last
+        self.cc_last = v
+        self.cc_log.append((host, v))
+        edge = bool(v & 0x80000000) and not last & 0x80000000
+        req = bool(v & 0x40000000)
+        if self.icache == 'off':
+            discard = req
+        elif self.icache == 'host30':
+            discard = req or edge
+        elif self.icache == 'core30':
+            discard = (req and not host) or edge
+        else:
+            discard = edge
+        if req:
+            self._dflush()
+            self.sim.cache_flushed(discard=discard)
+        elif discard:
+            self.sim.icache_discard()
+        self.discards += bool(discard)
+
+    def dwatch(self, lo, hi, line=32):
+        """The data side's write-back hypothesis (#257 H(b)) over [lo, hi):
+        a line the core wrote since the last bit-30 request is held dirty;
+        if the host then writes into it, the next request writes the
+        core's whole line back over the host's bytes.  Core stores are
+        seen by difference against the range as it stood at that request"""
+        self.dw = (lo, hi, line)
+        self.dsnap = bytes(self.bus.b[lo:hi])
+        self.dhost, self.dpend, self.dwritebacks = set(), {}, 0
+
+    def _host_wr(self, a, n):
+        if not self.dw:
+            return
+        lo, hi, L = self.dw
+        for ln in range(max(lo, a & ~(L - 1)), min(hi, a + n), L):
+            if ln in self.dhost:
+                continue
+            self.dhost.add(ln)
+            cur = bytes(self.bus.b[ln:ln + L])
+            if cur != self.dsnap[ln - lo:ln - lo + L]:
+                self.dpend[ln] = cur        # the core's dirty line, held
+
+    def _dflush(self):
+        if not self.dw:
+            return
+        lo, hi, L = self.dw
+        for ln, data in self.dpend.items():
+            self.bus.b[ln:ln + L] = data    # written back over the host's
+        self.dwritebacks += len(self.dpend)
+        self.dsnap = bytes(self.bus.b[lo:hi])
+        self.dhost, self.dpend = set(), {}
 
     def r32(self, a):
         if a >= 0x10000000:
@@ -184,6 +264,7 @@ class Bench:
         n = len(data) & ~3
         if n != len(data):
             Bench.lone_tails += 1   # every bench of the run (the suites check)
+        self._host_wr(a, n)
         self.bus.b[a:a + n] = data[:n]
 
     lone_tails = 0
@@ -203,8 +284,11 @@ class Bench:
         self.powered = True
         # SRAM content is undefined after power-up
         self.bus.b[0:SRAM] = bytes(rng.getrandbits(8) for _ in range(256)) * (SRAM // 256)
-        self.sim.code.clear()
+        self.sim.icache_discard()
         self.sim.code_view = None
+        self.cc_last = 0
+        if self.dw:
+            self.dwatch(*self.dw)
 
     def power_cut(self, rng):
         self.powered = self.running = False
@@ -214,8 +298,11 @@ class Bench:
         self.panel.power_cut()
         self.bus.regs = {}
         self.bus.b[0:SRAM] = bytes(rng.getrandbits(8) for _ in range(256)) * (SRAM // 256)
-        self.sim.code.clear()
+        self.sim.icache_discard()
         self.sim.code_view = None
+        self.cc_last = 0
+        if self.dw:
+            self.dwatch(*self.dw)
 
     def now(self):
         return self.timer.clo

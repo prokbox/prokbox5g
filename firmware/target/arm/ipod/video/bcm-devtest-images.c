@@ -16421,10 +16421,12 @@ const struct bcmdt_image bcmdt_hibstub_image =
 
 /* bcmfw/verified.txt: images passed on a device (stage 5); the
  * default boot path needs the DMA image to be one of them */
-const uint32_t bcmdt_verified_fnv[3] =
+const uint32_t bcmdt_verified_fnv[5] =
 {
     0x4326f8dc,   /* hello_dma (not embedded): stage 5 PASS on the owner's 5.5G: session 17 (session log, session 17, bcmtest.log lines 3714 and 4646: "boot hello_dma: 8016 bytes, fnv 4326f8dc" ... "stage 5 PASS"); also sessions 7 and 14; device pass flag bcmpass5.txt "5 hello_dma 00001f50 4326f8dc" */
     0x28768994,   /* hello_dma: stage 5 PASS on the owner's 5.5G: bench 2026-10-25, build 799ff0f8d7 (session log, bench-20261025, bcmtest.1.log line 604 "stage 5 PASS", "boot hello_dma: 8016 bytes, fnv 28768994"); device pass flag bcmpass5.txt "5 hello_dma 00001f50 28768994" */
     0x80bc8611,   /* bcmvideo_jobs (not embedded): stage 6 PASS (merged, 218692 bytes), B5 PASS, jobs self-test PASS, J_VPU 3 PASS, drift B3 and drill 2 PASS on the owner's 5.5G: re-verify session 2026-10-25, build 799ff0f8d7-261026 */
+    0xb9bcbe57,   /* bcmvideo_jobs (not embedded): stage 6 PASS (merged, 215064 bytes), B5 PASS, jobs self-test PASS, J_VPU 3 PASS, drift B3 PASS on the owner's 5.5G: chip update session 2026-11-06, build 4c241d1df3-261106 (session log 20261106-163642-4c241d1df3-261106.txt line 148) */
+    0x6b5c8758,   /* bcmvideo_jobs (not embedded): stage 6 PASS (merged, 215192 bytes), B5 PASS, jobs self-test PASS, J_VPU 3 PASS, the overlay swap (issue 466) 200 of 200 each way (drain-only, the core's own cold flush; 0 fall-back lines, 0 host code flushes) on the owner's 5.5G: sitting swap090b, 2026-11-17, session log, build b0db710280-261117 */
 };
-const int bcmdt_n_verified = 3;
+const int bcmdt_n_verified = 5;

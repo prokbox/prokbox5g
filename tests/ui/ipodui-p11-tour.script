@@ -10,7 +10,11 @@
 # cursor (wheel -10) so one miscount doesn't derail the next.
 #   tests/review/p11-tour.sh
 # needs: library
+# needs: np
 # timeout: 600
+# golden: skip
+# (no goldens: a review tour; the Connect to Power screen's golden is
+# ipodui-p11-sys-lowbatt's, where the shutdown's timing is fixed)
 
 wait 4000                 # boot to the main menu
 wait_db 30000
@@ -149,7 +153,7 @@ key MENU
 record 900 10 tour
 
 # -- 6. Date & Time --------------------------------------------------------
-wheel +12 200             # Date & Time
+wheel +13 200             # Date & Time
 record 600 10 tour
 key SELECT
 record 1500 10 tour       # Date / Time / Time Zone / 24 Hour Clock / Time in Title
@@ -163,7 +167,7 @@ key MENU
 wait 900
 
 # -- 7. EQ -----------------------------------------------------------------
-wheel -12 120
+wheel -13 120
 wheel +9 200              # EQ
 record 600 10 tour
 key SELECT
@@ -174,7 +178,7 @@ key MENU                  # nothing chosen
 record 900 10 tour
 
 # -- 8. Reset Settings prompt ----------------------------------------------
-wheel +7 200              # Reset Settings (the last row)
+wheel +8 200              # Reset Settings (the last row, 17)
 record 600 10 tour
 key SELECT
 record 1500 10 tour       # Reset | Cancel, Cancel preselected

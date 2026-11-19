@@ -32,6 +32,9 @@
 #include "audiohw.h"
 #include "system.h"
 #include "panic.h"
+#if defined(HAVE_IPOD_UI) && defined(HAVE_HIRATE_OUT)
+#include "dac_ext.h"                /* dac_sim_rate_set() */
+#endif
 
 #ifdef HAVE_RECORDING
 #include "audiohw.h"
@@ -104,6 +107,9 @@ static void sdl_audio_callback(void *handle, Uint8 *stream, int len);
 static void sink_set_freq_nolock(uint16_t freq)
 {
     pcm_sampr = hw_freq_sampr[freq];
+#if defined(HAVE_IPOD_UI) && defined(HAVE_HIRATE_OUT)
+    dac_sim_rate_set(pcm_sampr);    /* the device's R10 choice, logged */
+#endif
 
     SDL_AudioSpec wanted_spec;
     wanted_spec.freq = pcm_sampr;
@@ -178,7 +184,8 @@ static void sink_set_freq(uint16_t freq)
 /* ProkBox #268: the sink takes 8-byte 24-bit frames as the iPod's does;
    the host's card gets them as 16-bit (the top half of each word) through
    a shadow, so the rest of this file stays 16-bit.  sim_pieces: the stall
-   watch's progress word, one a buffer */
+   watch's progress word, one a buffer (the start's first one too, as
+   pcm-pp.c counts a start) */
 static int sim_bpf = 4;
 static unsigned long sim_pieces;
 static int16_t sim_shadow[16384];
@@ -370,18 +377,13 @@ static void sdl_audio_callback(void *handle, Uint8 *stream, int len)
             new_buffer = false;
             pcm_play_dma_status_callback(PCM_DMAST_STARTED);
 
-            if ((size_t)len > udata->num_out)
-            {
-                int delay = pcm_data_size*250 / pcm_sampr - 1;
-
-                if (delay > 0)
-                {
-                    SDL_Delay(delay);
-
-                    if (!pcm_is_playing())
-                        break;
-                }
-            }
+            /* No SDL_Delay here (upstream slept one chunk's playing time
+               per chunk). The host's driver already waits one buffer's
+               time between callbacks, so a buffer made of several chunks
+               paid for its time twice: the sim played at 64 % of real
+               time on 4 KB chunks and 55 % on the 24-bit path's 2 KB ones
+               (p090-simrate). The callback now fills its buffer at once and
+               the driver's clock is the only pacing. */
         }
 
         pcm_data      += udata->num_in;

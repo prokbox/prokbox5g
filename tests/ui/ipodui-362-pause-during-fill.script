@@ -1,0 +1,54 @@
+# #362: PLAY must silence the sound at once while the audio thread is busy.
+# #345 posted the press, so the header showed "paused" at once, but the
+# pause itself still waited in the audio queue behind the thread's track
+# load or fill (storage waits under the library's work): on the laptop's
+# emulator the sound went on ~5.8 s after the press (v0.8.3, flash 64 MB).
+# Now the poster holds the PCM at once (the fade-out starts, then the
+# channel pauses) and the audio thread takes its own state when it gets
+# there. load_hold makes every track load wait 4 s, so a load is under
+# way at each press. Checked, all inside one held load:
+#   - a pause then a resume before the thread wakes: the hold is undone,
+#     the sound comes straight back and the thread never pauses;
+#   - a pause: the PCM is held within 50 ms (press-to-pause), quiet after
+#     the 250 ms fade, and the thread's state follows when the load ends;
+#   - a resume after that plays again.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-362-pause-during-fill.script
+# needs: music
+# golden: skip
+# timeout: 150
+# fulls-extra: 1          (the main menu's Now Playing row appears)
+# log: load held ms=4000
+# log: pause held early
+
+wait 3000
+repeat off
+wait_db 30000
+load_hold 4000      # every track load waits 4 s first
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3 /Music/Tone%20Collective/Sine%20Studies/02%20Low%20E.mp3 /Music/Tone%20Collective/Sine%20Studies/03%20Warble.mp3
+wait_pos 300 30000  # playing; the next track's load is under way
+expect_shown playing 2000
+expect_pcm playing 100
+# 1. pause, then resume, both before the audio thread wakes
+key PLAY
+expect_pcm held 50          # press -> pause applied
+key PLAY
+expect_shown playing 150
+expect_pcm playing 400      # the hold undone, the sound back
+expect_audio playing 10
+# 2. pause while the load is still under way
+key PLAY
+expect_pcm held 50          # press -> pause applied
+expect_shown paused 150
+expect_pcm paused 400       # silent after the fade
+expect_audio paused 10000   # the thread's state follows after the load
+expect_paused 1000
+wait 300
+expect_pcm paused 100       # stays paused
+# 3. resume
+key PLAY
+expect_shown playing 150
+expect_pcm playing 10000
+expect_playing 1000
+load_hold 0
+shot resumed
+quit

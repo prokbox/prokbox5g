@@ -44,8 +44,8 @@
  * no setting.  apps/audiophile.h */
 #define HAVE_PCM_24BIT_OUT
 /* Scope switches (owner, 2026-11-12: "do 24 bit now audiophile later"):
- * both features are written and stay in the tree, compiled out of 0.8.3
- * and every build of it; 0.9.0 defines them here.
+ * both features were compiled out of 0.8.3 and every build of it; 0.9.0
+ * defines them here (comment out to drop a feature again).
  *   IPODUI_AUDIOPHILE (#270): Settings > Audiophile (native 88.2/96 kHz,
  *     its self-test and fallback, the 64x DAC oversampling above 48 kHz,
  *     stereo width) and its saved settings.  Off: no row, no settings
@@ -53,8 +53,8 @@
  *     next save), output at 44.1/48 kHz, still 24-bit.
  *   IPODUI_NP_INFO (#277): Now Playing's format/output page in the
  *     SELECT cycle.  Off: the cycle is the stock one. */
-/* #define IPODUI_AUDIOPHILE */
-/* #define IPODUI_NP_INFO */
+#define IPODUI_AUDIOPHILE
+#define IPODUI_NP_INFO
 #endif
 #if defined(IPODUI_AUDIOPHILE)
 /* #270: native 88.2/96 kHz output, opt-in and gated by a per-unit

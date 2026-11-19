@@ -35,6 +35,9 @@
  * the port (C0 included). */
 
 #include "bcmjob-core.h"
+#ifdef HAVE_BCMFW_DEVTEST
+#include "bcmjob_ring.h"     /* sitting b10: the ring at a timeout */
+#endif
 #include "power.h"
 #include "button.h"         /* button_queue_post: the owner's kick */
 
@@ -58,6 +61,9 @@ static bool bpl_block(void);
 static void bpl_restore(bool was);
 #include "bcm-port-lock.h"
 static struct bpl_state bcm_port_st XCORE_BSS;
+#ifdef HAVE_BCMFW_DEVTEST
+static void jd_lock_stats(uint32_t out[4]);  /* the port's (below) */
+#endif
 /* P19 S0 (MF-2): the request record, its acknowledgement and the owner */
 static struct bjc_req jd_req XCORE_BSS;
 static struct semaphore jd_ack XCORE_BSS;
@@ -100,9 +106,22 @@ static void bpl_restore(bool was)
     restore_irq(oldlevel);
 }
 
+#ifdef HAVE_BCMFW_DEVTEST
+/* sitting b10 (bench builds): port locks whose outermost entry found the
+ * tick block already set (a holder around it), and the last such caller */
+static uint32_t bcm_port_nest XCORE_BSS, bcm_port_nest_at XCORE_BSS;
+#endif
+
 void bcm_port_lock(void)
 {
     bpl_lock(&bcm_port_st);
+#ifdef HAVE_BCMFW_DEVTEST
+    if (bcm_port_st.depth == 1 && bcm_port_st.was)
+    {
+        bcm_port_nest++;
+        bcm_port_nest_at = (uint32_t)__builtin_return_address(0);
+    }
+#endif
 }
 
 void bcm_port_unlock(void)
@@ -244,6 +263,9 @@ static const struct bjc_port jd_port =
     .gen = jd_gen, .lit = jd_lit, .push = jd_push, .restart = jd_restart,
     .power = jd_power, .charging = jd_charging,
     .upload_any = jd_upload_any, .dec_buf = jd_dec_buf,
+#ifdef HAVE_BCMFW_DEVTEST
+    .lock_stats = jd_lock_stats,
+#endif
 };
 
 /* lcd_sleep / lcd_awake: accounting only (backlight thread); the dark
@@ -350,6 +372,70 @@ int bcmjob_dev_inject_fail(uint32_t op, uint32_t n)
     bjc_inject_fail(op, n);
     if (!n)
         bjc_inject_forgive(op);     /* "off": the op is forgiven too */
+    return 0;
+}
+
+/* bjc_port lock_stats and bcmjob_pp.h: the port lock's record */
+static void jd_lock_stats(uint32_t out[4])
+{
+    out[0] = lcd_lock_off;
+    out[1] = lcd_lock_off_at;
+    out[2] = bcm_port_nest;
+    out[3] = bcm_port_nest_at;
+}
+
+void bcmjob_dev_port_stats(uint32_t out[4])
+{
+    jd_lock_stats(out);
+}
+
+/* bcmjob_pp.h: sitting b10's ring look (bcmjob_ring.h), the owner's */
+uint32_t bcmjob_dev_ring_look(struct bjc_ring_look *out)
+{
+    memset(out, 0, sizeof(*out));
+    if (!jd_ready || !jd_is_owner())
+        return 0;
+    bjc_ring_look_get(out);
+    return out->seq;
+}
+
+/* bcmjob_pp.h: #257's overlay look and code flushes (bcmjob_ring.h), the
+ * owner's */
+uint32_t bcmjob_dev_ovl_look(struct bjc_ovl_look *out)
+{
+    memset(out, 0, sizeof(*out));
+    if (!jd_ready || !jd_is_owner())
+        return 0;
+    return bjc_ovl_look_get(out);
+}
+
+int bcmjob_dev_ovl_look_now(int kind, struct bjc_ovl_look *out)
+{
+    memset(out, 0, sizeof(*out));
+    if (!jd_ready || !jd_is_owner())
+        return -1;
+    return bjc_ovl_look_now(kind, out) == BCMJOB_OK ? 0 : -1;
+}
+
+uint32_t bcmjob_dev_ovl_flushes(struct bjc_code_flush *out)
+{
+    memset(out, 0, 2 * sizeof(*out));
+    if (!jd_ready || !jd_is_owner())
+        return 0;
+    return bjc_ovl_flushes(out);
+}
+
+void bcmjob_dev_ring_arm(void)
+{
+    if (jd_ready && jd_is_owner())
+        bjc_ring_look_arm();
+}
+
+int bcmjob_dev_forgive(uint32_t op)
+{
+    if (!jd_ready || !jd_is_owner())
+        return -1;
+    bjc_dev_forgive(op);
     return 0;
 }
 #endif

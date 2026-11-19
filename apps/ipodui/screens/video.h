@@ -47,6 +47,13 @@
  * video row. */
 void ui_video_play(const char *path, int tc_idx);
 
+/* #286: a greyed video row (the library's can't-play reason 'why', enum
+ * unplayable_reason) was selected: the same "Can't Play Video" page a
+ * refused start shows, with the reason (format, or protected), pushed
+ * without touching the player or the audio: what was playing keeps
+ * playing. OK or MENU back to the list. False if nothing was pushed. */
+bool ui_video_show_why(int why);
+
 /* #154: a video session is open (from its player's start to its end):
  * its audio is never Now Playing, so the main menu's row ignores it */
 bool ui_video_session(void);

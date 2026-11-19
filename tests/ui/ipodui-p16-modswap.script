@@ -20,7 +20,7 @@ wheel +3             # Settings (warms the module: it lands in 3 s)
 wait 400
 key SELECT
 wait 600
-wheel +12            # Date & Time
+wheel +13            # Date & Time
 wait 400
 key SELECT
 wait 1000

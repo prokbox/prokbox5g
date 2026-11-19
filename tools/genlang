@@ -21,6 +21,16 @@ my $LANGUAGE_FLAG_UNITS_FIRST = 0x02;
 my $HEADER_SIZE       = 4;
 my $SUBHEADER_SIZE    = 6;
 
+# ProkBox (0.9.0): a shell build's .lng carries a hash of the string table
+# it was numbered against, and its lang.h the hash of the enum the firmware
+# was compiled with; apps/language.c refuses a .lng whose hash differs (one
+# built from another english.lang would show every string shifted). Only
+# when the target features name "ipodui": stock .lng files and lang.h stay
+# as they were. Header: cookie, version, target id, options, hash (4 bytes,
+# big endian).
+my $LANGUAGE_VERSION_IDHASH = 0x87;
+my $HEADER_SIZE_IDHASH      = 8;
+
 if(!$ARGV[0]) {
     print <<MOO
 Usage: genlang [options] <langv2 file>
@@ -114,6 +124,20 @@ $target_regex .= ") *(?:,|\$)";
 $target_regex = qr/$target_regex/;
 $model_regex .= ") *(?:,|\$)";
 $model_regex = qr/$model_regex/;
+
+my $idhash = grep { $_ eq 'ipodui' } split ':', $target;
+
+# FNV-1a 32 over "<ID>\n" for each core string ID in number order: the
+# string table a .lng's numbers and the firmware's enum must share
+sub idtable_hash {
+    my $h = 0x811c9dc5;
+    for my $name (@_) {
+        for my $ch (unpack('C*', "$name\n")) {
+            $h = (($h ^ $ch) * 0x01000193) & 0xffffffff;
+        }
+    }
+    return $h;
+}
 
 my $binpath = "";
 if ($binary =~ m|(.*)/[^/]+|) {
@@ -514,6 +538,12 @@ extern const unsigned char core_language_builtin[];
 
 MOO
     ;
+    if ($idhash) {
+        my @names = map { my $n = $idnum[$users{"core"}][$_]; $n =~ tr/\"//d; $n }
+                        (0 .. $idcount[$users{"core"}]-1);
+        printf HFILE_CORE ("/* ProkBox: the string table's hash; a .lng must carry the same */\n" .
+                           "#define LANG_IDTABLE_HASH 0x%08xu\n\n", idtable_hash(@names));
+    }
 
     close(HFILE_CORE);
 
@@ -610,11 +640,23 @@ elsif($binary || $binvoice) {
     # files. The english file is scanned before the translated file was
     # scanned.
 
+    my $lngheader = $HEADER_SIZE;
     if($binary) {
         open(OUTF, ">$binary") or die "Error: Can't create $binary";
         binmode OUTF;
-        printf OUTF ("%c%c%c%c", $LANGUAGE_COOKIE, $LANGUAGE_VERSION, $target_id,
-            $langoptions); # magic lang file header
+        if ($idhash) {
+            # the numbering this file uses: english.lang's (or english.list's)
+            my $core = $idmap[$users{"core"}];
+            my @names = sort { $core->{$a} <=> $core->{$b} }
+                        grep { $core->{$_} < 0x8000 } keys %$core;
+            printf OUTF ("%c%c%c%c", $LANGUAGE_COOKIE, $LANGUAGE_VERSION_IDHASH,
+                         $target_id, $langoptions);
+            print OUTF pack('N', idtable_hash(@names));
+            $lngheader = $HEADER_SIZE_IDHASH;
+        } else {
+            printf OUTF ("%c%c%c%c", $LANGUAGE_COOKIE, $LANGUAGE_VERSION, $target_id,
+                $langoptions); # magic lang file header
+        }
     }
     if($binvoice) {
         open(OUTV, ">$binvoice") or die "Error: Can't create $binary";
@@ -624,7 +666,7 @@ elsif($binary || $binvoice) {
     }
 
     # output the number of strings for each user
-    my $foffsetb = $HEADER_SIZE + $SUBHEADER_SIZE * keys(%users);
+    my $foffsetb = $lngheader + $SUBHEADER_SIZE * keys(%users);
     my $foffsetv = $HEADER_SIZE + $SUBHEADER_SIZE * keys(%users);
     for (keys %users) {
         if($binary) {

@@ -1298,7 +1298,7 @@ static const struct {
     { &mod_stub_legal,     MOD_SETTINGS, MOD_SET_LEGAL, -1, GEOM_LIGHT,
       LANG_IPODUI_LEGAL },
     { &mod_stub_datetime,  MOD_SETTINGS, MOD_SET_DATETIME, -1, GEOM_SPLIT,
-      LANG_IPODUI_DATE_TIME },
+      LANG_IPODUI_DATE_TIME_HEAD },
     { &mod_stub_checklist, MOD_SETTINGS, MOD_SET_CHECKLIST, -1, GEOM_SPLIT,
       -1 },
 #ifdef HAVE_IPOD_UI_DEVMODE

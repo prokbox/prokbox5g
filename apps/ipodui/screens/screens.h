@@ -83,6 +83,25 @@ extern const struct ui_screen_ops ui_search_screen, ui_otg_screen,
     ui_legal_screen, ui_reset_screen, ui_language_screen, ui_eq_screen,
     ui_newsw_screen;     /* newsw.c: #68, pushed by ui_bootfile_changed() */
 
+/* #286 (screens/noplay.c): SELECT on a greyed row (the library's
+ * can't-play glyph) shows why instead of playing. 'why' is the row's
+ * enum unplayable_reason (lib_row_unplayable()); a song, an episode or a
+ * book gets the light "Can't Play Song" / "Can't Play Episode" / "Can't
+ * Play Audiobook" page, a video the video
+ * screen's "Can't Play Video" page (ui_video_show_why(); the song page in
+ * a build without the player). Nothing plays or stops; OK or MENU returns
+ * to the list as it was. False (nothing shown) when why is 0 or unknown,
+ * or the push failed. */
+enum ui_noplay_kind { UI_NOPLAY_SONG, UI_NOPLAY_BOOK, UI_NOPLAY_EPISODE,
+                      UI_NOPLAY_VIDEO };
+bool ui_noplay_show(int why, enum ui_noplay_kind kind);
+/* The lists' one entry (browse.c, search.c, otglist.c): if row idx of a
+ * library view can't play (lib_row_unplayable()), shows why with the kind
+ * the index gave its entry (lib_row_class(): a video, a podcast episode
+ * ("Can't Play Episode"), a book, else a song) and returns the reason;
+ * 0 (nothing shown) if it plays. RAM only until the push. */
+int ui_noplay_row(int view, int idx);
+
 /* the first-start battery question (screens/battq.c, battcell.h) */
 extern const struct ui_screen_ops ui_battq_screen;
 
@@ -167,6 +186,11 @@ extern const struct ui_vlist ui_language_after_reset;
  * Settings EQ caption, U2a) */
 void ui_eq_apply(void);
 const char *ui_eq_name(void);
+/* #352 (screens/eq.c): each UI pass, the preset table of the output
+ * rate's family (a change re-applies; no file I/O); and whether the
+ * presets play flat now (a high rate without a table: the captions) */
+void ui_eq_rate_poll(void);
+bool ui_eq_presets_paused(void);
 
 /* #270 (screens/audiophile.c): Settings > Audiophile > High Sample Rate's
  * first turn-on (the warning, the self-test, its result) */

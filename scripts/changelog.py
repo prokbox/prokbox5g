@@ -55,7 +55,9 @@ The text of a commit is, in order of preference:
      drops the commit; "Changelog: [Library] text" picks the section) -- the
      normal way, written when the commit is made;
   2. a line "<sha-prefix>TAB<text or ->" in docs/changelog/overrides.tsv (the
-     reviewed fix for commits made without a trailer; "-" drops the commit);
+     reviewed fix for commits made without a trailer, or with a trailer that
+     needs correcting, such as an unknown [Section]; "-" drops the commit).
+     A line here wins over the trailer;
   3. its subject.
 The prefix of the subject still picks the section unless the text says [Section].
 
@@ -101,7 +103,8 @@ DROP_PREFIXES = {'tests', 'test', 'docs', 'doc', 'sim', 'wip', 'scripts', 'scrip
                  'release', 'devbench', 'bench', 'dbgen', 'tools', 'build', 'emu', 'tooling', 'merge',
                  'revert', 'chore', 'refactor',
                  # 0.8.3 engine work: internal subsystems, user-facing lines come from trailers
-                 'audio_cop', 'codec_cop', 'pcmbuf', 'buffering', 'pp', 'bcmjob', 'platform', 'audiophile'}
+                 'audio_cop', 'codec_cop', 'pcmbuf', 'buffering', 'pp', 'bcmjob', 'platform', 'audiophile',
+                 'pcm_mixer'}
 # Developer-only words anywhere in the subject (whole words, case-insensitive).
 DROP_WORDS = re.compile(r'\b(tests?|devbench|gate|golden|goldens|fixtures?|stubs?|febe|accountant|align-ok|scantrace|sim-only|simulator|CI|lint)\b', re.I)
 RELEASE_BUMP = ('release: About says ProkBox5g %s', 'release: ProkBox5g %s')
@@ -236,7 +239,7 @@ def changes_between(start, end, strict=False):
             continue
         section, text, pre = classify(subj)
         given, how = trailer(body), 'trailer'
-        if given is None and sha in ov:
+        if sha in ov:                    # a reviewed line beats the commit's own trailer
             given, how = ov[sha], 'override'
             if given is None:
                 given = 'none'

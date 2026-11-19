@@ -3,6 +3,19 @@
 Run with `scripts/shots.sh tests/ui/<name>.script [outdir]` (PNGs default to
 `out/shots/<name>/`). Format: see `uisimulator/common/sim_script.c`.
 
+For an `ipodui-*` script, `shots.sh` then judges the script's own
+expectations the way the gate does, and exits 1 if any fails:
+`scripts/check_trace.py` on its `sim.log` (`# log:`, `# logbetween:` and
+the trace rules, with the gate's `--rows 9,5,4 --header-h 20`), every
+`# same:` pair pixel-identical, and every `# ref:` image (a note, a FAIL
+only with `GATE_REF_STRICT=1`). Its output goes to stderr; stdout stays
+the list of PNGs. So a green hand run is the gate's green, minus the
+golden images (only the gate compares those). `scripts/shots.sh --no-check
+<script>` or `SHOTS_CHECK=0` skips these checks; `scripts/validate.sh`
+exports `SHOTS_CHECK=0` because it runs the same checks per script itself,
+and so do the UBSan pass (`scripts/risk/sim_ubsan.sh`, timing it can't meet)
+and `scripts/golden_capture.sh` (pixels only).
+
 To run every script as part of the phase gate, use `scripts/gate-run`
 (see `docs/process.md` "Gate"), not `scripts/validate.sh` directly: it
 holds a per-worktree lock (a second gate in the same worktree refuses
@@ -69,6 +82,8 @@ change, `wheel +120 10` for a fast spin (quick-scroll letter).
     import_changelog
     expect_resume <path> [min_ms] [wait_ms]
     expect_playing <ms>
+    rate_mark
+    expect_rate <lo_pct> <hi_pct>
     rebuild_db_start
     scan_slow <ticks>
     dirty_db
@@ -94,8 +109,15 @@ or `failed`. `import_changelog` imports the runtime-stats changelog
 `import_changelog done|nothing in N ms`. `expect_resume <path> [min_ms]
 [wait_ms]` waits up to `wait_ms` (default 5000) for the track's stored
 resume position (`lastelapsed`) to reach `min_ms` (default 1) and logs
-`expect_resume ok`, else `failed` (-1: none, -2: not in the database); `expect_playing` samples the
-audio status every 10 ms and fails on any stop; `expect_paused <ms>` the
+`expect_resume ok`, else `failed` (-1: none, -2: not in the database); `expect_playing <ms>` samples the
+audio status for `ms` of the clock and fails on any stop (#511: it counted 10 ms per loop pass, but a
+pass is two ticks, so it watched about twice `ms`); `rate_mark` notes the
+playing track's position and the host's monotonic clock, `expect_rate <lo>
+<hi>` fails unless the position advance since the mark is lo..hi percent of
+the wall time (100 = real time; `ipodui-simrate` asserts 95..105, the
+check that the SDL sink paces at the speed of sound: before p090-simrate it
+read 55-64 %, and `wait_pos`'s "after N ms" counts loop passes, not the
+clock); `expect_paused <ms>` the
 same for "paused" (play + pause bits). `copy_file` copies a file
 inside the sim disk (fresh mtime); `copy` copies a host file (path relative
 to the script's directory, e.g. `fixtures/refresh.mp3`) to a sim path (its
@@ -340,6 +362,16 @@ backlight off or on (the shell is then "dark": deferred work waits).
 into the sim disk (`copy ../../build/np-fixtures/<f> /NPTest/<f>`) and
 removes it at the end; scripts that scan them into the database
 (`update_db_wait_change`) rescan after the removal.
+
+`# needs: lng` runs `tests/fixtures/lng/make_lng_fixtures.sh <sim build>`,
+which writes `build/lng-fixtures/` fresh each run with that build's own
+genlang, features and target id: `deutsch-shifted.lng` (German numbered
+against an `english.lang` with one phrase more at the top, as a `.lng` left
+over from another build is) and `deutsch-v6.lng` (the old header without
+the string-table hash). `ipodui-lng-idhash.script` copies them in, checks
+that `lang_load` refuses both (rc 3, `lang refused (other table)` /
+`(not this build's)` in the log) and keeps the strings in use, and that the
+build's own `deutsch.lng` loads.
 
 check_trace.py header directives (Phase 5, `check_np()`):
 
@@ -1353,12 +1385,12 @@ ahead of the code it tests; the gate skips it with its reason (and
 | `ipodui-p14a-podcasts-mixed` | glyph; video episode opens the video screen (`expect_video`); audio opens Now Playing; audio plays on past a video episode without playing it |
 | `ipodui-p14a-play` | `expect_video 30 playing`, pause, overlay, `video_shot`, MENU, reopen resumes within 1 s |
 | `ipodui-p14a-chapters` | Next lands on chapter 2 +-0.5 s, ticks on the overlay, speed stays 1x with the audiobook speed on Faster (`# nolog: ab speed 125`) |
-| `ipodui-p14a-fallback` | a video refused at open fails entirely (owner 2026-10-13): nothing plays, the light failure prompt (High Profile: format; a non-MP4 `.m4v`: damaged), SELECT and MENU back to Movies, no Now Playing row (`# logafter: home np row visible=0`) |
+| `ipodui-p14a-fallback` | a video refused at open fails entirely (owner 2026-10-13): nothing plays, the light failure prompt (High Profile: format; a non-MP4 `.m4v`: damaged), SELECT and MENU back to Movies, no Now Playing row (`# logafter: home np row visible=0`). #286 (owner 2026-11-13): High Profile is greyed by the index, so SELECT on it opens the same page from the index's reason without asking the player (`# same: error_format error_format_open`, the probe path on the same file); with a song playing the page shows `audio=1`, PLAY is swallowed and the song plays on (`expect_playing`), MENU returns to the same row (`# same: playing_list playing_back`) |
 | `ipodui-p14a-error-runtime` | the player failing mid-play (faked by `/.rockbox/.sim_vfail<why>`, sim only, read in `ui_video_play()`): 6 too large, 8 damaged, -2 didn't start, 5 format; audio stopped (`page=... audio=0`), PLAY swallowed, SELECT/MENU back to the list |
 | `ipodui-p19-vcheck` | the first-use video check (`docs/research/bcm2722/first-use-check.md`; `# env: SIM_VCHECK=1` opens the clock gate on the sim's model and gives it `HP_OP_VCLK`; the script copies `bcmfw/video/vcheck.bin` onto the disk, which the sim's install leaves out): "Preparing Video..." and a PASS at 150 MHz on the first play, none on the second (the token), a step down to 147 MHz with `/.rockbox/.sim_vcheck_band` (the top band's switch falls back), and the "Video check failed" prompt with `/.rockbox/.sim_vcheck_bad` (every picture from the sixth decodes wrong); run on `build/sim-ui-video` |
 | `ipodui-p14a-settings` | Videos > Settings rows and persistence across a reboot |
 | `ipodui-p14a-about` | capacity legend and the Videos count (`# log: about videos=12`: movies + TV, the video podcast under Podcasts) |
-| `ipodui-p14a-classify` | audio `.mp4` in Songs, the m4b in Audiobooks, no video in any music list; Search "audio" finds the song, not the movie (`search screen q=5 n=4`); Shuffle Songs queues the 6 songs only (`shuf: start songs ok queued=6`), Shuffle Albums too, and no track change starts the player |
+| `ipodui-p14a-classify` | audio `.mp4` in Songs, the m4b in Audiobooks, no video in any music list; Search "audio" finds the song, not the movie (`search screen q=5 n=4`); Shuffle Songs queues the 6 songs only (`shuf: start songs ok queued=4`, then the backfill `src=songs queued=6`), Shuffle Albums too, and no track change starts the player |
 
 Video pictures move, so shots taken while playing are `# golden: skip`;
 `video_shot` writes the panel picture beside the shots. Row positions were
@@ -1473,8 +1505,11 @@ stand-in `tests/perf/resume-shrink.script` (run by `floor_gate.sh`).
                       ok= alloc= shrink=" (shrink must be 0)
     give_hold <ms>    the next window restart waits <ms> after the buffer
                       change (events queue up behind it)
-    expect_title      the current track has a title and a length (what Now
-                      Playing draws), else "expect_title failed"
+    expect_title [t]  the current track has a title and a length (what Now
+                      Playing draws), else "expect_title failed"; with t
+                      (the rest of the line, words joined by one space) the
+                      title must be exactly t (which song a row started:
+                      ipodui-play-rows.script)
     maint_hold <job> <B>  job (commit, chapters, dbq, lists) takes the window
                       for B and holds a core_alloc(B) across commands
     maint_drop <job> [ok] frees it and ends that tenancy only
@@ -1671,6 +1706,28 @@ check_trace.py `check_npstall()`: on every log, no `art slice ms= lit=1`
 +1 (a track change, a full paint, an unlit exit or a seek starts a new run;
 it fails with no step at all).
 
+## Shuffle Songs: instant start (p090-shuffle)
+
+`ipodui-shuf-instant` (docs/design/shuffle.md "Instant start"): Shuffle
+Songs queues 4 (`shuf: start songs ok queued=4`) and plays; one backfill
+of +46 fills the window to 50 behind the first sound (`shuf: backfill
+ms=`). With the backfill held after one chunk (`shuf_chunk_hold`), five
+NEXTs reach the 6th song (`np count 6 of 302 q=6/9`) and the backfill then
+completes; Shuffle Songs again drops an open backfill; a power-off with
+one open settles it (`shuf: settle chunks=1 +5`) and the next boot resumes
+the run (`shuf: boot record 0`). The 50k measure,
+`tests/perf/shuf_start50k.sh`, runs the checker on its own log: at most 4
+queued and 12 UI-thread reads before `playlist_start()`, the backfill in
+within 3 s, the play request to sound within 1.5 s (a base start: 50
+queued, 100 reads).
+
+`ipodui-shuf-append` (ledger 3.18): a refill only appends, so the audio
+thread keeps what it has buffered (`audio append kept=<tracks> kb=<KB>`)
+at the start's backfill and at a mid-run refill (`shuf_refill_force`);
+no append may fall through to a flush in a state that keeps (`audio flush
+dropped= ... append=1 fill=[1234] skip=[01]`); the shelf's Albums, which
+replaces the queue, still flushes.
+
 ## Unplayable tracks and bare disks (#281)
 
 `ipodui-shuf-unplayable-1` (Shuffle Songs on a library of one unplayable
@@ -1679,6 +1736,16 @@ FLAC), `ipodui-shuf-unplayable-3` (three, Repeat All) and
 a disk of their own: the queue must stop, the record be written once (the
 start's), and the disk stay quiet afterwards. 0.8.1 hung the UI thread
 (one track) or skipped on for ever (three).
+
+`ipodui-286-unplayable` (#286, ADR 0010, on a bare disk of
+`tests/fixtures/make_p090f1_fixtures.py` files) covers the greyed rows
+in every list that can play one: Songs, Audiobooks, an album, Search,
+On-The-Go and Podcasts. SELECT opens the why page (`noplay page why=
+kind=`) and plays nothing; the hold menu leaves out Add to On-The-Go
+(`items=`); a greyed row shows no blue unplayed dot, nor does a show
+whose only unplayed episodes can't play (golden regions over the dot
+column of `podcast` and `podcast_shows`). The video kind is in
+`ipodui-p14a-fallback`.
 
 | Line / command | Effect |
 |---|---|
@@ -1689,6 +1756,7 @@ start's), and the disk stay quiet afterwards. 0.8.1 hung the UI thread
 | `expect_writes_max <n>` | at most n sim disk writes (opens for writing, writes, removes, renames, mkdir) since `writes_mark` |
 | `expect_shuf_writes_max <n>` | at most n `npshuf.dat` writes since `writes_mark` |
 | `expect_stopped` | playback is stopped now (`audio_status()` 0) |
+| `audio_regrow` | `audio_buffer_regrow()`, as after a freed art or library block: the next cold start sizes the audio buffer anew through `audio_reset_buffer()` (#487, shell sims only) |
 
 ## Gate machinery: timing, ledger, pool (docs/gate-speed-brief.md)
 

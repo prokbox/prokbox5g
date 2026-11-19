@@ -62,6 +62,8 @@ void devstats_io(bool write, unsigned long sector, unsigned long count,
     old = disable_irq_save();
     t = &devstats.t[slot];
     t->cmds++;
+    if (t->font_io)
+        t->font_cmds++;             /* a glyph record's (devstats_font) */
     t->sectors += count;
     if (pio && t->pio != 0xffff)
         t->pio++;
@@ -86,6 +88,18 @@ uint32_t devstats_self_cmds(void)
     unsigned int slot = THREAD_ID_SLOT(thread_self());
 
     return slot < DEVSTATS_SLOTS ? devstats.t[slot].cmds : 0;
+}
+
+void devstats_font(bool begin)
+{
+    unsigned int slot = THREAD_ID_SLOT(thread_self());
+
+    if (slot >= DEVSTATS_SLOTS)
+        return;
+    if (begin)
+        devstats.t[slot].font_io++;
+    else if (devstats.t[slot].font_io)
+        devstats.t[slot].font_io--;
 }
 
 void devstats_disk_sleep(bool ok)

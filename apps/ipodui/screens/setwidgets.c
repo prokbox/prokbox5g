@@ -37,6 +37,7 @@
 #include "lang.h"
 #include "ipodui/theme.h"
 #include "ipodui/paint.h"
+#include "ipodui/locale_core.h"
 #include "ipodui/screens/setwidgets.h"
 
 #define SP_TEXT_X       18      /* heading and body left edge */
@@ -44,6 +45,10 @@
 #define SP_HEAD_BASE    62      /* heading baseline */
 #define SP_BODY_BASE    84      /* body: first baseline */
 #define SP_BODY_PITCH   15
+#define SP_HEAD_PITCH   19      /* a heading's second line (Bold 15) */
+#define SP_HEAD_LINES   2
+/* the last body baseline that clears the shelf (descenders included) */
+#define SP_BODY_LAST    (UI_SEG_SHELF_Y - 8)
 #define SP_SHELF_X      16
 #define SP_SHELF_Y      UI_SEG_SHELF_Y
 #define SP_SHELF_W      (LCD_WIDTH - 2 * SP_SHELF_X)
@@ -107,34 +112,60 @@ static unsigned sp_bg_shelf(int row)
     return ui_gloss_color(&sp_shelf_gloss, row - SP_SHELF_Y, SP_SHELF_H);
 }
 
+/* the width of the first n bytes of s in the current font */
+static int wrap_w(const char *s, int n)
+{
+    int w = 0;
+
+    font_getstringnsize((const unsigned char *)s, n, &w, NULL,
+                        lcd_current_viewport->font);
+    return w;
+}
+
 int ui_wrap_text(int x, int y_base, int pitch, int max_w, int max_lines,
                  const char *s)
 {
     int n = 0, asc = font_get(lcd_current_viewport->font)->ascent;
-    char buf[96];
+    char buf[100];
 
     while (*s && n < max_lines)
     {
-        int end = 0, j = 0, w = 0;
+        int end = 0, j = 0;
+        const char *rest;
+
         while (*s == ' ')
             s++;
-        while (s[j] && j < (int)sizeof(buf) - 1)
+        while (s[j])
         {
-            while (s[j] == ' ')
-                j++;
-            while (s[j] && s[j] != ' ' && j < (int)sizeof(buf) - 1)
-                j++;
-            memcpy(buf, s, j);
-            buf[j] = '\0';
-            lcd_getstringsize((const unsigned char *)buf, &w, NULL);
-            if (end > 0 && w > max_w)
+            int nj = ui_wrap_next(s, j);
+            if (nj >= (int)sizeof(buf) - 4)
+                break;                  /* longer than the line buffer */
+            if (end > 0 && wrap_w(s, nj) > max_w)
                 break;
-            end = j;
+            end = j = nj;
         }
         if (end == 0)
             break;
+        if (wrap_w(s, end) > max_w)     /* one word wider than the line */
+            UI_FIT_TRACE("wrap-word", s, wrap_w(s, end), max_w);
         memcpy(buf, s, end);
         buf[end] = '\0';
+        for (rest = s + end; *rest == ' '; rest++)
+            ;
+        if (n == max_lines - 1 && *rest)
+        {
+            /* the last line and text left: never dropped unseen, it ends
+             * in "..." and the language pass sees it (P20) */
+            int dots = wrap_w("...", 3), k = end;
+
+            UI_FIT_TRACE("wrap-lines", rest, n + 1, max_lines);
+            while (k > 0 && wrap_w(s, k) + dots > max_w)
+                k--;
+            k = (int)locale_utf8_cut(s, k);
+            while (k > 0 && s[k - 1] == ' ')
+                k--;
+            strcpy(buf + k, "...");
+        }
         lcd_putsxy(x, y_base + n * pitch - asc, (const unsigned char *)buf);
         s += end;
         n++;
@@ -190,15 +221,21 @@ void ui_seg_draw(const short *lang, int n, int sel, bool shelf)
     lcd_setfont(FONT_UI);
 }
 
+/* As many body lines as clear the shelf (6 under a one-line heading): a
+ * longer body or a translation is shown whole, not cut at 3 lines (P20:
+ * VIDEO_ERR_CHECK_BODY lost its 4th line) */
 void ui_prompt_draw(int head_lang, int body_lang)
 {
-    ui_prompt_draw_n(head_lang, body_lang, 3);
+    ui_prompt_draw_n(head_lang, body_lang, 0);
 }
 
+/* max_lines 0: as many as fit. A heading wider than the text column wraps
+ * to a second line (P20: German MOD_ERR_HEAD ran 6 px off the screen) and
+ * the body moves down under it. */
 void ui_prompt_draw_n(int head_lang, int body_lang, int max_lines)
 {
     const struct ui_theme *t = ui_theme;
-    int asc;
+    int hl, base, fit;
 
     lcd_set_viewport(NULL);
     lcd_set_drawmode(DRMODE_SOLID);
@@ -206,13 +243,16 @@ void ui_prompt_draw_n(int head_lang, int body_lang, int max_lines)
     lcd_fillrect(0, t->header_h, LCD_WIDTH, LCD_HEIGHT - t->header_h);
     lcd_set_drawmode(DRMODE_FG);
     lcd_setfont(t->font_ui);
-    asc = font_get(t->font_ui)->ascent;
     lcd_set_foreground(SP_HEAD_FG);
-    lcd_putsxy(SP_TEXT_X, SP_HEAD_BASE - asc,
-               (const unsigned char *)str(head_lang));
+    hl = ui_wrap_text(SP_TEXT_X, SP_HEAD_BASE, SP_HEAD_PITCH, SP_TEXT_W,
+                      SP_HEAD_LINES, str(head_lang));
+    base = SP_BODY_BASE + MAX(hl - 1, 0) * SP_HEAD_PITCH;
+    fit = (SP_BODY_LAST - base) / SP_BODY_PITCH + 1;
+    if (max_lines <= 0 || max_lines > fit)
+        max_lines = fit;
     lcd_setfont(t->font_small);
     lcd_set_foreground(SP_BODY_FG);
-    ui_wrap_text(SP_TEXT_X, SP_BODY_BASE, SP_BODY_PITCH, SP_TEXT_W,
-                 max_lines, str(body_lang));
+    ui_wrap_text(SP_TEXT_X, base, SP_BODY_PITCH, SP_TEXT_W, max_lines,
+                 str(body_lang));
     lcd_set_drawmode(DRMODE_SOLID);
 }

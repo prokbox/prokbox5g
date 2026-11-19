@@ -86,6 +86,9 @@
 # The budget-reviewer agent is run separately by the orchestrator.
 set -u
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
+# shots.sh judges ipodui-* scripts itself by default (p090-int3); this copy
+# runs check_trace per script on its own, as it did when it was frozen.
+export SHOTS_CHECK=0
 cd "$ROOT"
 
 QUICK=0; CHANGED=0

@@ -68,4 +68,17 @@ extern unsigned int fc_core;
 uint32_t fc_usec(void);
 #define USEC_TIMER          fc_usec()
 
+/* 0.9.0 fiqstall (#436): the FIQ window (pcm-pp.c) and the stall stats */
+#define NUM_CORES           2
+extern long cpu_frequency;
+int pcm_pp_fiq_window(uint32_t need_us);
+struct cache_mstall
+{
+    uint32_t max_us;
+    uint32_t mhz;
+    uint32_t waits;
+    uint32_t bound;
+    uint32_t est_us;
+};
+
 #endif /* FC_ENV_H */

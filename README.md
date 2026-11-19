@@ -4,7 +4,7 @@
 
 ProkBox5g is free, open-source firmware for the iPod Video, 5th generation and 5.5. It gives the player menus, a Now Playing screen and settings designed to feel like the iPod classic's final software (2.0.5), and keeps what [Rockbox](https://www.rockbox.org), the firmware it is built on, does well: almost every music format, and audiobooks with chapters, a saved place in every book and a choice of speed. You copy music on and off over USB, with no sync app. Apple's own software stays on the player, so you can always go back.
 
-**Current release: ProkBox5g 0.8.3, a pre-release, published 13 November 2026.** It is in daily use on one modded player. Only one kind of player (flash, 64 MB, 3,000 mAh battery, USB-C) has been tested on real hardware so far, so back up your music before you install.
+**Current release: ProkBox5g 0.9.0, a pre-release, published 17 November 2026.** It is in daily use on one modded player. Only one kind of player (flash, 64 MB, 3,000 mAh battery, USB-C) has been tested on real hardware so far, so back up your music before you install.
 
 > ProkBox5g is not Apple software. It is an independent, community-driven fork of Rockbox, and Apple Inc. has not made, approved, endorsed or supported it in any way. It contains no Apple software. iPod is a trademark of Apple Inc.
 
@@ -30,14 +30,15 @@ What ProkBox5g does today. The [Features](https://prokbox.github.io/prokbox5g/fe
 - **Almost every format.** MP3, AAC, Apple Lossless (ALAC), WAV and AIFF; FLAC, Ogg Vorbis and Opus; WMA, Monkey's Audio, WavPack, Musepack and many less common formats; music from game consoles and trackers. No gap between tracks of a continuous album, for most formats.
 - **Audiobooks.** An Audiobooks menu, chapters in .m4b and MP3 books, a saved place in every book, and Slower, Normal or Faster playback at the same pitch. Podcasts have their own menu too.
 - **Browsing and playlists.** Artists, albums, genres, composers and Search; an On-The-Go playlist made on the player; .m3u playlist files from a Playlists folder.
-- **Sound.** 22 equaliser presets, Sound Check (using ReplayGain tags in your files) and a volume limit with an optional code.
+- **Sound.** Every format through a 24-bit output; 22 equaliser presets and three settings of your own; Sound Check (using ReplayGain tags in your files); a volume limit with an optional code; and optional 88.2 and 96 kHz output.
+- **Languages.** Menus in English, German, Dutch and Japanese, and Japanese, Korean and Chinese characters in song, artist and album names.
 - **Album art** on Now Playing, from the picture inside the file, a picture file in the same folder, or covers already on the player.
 - **Video.** H.264 video at 320 × 240, once converted with the free converter that comes with ProkBox5g.
 - **Extras.** Clocks, alarms, a stopwatch, screen lock, notes, contacts and calendars.
 - **A short settings list,** like the original, in place of Rockbox's hundreds of options.
 - **Safe to try.** Apple's software stays on the player: slide Hold on and restart, or hold Menu as it starts.
 
-Not there yet, among others: MP3 and AAC music is still sent to the audio chip at 16-bit and 48 kHz at most (24-bit FLAC, WAV and AIFF now play at full depth), menus are in English only, and Japanese, Chinese and Korean characters in song names show as blanks. The [0.8.3 release notes](https://prokbox.github.io/prokbox5g/releases/0.8.3/) list the known issues, and [What's coming](#whats-coming) says when each is planned.
+Not there yet, among others: the instant sleep and wake of the original software, and the rarer Chinese characters in song names, which still show as blanks. The [0.9.0 release notes](https://prokbox.github.io/prokbox5g/releases/0.9.0/) list the known issues, and [What's coming](#whats-coming) says when each is planned.
 
 ## Screenshots
 
@@ -65,7 +66,7 @@ Every screen here is the simulator running a made-up test library: the artists, 
 Download from the [Releases page on GitHub](https://github.com/prokbox/prokbox5g/releases). From 0.8.3 there is **one zip for every iPod Video**, whichever battery, storage and memory it has:
 
 ```
-ProkBox5g-0.8.3.zip
+ProkBox5g-0.9.0.zip
 ```
 
 The player finds out by itself whether it has a hard drive or flash and 32 or 64 MB of memory, and the first start asks which battery is fitted (stock, 2,000 mAh or 3,000 mAh). The dock connector works on every player.

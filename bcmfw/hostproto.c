@@ -66,9 +66,14 @@
 #else
 #define CAP_VCLK    0
 #endif
+#if BCMFW_CORE_FLUSH && BCMFW_JOBS_OVL
+#define CAP_FLUSH   HP_CAP_CORE_FLUSH   /* #466: OVERLAY's own cold flush */
+#else
+#define CAP_FLUSH   0
+#endif
 #define CAPS        (HP_CAP_NULL | HP_CAP_H264_BP | HP_CAP_SCALE | HP_CAP_LCD_DMA | \
                      HP_CAP_OVERLAY | HP_CAP_OVERLAY_SLIDE | HP_CAP_AUDIO | \
-                     CAP_AAC | CAP_JOBS | HP_CAP_PARK | CAP_VCLK)
+                     CAP_AAC | CAP_JOBS | HP_CAP_PARK | CAP_VCLK | CAP_FLUSH)
 #else
 #define FIFO_HOST   HP_SRAM_FIFO
 #define FIFO_SIZE   HP_SRAM_FIFO_SIZE
@@ -453,6 +458,36 @@ __attribute__((optimize("Os"))) uint32_t hp_code_flush(void)
     REG(BCMFW_CACHE_CTL) = keep;
     return t << 12 | k;
 }
+
+#if BCMFW_CORE_FLUSH
+static __attribute__((optimize("Os"))) uint32_t cc_request(uint32_t w)
+{
+    uint32_t t, k;
+
+    for (t = 0; t != 15; t++)
+    {
+        REG(BCMFW_CACHE_CTL) = w;
+        if (!(REG(BCMFW_CACHE_CTL) & 1))
+            break;
+        REG(BCMFW_CACHE_CTL) = w & 0x3FFFFFFF;
+    }
+    for (k = 0; k != 4095; k++)
+        if (REG(BCMFW_CACHE_CTL) & 1)
+            break;
+    return t << 12 | k;
+}
+
+__attribute__((optimize("Os"))) uint32_t hp_code_flush_cold(void)
+{
+    uint32_t keep = REG(BCMFW_CACHE_CTL) & 0x3FFFFFFF, a, b;
+
+    REG(BCMFW_CACHE_CTL) = keep;            /* bit 31 clear: the edge next */
+    a = cc_request(keep | 0xC0000000);      /* the edge and the request */
+    b = cc_request(keep | 0x40000000);      /* the window's lines drained */
+    REG(BCMFW_CACHE_CTL) = keep;            /* off, as the core runs */
+    return b << 16 | (a & 0xFFFF);
+}
+#endif
 
 static void park(void)
 {

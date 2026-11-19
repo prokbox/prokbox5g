@@ -35,6 +35,7 @@
 #include "kernel.h"
 #include "system.h"           /* probed_ramsize */
 #include "thread.h"
+#include "audio.h"            /* audio_status(): p090-floor3 */
 #include "sim_cmd_floor.h"
 
 extern size_t audio_buffer_size(void);
@@ -70,6 +71,12 @@ static long watch_stack[DEFAULT_STACK_SIZE / sizeof(long)];
 static volatile bool watch_run;
 static volatile size_t watch_min;
 static volatile long watch_samples, watch_zero;
+/* p090-floor3 (owner, 2026-11-14: the floors bind during playback): a
+ * sample while audio is stopped is no playing buffer (a stopped buffer
+ * may lend memory to a library job; it is sized anew at the next cold
+ * start): counted and its minimum printed, apart from the verdict */
+static volatile long watch_stopped;
+static volatile size_t watch_stopped_min;
 static volatile size_t watch_avail_min;
 static bool watch_timeline;
 #define TIMELINE_STEP 262144UL      /* a "floor_tl" line per 256 KB move */
@@ -101,6 +108,12 @@ static void watch_main(void)
         watch_samples++;
         if (n == 0)
             watch_zero++;
+        else if (audio_status() == 0)
+        {
+            watch_stopped++;
+            if (n < watch_stopped_min)
+                watch_stopped_min = n;
+        }
         else if (n < watch_min)
             watch_min = n;
         sleep(1);                   /* a tick: cooperative */
@@ -150,7 +163,8 @@ bool sim_cmd_floor(const char *cmd, char *argv[], int argc, int lineno)
             watch_min = (size_t)-1;
             watch_avail_min = (size_t)-1;
             watch_timeline = argc >= 3 && !strcmp(argv[2], "timeline");
-            watch_samples = watch_zero = 0;
+            watch_samples = watch_zero = watch_stopped = 0;
+            watch_stopped_min = (size_t)-1;
             watch_run = true;
             watch_thread = create_thread(watch_main, watch_stack,
                                          sizeof(watch_stack), 0, "floorwatch"
@@ -164,10 +178,13 @@ bool sim_cmd_floor(const char *cmd, char *argv[], int argc, int lineno)
             watch_run = false;
             thread_wait(watch_thread);
             fprintf(stderr, "sim_script: floor_watch %s ram_mb=%d "
-                    "min=%lu free_min=%lu samples=%ld no_session=%ld\n",
+                    "min=%lu free_min=%lu samples=%ld no_session=%ld "
+                    "stopped=%ld stopped_min=%lu\n",
                     argv[2], RAM_MB, watch_min == (size_t)-1 ? 0UL :
                     (unsigned long)watch_min, (unsigned long)watch_avail_min,
-                    watch_samples, watch_zero);
+                    watch_samples, watch_zero, watch_stopped,
+                    watch_stopped_min == (size_t)-1 ? 0UL :
+                    (unsigned long)watch_stopped_min);
             if (argc >= 4 && !strcmp(argv[3], "free"))
                 ;               /* the free-heap minimum only (no audio) */
             else if (watch_min == (size_t)-1)

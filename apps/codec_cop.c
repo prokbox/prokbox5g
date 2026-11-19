@@ -95,9 +95,6 @@
 #ifdef HAVE_CORE_LAYOUT_A
 #include "corelayout.h"        /* 0.8.3: the FIQ's FIFO and gap stats */
 #endif
-#ifdef HAVE_BCMFW_VIDEO
-#include "video/vplayer.h"
-#endif
 
 /* As the CPU's codec stack (codec_thread.c), less its IRAM */
 #define COP_CODEC_STACK ((DEFAULT_STACK_SIZE + 0x2000) & ~15)
@@ -430,12 +427,21 @@ static bool colocate_said;          /* "COP FAILED (colocate ...)" once a load *
 static volatile bool rin_on COP_SHARED_ATTR;
 static uint32_t rin_pos0;           /* rin.pos at the attach (CPU's) */
 /* counted by the COP, read by the CPU at the run's end */
-struct cop_in_stats { uint32_t req, adv, el, rd, sk, fall; };
+struct cop_in_stats { uint32_t req, adv, el, of, rd, sk, fall; };
 static struct cop_in_stats ins COP_SHARED_ATTR;
 
 /* A big forward skip goes through the CPU, which pokes buffering's level
  * watch (buffering.c seek_handle) */
 #define IN_BIG_SKIP     (64 * 1024)
+/* #283: a forward seek_buffer this far or farther goes through the CPU
+ * too. Nearer, inside the buffered bytes, it is local: a film's audio
+ * chunks lie past the picture's bytes, 64-250 KB apart at the 5.5G's
+ * video rates (768 kbps H.264 to 2 Mbps MPEG-4, a chunk a second), a call
+ * each at 64 KB. The watch needs no poke for them: they move the level
+ * at the film's own byte rate, far under the drain it assumes
+ * (BUF_MAX_DRAIN, 2 MB/s; 256 KB is 1/8 s of it), and a seek far ahead
+ * (the user's) still calls. Short of the bytes, it calls as before */
+#define IN_SEEK_FAR     (256 * 1024)
 
 void codec_cop_set_colocate(bool on)
 {
@@ -651,7 +657,7 @@ static bool in_read(void *ptr, size_t size, size_t *got)
 /* COP: seek_buffer forward inside the buffered bytes (#294: an MP4's
  * next audio chunk, past other streams' samples between them), as
  * codec_seek_buffer_callback() moves it: curpos only. Back, or as far as
- * a big skip (buffering's level watch), stays a call */
+ * IN_SEEK_FAR (#283; buffering's level watch), stays a call */
 static bool in_seek(size_t newpos)
 {
     uint32_t pos;
@@ -659,7 +665,7 @@ static bool in_seek(size_t newpos)
     if (!in_ok())
         return false;
     pos = rin.pos;
-    if (newpos < pos || newpos - pos >= IN_BIG_SKIP)
+    if (newpos < pos || newpos - pos >= IN_SEEK_FAR)
         return false;
     if (newpos > rin.filesize || newpos > rin.end)
         return false;               /* the CPU's rebuffer path */
@@ -1213,6 +1219,15 @@ static void t_set_offset(size_t value)
 
     if (!FROM_COP())
         real->set_offset(value);
+    else if (rin_on)
+    {
+        /* #292: all audio_codec_update_offset() does, as set_elapsed
+         * above (the codec's id3 is uncached for both cores, #196). Opus,
+         * Vorbis, Speex, MPC, WavPack and A52 report it every packet: a
+         * call each was 50 a second of Opus (a 20 ms packet each) */
+        ci_cop.id3->offset = value;
+        ins.of++;
+    }
     else
         xcall(CW_OTH, h_set_offset, io, 0);
 }
@@ -1421,19 +1436,13 @@ struct codec_api *codec_cop_select(struct codec_api *api, bool encoder)
         ui_log("codec", "COP FAILED (down): decoding on the CPU");
         logf("codec cop: COP FAILED (down), decoding on the CPU");
     }
-#ifdef HAVE_BCMFW_VIDEO
-    /* A video's soundtrack stays on the CPU in 0.8.3: with the switch on,
-     * session 36's stage 7 saw it stand still under the picture (the bcm
-     * session, 2026-10-15; cause open, fit2-brief.md). Moving it is #283,
-     * 0.9.0. One likely cause, an MP4's sample tables read 4 bytes a call,
-     * is served from the ring now (in_read(), in_seek()) for every
-     * MP4/M4A/M4B track */
-    if (bound && vplayer_running())
-    {
-        logf("codec cop: a video plays, decoding on the CPU");
-        bound = false;
-    }
-#endif
+    /* #283 (0.9.0, owner: all audio on the COP): a video's soundtrack is
+     * bound like any track. Session 36's stage 7 (2026-10-15) and 4gh's
+     * duty arm F saw it not start on the COP, before 0.8.3's colocate and
+     * #196; the ranked causes are in fit2-brief.md 12.1. The one this
+     * file had, an MP4's sample tables read 4 bytes a call (thousands of
+     * round trips before a film's first sample), is gone: in_read() and
+     * in_seek() serve them from the ring (#294) */
     if (!bound)
         return api;
 
@@ -1467,7 +1476,7 @@ struct codec_api *codec_cop_select(struct codec_api *api, bool encoder)
 /* 19-1c: the core for this run (the first after a load, a track
  * boundary, or a seek's re-run, which keeps the core it had), and the
  * codec's switch for its own helper work on the COP (iii). Unbound (the
- * CPU arm, a video, or no COP): the plain path, synthesis inline */
+ * CPU arm, or no COP): the plain path, synthesis inline */
 static bool last_cop;               /* the core the last run took */
 
 static void choose(bool track_start)
@@ -1566,26 +1575,39 @@ static int run_here(void)
 }
 
 /* road test (0.8.2): one line a track (a run that starts one): the
- * source's format, depth and rate, and the output's depth and rate as
- * set for it (playback set them before the codec started), and where the
- * decode runs. "trk FLAC 24/192000>24/96000 cop" */
+ * source's format, depth and rate, and the depth and rate the DSP writes
+ * it at (playback set them before the codec started), and where the
+ * decode runs. "trk FLAC 24/192000>24/96000 cop". b16: with the seamless
+ * switch (#214) that is the write side's format, not the output's: a run
+ * that starts at a boundary logged the outgoing track's ("24/96000>
+ * 16/44100" while it was written at 96/24), which hid the rate bug */
+#if defined(HAVE_PCM_24BIT_OUT) && defined(HAVE_PLAY_FREQ)
+unsigned long pcmbuf_write_format(int *depth);  /* pcmbuf.h: not included here (the host model) */
+#endif
+
 static void log_track(bool track_start, bool cop)
 {
     /* through the uncached alias: the COP may have written it */
     const struct mp3entry *id3 = real && real->id3 ?
         cop_uncached(real->id3) : NULL;
+    unsigned long rate;
+    int depth;
 
     if (!track_start || !id3)
         return;
-    ui_log("codec", "trk %s %u/%lu>%d/%u %s",
-           get_codec_string(id3->codectype),
-           (unsigned)id3->bits_per_sample, id3->frequency,
-#ifdef HAVE_PCM_24BIT_OUT
-           mixer_get_depth(),
+#if defined(HAVE_PCM_24BIT_OUT) && defined(HAVE_PLAY_FREQ)
+    rate = pcmbuf_write_format(&depth);
 #else
-           16,
+#ifdef HAVE_PCM_24BIT_OUT
+    depth = mixer_get_depth();
+#else
+    depth = 16;
 #endif
-           mixer_get_frequency(),
+    rate = mixer_get_frequency();
+#endif
+    ui_log("codec", "trk %s %u/%lu>%d/%lu %s",
+           get_codec_string(id3->codectype),
+           (unsigned)id3->bits_per_sample, id3->frequency, depth, rate,
            cop ? (dsp_enabled ? "cop" : "cop/dsp-cpu") : "cpu");
 }
 
@@ -1646,12 +1668,22 @@ static void run_diag_start(void)
     {
         uint32_t a, b, c;
 
+        struct cache_mstall ms;
+
         cache_discard_take_stats(COP, &a, &b, &c);
+        cache_mstall_take_stats(pcm_pp_core(), &ms);
         pcm_pp_get_stats(&diag_pp0);
         pcm_pp_reset_max();
     }
 #endif
 }
+
+#ifdef HAVE_CORE_LAYOUT_A
+static unsigned long diag_clamp(uint32_t v)
+{
+    return v > 9999 ? 9999ul : (unsigned long)v;
+}
+#endif
 
 static void run_diag_log(void)
 {
@@ -1702,6 +1734,24 @@ static void run_diag_log(void)
                (unsigned long)(s.q_odd - diag_pp0.q_odd),
                (unsigned long)(s.q_fell - diag_pp0.q_fell),
                s.q_slack_min_us == ~0u ? -1L : (long)s.q_slack_min_us);
+        /* 0.9.0 fiqstall (#436), the bench parsers' line (61 characters
+         * at most: values clamped at 9999): e= FIFO empties, late= the
+         * worst FIQ lateness (us) and pc= where its core was, stall= the
+         * longest whole-cache write-back or drop on the PCM's core (us)
+         * and mhz= the clock then; then the window's waits, bound hits and
+         * the stall it protects (us) */
+        {
+            struct cache_mstall ms;
+
+            cache_mstall_take_stats(pcm_pp_core(), &ms);
+            ui_log("pcm", "fiq rows e=%lu late=%lu pc=%08lx stall=%lu mhz=%lu",
+                   diag_clamp(s.fifo_empty - diag_pp0.fifo_empty),
+                   diag_clamp(s.late_max_us), (unsigned long)s.late_pc,
+                   diag_clamp(ms.max_us), diag_clamp(ms.mhz));
+            ui_log("pcm", "fiq win w=%lu b=%lu est=%lu",
+                   (unsigned long)ms.waits, (unsigned long)ms.bound,
+                   (unsigned long)ms.est_us);
+        }
         /* fifo96 review: the queue given up in this run, said loudly */
         if (s.q_fell != diag_pp0.q_fell)
             ui_log("codec", "pcm queue: FAILED in use (dry=%lu odd=%lu): "
@@ -1844,11 +1894,14 @@ int codec_cop_run(bool track_start)
                (unsigned long)(worker.calls - c0),
                (unsigned long)(worker.call_wait_us - cw0));
         /* 0.8.3 colocate: what the COP did itself instead of a call:
-         * requests, advances, elapsed, reads (read_filebuf), forward
-         * seeks; fall: the reads that still called */
-        ui_log("codec", "in req=%lu adv=%lu el=%lu rd=%lu sk=%lu fall=%lu",
+         * requests, advances, elapsed, offsets (set_offset), reads
+         * (read_filebuf), forward seeks; fall: the reads that still
+         * called */
+        ui_log("codec", "in req=%lu adv=%lu el=%lu of=%lu rd=%lu sk=%lu "
+               "fall=%lu",
                (unsigned long)ins.req, (unsigned long)ins.adv,
-               (unsigned long)ins.el, (unsigned long)ins.rd,
+               (unsigned long)ins.el, (unsigned long)ins.of,
+               (unsigned long)ins.rd,
                (unsigned long)ins.sk, (unsigned long)ins.fall);
 #ifdef CODEC_COP_LEASE
         /* the output side: leases taken, given back by the COP, taken

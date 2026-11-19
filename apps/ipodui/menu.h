@@ -60,6 +60,10 @@ extern const struct ui_screen_ops ui_menu_screen;    /* arg: const struct ui_men
 extern const struct ui_screen_ops ui_stub_screen;    /* arg: const char *title */
 
 extern const struct ui_menu ui_main_menu;
+/* After a language change (Settings > Language): the main and Music
+ * menus' labels and titles again from the language (menu_enter does it
+ * for every menu it opens; the root stays open). UI thread. */
+void ui_menu_relabel(void);
 
 /* -- "Updating Library..." footer (8b Goal 6, owner 2026-10-11) ---------
  * The one sign that the library is being built: a slim band over the

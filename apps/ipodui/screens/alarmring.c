@@ -39,6 +39,7 @@
 #include "ipodui/paint.h"
 #include "ipodui/theme.h"
 #include "ipodui/usbscreen.h"
+#include "ipodui/locale.h"
 
 /* Layout (capture C3 not taken: our own, in the Charging screen's frame) */
 #define RING_TIME_BASE  104             /* the time's baseline */
@@ -97,11 +98,7 @@ static void ring_draw(struct ui_screen *s, unsigned dirty)
         return;
     ui_dark_body(UI_DARK_HDR_H, LCD_HEIGHT - UI_DARK_HDR_H);
     alarm_rtc_split(alarm_ring_rtc(), &y, &mo, &d, &h, &m, &sec);
-    if (global_settings.timeformat)         /* 12 hour clock */
-        snprintf(buf, sizeof(buf), "%d:%02d %s", h % 12 ? h % 12 : 12, m,
-                 str(h < 12 ? LANG_IPODUI_AM : LANG_IPODUI_PM));
-    else
-        snprintf(buf, sizeof(buf), "%02d:%02d", h, m);
+    ui_fmt_time(buf, sizeof(buf), h, m);
 
     memset(&vp, 0, sizeof(vp));
     vp.width = LCD_WIDTH;

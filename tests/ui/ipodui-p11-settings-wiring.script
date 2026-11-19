@@ -11,7 +11,7 @@ wheel +3 300            # Settings
 wait 400
 key SELECT 50
 wait 1200
-wheel +13 40            # Sort By (row 13)
+wheel +14 40            # Sort By (row 14)
 wait 800
 shot sortby_first       # "First", caption "Sort Contacts By First Name"
 key SELECT 50
@@ -19,7 +19,7 @@ wait 800
 shot sortby_last        # "Last", caption "... Last Name"
 
 # Main Menu: check Playlists, then reboot
-wheel -10 40            # Main Menu (row 3)
+wheel -11 40            # Main Menu (row 3)
 wait 800
 key SELECT 50
 wait 1200
@@ -34,12 +34,12 @@ wheel +4 300            # Settings
 wait 400
 key SELECT 50
 wait 1200
-wheel +13 40
+wheel +14 40
 wait 800
 shot sortby_after_reboot      # still "Last"
 
 # the rows U2b builds open their screens (a stub until then): Brightness
-wheel -6 300
+wheel -7 300            # Brightness (row 7)
 wait 600
 key SELECT 50
 wait 1500

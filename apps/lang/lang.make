@@ -1,3 +1,4 @@
+# Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
 #             __________               __   ___.
 #   Open      \______   \ ____   ____ |  | _\_ |__   _______  ___
 #   Source     |       _//  _ \_/ ___\|  |/ /| __ \ /  _ \  \/  /
@@ -31,17 +32,19 @@ $(BUILDDIR)/lang/max_language_size.h: $(LANGOBJ) $(BUILDDIR)/apps/lang/voicestri
 $(BUILDDIR)/lang/lang_core.o: $(BUILDDIR)/lang/lang.h $(BUILDDIR)/lang/lang_core.c
 	$(call PRINTS,CC lang_core.c)$(CC) $(CFLAGS) -c $(BUILDDIR)/lang/lang_core.c -o $@
 
-# genlang creates *both* lang.c and lang.h but in Make there is no wat to express this rule
-# (multiple target rules DO NOT express that, they are a simple shortcut for multiple rules)
-# instead we pretend that genlang create lang_core.c and that lang.c depends from lang.h
-# it will work fine as long as one never manually removes lang.c and not lang.h, and it will avoid
-# race conditions such as running genlang twice or worse in parallel with other things!
-$(BUILDDIR)/lang/lang.h: $(APPSDIR)/lang/$(ENGLISH).lang $(BUILDDIR)/apps/genlang-features $(TOOLSDIR)/genlang
+# genlang -p writes lang/lang.h, lang/lang_core.c *and* lang_enum.h in one
+# run. A pattern rule with several targets is the one way make (3.81
+# included, which has no grouped "&:" targets) knows that one run of the
+# recipe makes all of them: genlang runs once, never twice or in parallel,
+# and every target counts as remade. The stem is the "g" of "lang" (so the
+# pattern matches these three files only). lang_enum.h used to be a
+# recipe-less rule depending on lang.h, which make 3.81 did not treat as
+# remade: an object that includes only lang_enum.h (firmware/usb.c,
+# hes.c, jpeg_load.c) and lang-enum.txt kept the old string enum until a
+# second make (p090-locale, ledger 3.19).
+$(BUILDDIR)/lan%/lang.h $(BUILDDIR)/lan%/lang_core.c $(BUILDDIR)/lan%_enum.h: $(APPSDIR)/lang/$(ENGLISH).lang $(BUILDDIR)/apps/genlang-features $(TOOLSDIR)/genlang
 	$(call PRINTS,GEN lang.h)
 	$(SILENT)$(TOOLSDIR)/genlang -e=$(APPSDIR)/lang/$(ENGLISH).lang -p=$(BUILDDIR)/lang -t=$(MODELNAME):`cat $(BUILDDIR)/apps/genlang-features` $<
-$(BUILDDIR)/lang/lang_core.c: $(BUILDDIR)/lang/lang.h $(TOOLSDIR)/genlang
-
-$(BUILDDIR)/lang_enum.h: $(BUILDDIR)/lang/lang.h $(TOOLSDIR)/genlang
 
 # NOTE: for some weird reasons in GNU make, multi targets rules WITH patterns actually express
 # the fact that the two files are created as the result of one invocation of the rule

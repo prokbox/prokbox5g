@@ -1,0 +1,21 @@
+# p090 upgrade, step A (tests/p090/upgrade.sh): run by the 0.8.3
+# simulator. Builds the test library from nothing and rates a track (a
+# statistic the upgrade must carry over), then deletes another track and
+# updates, so a publication can fold the rating into the 0.8.3 master
+# index, and quits.
+# needs: library
+# fresh-db
+# golden: skip
+# timeout: 300
+wait 4000
+wait_db 120000
+dbrec expect_published 90000
+dbrec set_rating /Library/Basalt/Columns/03%20Jagged%20Lantern.mp3 7
+wait 2000
+expect_rating /Library/Basalt/Columns/03%20Jagged%20Lantern.mp3 7
+rm_file /Library/Basalt/Columns/05%20Amber%20Mirror.mp3
+update_db_wait_change 60000
+dbrec expect_published 90000
+expect_rating /Library/Basalt/Columns/03%20Jagged%20Lantern.mp3 7
+wait 5000
+quit

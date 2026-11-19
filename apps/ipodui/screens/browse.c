@@ -243,11 +243,16 @@ static const char *browse_label(int row, void *data, char *buf, size_t len)
 static bool browse_chevron(int row, void *data)
 {
     struct browse *b = data;
-    /* a book opens its page (Phase 6, owner Rev 2) */
+    int i = lib_idx(b, row);
+
+    /* a book opens its page (Phase 6, owner Rev 2); one that can't play
+     * opens nothing (#286) */
     if (empty_state(b))
         return false;
-    return lib_idx(b, row) < 0 || !is_track_view(b)
-           || b->cat == LIB_AUDIOBOOKS;
+    if (i >= 0 && b->cat == LIB_AUDIOBOOKS && b->view > 0
+        && lib_row_unplayable(b->view, i))
+        return false;
+    return i < 0 || !is_track_view(b) || b->cat == LIB_AUDIOBOOKS;
 }
 
 #ifdef HAVE_BCMFW_VIDEO
@@ -304,6 +309,16 @@ static void browse_extra(int row, void *data, int w, int h, bool sel)
 #else
     (void)w;
 #endif
+}
+
+/* #286: why the row can't play (lib_row_unplayable(): the RAM flag
+ * word), 0 if it plays; list.c greys such rows */
+static int browse_unplayable(int row, void *data)
+{
+    struct browse *b = data;
+    int i = lib_idx(b, row);
+
+    return i >= 0 && b->view > 0 ? lib_row_unplayable(b->view, i) : 0;
 }
 
 /* #69 now-playing mark: a song (or a book's track) by its database id,
@@ -534,6 +549,7 @@ static int browse_enter(struct ui_screen *s, const void *arg)
     ui_list_init(&b->list, &vp, 0, browse_label, b);
     b->list.has_chevron = browse_chevron;
     b->list.overlay = browse_overlay;
+    b->list.unplayable = browse_unplayable;
     b->empty = empty_state(b);
     set_style(b);
     set_mark(b);
@@ -870,6 +886,19 @@ static enum ui_result browse_input(struct ui_screen *s,
                 return UI_HANDLED;
 
             ui_qscroll_reset(&b->qs);
+            /* #286: a row that can't play (greyed) says why: a page over
+             * the list; nothing plays or stops (owner, 2026-11-13) */
+            if (i >= 0 && b->view > 0)
+            {
+                int why = ui_noplay_row(b->view, i);
+
+                if (why)
+                {
+                    UPDATE_TRACE("browse noplay select row=%d why=%d", row,
+                                 why);
+                    return UI_HANDLED;
+                }
+            }
             if (open_child(s, b, row))
                 return UI_HANDLED;
 #ifdef HAVE_BCMFW_VIDEO

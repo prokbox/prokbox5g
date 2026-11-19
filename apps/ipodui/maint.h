@@ -105,6 +105,9 @@ bool maint_take_fits(size_t bytes);
  * per pause, and once more if refused again after the pause's regrow,
  * #309). Callers allocate right after, with no yield between. */
 bool maint_take(enum maint_job j, size_t bytes);
+/* p090-floor3: a take's give to the audio thread runs (any thread): the
+ * taker waits for the audio thread, which must not wait for it */
+bool maint_taking(void);
 /* job j's take was refused in this pause (the floor): a retry would be
  * refused again until the pause ends (false when stopped), or until the
  * pause's one regrow grows the buffer: that clears it once (#309) */

@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2005 Dave Chapman
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -136,6 +137,12 @@ enum codec_status codec_run(void)
         /* Decode one block - returned samples will be host-endian */
         samplesdecoded=alac_decode_frame(&alac, buffer, outputbuffer, ci->yield);
         ci->yield();
+
+        /* bytes_consumed is not valid for a frame that failed to decode */
+        if (samplesdecoded < 0) {
+            LOGF("ALAC: Error decoding frame\n");
+            return CODEC_ERROR;
+        }
 
         /* Advance codec buffer by amount of consumed bytes */
         ci->advance_buffer(alac.bytes_consumed);

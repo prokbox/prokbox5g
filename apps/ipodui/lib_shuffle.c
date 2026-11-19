@@ -42,9 +42,14 @@
  *
  * Trace (UPDATE_TRACE: sim.log; logf with LOGF_ENABLE; nothing on a
  * release build). <m> is off | songs | albums, <src> none | songs | albums:
- *   shuf: start <m> ok queued=<n> us=<wall> cpu=<thread cpu>
- *                                 (simulator: lib_shuffle_start() entry
- *                                 to the first track queued and started)
+ *   shuf: start <m> ok queued=<n> us=<wall> cpu=<thread cpu> reads=<n>
+ *       writes=<n>                (simulator: lib_shuffle_start() entry
+ *                                 to the first batch queued and started;
+ *                                 reads: the UI thread's read() calls,
+ *                                 writes: the disk's write calls, both
+ *                                 before playlist_start())
+ *   shuf: backfill ms=<since the start> wait=<ms before the first chunk>
+ *                                 the start's backfill is in (p090)
  *   shuf: start <m> fail <why>    why: off | empty | no-albums | create
  *                                 | refill
  *   shuf: mode <m> ok src=<src> queued=<n> cur=<playlist index>
@@ -82,9 +87,15 @@
 #include "ipodui/dbqueue.h"
 #include "ipodui/uilog.h"
 #include "buffering.h"              /* buffering_is_filling() (npfix) */
+#include "pcm.h"
+#include "pcm-internal.h"           /* pcm_is_playing(): the first sound */
 #ifdef SIMULATOR
 #include <stdio.h>                  /* shuf_expect_settled */
 #include "ipodui/simclock.h"        /* the start trace's times */
+/* uisimulator/common/filesystem-sim.c: the start trace's I/O counts */
+void sim_read_count_begin(void);
+int sim_read_count_end(void);
+int sim_write_count(void);
 #endif
 
 #define SHUF_PATH   ROCKBOX_DIR "/" LIB_SHUF_FILE
@@ -98,6 +109,13 @@ static bool loaded;                     /* the record was read at boot */
 static bool boot_check;                 /* resumed record not checked yet */
 static bool upgraded;                   /* it came from 0.8.0 (no count) */
 static volatile bool disk_ran;          /* buffering thread: storage ran */
+/* p090-shuffle (shuffle.md "Instant start"): a start queues
+ * LIB_SHUF_FIRST entries and plays; the rest of the window follows from
+ * the UI pass, as a refill that waits only for the first sound */
+static bool start_fill;                 /* the start's backfill is owed */
+static long shuf_start_tick;            /* when that start played */
+static volatile bool start_track;       /* audio thread: its first track
+                                         * began (a track change) */
 
 const char *lib_shuffle_mode_name(enum np_shuffle mode)
 {
@@ -334,15 +352,23 @@ static int left_ahead(void)
  * time> max=<longest chunk> chunks=<n> n=<added> disk=<storage up at the
  * start>". */
 #define SHUF_CHUNK  5
+/* p090: the start's backfill waits at most this long for the first sound */
+#define LIB_SHUF_START_WAIT (2 * HZ)
 static struct {
     bool on;                    /* a refill is under way */
     bool disk;                  /* storage was up when it began */
+    bool start;                 /* the start's backfill (p090) */
     int gen;                    /* tagcache_ui_generation() at the start */
+    int limit;                  /* entries this refill adds at most */
     int added, skips, chunks;
     long ms, max_ms;            /* UI-thread time in it, longest chunk */
+    long wait;                  /* start backfill: ticks before chunk 1 */
 } ses;
 
-static int refill_begin(void)
+/* 'limit': LIB_SHUF_FIRST for a start's first batch, LIB_SHUF_WINDOW -
+ * LIB_SHUF_FIRST for its backfill (the window is 50 entries as before),
+ * else LIB_SHUF_WINDOW */
+static int refill_begin(int limit)
 {
     struct lib_tracks lt;
     int gen = tagcache_ui_generation();
@@ -373,6 +399,7 @@ static int refill_begin(void)
     memset(&ses, 0, sizeof(ses));
     ses.on = true;
     ses.gen = gen;
+    ses.limit = limit;
     ses.disk = storage_disk_is_active();
     return 0;
 }
@@ -393,14 +420,22 @@ static int refill_finish(void)
     else
         del = 0;
 
+    /* control file synced before the record. p090: a refill only appends
+     * at the end (the trim is before the current entry), so the audio
+     * thread keeps what it has buffered (playlist_sync() dropped every
+     * buffered track after the current one and read them again) */
     if (ses.added || del)
-        playlist_sync(NULL);    /* control file synced before the record */
+        playlist_sync_append_ipodui();
     src_tick = playlist_get_current()->created_tick;
     rec.queued = (uint32_t)playlist_amount();
     rec_write();
     UPDATE_TRACE("shuf: refill +%d -%d skipped=%d src=%s queued=%lu",
                  ses.added, del, ses.skips, src_name(),
                  (unsigned long)rec.queued);
+    if (ses.start)
+        UPDATE_TRACE("shuf: backfill ms=%ld wait=%ld",
+                     (long)(current_tick - shuf_start_tick) * (1000 / HZ),
+                     ses.wait * (1000 / HZ));
     return ses.added;
 }
 
@@ -431,7 +466,7 @@ static int refill_step(int max)
         UPDATE_TRACE("shuf: refill retry (%s)", "scratch");
         return ses.added ? refill_finish() : (ses.on = false, -1);
     }
-    while (n < max && ses.added < LIB_SHUF_WINDOW)
+    while (n < max && ses.added < ses.limit)
     {
         const char *path;
         int e = next_entry(&lt, &ses.skips);
@@ -469,7 +504,7 @@ static int refill_step(int max)
     ses.chunks++;
     if (max == SHUF_CHUNK)
         UPDATE_TRACE("shuf: chunk +%d total=%d", n, ses.added);
-    if (done || ses.added >= LIB_SHUF_WINDOW)
+    if (done || ses.added >= ses.limit)
         return refill_finish();
     return REFILL_MORE;
 }
@@ -486,10 +521,11 @@ static void ses_check(void)
     }
 }
 
-/* A whole refill at once (a start, a mode change: the user waits for it
- * anyway, and the new queue must be there before playback starts). A
- * chunked refill under way is finished first. */
-static int refill(void)
+/* A whole refill of up to 'limit' entries at once (a start's first
+ * batch, a mode change: the user waits for it, and the new queue must be
+ * there before playback starts). A chunked refill under way is finished
+ * first. */
+static int refill(int limit)
 {
     int rc;
 
@@ -497,9 +533,9 @@ static int refill(void)
     if (ses.on)
         while (refill_step(LIB_SHUF_WINDOW) == REFILL_MORE)
             ;
-    if (refill_begin() < 0)
+    if (refill_begin(limit) < 0)
         return -1;
-    while ((rc = refill_step(LIB_SHUF_WINDOW)) == REFILL_MORE)
+    while ((rc = refill_step(limit)) == REFILL_MORE)
         ;
     return rc;
 }
@@ -654,6 +690,9 @@ int lib_shuffle_start(enum np_shuffle mode, uint32_t first)
     int rc;
 #ifdef SIMULATOR
     unsigned long t0 = sim_clock_now_us(), c0 = sim_clock_cpu_us();
+    int w0 = sim_write_count(), reads;
+
+    sim_read_count_begin();
 #endif
 
     /* #272: the record, the playlist's files and the refill's reads:
@@ -661,6 +700,7 @@ int lib_shuffle_start(enum np_shuffle mode, uint32_t first)
     button_boost_release();
     rec_load();
     ses.on = false;             /* a new queue: a refill under way ends */
+    start_fill = false;         /* and so does an owed backfill */
     keep = rec;                 /* after the load: a failure restores it */
     lt.fd = -1;
     lt.vh = -1;
@@ -685,7 +725,13 @@ int lib_shuffle_start(enum np_shuffle mode, uint32_t first)
     rec.flags &= ~LIB_SHUF_F_LAP;   /* a new run: its count starts at 0 */
     memset(&rec.count, 0, sizeof(rec.count));
     upgraded = false;
-    rc = refill();
+    /* p090-shuffle (shuffle.md "Instant start"): the first batch only,
+     * a whole refill (control file synced, then the record), so a power
+     * cut after it resumes this run; the rest follows from the UI pass */
+    rc = refill(LIB_SHUF_FIRST);
+#ifdef SIMULATOR
+    reads = sim_read_count_end();
+#endif
     if (rc <= 0)
     {
         rec.source = LIB_SHUF_SRC_NONE;
@@ -695,11 +741,23 @@ int lib_shuffle_start(enum np_shuffle mode, uint32_t first)
         return -1;
     }
     global_settings.playlist_shuffle = true;
-    playlist_start(0, 0, 0);
 #ifdef SIMULATOR
-    UPDATE_TRACE("shuf: start %s ok queued=%d us=%lu cpu=%lu",
-                 lib_shuffle_mode_name(mode), playlist_amount(),
-                 sim_clock_now_us() - t0, sim_clock_cpu_us() - c0);
+    w0 = sim_write_count() - w0;
+#endif
+    start_track = false;        /* the old queue's PCM is not this sound */
+    playlist_start(0, 0, 0);
+    if (rc >= LIB_SHUF_FIRST)
+    {
+        /* the backfill: the next UI pass begins it (lib_shuffle_idle()) */
+        start_fill = true;
+        shuf_start_tick = current_tick;
+        want_refill = true;
+        np_pb_ab_wake();
+    }
+#ifdef SIMULATOR
+    UPDATE_TRACE("shuf: start %s ok queued=%d us=%lu cpu=%lu reads=%d "
+                 "writes=%d", lib_shuffle_mode_name(mode), playlist_amount(),
+                 sim_clock_now_us() - t0, sim_clock_cpu_us() - c0, reads, w0);
 #else
     UPDATE_TRACE("shuf: start %s ok queued=%d", lib_shuffle_mode_name(mode),
                  playlist_amount());
@@ -710,6 +768,7 @@ int lib_shuffle_start(enum np_shuffle mode, uint32_t first)
 void lib_shuffle_track_changed(void)
 {
     want_refill = true;
+    start_track = true;         /* p090: the start's first track began */
 }
 
 /* review L1: a power-off (input.c) or a sleep entry (sleep.c persist())
@@ -792,9 +851,31 @@ int lib_shuffle_idle(void)
         if (sim_chunk_hold && ses.chunks)
             return HZ / 5;      /* shuf_chunk_hold: the next chunk waits */
 #endif
+        if (ses.start)
+        {
+            /* the start's backfill waits only for the first sound (its
+             * first track began and the PCM runs: a restart over a
+             * playing queue must not take the old PCM for it), or a
+             * pause, or LIB_SHUF_START_WAIT, or the first batch running
+             * low (NEXT presses, or tracks that do not play: playback
+             * ends a queue once every entry failed, #281, so the window
+             * must grow faster than they fail); then it runs between
+             * the fill's reads, so that its one reload (refill_finish()'s
+             * playlist_sync()) finds little of the next tracks buffered.
+             * Waiting for the whole fill would buffer the first batch's
+             * tracks to the end and then drop them (shuffle.md) */
+            if (!ses.chunks && !(start_track && pcm_is_playing())
+                && left_ahead() > LIB_SHUF_URGENT
+                && !(audio_status() & AUDIO_STATUS_PAUSE)
+                && TIME_BEFORE(current_tick,
+                               shuf_start_tick + LIB_SHUF_START_WAIT))
+                return HZ / 50;
+            if (!ses.chunks)
+                ses.wait = current_tick - shuf_start_tick;
+        }
         /* a fill holds the disk: the next chunk after it, unless the
          * queue is nearly out */
-        if (left_ahead() > LIB_SHUF_URGENT && buffering_is_filling())
+        else if (left_ahead() > LIB_SHUF_URGENT && buffering_is_filling())
             return HZ / 5;
         rc = refill_step(SHUF_CHUNK);
         dt = (long)(current_tick - t0) * (1000 / HZ);
@@ -824,6 +905,11 @@ int lib_shuffle_idle(void)
             return TIMEOUT_BLOCK;
     }
     left = left_ahead();
+    if (start_fill)
+    {
+        left = LIB_SHUF_LOW;    /* the start's backfill: now, disk or not */
+        hot = true;
+    }
 #ifdef SIMULATOR
     if (sim_force)
     {
@@ -842,11 +928,14 @@ int lib_shuffle_idle(void)
     if (left > LIB_SHUF_URGENT && !hot && !storage_disk_is_active())
         return TIMEOUT_BLOCK;
     want_refill = false;
-    if (refill_begin() < 0)
+    if (refill_begin(start_fill ? LIB_SHUF_WINDOW - LIB_SHUF_FIRST
+                                : LIB_SHUF_WINDOW) < 0)
     {
         want_refill = true;     /* not ready: the next event retries */
         return TIMEOUT_BLOCK;
     }
+    ses.start = start_fill;
+    start_fill = false;
     return 1;                   /* the first chunk: the next pass */
 }
 
@@ -1020,8 +1109,16 @@ int lib_shuffle_set_mode(enum np_shuffle mode)
             lib_shuf_count_unqueue(&rec, (uint32_t)gone);
         lib_shuf_count_lap_from(&rec, 1);
         src_tick = playlist_get_current()->created_tick;
-        refill();               /* traces "shuf: refill ..." */
+        /* p090: the first batch, then the backfill from the UI pass, as
+         * a start does (the song plays on, but the UI waited for the 50
+         * file-name reads) */
+        refill(LIB_SHUF_FIRST);     /* traces "shuf: refill ..." */
         audio_flush_and_reload_tracks();
+        start_fill = true;
+        shuf_start_tick = current_tick;
+        start_track = true;         /* the song playing is the sound */
+        want_refill = true;
+        np_pb_ab_wake();
         UPDATE_TRACE("shuf: mode %s replaced=%d", lib_shuffle_mode_name(mode),
                      gone);
         (void)gone;             /* trace only */

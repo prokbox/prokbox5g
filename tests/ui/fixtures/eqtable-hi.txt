@@ -1,0 +1,48 @@
+# TEST FIXTURE ONLY, not a fit and never shipped (#352): the base
+# presets with every band moved one frequency code down (the lowest
+# stays), so a loaded hi table plays visibly different bands.
+eqtable 1 family=hi n=22
+# acoustic
+eq1 +5@135 +3@230w +3@650w +7@3200w +2@6900
+# bass_booster
+eq1 +5@135 +3@230w +1@850w -1@2400w +0@5300
+# bass_reducer
+eq1 -5@135 -3@230w -1@850w +1@2400w +0@5300
+# classical
+eq1 +5@80 +4@230w -3@650w +2@2400 +3@5300
+# dance
+eq1 +6@135 +3@230w +7@850w +7@3200w +2@5300
+# deep
+eq1 +4@105 +4@300 +4@1100w -4@3200w -3@6900
+# electronic
+eq1 +4@135 -2@300w +1@650w +4@3200w +3@5300
+# flat
+eq1 +0@80 +0@230 +0@650 +0@1800 +0@5300
+# hip_hop
+eq1 +4@135 +2@230w -1@850 +2@1800 +2@5300
+# jazz
+eq1 +4@80 +4@230 -3@1100w +4@3200w +3@9000
+# latin
+eq1 +4@80 +1@230 -3@850w -1@1800w +3@5300
+# loudness
+eq1 +6@80 -2@230 -3@1100w -5@3200 +3@5300
+# lounge
+eq1 -2@135 +1@230w +5@650w -1@2400 +1@5300
+# piano
+eq1 +2@80 +3@230w +4@850w +7@3200w +2@6900
+# pop
+eq1 -1@105 +4@300w +4@850w +1@1800w -1@5300
+# rnb
+eq1 +6@135 +3@230w -6@650w +5@1800w +3@5300
+# rock
+eq1 +5@135 +1@230 -1@1100w +4@3200w +3@6900
+# small_speakers
+eq1 +5@135 +4@230w -2@1100w -2@3200 -3@5300
+# spoken_word
+eq1 -2@80 +3@385w +6@1100w +5@3200w +1@5300
+# treble_booster
+eq1 -1@135 +2@230w +1@1100 +5@2400 +4@5300
+# treble_reducer
+eq1 +1@105 +1@385w -3@850 -5@2400 -4@5300
+# vocal_booster
+eq1 -3@135 +4@385 +6@1100w +1@3200 -1@5300

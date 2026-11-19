@@ -42,6 +42,7 @@
 #include "golomb.h"
 
 #include "decoder.h"
+#include "dither.h"
 
 #if defined(CPU_COLDFIRE)
 #include "coldfire.h"
@@ -90,6 +91,13 @@ static av_always_inline int flac_get_sbits_wide(GetBitContext *s, int n)
     return (int)(((unsigned)hi << 16) | get_bits(s, 16));
 }
 
+/* A 33-bit sample (a 32-bit stream's side channel): n is 17..33 */
+static int64_t flac_get_sbits33(GetBitContext *s, int n)
+{
+    int hi = get_sbits(s, n - 16);
+    return (int64_t)hi * 65536 + get_bits(s, 16);
+}
+
 /* arm.S's Rice reader (decode_residuals) and stereo decorrelation
    (flac_decode_frame); FLAC_NO_RICE_ASM keeps the C ones, for an A/B */
 #if defined(CPU_ARM_CLASSIC) && !defined(FLAC_NO_RICE_ASM)
@@ -103,7 +111,7 @@ static const int sample_rate_table[] ICONST_ATTR =
   0, 0, 0, 0 };
 
 static const int sample_size_table[] ICONST_ATTR = 
-{ 0, 8, 12, 0, 16, 20, 24, 0 };
+{ 0, 8, 12, 0, 16, 20, 24, 32 };  /* 7: 32 bits (RFC 9639) */
 
 static const int blocksize_table[] ICONST_ATTR = {
      0,    192, 576<<0, 576<<1, 576<<2, 576<<3,      0,      0, 
@@ -151,14 +159,16 @@ static int64_t get_utf8(GetBitContext *gb)
     uint64_t val;
     int ones=0, bytes;
     
+    /* up to seven bytes code 36 bits */
     while(get_bits1(gb))
-        ones++;
+        if (++ones > 7)
+            return -1;
 
     if     (ones==0) bytes=0;
     else if(ones==1) return -1;
     else             bytes= ones - 1;
     
-    val= get_bits(gb, 7-ones);
+    val= ones < 7 ? get_bits(gb, 7-ones) : 0;
     while(bytes--){
         const int tmp = get_bits(gb, 8);
         
@@ -182,6 +192,11 @@ static int get_crc8(const uint8_t *buf, int count)
 
     return crc;
 }
+
+/* Rice codes decoded between checks for the end of the data (upstream
+   7b7a2dde98). A code is at most 56 bits, so a corrupt frame is caught
+   within 1 KiB of its end. */
+#define RICE_CHUNK 128
 
 static int decode_residuals(FLACContext *s, int32_t* decoded, int pred_order) ICODE_ATTR_FLAC;
 static int decode_residuals(FLACContext *s, int32_t *decoded, int pred_order)
@@ -210,6 +225,9 @@ static int decode_residuals(FLACContext *s, int32_t *decoded, int pred_order)
         tmp = get_bits(&gb, rice_bits);
         if (tmp == rice_esc) {
             tmp = get_bits(&gb, 5);
+            /* every bit the partition needs must be in the data */
+            if ((samples - i) * tmp > get_bits_left(&gb))
+                return -3;
             /* An escape width of 0 means all residuals are zero; widths
                above 25 bits need two reads (flac_get_sbits_wide), chosen
                once a partition so the common loop keeps one. */
@@ -222,31 +240,40 @@ static int decode_residuals(FLACContext *s, int32_t *decoded, int pred_order)
         } else {
             unsigned lim = tmp ? (UINT_MAX >> tmp) + 2 : INT_MAX;
             int real_limit = lim > INT_MAX ? INT_MAX : lim;
+            while (i < samples) {
+                /* A corrupt partition can run past the end of the data, so
+                   check every RICE_CHUNK codes that it has not, which
+                   bounds how far it can read beyond. */
+                int end = samples - i > RICE_CHUNK ? i + RICE_CHUNK : samples;
+                if (get_bits_left(&gb) < 0)
+                    return -3;
 #ifdef FLAC_RICE_ASM
-            /* The assembler takes every code that fits 32 bits and stops in
-               front of any other; the C reader below decodes that one, with
-               its limits and checks, and hands the rest back. */
-            for (;;) {
-                int n = flac_rice_arm(&gb, decoded, samples - i, tmp);
-                decoded += n;
-                i += n;
-                if (i >= samples)
-                    break;
-                int v = get_sr_golomb_flac(&gb, tmp, real_limit, 0);
-                if ((unsigned) v == 0x80000000){
-                    return -3;
+                /* The assembler takes every code that fits 32 bits and
+                   stops in front of any other; the C reader below decodes
+                   that one, with its limits and checks, and hands the rest
+                   back. */
+                for (;;) {
+                    int n = flac_rice_arm(&gb, decoded, end - i, tmp);
+                    decoded += n;
+                    i += n;
+                    if (i >= end)
+                        break;
+                    int v = get_sr_golomb_flac(&gb, tmp, real_limit, 0);
+                    if ((unsigned) v == 0x80000000){
+                        return -3;
+                    }
+                    *decoded++ = v;
+                    i++;
                 }
-                *decoded++ = v;
-                i++;
-            }
 #endif
-            for (; i < samples; i++) {
-                int v = get_sr_golomb_flac(&gb, tmp, real_limit, 0);
-                if ((unsigned) v == 0x80000000){
-                    return -3;
-                }
+                for (; i < end; i++) {
+                    int v = get_sr_golomb_flac(&gb, tmp, real_limit, 0);
+                    if ((unsigned) v == 0x80000000){
+                        return -3;
+                    }
 
-                *decoded++ = v;
+                    *decoded++ = v;
+                }
             }
         }
         i= 0;
@@ -349,7 +376,7 @@ static void lpc_analyze_remodulate(int32_t *decoded, int coeffs[],
     sigma = flac_range_or_arm(decoded + order, len - order, ebps);
 #else
     for (i = order; i < len; i++)
-        sigma |= decoded[i] + ebps;
+        sigma |= (unsigned)decoded[i] + ebps;
 #endif
 
     if (sigma < 2U*ebps)
@@ -428,12 +455,13 @@ static int decode_subframe_lpc(FLACContext *s, int32_t* decoded, int pred_order,
         lpc_decode_arm(s->blocksize - pred_order, qlevel, pred_order,
                        decoded + pred_order, coeffs);
         #else
+        /* unsigned, so that a corrupt stream wraps instead of overflowing */
         for (i = pred_order; i < s->blocksize; i++)
         {
             sum = 0;
             for (j = 0; j < pred_order; j++)
-                sum += coeffs[j] * decoded[i-j-1];
-            decoded[i] += sum >> qlevel;
+                sum += (unsigned)coeffs[j] * decoded[i-j-1];
+            decoded[i] = (unsigned)decoded[i] + (sum >> qlevel);
         }
         #endif
     } else {
@@ -464,6 +492,116 @@ static int decode_subframe_lpc(FLACContext *s, int32_t* decoded, int pred_order,
     return 0;
 }
 
+/* #318: one subframe of 33-bit samples (a 32-bit stereo stream's side
+   channel, no wasted bits), into w; its residuals go through res, the
+   channel's own 32-bit buffer.  The arithmetic is libFLAC's for this case:
+   64-bit history, 32-bit residuals, prediction sums in 64 bits.  Not in
+   IRAM (noinline keeps it out of its IRAM callers): only 32-bit streams
+   come here, and only for the side channel. */
+static int __attribute__((noinline))
+decode_subframe_33(FLACContext *s, int type, int32_t *res, int64_t *w)
+{
+    GetBitContext *gb = &s->gb;
+    const int n = s->blocksize;
+    int i, j, order;
+
+    if (type == 0) {
+        int64_t c = flac_get_sbits33(gb, 33);
+        for (i = 0; i < n; i++)
+            w[i] = c;
+        return 0;
+    }
+    if (type == 1) {
+        for (i = 0; i < n; i++)
+            w[i] = flac_get_sbits33(gb, 33);
+        return 0;
+    }
+    if (type >= 8 && type <= 12) {
+        order = type & 7;
+        for (i = 0; i < order; i++)
+            w[i] = flac_get_sbits33(gb, 33);
+        if (decode_residuals(s, res, order) < 0)
+            return -4;
+        switch (order) {
+        case 0:
+            for (i = 0; i < n; i++)
+                w[i] = res[i];
+            break;
+        case 1:
+            for (i = 1; i < n; i++)
+                w[i] = res[i] + w[i-1];
+            break;
+        case 2:
+            for (i = 2; i < n; i++)
+                w[i] = res[i] + 2*w[i-1] - w[i-2];
+            break;
+        case 3:
+            for (i = 3; i < n; i++)
+                w[i] = res[i] + 3*(w[i-1] - w[i-2]) + w[i-3];
+            break;
+        case 4:
+            for (i = 4; i < n; i++)
+                w[i] = res[i] + 4*(w[i-1] + w[i-3]) - 6*w[i-2] - w[i-4];
+            break;
+        }
+        return 0;
+    }
+    if (type >= 32) {
+        int coeffs[32];
+        int coeff_prec, qlevel;
+
+        order = (type & ~0x20) + 1;
+        for (i = 0; i < order; i++)
+            w[i] = flac_get_sbits33(gb, 33);
+        coeff_prec = get_bits(gb, 4) + 1;
+        if (coeff_prec == 16)
+            return -6;
+        qlevel = get_sbits(gb, 5);
+        if (qlevel < 0)
+            return -7;
+        for (j = 0; j < order; j++)
+            coeffs[j] = get_sbits(gb, coeff_prec);
+        if (decode_residuals(s, res, order) < 0)
+            return -8;
+        /* A side channel's samples nearly always fit 32 bits (a left and a
+           right more than half of full scale apart, of opposite signs, do
+           not): while they do, the history is read from res[] as 32-bit
+           values, overwriting each residual with its sample (res[0..order)
+           is free), which makes a tap one 32x32->64 multiply-accumulate;
+           from the first sample that does not, the 64-bit history in w[]
+           (kept complete all along) takes over. */
+        for (i = 0; i < order; i++) {
+            if (w[i] != (int32_t)w[i])
+                goto wide64;
+            res[i] = (int32_t)w[i];
+        }
+        for (i = order; i < n; i++) {
+            int64_t sum = 0, v;
+            for (j = 0; j < order; j++)
+                sum += (int64_t)coeffs[j] * res[i-j-1];
+            v = res[i] + (sum >> qlevel);
+            w[i] = v;
+            if (v != (int32_t)v) {
+                i++;
+                goto wide64;
+            }
+            res[i] = (int32_t)v;
+        }
+        return 0;
+    wide64:
+        if (i < order)
+            i = order;
+        for (; i < n; i++) {
+            int64_t sum = 0;
+            for (j = 0; j < order; j++)
+                sum += (int64_t)coeffs[j] * w[i-j-1];
+            w[i] = res[i] + (sum >> qlevel);
+        }
+        return 0;
+    }
+    return -12;
+}
+
 static inline int decode_subframe(FLACContext *s, int channel, int32_t* decoded)
 {
     int type, wasted = 0;
@@ -477,7 +615,8 @@ static inline int decode_subframe(FLACContext *s, int channel, int32_t* decoded)
             bps++;
     }
 
-    if (get_bits1(&s->gb))
+    /* stop a corrupt frame that has run past the end of the data */
+    if (get_bits_left(&s->gb) < 0 || get_bits1(&s->gb))
     {
         //fprintf(stderr,"invalid subframe padding\n");
         return -9;
@@ -486,13 +625,37 @@ static inline int decode_subframe(FLACContext *s, int channel, int32_t* decoded)
 
     if (get_bits1(&s->gb))
     {
+        /* at least one bit must be left to read */
         wasted = 1;
         while (!get_bits1(&s->gb))
-            wasted++;
+            if (++wasted >= bps)
+                return -13;
         bps -= wasted;
         if (bps < 1)
             return -19;     /* malformed: no bits left to read a sample */
         //fprintf(stderr,"%d wasted bits\n", wasted);
+    }
+
+    /* upstream 7b7a2dde98: a verbatim subframe's bits must all be in the
+       data, and a fixed or LPC one's warm-up samples must fit in the
+       block. Checked before the 33-bit path below, which takes them too. */
+    if (type == 1 && s->blocksize * bps > get_bits_left(&s->gb))
+        return -12;
+    if (type >= 8 && type <= 12 && (type & ~0x8) > s->blocksize)
+        return -10;
+    if (type >= 32 && (type & ~0x20) + 1 > s->blocksize)
+        return -11;
+
+    /* #318: a side channel of a 32-bit stream has 33 bits a sample.  Its
+       samples go to the wide buffer: decoded there in 64 bits, or, with
+       wasted bits (32 or fewer left), decoded below as usual and widened
+       at the end. */
+    if (bps + wasted > 32) {
+        if (!s->wide)
+            return -20;
+        s->wide_ch = channel;
+        if (!wasted)
+            return decode_subframe_33(s, type, decoded, s->wide);
     }
 
 //FIXME use av_log2 for types
@@ -531,7 +694,13 @@ static inline int decode_subframe(FLACContext *s, int channel, int32_t* decoded)
         return -12;
     }
 
-    if (wasted && wasted < 32)
+    if (wasted && s->wide_ch == channel)
+    {
+        int64_t *w = s->wide;
+        for (i = 0; i < s->blocksize; i++)
+            w[i] = (int64_t)decoded[i] * (1 << wasted);
+    }
+    else if (wasted && wasted < 32)
     {
         int i;
         for (i = 0; i < s->blocksize; i++)
@@ -541,14 +710,15 @@ static inline int decode_subframe(FLACContext *s, int channel, int32_t* decoded)
     return 0;
 }
 
-static int decode_frame(FLACContext *s,
+static int decode_frame(FLACContext *s, int variable_blocksize,
                         void (*yield)(void)) ICODE_ATTR_FLAC;
-static int decode_frame(FLACContext *s,
+static int decode_frame(FLACContext *s, int variable_blocksize,
                         void (*yield)(void))
 {
     int blocksize_code, sample_rate_code, sample_size_code, crc8;
     int ch_mode, bps, blocksize, samplerate;
     int res, ch;
+    int64_t number;
     GetBitContext *gb = &s->gb;
 
     blocksize_code = get_bits(gb, 4);
@@ -568,7 +738,7 @@ static int decode_frame(FLACContext *s,
     sample_size_code = get_bits(gb, 3);
     if(sample_size_code == 0)
         bps= s->bps;
-    else if((sample_size_code != 3) && (sample_size_code != 7))
+    else if(sample_size_code != 3)
         bps = sample_size_table[sample_size_code];
     else 
     {
@@ -580,22 +750,10 @@ static int decode_frame(FLACContext *s,
         return -15;
     }
 
-    /* Get the samplenumber of the first sample in this block */
-    s->samplenumber=get_utf8(gb);
-
-    /* samplenumber actually contains the frame number for streams
-       with a constant block size - so we multiply by blocksize to
-       get the actual sample number */
-    if (s->min_blocksize == s->max_blocksize) {
-        s->samplenumber*=s->min_blocksize;
-    }
-
-#if 0    
-    if (/*((blocksize_code == 6) || (blocksize_code == 7)) &&*/
-        (s->min_blocksize != s->max_blocksize)){
-    }else{
-    }
-#endif
+    /* The number of the first sample in this block, or of the frame */
+    number = get_utf8(gb);
+    if (number < 0)
+        return -19;
 
     if (blocksize_code == 0)
         blocksize = s->min_blocksize;
@@ -609,6 +767,17 @@ static int decode_frame(FLACContext *s,
     if(blocksize > s->max_blocksize){
         return -16;
     }
+
+    /* The header's blocking strategy bit tells which number it holds. A
+       stream with a fixed block size numbers its frames instead, and every
+       frame but a shorter last one has the maximum block size. Using the
+       maximum rather than this frame's size keeps that last frame's number
+       right. Streams written before the bit was defined (Flake 0.11) leave
+       it clear and number their samples, so as libFLAC does, a stream
+       whose STREAMINFO block sizes differ is taken as variable too. */
+    if (!variable_blocksize)
+        number *= s->max_blocksize;
+    s->samplenumber = number;
 
     if (sample_rate_code == 0){
         samplerate= s->samplerate;
@@ -634,6 +803,7 @@ static int decode_frame(FLACContext *s,
     s->samplerate   = samplerate;
     s->bps          = bps;
     s->ch_mode      = ch_mode;
+    s->wide_ch      = -1;
 
     for (ch=0; ch<s->channels; ++ch) {
         yield();
@@ -650,13 +820,13 @@ static int decode_frame(FLACContext *s,
     return 0;
 }
 
-static int flac_downmix(FLACContext *s) ICODE_ATTR_FLAC;
-static int flac_downmix(FLACContext *s)
+static int flac_downmix(FLACContext *s, int scale) ICODE_ATTR_FLAC;
+static int flac_downmix(FLACContext *s, int scale)
 {
     int32_t *FL, *FR, *FC, *SB, *RL, *RR, *RC;
     int32_t *outL = s->decoded[0];
     int32_t *outR = s->decoded[1];
-    int i, scale=FLAC_OUTPUT_DEPTH-s->bps;
+    int i;
 
     switch(s->channels)
     {
@@ -667,10 +837,11 @@ static int flac_downmix(FLACContext *s)
             /* LF = 0.66 LF + 0.33 FC
                LR = 0.66 LR + 0.33 FC */
             for (i=0; i<s->blocksize; ++i) {
-                int32_t a = *(FL)*2 + *(FC);
-                int32_t b = *(FR)*2 + *(FC);
-                *outL++ = ((a + (a<<2))>>4) << scale; /* 1/3 ~= 5>>4 */
-                *outR++ = ((b + (b<<2))>>4) << scale; /* 1/3 ~= 5>>4 */
+                uint32_t a = (uint32_t)*(FL)*2 + *(FC);
+                uint32_t b = (uint32_t)*(FR)*2 + *(FC);
+                /* 1/3 ~= 5>>4 */
+                *outL++ = (uint32_t)((int32_t)(a + (a<<2)) >> 4) << scale;
+                *outR++ = (uint32_t)((int32_t)(b + (b<<2)) >> 4) << scale;
                 FL++; FR++; FC++;
             }
             break;
@@ -682,10 +853,10 @@ static int flac_downmix(FLACContext *s)
             /* LF = 0.50 LF + 0.50 RL + 0.00 RR
                LR = 0.50 LR + 0.00 RL + 0.50 RR */
             for (i=0; i<s->blocksize; ++i) {
-                int32_t a = *(FL) + *(RL);
-                int32_t b = *(FR) + *(RR);
-                *outL++ = (a>>1) << scale;
-                *outR++ = (b>>1) << scale;
+                uint32_t a = (uint32_t)*(FL) + *(RL);
+                uint32_t b = (uint32_t)*(FR) + *(RR);
+                *outL++ = (uint32_t)((int32_t)a >> 1) << scale;
+                *outR++ = (uint32_t)((int32_t)b >> 1) << scale;
                 FL++; FR++; RL++; RR++;
             }
             break;
@@ -698,10 +869,11 @@ static int flac_downmix(FLACContext *s)
             /* LF = 0.40 LF + 0.20 FC + 0.40 RL + 0.00 RR
                LR = 0.40 LR + 0.20 FC + 0.00 RL + 0.40 RR */
             for (i=0; i<s->blocksize; ++i) {
-                int32_t a = *(FL)*2 + *(FC) + *(RL)*2;
-                int32_t b = *(FR)*2 + *(FC) + *(RR)*2;
-                *outL++ = ((a + (a<<1))>>4) << scale; /* 3>>4 ~= 1/5 */
-                *outR++ = ((b + (b<<1))>>4) << scale; /* 3>>4 ~= 1/5 */
+                uint32_t a = (uint32_t)*(FL)*2 + *(FC) + *(RL)*2;
+                uint32_t b = (uint32_t)*(FR)*2 + *(FC) + *(RR)*2;
+                /* 3>>4 ~= 1/5 */
+                *outL++ = (uint32_t)((int32_t)(a + (a<<1)) >> 4) << scale;
+                *outR++ = (uint32_t)((int32_t)(b + (b<<1)) >> 4) << scale;
                 FL++; FR++; FC++; RL++; RR++;
             }
             break;
@@ -715,10 +887,11 @@ static int flac_downmix(FLACContext *s)
             /* LF = 0.33 LF + 0.16 SUB + 0.16 FC + 0.33 RL + 0.00 RR
                LR = 0.33 LR + 0.16 SUB + 0.16 FC + 0.00 RL + 0.33 RR */
             for (i=0; i<s->blocksize; ++i) {
-                int32_t a = *(FL)*2 + *(SB) + *(FC) + *(RL)*2;
-                int32_t b = *(FR)*2 + *(SB) + *(FC) + *(RR)*2;
-                *outL++ = ((a + (a<<2))>>5) << scale; /* 5>>5 ~= 1/6 */
-                *outR++ = ((b + (b<<2))>>5) << scale; /* 5>>5 ~= 1/6 */
+                uint32_t a = (uint32_t)*(FL)*2 + *(SB) + *(FC) + *(RL)*2;
+                uint32_t b = (uint32_t)*(FR)*2 + *(SB) + *(FC) + *(RR)*2;
+                /* 5>>5 ~= 1/6 */
+                *outL++ = (uint32_t)((int32_t)(a + (a<<2)) >> 5) << scale;
+                *outR++ = (uint32_t)((int32_t)(b + (b<<2)) >> 5) << scale;
                 FL++; FR++; SB++; FC++; RL++; RR++;
             }
             break;
@@ -733,10 +906,13 @@ static int flac_downmix(FLACContext *s)
             /* LF = 0.28 LF + 0.14 SUB + 0.14 FC + 0.28 RL + 0.00 RR + 0.14 CR
                LR = 0.28 LR + 0.14 SUB + 0.14 FC + 0.00 RL + 0.28 RR + 0.14 CR */
             for (i=0; i<s->blocksize; ++i) {
-                int32_t a = *(FL)*2 + *(SB) + *(FC) + *(RL)*2 + *(RC);
-                int32_t b = *(FR)*2 + *(SB) + *(FC) + *(RR)*2 + *(RC);
-                *outL++ = ((a + (a<<4))>>6) << scale; /* 9>>6 ~= 1/7 */
-                *outR++ = ((b + (b<<4))>>6) << scale; /* 9>>6 ~= 1/7 */
+                uint32_t a = (uint32_t)*(FL)*2 + *(SB) + *(FC) + *(RL)*2 +
+                             *(RC);
+                uint32_t b = (uint32_t)*(FR)*2 + *(SB) + *(FC) + *(RR)*2 +
+                             *(RC);
+                /* 9>>6 ~= 1/7 */
+                *outL++ = (uint32_t)((int32_t)(a + (a<<4)) >> 6) << scale;
+                *outR++ = (uint32_t)((int32_t)(b + (b<<4)) >> 6) << scale;
                 FL++; FR++; SB++; FC++; RL++; RR++; RC++;
             }
             break;
@@ -747,6 +923,46 @@ static int flac_downmix(FLACContext *s)
     return 0;
 }
 
+/* #318: a frame whose side channel has 33 bits (in s->wide): left and
+   right into decoded[0] and decoded[1], at their own width (not in IRAM) */
+static void __attribute__((noinline)) flac_decorrelate_33(FLACContext *s)
+{
+    int32_t *d0 = s->decoded[0], *d1 = s->decoded[1];
+    const int64_t *w = s->wide;
+    int i, n = s->blocksize;
+
+    switch (s->ch_mode) {
+    case LEFT_SIDE:         /* left, side */
+        for (i = 0; i < n; i++)
+            d1[i] = (int32_t)(d0[i] - w[i]);
+        break;
+    case RIGHT_SIDE:        /* side, right */
+        for (i = 0; i < n; i++)
+            d0[i] = (int32_t)(d1[i] + w[i]);
+        break;
+    case MID_SIDE:          /* mid, side */
+        for (i = 0; i < n; i++) {
+            int64_t a = d0[i] - (w[i] >> 1);
+            d0[i] = (int32_t)(a + w[i]);
+            d1[i] = (int32_t)a;
+        }
+        break;
+    default:
+        break;
+    }
+}
+
+/* #318: every channel of a multichannel frame wider than
+   FLAC_OUTPUT_DEPTH, to FLAC_DOWNMIX_DEPTH bits, for the downmix */
+static void __attribute__((noinline)) flac_reduce_channels(FLACContext *s)
+{
+    int ch;
+    for (ch = 0; ch < s->channels; ch++)
+        flac_reduce_tpdf(s->decoded[ch], s->blocksize,
+                         s->bps - FLAC_DOWNMIX_DEPTH, FLAC_DOWNMIX_DEPTH,
+                         &s->dither);
+}
+
 int flac_decode_frame(FLACContext *s,
                       uint8_t *buf, int buf_size,
                       void (*yield)(void))
@@ -754,7 +970,7 @@ int flac_decode_frame(FLACContext *s,
     int tmp;
     int i, done;
     int framesize;
-    int scale;
+    int scale, wide;
 
     /* check that there is at least the smallest decodable amount of data.
        this amount corresponds to the smallest valid FLAC frame possible.
@@ -770,7 +986,9 @@ int flac_decode_frame(FLACContext *s,
         return -41;
     }
 
-    if ((framesize=decode_frame(s,yield)) < 0){
+    if ((framesize=decode_frame(s, (tmp & 1) ||
+                                s->min_blocksize != s->max_blocksize,
+                                yield)) < 0){
        s->bitstream_size=0;
        s->bitstream_index=0;
        return framesize;
@@ -782,14 +1000,23 @@ int flac_decode_frame(FLACContext *s,
              for (i = done; i < s->blocksize; i++) {\
                 int32_t a = s->decoded[0][i];\
                 int32_t b = s->decoded[1][i];\
-                s->decoded[0][i] = (left)  << scale;\
-                s->decoded[1][i] = (right) << scale;\
+                s->decoded[0][i] = (uint32_t)(left)  << scale;\
+                s->decoded[1][i] = (uint32_t)(right) << scale;\
              }\
 
-    scale=FLAC_OUTPUT_DEPTH-s->bps;
+    /* #318: wider than FLAC_OUTPUT_DEPTH: a stereo or mono frame is
+       decorrelated at the stream's own width (scale 0) and left there, for
+       flac_reduce_frame(); a multichannel one is reduced here, to what the
+       downmix holds, and downmixed to FLAC_OUTPUT_DEPTH */
+    wide = s->bps > FLAC_OUTPUT_DEPTH;
+    scale = wide ? 0 : FLAC_OUTPUT_DEPTH - s->bps;
     done = 0;
+    if (s->wide_ch >= 0) {
+        flac_decorrelate_33(s);
+        done = s->blocksize;    /* the switch below has nothing left */
+    }
 #ifdef FLAC_DECORRELATE_ASM
-    if (s->channels <= 2)   /* arm.S: four samples a pass; C does the rest */
+    else if (s->channels <= 2)  /* arm.S: four samples a pass; C does the rest */
         done = flac_decorrelate_arm(s->decoded[0], s->decoded[1],
                                     s->blocksize, s->ch_mode, scale);
 #endif
@@ -799,22 +1026,40 @@ int flac_decode_frame(FLACContext *s,
             if (s->channels <= 2) {
                 DECORRELATE(a, b) /* Always decorrelate exactly the two supported channels. */
             } else {
-                if ((tmp=flac_downmix(s)) != 0)
+                int dscale = scale;
+                if (wide) {
+                    flac_reduce_channels(s);
+                    dscale = FLAC_OUTPUT_DEPTH - FLAC_DOWNMIX_DEPTH;
+                }
+                if ((tmp=flac_downmix(s, dscale)) != 0)
                     return tmp;
             }
             break;
         case LEFT_SIDE:
-            DECORRELATE(a, a-b)
+            DECORRELATE(a, (uint32_t)a-b)
             break;
         case RIGHT_SIDE:
-            DECORRELATE(a+b, b)
+            DECORRELATE((uint32_t)a+b, b)
             break;
         case MID_SIDE:
-            DECORRELATE( (a-=b>>1) + b, a)
+            DECORRELATE((a = (uint32_t)a - (b>>1)) + (uint32_t)b, a)
             break;
     }
 
     s->framesize = (get_bits_count(&s->gb)+7)>>3;
 
     return 0;
+}
+
+void flac_reduce_frame(FLACContext *s)
+{
+    if (s->bps <= FLAC_OUTPUT_DEPTH || s->channels > 2)
+        return;
+    flac_reduce_tpdf(s->decoded[0], s->blocksize,
+                     s->bps - FLAC_OUTPUT_DEPTH, FLAC_OUTPUT_DEPTH,
+                     &s->dither);
+    if (s->channels == 2)
+        flac_reduce_tpdf(s->decoded[1], s->blocksize,
+                         s->bps - FLAC_OUTPUT_DEPTH, FLAC_OUTPUT_DEPTH,
+                         &s->dither);
 }

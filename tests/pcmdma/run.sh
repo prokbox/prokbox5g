@@ -127,3 +127,29 @@ if ! "$HOSTCC" $CFLAGS -I"$Q" -o "$Q/t" "$T/test_pcmq.c" 2>"$Q/cc.log"; then
     cat "$Q/cc.log"; exit 1
 fi
 "$Q/t" || { echo "FAIL: the two-channel PCM DMA queue (0.8.3 fifo96)"; exit 1; }
+
+# 0.9.0 fiqstall (#436): the FIQ window before a whole-cache write-back
+# (test_fiqwin.c).  The block between the fiq-window markers in pcm-pp.c
+# plus the real pcm_words_us() and pcm_tw_update(), run against a
+# one-channel I2S model with write-back stalls; its red arms run in the
+# same binary
+W=$TMP/w
+mkdir -p "$W"
+{
+    awk '/^static inline uint32_t pcm_words_us/ { on = 1 } on { print }
+         on && /^}/ { exit }' "$SRC"
+    awk '/^static void pcm_tw_update/ { on = 1 } on { print }
+         on && /^}/ { exit }' "$SRC"
+    awk '/fiq-window: begin/ { on = 1; next } /fiq-window: end/ { on = 0 } on' \
+        "$SRC"
+} >"$W/fiqwin_parts.c"
+for fn in pcm_words_us pcm_tw_update 'int ICODE_ATTR pcm_pp_fiq_window'; do
+    grep -q "$fn" "$W/fiqwin_parts.c" \
+        || { echo "FAIL: $fn not found in $SRC (fiq-window extraction)"; exit 1; }
+done
+# shellcheck disable=SC2086
+if ! "$HOSTCC" $CFLAGS -I"$W" -o "$W/t" "$T/test_fiqwin.c" 2>"$W/cc.log"; then
+    echo "FAIL: compiling test_fiqwin.c with the fiq-window block of $SRC ($HOSTCC)"
+    cat "$W/cc.log"; exit 1
+fi
+"$W/t" || { echo "FAIL: the FIQ window before a cache write-back (0.9.0 fiqstall)"; exit 1; }

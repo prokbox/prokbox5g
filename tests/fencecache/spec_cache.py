@@ -40,7 +40,7 @@
 SLICES = [
     (r"^/\* Bit 0 - 20: Cached Address \*/$",
      r"^/\*Initial memory address used to prime cache"),
-    (r"^void ICODE_ATTR commit_dcache\(void\)$",
+    (r"^/\* the whole-cache write-back itself \(the cache enabled\) \*/$",
      r"^static void init_cache\(void\)$"),
 ]
 
@@ -53,13 +53,15 @@ _ALIAS = ('void commit_discard_dcache(void) __attribute__((alias('
           '"commit_discard_idcache")));')
 REPLACE = [(_ALIAS, "/* (alias: see the next line) */")]
 
-_BULK = "    commit_dcache();                /* FIQ open: the bulk */\n"
-_MASKED = "    commit_dcache();                /* what was dirtied since */\n"
+_BULK = ("    commit_dcache_hw();\n"
+         "    (void)disable_interrupt_save(IRQ_FIQ_STATUS);\n")
+_MASKED = "    commit_dcache_hw();             /* what was dirtied since */\n"
 _OPEN = ("    open = (istat & FIQ_STATUS) ? (istat | IRQ_FIQ_STATUS)\n"
          "                                : ((istat | IRQ_STATUS) & ~FIQ_STATUS);\n")
 _LOOP_END = ("    {\n        register uint32_t t = USEC_TIMER - t0;\n\n"
              "        if (t > tmax)\n            tmax = t;\n    }\n"
-             "    restore_interrupt(istat);\n    cds_n++;\n")
+             "    restore_interrupt(istat);\n"
+             "    mstall_note(COP, USEC_TIMER - t_all);\n    cds_n++;\n")
 
 MUTANTS = {
     "cop_no_masked_writeback": (
@@ -70,12 +72,12 @@ MUTANTS = {
         "cop_commit_discard(): the masked write-back after the rewrite",
         [(_MASKED, ""),
          (_LOOP_END, _LOOP_END.replace("    restore_interrupt(istat);\n",
-                                       "    commit_dcache();\n"
+                                       "    commit_dcache_hw();\n"
                                        "    restore_interrupt(istat);\n"))]),
     "cop_no_bulk_writeback": (
         "cop_commit_discard(): no bulk write-back with the FIQ open "
         "(the whole write-back masked again)",
-        [(_BULK, "")]),
+        [(_BULK, "    (void)disable_interrupt_save(IRQ_FIQ_STATUS);\n")]),
     "cop_block_512": (
         "cop_commit_discard(): one block, the FIQ never opens",
         [("#define CDS_BLOCK_LINES 64", "#define CDS_BLOCK_LINES 512")]),
@@ -95,10 +97,12 @@ MUTANTS = {
         [(_OPEN, "    open = (istat | IRQ_STATUS) & ~FIQ_STATUS;\n")]),
     "cop_masks_fiq_only": (
         "cop_commit_discard(): the IRQ not masked",
-        [("    istat = disable_interrupt_save(IRQ_FIQ_STATUS);\n"
-          "    /* the FIQ may open",
-          "    istat = disable_interrupt_save(FIQ_STATUS);\n"
-          "    /* the FIQ may open")]),
+        [("    istat = disable_interrupt_save(IRQ_STATUS);\n"
+          "    commit_dcache_hw();\n"
+          "    (void)disable_interrupt_save(IRQ_FIQ_STATUS);\n",
+          "    istat = disable_interrupt_save(0);\n"
+          "    commit_dcache_hw();\n"
+          "    (void)disable_interrupt_save(FIQ_STATUS);\n")]),
     "cop_dispatch_removed": (
         "commit_discard_idcache(): the COP takes the upstream path "
         "(the FIQ masked throughout)",
@@ -111,6 +115,26 @@ MUTANTS = {
           "        register int istat = disable_interrupt_save(IRQ_STATUS);")]),
     "cpu_no_writeback": (
         "commit_discard_idcache(), CPU: no write-back before the rewrite",
-        [("        commit_dcache();\n        cache_invalidate_special();\n",
+        [("        commit_dcache_hw();\n        cache_invalidate_special();\n",
           "        cache_invalidate_special();\n")]),
+    # 0.9.0 fiqstall (#436): the FIQ window before every whole-cache
+    # operation
+    "cop_no_window": (
+        "cop_commit_discard(): no FIQ window before the bulk write-back",
+        [("    mstall_window(COP);\n", "")]),
+    "commit_no_window": (
+        "commit_dcache(): no FIQ window before the write-back",
+        [("        mstall_window(core);\n"
+          "        istat = disable_interrupt_save(IRQ_STATUS);\n",
+          "        istat = disable_interrupt_save(IRQ_STATUS);\n")]),
+    "cpu_no_window": (
+        "commit_discard_idcache(), CPU: no FIQ window before the drop",
+        [("        mstall_window(core);\n        t0 = USEC_TIMER;\n",
+          "        t0 = USEC_TIMER;\n")]),
+    "window_after_mask": (
+        "commit_dcache(): the window runs with the IRQ masked (after it)",
+        [("        mstall_window(core);\n"
+          "        istat = disable_interrupt_save(IRQ_STATUS);\n",
+          "        istat = disable_interrupt_save(IRQ_STATUS);\n"
+          "        mstall_window(core);\n")]),
 }

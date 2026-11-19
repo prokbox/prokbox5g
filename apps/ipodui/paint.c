@@ -37,6 +37,7 @@
 #include "font.h"
 #include "ipodui/theme.h"
 #include "ipodui/paint.h"
+#include "ipodui/locale_core.h"
 #include "ipodui/material.h"
 
 /* Original chevron artwork: coverage 0 (none) .. 15 (full ink), generated
@@ -249,18 +250,19 @@ static int str_w(const char *s, int n)
 void ui_paint_text_centre(int cx, int y_base, int max_w, const char *s)
 {
     struct font *pf = font_get(lcd_current_viewport->font);
-    char buf[64];
+    char buf[128];
     int n = strlen(s), w = str_w(s, n);
 
     if (w > max_w)
     {
+        UI_FIT_TRACE("centre", s, w, max_w);
         /* cut at a character boundary that leaves room for "..." */
         int dots = str_w("...", 3);
         while (n > 0 && str_w(s, n) + dots > max_w)
             n--;
         while (n > 0 && ((unsigned char)s[n] & 0xc0) == 0x80)
             n--;                        /* not inside a UTF-8 sequence */
-        n = MIN(n, (int)sizeof(buf) - 4);
+        n = (int)locale_utf8_cut(s, MIN(n, (int)sizeof(buf) - 4));
         memcpy(buf, s, n);
         strcpy(buf + n, "...");
         s = buf;
@@ -269,8 +271,14 @@ void ui_paint_text_centre(int cx, int y_base, int max_w, const char *s)
     lcd_putsxy(cx - w / 2, y_base - pf->ascent, s);
 }
 
-int ui_paint_text_wrap(int cx, int y_last, int max_w, int max_lines,
-                       int pitch, const char *s)
+/* #266: line breaks for East Asian text: locale_core.c (host-tested) */
+int ui_wrap_next(const char *s, int j)
+{
+    return locale_wrap_next(s, j);
+}
+
+static int text_wrap(int cx, int y, bool top, int max_w, int max_lines,
+                     int pitch, const char *s)
 {
     const char *line[4];
     int len[4], n = 0, k;
@@ -287,10 +295,7 @@ int ui_paint_text_wrap(int cx, int y_last, int max_w, int max_lines,
             s++;
         while (s[j])
         {
-            while (s[j] == ' ')
-                j++;
-            while (s[j] && s[j] != ' ')
-                j++;
+            j = ui_wrap_next(s, j);
             if (end > 0 && str_w(s, j) > max_w)
                 break;
             end = j;
@@ -305,13 +310,55 @@ int ui_paint_text_wrap(int cx, int y_last, int max_w, int max_lines,
         s++;
     for (k = 0; k < n; k++)
     {
-        char buf[64];
-        int l = MIN(len[k], (int)sizeof(buf) - 4);
+        char buf[128];
+        int l = (int)locale_utf8_cut(line[k],
+                                     MIN(len[k], (int)sizeof(buf) - 4));
         memcpy(buf, line[k], l);
         buf[l] = '\0';
         if (k == n - 1 && *s)
+        {
+            UI_FIT_TRACE("wrap", s, 0, max_lines);
             strcpy(buf + l, "...");     /* more text than lines */
-        ui_paint_text_centre(cx, y_last - (n - 1 - k) * lh, max_w, buf);
+        }
+        ui_paint_text_centre(cx, top ? y + k * lh : y - (n - 1 - k) * lh,
+                             max_w, buf);
     }
     return n;
+}
+
+int ui_paint_text_wrap(int cx, int y_last, int max_w, int max_lines,
+                       int pitch, const char *s)
+{
+    return text_wrap(cx, y_last, false, max_w, max_lines, pitch, s);
+}
+
+int ui_paint_text_wrap_lines(int max_w, int max_lines, const char *s)
+{
+    int n = 0;
+
+    while (*s && n < max_lines)
+    {
+        int end = 0, j = 0;
+
+        while (*s == ' ')
+            s++;
+        while (s[j])
+        {
+            j = ui_wrap_next(s, j);
+            if (end > 0 && str_w(s, j) > max_w)
+                break;
+            end = j;
+        }
+        if (end == 0)
+            break;
+        n++;
+        s += end;
+    }
+    return n;
+}
+
+int ui_paint_text_wrap_top(int cx, int y_first, int max_w, int max_lines,
+                           int pitch, const char *s)
+{
+    return text_wrap(cx, y_first, true, max_w, max_lines, pitch, s);
 }

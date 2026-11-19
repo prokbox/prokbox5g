@@ -82,6 +82,37 @@ void bcmjob_apply(void);
  * (no driver, or another thread) */
 int bcmjob_dev_inject_fail(uint32_t op, uint32_t n);
 #define HAVE_BCMJOB_INJECT
+/* Sitting b10 (bench rows jobs and jobsx; bcmjob_ring.h): the ring as
+ * the driver read it back at the last job wait that ran out (returns its
+ * seq: 0 none this boot, or not the owner's thread); arm: one more look
+ * (the driver takes at most BJR_LOOKS_MAX a boot by itself); forgive: the
+ * op's slow and failed marks go, so the next self-test runs at all.  The
+ * owner's thread only (forgive: 0, or -1) */
+struct bjc_ring_look;
+uint32_t bcmjob_dev_ring_look(struct bjc_ring_look *out);
+void bcmjob_dev_ring_arm(void);
+int bcmjob_dev_forgive(uint32_t op);
+/* ... and the port lock's record (bjc_port lock_stats): mutex refusals,
+ * the last refused caller, locks entered with the tick block set, the
+ * last such caller; any thread */
+void bcmjob_dev_port_stats(uint32_t out[4]);
+#define HAVE_BCMJOB_RING_LOOK
+/* #257 (bench rows ovsw, artsoak, ovtrk; bcmjob_ring.h): an overlay swap
+ * makes the driver flush the BCM's caches from the host before the
+ * region is rewritten and before OVERLAY.  ovl_flushes: the last of each
+ * (out[0] "drain", out[1] "code"; seq 0: none yet), returns the flushes
+ * this boot (0 also when not the owner's thread).  ovl_look: the look the
+ * driver took when an OVERLAY never answered (step, J_OPS, the region's
+ * FNV-1a against the file's), returns its seq (0: none).  ovl_look_now:
+ * the same look at once at kind's region (BCMJOB_OVL_*), e.g. after a
+ * swap that answered; 0, or -1 (no driver, our image not up, another
+ * thread).  The owner's thread only */
+struct bjc_ovl_look;
+struct bjc_code_flush;
+uint32_t bcmjob_dev_ovl_flushes(struct bjc_code_flush *out);
+uint32_t bcmjob_dev_ovl_look(struct bjc_ovl_look *out);
+int bcmjob_dev_ovl_look_now(int kind, struct bjc_ovl_look *out);
+#define HAVE_BCMJOB_OVL_LOOK
 #endif
 #endif
 struct bcmjob_slot;

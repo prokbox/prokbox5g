@@ -1,0 +1,38 @@
+# p090-floor3: the statistics settle's rare path. The publication settles
+# the candidate's statistics (the journal replayed into it, the lookup
+# table freed) before it takes its view pool; a statistic queued after
+# that settle and before the publication's finish needs the table again.
+# The finish must see the journal moved ("cand stats moved after settle"),
+# refuse, prepare anew and publish on the retry, with the statistic in the
+# new library. commit_hold 102 holds the publication at the finish's
+# start (inside its locked part; queueing a statistic takes no lock), and
+# stat_write queues a rating there, as the shell's rating does.
+# Red arm: without the finish's cursor check the line never appears.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p090-settle-moved.script
+# needs: library
+# golden: skip
+# timeout: 240
+# logafter: held cand stats moved after settle: prepare again
+# logafter: held db gen \d+ n=
+wait 4000
+wait_db 45000
+stat_idx /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+stat_mark /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3 rating
+commit_hold 102
+db_mark
+db_gen_mark
+copy ../../tests/fixtures/plain.mp3 /Music/p090-settle.mp3
+update_db
+commit_hold_wait 90000
+ab_mark held
+stat_write rating 7
+commit_release
+expect_db_grew 90000
+expect_db_gen_change 90000  # published on the retry
+wait 1000
+expect_stat /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3 rating=7..7 5000
+shot end
+stat_idx /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+stat_write rating 0
+rm_file /Music/p090-settle.mp3
+quit

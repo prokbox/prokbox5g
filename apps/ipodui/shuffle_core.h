@@ -30,7 +30,8 @@
  *
  * A shuffled order over N items costs O(1) RAM: position k (0..N-1) maps
  * to item shuf_perm_at(p, k), a keyed 4-round Feistel permutation of the
- * smallest even-bit power of two >= N, cycle-walked into [0, N). It is a
+ * smallest even-bit power of two >= N (at least 4^SHUF_HALF_MIN = 1,024),
+ * cycle-walked into [0, N). It is a
  * bijection, so every item comes exactly once per lap (no repeats until
  * exhausted), it is deterministic for a seed (resume = seed + position),
  * and it runs both ways (previous track = position k - 1). Every struct
@@ -40,6 +41,10 @@
 #include <stdint.h>
 
 #define SHUF_NONE 0xffffffffu
+/* p090-shuffle: the narrowest Feistel half (bits). The width is kept in
+ * struct shuf_perm, so a run saved by an older build (1-4 bit halves for
+ * n <= 256) resumes in its own order. */
+#define SHUF_HALF_MIN 5
 
 struct shuf_perm {
     uint32_t n;             /* items */
@@ -51,7 +56,7 @@ struct shuf_perm {
 void     shuf_perm_init(struct shuf_perm *p, uint32_t n, uint32_t seed);
 /* Item at position i (i < n), else SHUF_NONE. Average cost: under 4
  * Feistel evaluations (4 rounds, 2 multiplies each) because the domain is
- * less than 4n. */
+ * less than 4n (n <= 256: ~1,024/n, the domain's floor). */
 uint32_t shuf_perm_at(const struct shuf_perm *p, uint32_t i);
 
 /* Seed for lap 'lap' (0, 1, ...) of a run started with 'seed' (repeat on:

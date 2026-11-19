@@ -29,6 +29,7 @@
 #ifdef DBGEN_HOST
 #include <strings.h>
 #endif
+#include <stddef.h>
 #include <stdint.h>
 #ifdef DBGEN_HOST
 #include <fcntl.h>
@@ -107,7 +108,11 @@ static int test_remove(const char *path)
 #endif
 
 #define DBGEN_MAGIC 0x47445049u /* IPDG; native endian, this device only */
-#define DBGEN_VERSION 1
+/* 2 (p090-upgpage): the library stamp (struct libstamp) in what were the
+ * last four file slots; a version-1 manifest is read as one with no stamp
+ * (its slots past its count are zero) */
+#define DBGEN_VERSION 2
+#define DBGEN_VERSION_NOSTAMP 1
 #define DBGEN_RECOVERY 3        /* database_gen3: torn-manifest fresh builds */
 typedef char dbgen_generations_check[DBGEN_RECOVERY + 1 == DBGEN_GENERATIONS ? 1 : -1];
 
@@ -119,9 +124,25 @@ struct manifest {
     int32_t commitid, entries;
     uint32_t structural;
     struct file_stamp file[DBGEN_MAX_FILES];
+    struct libstamp lib;    /* p090-upgpage: version 2 */
     uint32_t sum, reserved; /* Explicit padding: same layout on host/ARM. */
 };
 typedef char manifest_size_check[sizeof(struct manifest) == 304 ? 1 : -1];
+/* version 1's layout kept: the stamp where file[28..31] were */
+typedef char manifest_lib_check[offsetof(struct manifest, lib) == 264
+                                && offsetof(struct manifest, sum) == 296
+                                ? 1 : -1];
+
+/* p090-upgpage: an intact manifest refused for its library stamp (not
+ * this firmware's: ops->stamp); the stamp found into ops->stale */
+static bool stale_stamp(const struct manifest *m, const struct dbgen_ops *ops)
+{
+    if (!ops->stamp || libstamp_check(&m->lib, ops->stamp) == LIBSTAMP_OK)
+        return false;
+    if (ops->stale)
+        *ops->stale = m->lib;
+    return true;
+}
 
 struct workspace {
     struct manifest manifest[2];
@@ -268,7 +289,11 @@ static enum dbgen_result read_manifest(const char *root, unsigned slot,
         return DBGEN_CORRUPT;
     /* Intact but written by another version/schema: never selected, yet
      * its gen field is trustworthy enough to keep that directory safe. */
-    if (m->version != DBGEN_VERSION || !m->seq || m->gen > DBGEN_RECOVERY
+    if (m->version == DBGEN_VERSION_NOSTAMP)
+        memset(&m->lib, 0, sizeof(m->lib));    /* before the stamp */
+    else if (m->version != DBGEN_VERSION)
+        return DBGEN_FOREIGN;
+    if (!m->seq || m->gen > DBGEN_RECOVERY
         || m->count != ops->count || m->schema != schema(ops)
         || m->entries < 0 || m->commitid < 0 || m->reserved)
         return DBGEN_FOREIGN;
@@ -373,6 +398,8 @@ enum dbgen_result dbgen_select(const char *root, char out[DBGEN_PATH_MAX],
         if (rc == DBGEN_OK)
         {
             if (!gen_path(out, root, w->manifest[i].gen)) return DBGEN_INVALID;
+            /* p090-upgpage: another firmware's library: none of it read */
+            if (stale_stamp(&w->manifest[i], ops)) return DBGEN_STALE;
             rc = validate_generation(out, &w->manifest[i], scratch, bytes, ops, false);
             if (rc == DBGEN_OK) return DBGEN_OK;
             out[0] = 0;
@@ -429,6 +456,7 @@ enum dbgen_result dbgen_select_quick(const char *root,
     else return w->status[0] == DBGEN_MISSING && w->status[1] == DBGEN_MISSING
                 ? DBGEN_LEGACY : DBGEN_CORRUPT;
     const struct manifest *m = &w->manifest[i];
+    if (stale_stamp(m, ops)) return DBGEN_STALE;
     char path[DBGEN_PATH_MAX];
     if (!gen_path(path, root, m->gen)) return DBGEN_INVALID;
     for (unsigned f = 0; f < ops->count; f++)
@@ -952,6 +980,8 @@ enum dbgen_result dbgen_stage_publish(const char *root, const char *candidate,
     m.seq = seq + 1;
     m.count = ops->count;
     m.schema = schema(ops);
+    if (ops->stamp)
+        m.lib = *ops->stamp;
     m.commitid = commitid;
     m.entries = entries;
     enum dbgen_result result = validate_generation(candidate, &m, scratch, bytes, ops, true);

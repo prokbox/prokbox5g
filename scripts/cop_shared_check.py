@@ -88,6 +88,10 @@ FIQ_ROOTS = [
     'al_more', 'sink_dma_stop', 'ac_get_more', 'ac_status',
     # mixer_set_tap() targets (pcm_mixer.c calls mixer_tap from the mix)
     'vt_tap', 'ap_tap',
+    # 0.9.0 fiqstall (#436): the FIQ calls commit_dcache() (a buffer's
+    # write-back), which the walker never enters (febe_reach_check.py
+    # LEAF_OK); what it now calls is named instead
+    'mstall_window', 'mstall_note', 'pcm_pp_fiq_window',
 ]
 
 # kernel and blocking calls a FIQ must never make: the COP's thread it

@@ -330,6 +330,10 @@ enum { LIB_PRE_DONE, LIB_PRE_WAIT, LIB_PRE_ERROR };
 int  lib_precompute(bool force, bool (*stop)(void));
 struct tagcache_context;
 bool lib_generation_pool_prepare(struct tagcache_context *ctx);
+/* The bytes lib_generation_pool_prepare() takes for a generation of n
+ * entries: its spare plus a row each, or the active pool's size if that
+ * is larger. No allocation (the paused window's peak, tagcache.c). */
+size_t lib_generation_pool_want(long n);
 void lib_generation_pool_abandon(struct tagcache_context *ctx);
 int lib_precompute_ctx(struct tagcache_context *ctx, bool force,
                        bool (*stop)(void));
@@ -491,5 +495,19 @@ bool lib_is_video(int view, int idx);
  * the UI thread, no lock, no I/O). false before any precompute. */
 bool lib_vstats(struct libfile_vstats *out);
 #endif
+
+/* #286: why row idx of a view can't play (enum unplayable_reason,
+ * metadata.h; TAGCACHE_UI_UNPLAYABLE() of the row's flag word), 0 if it
+ * plays. Track rows read their own entry, book rows (the Audiobooks
+ * list, Search's book results) their book's representative; other group
+ * rows and out of range give 0. RAM only: no I/O, no yield. The lists
+ * grey such rows; SELECT on one shows why (ui_noplay_row(),
+ * screens/noplay.c) and plays nothing; the hold menu leaves out Add to
+ * On-The-Go. */
+int lib_row_unplayable(int view, int idx);
+/* #286: the class bits (TAGCACHE_UI_AUDIOBOOK, _PODCAST, _ANY_VIDEO of
+ * tagcache.h) of the entry lib_row_unplayable() reads, 0 for music and
+ * for rows it gives 0. RAM only. Picks the can't-play page's kind. */
+int lib_row_class(int view, int idx);
 
 #endif /* _IPODUI_LIBRARY_H_ */

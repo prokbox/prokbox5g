@@ -81,13 +81,68 @@ static unsigned short addctrl_reg WM_XBSS;      /* without M128ENB */
  * (dac_set_width3d() through dac_eq_set_m128()).  The bit is their OR, in
  * dac_state.m128; audiohw_set_frequency() writes it back from there */
 static bool dac_m128_eq WM_XBSS, dac_m128_3d WM_XBSS;
+/* p090-osr128: the third user, the high rates at 128x while the
+ * dac_set_m128_hirate() switch is on (dac_hr_sync()) */
+static bool dac_m128_hr WM_XBSS;
+#ifdef HAVE_HIRATE_OUT
+/* p090-osr128: what the shell last asked of the EQ, so the high-rate
+ * guard (dac_hr_sync()) can hold it flat and give it back.  eq_req_on
+ * false: the EQ off (dac_eq_set(NULL)) */
+static struct dac_eq_band eq_req[DAC_EQ_BANDS] WM_XBSS;
+static bool eq_req_on WM_XBSS;
+static int eq_req_precut WM_XBSS, eq_req_makeup WM_XBSS;
+/* p090-osr128 (the owner's faint crackle in the silent tail of a 16/96
+ * track at Hi-Res 128x, 2026-11-16): two bench switches, read back
+ * through dac_get_stats(); release defaults from b18's "128x at 96 kHz"
+ * row (dac_ext.h, the owner's answers, 2026-11-19):
+ *   - DAC_M128_HIRATE_DEFAULT: R7 M128ENB (the DSP core at full rate)
+ *     while 88.2/96 kHz runs at 128x.  On by default: at half rate the
+ *     owner heard a faint crackle in the tail (arm a), at full rate none
+ *     (arm b).  Hi-Res 128x itself stays opt-in;
+ *   - DAC_HR_GUARD_DEFAULT: the codec EQ held flat at 88.2/96 kHz (its
+ *     corners are 48 kHz's, moved an octave).  Off by default: the shell
+ *     pauses presets there itself (#352) and the owner keeps custom slots
+ *     playing at every rate (changes-from-7g.md 2.66); the bench turns it
+ *     on for its baseline arms; b18's arm f (EQ boost and 3D at 96 kHz,
+ *     guard off) played clean.  The 3D stage (Stereo Width) is never
+ *     held: it plays at every rate, as before */
+#ifndef DAC_M128_HIRATE_DEFAULT
+#define DAC_M128_HIRATE_DEFAULT 1
+#endif
+#ifndef DAC_HR_GUARD_DEFAULT
+#define DAC_HR_GUARD_DEFAULT 0
+#endif
+static bool dac_m128_hr_allow WM_XDATA = DAC_M128_HIRATE_DEFAULT;
+static bool dac_hr_guard WM_XDATA = DAC_HR_GUARD_DEFAULT;
+#define DAC_HR_BYPASS() (dac_state.hr_bypass)
+static void dac_hr_sync(void);
+#else
+#define DAC_HR_BYPASS() false
+#endif
 #ifdef HAVE_HIRATE_OUT
 /* p083-dacosr64 (experimental, the 96 kHz clicks): R10 DACOSR follows the
  * rate.  At 88.2/96 kHz SYSCLK runs at 1.84/2.00x the codec's 12.288 MHz
  * rating (#228), so the DAC's interpolation filter runs at 64x (DACOSR 0),
  * half the work per sample; 128x (DACOSR 1, upstream's choice) at 48 kHz
- * and below.  Set by audiohw_set_frequency() only, under dac_mtx */
+ * and below.  Set by audiohw_set_frequency() and dac_set_osr128(), under
+ * dac_mtx */
 static bool dac_osr64 WM_XBSS;
+/* 0.9.0 Settings > Audiophile > Hi-Res 128x (opt-in, default off): the
+ * high rates (DAC_OSR128_88/_96) that run 128x instead of 64x; the shell
+ * passes only the rates the 128x self-test passed.  dac_fsel: the rate
+ * audiohw_set_frequency() set last (-1 before the first) */
+static unsigned char dac_osr128_rates WM_XBSS;
+static signed char dac_fsel WM_XDATA = -1;
+
+/* 64x at this rate?  Caller holds dac_mtx */
+static bool dac_osr64_for(int fsel)
+{
+    if (fsel == HW_FREQ_88)
+        return !(dac_osr128_rates & DAC_OSR128_88);
+    if (fsel == HW_FREQ_96)
+        return !(dac_osr128_rates & DAC_OSR128_96);
+    return false;
+}
 #endif
 /* EQ1..EQ5 as written; 0xffff: unknown, so the first dac_eq_set() writes
  * all five */
@@ -97,6 +152,32 @@ static int dac_precut WM_XBSS;                  /* whole dB, 0..12: applied */
 static int dac_eq_precut WM_XBSS;               /* 0.8.3: the EQ's share */
 static int dac_width_cut WM_XBSS;               /* 0.8.3: the 3D's share */
 static int dac_vol_l WM_XBSS, dac_vol_r WM_XBSS;        /* LDACVOL/RDACVOL before precut */
+/* #203: the EQ's make-up gain (tenth dB, 0..120), summed with Sound
+ * Check's trim into the one trim dac_gain_split() fits under the Volume
+ * Limit (dac_apply_volume()) */
+static int dac_eq_makeup WM_XBSS;
+/* #203: the DAC limiter (R24/R25), on only while the hardware EQ is on and
+ * allowed. Allowed by default since b18 (the owner heard it act in limon,
+ * and eqlim played clean behind the EQ); dac_set_limiter_allow() turns it
+ * off at run time, for the bench */
+#ifndef DAC_LIMITER_DEFAULT
+#define DAC_LIMITER_DEFAULT 1
+#endif
+/* -1 dB threshold, no boost; the slowest decay (768 ms) so it rides rare
+ * peaks without pumping; the register default attack (375 us) */
+#define DAC_LIM_R24_ON  (DACLIMITER1_LIMEN | DACLIMITER1_LIMDCY(10) \
+                         | DACLIMITER1_LIMATK(2))
+#define DAC_LIM_R24_OFF (DACLIMITER1_LIMDCY(3) | DACLIMITER1_LIMATK(2))
+#define DAC_LIM_R25     (DACLIMITER2_LIMLVL(0) | DACLIMITER2_LIMBOOST(0))
+static bool dac_lim_allow WM_XDATA = DAC_LIMITER_DEFAULT;
+static unsigned short dac_lim_reg WM_XDATA = 0xffff;    /* R24 as written */
+/* #327 study: R10 AMUTE (analogue mute after 1024 zero samples), off by
+ * default: b18 left it undecided, so it stays off until the amute row
+ * (click, hiss) is settled */
+#ifndef DAC_AMUTE_DEFAULT
+#define DAC_AMUTE_DEFAULT 0
+#endif
+static bool dac_amute WM_XDATA = DAC_AMUTE_DEFAULT;
 /* hardware Sound Check: the volume as requested (tenth dB) and the trim */
 static int dac_req_l WM_XDATA = DAC_GAIN_MUTE, dac_req_r WM_XDATA = DAC_GAIN_MUTE;
 static int dac_gain_ceil WM_XDATA = DAC_GAIN_VOL_MAX;
@@ -220,14 +301,20 @@ static void get_volume_params(int db, int *dac, int *amp)
     }
 }
 
-/* R10 while playing: the oversampling rate for the current rate */
+/* R10 while playing: the oversampling rate for the current rate, and
+ * AMUTE when the #327 switch is on */
 static unsigned short dacctrl_play(void)
 {
+    unsigned short r = DACCTRL_DACOSR128;
 #ifdef HAVE_HIRATE_OUT
-    return dac_osr64 ? 0 : DACCTRL_DACOSR128;
-#else
-    return DACCTRL_DACOSR128;
+    if (dac_osr64)
+        r = 0;
 #endif
+#ifdef HAVE_IPOD_UI
+    if (dac_amute)
+        r |= DACCTRL_AMUTE;
+#endif
+    return r;
 }
 
 static void audiohw_mute(bool mute)
@@ -297,11 +384,14 @@ static void dac_apply_volume(void)
 {
     int amp_l, amp_r;
 
+    /* #203: one trim, Sound Check's plus the EQ's make-up, fitted under
+     * the Volume Limit as a whole (a boost is capped there; the precut
+     * stays, so at the limit the EQ keeps the rest of its cut) */
+    int trim = dac_state.gain_db10 + dac_eq_makeup;
+
     dac_state.gain_applied_db10 =
-        dac_gain_split(dac_req_l, dac_state.gain_db10, dac_gain_ceil,
-                       &dac_vol_l, &amp_l);
-    dac_gain_split(dac_req_r, dac_state.gain_db10, dac_gain_ceil,
-                   &dac_vol_r, &amp_r);
+        dac_gain_split(dac_req_l, trim, dac_gain_ceil, &dac_vol_l, &amp_l);
+    dac_gain_split(dac_req_r, trim, dac_gain_ceil, &dac_vol_r, &amp_r);
     dac_write_vol();
     wm_write(LOUT1VOL, amp_l | LOUT1VOL_LOUT1ZC);
     wm_write(ROUT1VOL, amp_r | ROUT1VOL_ROUT1ZC | ROUT1VOL_OUT1VU);
@@ -383,7 +473,9 @@ void audiohw_enable_lineout(bool enable)
 static void eq_shelf_write(int band, unsigned short val)
 {
     mutex_lock(&dac_mtx);
-    if (!dac_state.hw_eq && eq_reg[band] != val)
+    /* p090-osr128: under the high-rate EQ guard the shadow only; leaving
+     * it writes the shadows back (dac_hr_sync()) */
+    if (!dac_state.hw_eq && !DAC_HR_BYPASS() && eq_reg[band] != val)
     {
         eq_reg[band] = val;
         wm_write(EQ1 + band, val);
@@ -506,12 +598,15 @@ void audiohw_set_frequency(int fsel)
     /* R10's DACOSR for the new rate (see dac_osr64).  Unmuted: written now
      * (PCM is stopped here); in DAC standby wm_write() keeps it soft-muted
      * and the wake writes the shadow; muted: the unmute writes it */
-    dac_osr64 = fsel == HW_FREQ_96 || fsel == HW_FREQ_88;
+    dac_fsel = fsel;
+    dac_osr64 = dac_osr64_for(fsel);
     if (!(dacctrl_reg & DACCTRL_SOFTMUTE))
-        wm_write(DACCTRL, (dacctrl_reg & ~DACCTRL_DACOSR128) | dacctrl_play());
+        wm_write(DACCTRL, (dacctrl_reg & ~(DACCTRL_DACOSR128 | DACCTRL_AMUTE))
+                          | dacctrl_play());
     dac_state.osr = dac_osr64 ? 64 : 128;
     dac_state.rate_hz = hw_freq_sampr[fsel];
     dac_state.rate_seq++;
+    dac_hr_sync();                      /* p090-osr128: EQ guard, M128ENB */
 #endif
     mutex_unlock(&dac_mtx);
 #else
@@ -545,6 +640,7 @@ void dac_set_width3d(int depth)
     if (depth)
         dac_eq_set_m128(true);
     wm_write(THREEDCTRL, depth);
+    dac_state.width3d = depth;          /* p090-osr128: the bench reads it */
     if (!depth)
         dac_eq_set_m128(false);
 }
@@ -605,11 +701,12 @@ void audiohw_set_monitor(bool enable)
 #ifdef HAVE_IPOD_UI
 /* dac_ext.h (docs/phase15-brief.md sections 2.1, 3.1, 3.2) */
 
-/* #265: M128ENB from its users' requests; written only when it changes.
- * Caller holds dac_mtx.  True when it wrote ADDCTRL */
+/* #265: M128ENB from its users' requests (p090-osr128: three, the high
+ * rates at 128x the third); written only when it changes.  Caller holds
+ * dac_mtx.  True when it wrote ADDCTRL */
 static bool dac_m128_apply(void)
 {
-    bool on = dac_m128_eq || dac_m128_3d;
+    bool on = dac_m128_eq || dac_m128_3d || dac_m128_hr;
 
     if (on == dac_state.m128)
         return false;
@@ -618,11 +715,43 @@ static bool dac_m128_apply(void)
     return true;
 }
 
-void dac_eq_set(const struct dac_eq_band *band, int precut_db)
+/* #203: R24 for the limiter's wanted state; written only on a change.
+ * Caller holds dac_mtx */
+static void dac_lim_apply(bool on)
+{
+    unsigned short r24 = on ? DAC_LIM_R24_ON : DAC_LIM_R24_OFF;
+
+    if (r24 == dac_lim_reg)
+        return;
+    if (on)
+        wm_write(DACLIMITER2, DAC_LIM_R25);     /* threshold before LIMEN */
+    wm_write(DACLIMITER1, r24);
+    dac_lim_reg = r24;
+    dac_state.limiter = on;
+    dac_state.eq_writes += on ? 2 : 1;
+}
+
+/* the volume registers with this precut and make-up, if either changed.
+ * Caller holds dac_mtx */
+static void dac_level_apply(int precut, int makeup)
+{
+    if (precut == dac_precut && makeup == dac_eq_makeup)
+        return;
+    dac_precut = precut;
+    dac_eq_makeup = makeup;
+    dac_apply_volume();
+    dac_state.eq_writes += 4;
+}
+
+/* dac_eq_set()'s writes for this band set (NULL: the EQ off); under the
+ * high-rate guard the shell's request is kept and NULL comes here, with
+ * the bass and treble shelves flat too.  Caller holds dac_mtx */
+static void dac_eq_apply(const struct dac_eq_band *band, int precut_db,
+                         int makeup_db10)
 {
     unsigned short regs[DAC_EQ_BANDS];
-    bool m128;
-    int i;
+    bool m128, lim;
+    int i, pc_new;
 
     if (band)
     {
@@ -637,6 +766,7 @@ void dac_eq_set(const struct dac_eq_band *band, int precut_db)
                 regs[i] |= EQ_BW_WIDE;
         }
         precut_db = MIN(MAX(precut_db, 0), 12);
+        makeup_db10 = MIN(MAX(makeup_db10, 0), 10 * precut_db);
     }
     else
     {
@@ -646,11 +776,28 @@ void dac_eq_set(const struct dac_eq_band *band, int precut_db)
         for (i = 1; i < 4; i++)
             regs[i] = EQ_GAIN_VALUE(0) | EQ_CUTOFF_VALUE(2);    /* 0x02c */
         regs[4] = eq5_reg;
+        if (DAC_HR_BYPASS())
+        {
+            /* p090-osr128: no band has a gain at 88.2/96 kHz */
+            regs[0] = (regs[0] & ~EQ_GAIN_MASK) | EQ_GAIN_VALUE(0);
+            regs[4] = (regs[4] & ~EQ_GAIN_MASK) | EQ_GAIN_VALUE(0);
+        }
         precut_db = 0;
+        makeup_db10 = 0;
     }
 
     /* EQ registers keep their values in standby: no wake needed */
     mutex_lock(&dac_mtx);
+    pc_new = MIN(precut_db + dac_width_cut, 12);   /* 0.8.3 */
+    lim = band != NULL && dac_lim_allow;
+    /* #203 write order (brief review 7): the quiet side first. The larger
+     * of the two precuts and the smaller make-up, and the limiter on,
+     * before any EQ register moves; the new levels (and the limiter off)
+     * only after the last one. So no step plays a boost without its cut,
+     * nor a make-up without its EQ */
+    dac_level_apply(MAX(pc_new, dac_precut), MIN(makeup_db10, dac_eq_makeup));
+    if (lim)
+        dac_lim_apply(true);
     m128 = dac_eq_wants_m128(band);
     if (m128)
     {
@@ -670,7 +817,6 @@ void dac_eq_set(const struct dac_eq_band *band, int precut_db)
     }
     dac_state.hw_eq = band != NULL;
     dac_eq_precut = precut_db;
-    precut_db = MIN(dac_eq_precut + dac_width_cut, 12);   /* 0.8.3 */
     if (!m128)
     {
         /* #265: band 4 flat (or the EQ off): low-power mode again, unless
@@ -679,14 +825,153 @@ void dac_eq_set(const struct dac_eq_band *band, int precut_db)
         if (dac_m128_apply())
             dac_state.eq_writes++;
     }
-    if (dac_precut != precut_db)
+    if (!lim)
+        dac_lim_apply(false);
+    dac_level_apply(pc_new, makeup_db10);
+    dac_state.precut_db = dac_precut;
+    dac_state.makeup_db10 = dac_eq_makeup;
+    mutex_unlock(&dac_mtx);
+}
+
+void dac_eq_set(const struct dac_eq_band *band, int precut_db,
+                int makeup_db10)
+{
+    mutex_lock(&dac_mtx);
+#ifdef HAVE_HIRATE_OUT
+    /* p090-osr128: kept for the guard's release (dac_hr_sync()) */
+    eq_req_on = band != NULL;
+    if (band)
+        memcpy(eq_req, band, sizeof(eq_req));
+    eq_req_precut = precut_db;
+    eq_req_makeup = makeup_db10;
+    if (DAC_HR_BYPASS())
+        band = NULL;
+#endif
+    dac_eq_apply(band, precut_db, makeup_db10);
+    mutex_unlock(&dac_mtx);
+}
+
+#ifdef HAVE_HIRATE_OUT
+/* p090-osr128: the codec at the rate and OSR set now, the two switches
+ * applied: the EQ guard (held flat at 88.2/96 kHz, the shell's request
+ * back below) and the high rates' M128ENB request (88.2/96 kHz at 128x).
+ * Writes only what changes.  Caller holds dac_mtx; PCM stopped or R10
+ * soft-muted (audiohw_set_frequency(), dac_set_osr128(), dac_hr_switch()) */
+static void dac_hr_sync(void)
+{
+    bool hi = dac_fsel == HW_FREQ_88 || dac_fsel == HW_FREQ_96;
+    bool bypass = dac_hr_guard && hi;
+
+    if (bypass != dac_state.hr_bypass)
     {
-        dac_precut = precut_db;
-        dac_write_vol();
-        dac_state.eq_writes += 2;
+        dac_state.hr_bypass = bypass;
+        dac_eq_apply(bypass || !eq_req_on ? NULL : eq_req,
+                     eq_req_precut, eq_req_makeup);
+    }
+    dac_m128_hr = dac_m128_hr_allow && hi && !dac_osr64;
+    dac_m128_apply();
+    dac_state.m128_hr_allow = dac_m128_hr_allow;
+    dac_state.hr_guard = dac_hr_guard;
+}
+#endif
+
+void dac_set_limiter_allow(bool allow)
+{
+    mutex_lock(&dac_mtx);
+    dac_lim_allow = allow;
+    dac_lim_apply(allow && dac_state.hw_eq);
+    mutex_unlock(&dac_mtx);
+}
+
+void dac_set_amute(bool on)
+{
+    mutex_lock(&dac_mtx);
+    dac_amute = on;
+    dac_state.amute = on;
+    /* unmuted: R10 now; muted (or in standby, which keeps it muted): the
+     * next unmute writes it from dacctrl_play() */
+    if (!(dacctrl_reg & DACCTRL_SOFTMUTE))
+        wm_write(DACCTRL, dacctrl_play());
+    mutex_unlock(&dac_mtx);
+}
+
+#ifdef HAVE_HIRATE_OUT
+/* 0.9.0 Hi-Res 128x (dac_ext.h).  At the next rate set, or now when a
+ * high rate is set and its OSR changes: unmuted with PCM running, R10
+ * soft-mutes with the old OSR, the ramp runs out (the datasheet gives no
+ * time: DAC_OSR_RAMP_TICKS is generous), the new OSR goes in still muted,
+ * then the unmute; PCM stopped, muted or in standby, the shadow alone
+ * (the unmute or the wake writes it).  Thread context: sleeps with
+ * dac_mtx held, so a volume change waits ~30 ms */
+#define DAC_OSR_RAMP_TICKS  (HZ / 50 + 1)
+void dac_set_osr128(unsigned int rates)
+{
+    bool o64;
+
+    mutex_lock(&dac_mtx);
+    dac_osr128_rates = rates & (DAC_OSR128_88 | DAC_OSR128_96);
+    o64 = dac_osr64_for(dac_fsel);
+    if (dac_fsel >= 0 && o64 != dac_osr64)
+    {
+        unsigned short mute = (dacctrl_reg & ~DACCTRL_DACOSR128)
+                              | DACCTRL_SOFTMUTE;
+
+        if (!(dacctrl_reg & DACCTRL_SOFTMUTE) && !dac_state.standby
+            && pcm_is_playing())
+        {
+            wm_write_raw(DACCTRL, mute | (dac_osr64 ? 0 : DACCTRL_DACOSR128));
+            sleep(DAC_OSR_RAMP_TICKS);
+            dac_osr64 = o64;
+            wm_write_raw(DACCTRL, mute | (o64 ? 0 : DACCTRL_DACOSR128));
+            sleep(1);
+        }
+        dac_osr64 = o64;
+        dac_hr_sync();      /* p090-osr128: M128ENB, before the unmute */
+        if (!(dacctrl_reg & DACCTRL_SOFTMUTE))
+            wm_write(DACCTRL, dacctrl_play());
+        dac_state.osr = o64 ? 64 : 128;
+        dac_state.rate_seq++;
     }
     mutex_unlock(&dac_mtx);
 }
+
+/* p090-osr128: a bench switch changed; the codec follows at once.  When
+ * that moves a register while music plays at a high rate, the change
+ * goes in under a soft-mute ramp, as dac_set_osr128()'s.  Caller holds
+ * dac_mtx */
+static void dac_hr_switch(void)
+{
+    bool hi = dac_fsel == HW_FREQ_88 || dac_fsel == HW_FREQ_96;
+
+    if (hi && !(dacctrl_reg & DACCTRL_SOFTMUTE) && !dac_state.standby
+        && pcm_is_playing())
+    {
+        wm_write_raw(DACCTRL, dacctrl_reg | DACCTRL_SOFTMUTE);
+        sleep(DAC_OSR_RAMP_TICKS);
+        dac_hr_sync();
+        sleep(1);
+        wm_write_raw(DACCTRL, dacctrl_reg);
+    }
+    else
+        dac_hr_sync();
+}
+
+void dac_set_m128_hirate(bool on)
+{
+    mutex_lock(&dac_mtx);
+    dac_m128_hr_allow = on;
+    dac_hr_switch();
+    mutex_unlock(&dac_mtx);
+}
+
+void dac_set_hirate_eq_guard(bool on)
+{
+    mutex_lock(&dac_mtx);
+    dac_hr_guard = on;
+    dac_hr_switch();
+    mutex_unlock(&dac_mtx);
+}
+#endif
 
 /* 0.8.3: the stereo width's share of the precut (dac_ext.h) */
 void dac_set_width_cut(int db)
@@ -701,6 +986,7 @@ void dac_set_width_cut(int db)
     {
         dac_precut = total;
         dac_write_vol();
+        dac_state.precut_db = total;
     }
     mutex_unlock(&dac_mtx);
 }
@@ -899,3 +1185,34 @@ void dac_get_stats(struct dac_stats *s)
     *s = dac_state;
 }
 #endif /* HAVE_IPOD_UI */
+
+#if defined(HAVE_IPOD_UI_DEVMODE) && defined(IPOD_VIDEO) && !defined(BOOTLOADER)
+/* ProkBox developer-only (b17 bench, codec30v): the codec supply's level,
+ * D1REGC1 = 0xf5 (3.0 V, the release default) or 0xf0 (2.5 V, for one
+ * listening arm). Set only while PCM is stopped (muted) or the codec is in
+ * standby, so the step never lands in live audio. The PMU register reads
+ * back, so the getter reports the rail itself. */
+#include "pcf50605.h"
+
+/* Returns the rail's 5-bit-plus-mode code read from the PMU (0xf5, 0xf0),
+ * or -1 when the PMU did not answer */
+int dac_rail_get(void)
+{
+    int v = pcf50605_read(0x24);        /* D1REGC1 */
+    return v < 0 ? -1 : (v & 0xff);
+}
+
+/* full: true = 3.0 V (0xf5), false = 2.5 V (0xf0). Returns the code read
+ * back (so the caller sees it took), or -1 if refused (music playing and
+ * the codec awake) or the PMU failed */
+int dac_rail_set(bool full)
+{
+    unsigned char code = full ? 0xf5 : 0xf0;
+
+    if (pcm_is_playing() && !dac_in_standby())
+        return -1;
+    if (pcf50605_write(0x24, code) < 0)
+        return -1;
+    return dac_rail_get();
+}
+#endif

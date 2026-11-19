@@ -1027,6 +1027,15 @@ static volatile bool quiet_restart PLAY_STATUS_XCORE;
 static volatile bool pause_posted PLAY_STATUS_XCORE;
 static volatile bool pause_wanted PLAY_STATUS_XCORE;
 #define PAUSE_POSTED    2       /* Q_AUDIO_PAUSE data: apply pause_wanted */
+/* #362: the PCM is paused ahead of the audio thread (pause_pcm_hold()):
+ * the press silences at once, even while the thread sits in a track load
+ * or a fill's storage waits; the thread takes its own state from the
+ * queued event as before. True only while play_status is still
+ * PLAY_PLAYING and that event is queued; audio_pcmbuf_may_play() refuses
+ * a PCM start meanwhile. Written on the CPU only; read by the FIQ (the
+ * may-play check, layout A), so uncached like play_status. */
+static volatile bool pause_held PLAY_STATUS_XCORE;
+static void pause_pcm_hold(bool pause);
 /* a paused shrink's stop (shrink_callback, Q_AUDIO_STOP data 2): no
  * finish event, so no statistics for a song that never ended */
 static bool quiet_stop;
@@ -1035,6 +1044,19 @@ static size_t audiobuf_total;   /* the block's size (audio_buffer_give()) */
  * this give is posted instead (one at a time; audio thread clears it) */
 static struct audio_give async_give;
 static volatile bool async_give_posted;
+/* #170: the shell's reserve, the audio block's last bytes, after PCM
+ * ([SCRATCH|BUFFERING|PCM|RESERVE]). Nothing playing reads or writes
+ * them, so a shrink while playing (or paused) cuts them off the block's
+ * end in place (shrink_callback()): no stop, no restart, no gap, and Now
+ * Playing never sees "stopped". Carved again at every buffer setup
+ * (audio_reset_buffer_noalloc()); written on the CPU only (buflib's walk,
+ * the audio thread's setup). Sized from the while-playing allocations
+ * (docs/changes-from-rockbox.md 3.7): the power log's ring 7,160,
+ * an AB book block 11,344, the viz overlay piece 8,240, menu states and
+ * buflib's handle-table growth; the 58,368 B Now Playing block (made
+ * once, on the first Now Playing) fits too. */
+#define AUDIO_SHELL_RESERVE (64*1024)
+static size_t audio_res_left;
 #endif
 #define AUDIO_BUFFER_RESERVE (256*1024)
 static size_t filebuflen;
@@ -1086,6 +1108,14 @@ static void audio_reset_buffer_noalloc(
        changed, do check the adjustments after the buffer_alloc call
        as it will likely be affected and need sliding over */
     size_t allocsize;
+#ifdef HAVE_IPOD_UI
+    /* #170: the shell's reserve at the very end, past PCM, whenever the
+     * rest still holds PCM, scratch and buffering's own minimum */
+    audio_res_left = filebuflen >= AUDIO_SHELL_RESERVE + pcmbuf_size_reqd()
+                                   + scratch_mem_size() + AUDIO_BUFFER_RESERVE
+                     ? AUDIO_SHELL_RESERVE : 0;
+    filebuflen -= audio_res_left;
+#endif
     /* Subtract whatever the pcm buffer says it used plus the guard
        buffer */
     allocsize = pcmbuf_init(filebuf + filebuflen);
@@ -1153,6 +1183,27 @@ static int shrink_callback(int handle, unsigned hints, void* start, size_t old_s
 
     bool give_up = false;
 #ifdef HAVE_IPOD_UI
+    /* #170: playing or paused, the allocation comes out of the reserve
+     * past PCM: the block's end is cut in place (data unmoved; buflib
+     * finds the bytes after the block, or compacts into them). Stopped,
+     * the old path below re-carves the reserve whole. */
+    if (audio_res_left && (audio_status() & AUDIO_STATUS_PLAY))
+    {
+        size_t take = ALIGN_UP(hints & BUFLIB_SHRINK_SIZE_MASK,
+                               sizeof (intptr_t));
+
+        if (take && take <= audio_res_left && take < old_size)
+        {
+            core_shrink(handle, start, old_size - take);
+            audio_res_left -= take;
+            audiobuf_total = old_size - take;
+            ui_log("audio", "reserve take want=%u left=%u status=%d",
+                   (unsigned)take, (unsigned)audio_res_left, audio_status());
+            return BUFLIB_CB_OK;
+        }
+        ui_log("audio", "reserve short want=%u left=%u",
+               (unsigned)take, (unsigned)audio_res_left);
+    }
     /* fb-stall: an allocation is taking memory from playback (playing: a
      * stop and restart, a gap of seconds). Logged on the device too
      * (ipodui.log), with the allocating thread. */
@@ -1229,6 +1280,7 @@ static int shrink_callback(int handle, unsigned hints, void* start, size_t old_s
     if (paused)
         playing = true;
     bool had_wish = pause_posted;   /* #345: replayed after the restart */
+    bool had_hold = pause_held;     /* #362: the restart stays quiet */
 #endif
     /* There's one problem with stoping and resuming: If it happens in a too
      * frequent fashion, the codecs lose the resume postion and playback
@@ -1269,6 +1321,7 @@ static int shrink_callback(int handle, unsigned hints, void* start, size_t old_s
         queue_clear(&audio_queue);
 #ifdef HAVE_IPOD_UI
         pause_posted = false;       /* #345: dropped; replayed below */
+        pause_held = false;         /* #362: with it */
 #endif
     }
     else
@@ -1318,6 +1371,8 @@ static int shrink_callback(int handle, unsigned hints, void* start, size_t old_s
         if (had_wish || pause_posted)
         {   /* #345: a posted PLAY press the stop dropped, after it too */
             pause_posted = true;
+            /* #362: a held pause keeps the restart from sounding */
+            pause_held = had_hold && pause_wanted;
             audio_queue_post(Q_AUDIO_PAUSE, PAUSE_POSTED);
         }
 #endif
@@ -2017,7 +2072,11 @@ static void audio_ff_rewind_end(void)
             audio_pcmbuf_sync_position();
         }
 
-        if (play_status != PLAY_PAUSED)
+        if (play_status != PLAY_PAUSED
+#ifdef HAVE_IPOD_UI
+            && !pause_held          /* #362: a held pause stays quiet */
+#endif
+            )
         {
             /* Seeking-while-playing, resume PCM playback */
             pcmbuf_pause(false);
@@ -3031,6 +3090,10 @@ static int audio_load_track(void)
 #ifdef HAVE_PLAY_FREQ
 static bool audio_auto_change_frequency(struct mp3entry *id3, bool play);
 #endif
+#ifdef PCMBUF_FMT_SWITCH
+static void audio_fmt_next_track(void);
+static bool audio_fmt_seamless(void);
+#endif
 
 /* Second part of the track loading: We now have the metadata available, so we
    can load the codec, the album art and finally the audio data.
@@ -3608,7 +3671,16 @@ static void audio_finalise_track_change(void)
     audio_playlist_track_change();
 
 #ifdef HAVE_PLAY_FREQ
-    if (filling == STATE_STOPPED)
+    if (filling == STATE_STOPPED
+#ifdef PCMBUF_FMT_SWITCH
+        /* #214 (p090-int3): with the seamless switch a track buffered
+           ahead keeps its own format, so buffering no longer stops at a
+           format change; a manual skip onto such a track must check here
+           as a start does (an automatic change switches at the boundary,
+           pcmbuf.c), or it plays converted to the old output rate */
+        || (track_skip_is_manual && audio_fmt_seamless())
+#endif
+       )
         audio_auto_change_frequency(track_id3, true);
 #endif
 }
@@ -3622,6 +3694,11 @@ static void audio_begin_track_change(enum pcm_track_change_type type,
     pcmbuf_start_track_change(type);
 
     track_skip_is_manual = (type == TRACK_CHANGE_MANUAL);
+#ifdef PCMBUF_FMT_SWITCH
+    /* #214: before the codec writes the next track's first frame */
+    if (!track_skip_is_manual && trackstat >= LOAD_TRACK_OK)
+        audio_fmt_next_track();
+#endif
 
     if (track_skip_is_manual)
     {
@@ -4013,6 +4090,13 @@ static void audio_start_playback(const struct audio_resume_info *resume_info,
             return; /* Must already be playing */
 
 #ifdef HAVE_IPOD_UI
+        /* p090-floor3: a library update's memory (an unpublished
+         * candidate's RAM cache, the retired library's) goes back
+         * before the buffer is sized, when the buffer would otherwise
+         * be short (bounded wait; tagcache.c). Its release asks for the
+         * regrow below. */
+        if (!quiet_restart)
+            tagcache_ui_play_release(audio_buffer_size() + core_allocatable());
         /* memory was freed since the buffer was sized: size it anew
          * (audio_fill_file_buffer() resets a trashed buffer) */
         if (audiobuf_regrow && !quiet_restart) /* not the window's restart */
@@ -4225,6 +4309,15 @@ static void audio_on_pause(bool pause)
     bool do_fade = global_settings.fade_on_stop;
 
 #ifdef HAVE_IPOD_UI
+    if (pause && pause_held)
+    {   /* #362: the poster's hold paused the PCM already (its fade may
+         * still run, and ends the channel itself); make sure of it */
+        pause_held = false;
+        if (!ff_rw_mode && !pcmbuf_fading())
+            pcmbuf_pause(true);
+        send_event(PLAYBACK_EVENT_STOP_OR_PAUSE, NULL);
+        return;
+    }
     pcmbuf_note_pause(pause);   /* 0.8.3: the pause-to-standby line */
 #endif
     pcmbuf_fade(do_fade, !pause);
@@ -4539,14 +4632,93 @@ static void audio_on_ff_rewind(long time)
     audio_handle_track_load_status(LOAD_TRACK_ERR_START_CODEC);
 }
 
+#ifdef HAVE_IPOD_UI
+/* p090-shuffle: the tracks buffered after the current one and their
+   buffered bytes (the audio handle's file data in RAM): what a flush
+   throws away and reads again, or what an append keeps */
+static void ahead_bytes(int *tracks, unsigned long *bytes)
+{
+    struct track_info info;
+    int k;
+
+    *tracks = 0;
+    *bytes = 0;
+    for (k = 1; track_list_current(k, &info); k++)
+    {
+        struct mp3entry *id3 = bufgetid3(info.id3_hid);
+        off_t rem;
+
+        (*tracks)++;
+        if (info.audio_hid < 0 || !id3)
+            continue;
+        rem = buf_handle_remaining(info.audio_hid);
+        if (rem >= 0 && (off_t)id3->filesize > rem)
+            *bytes += (unsigned long)((off_t)id3->filesize - rem);
+    }
+}
+
+/* p090-shuffle: entries were only appended at the end of the playlist
+   (playlist_sync_append_ipodui(), a library shuffle's refill). Every
+   track already buffered is still the next in play order, so nothing is
+   dropped: a fill that stopped at the old end (END_OF_PLAYLIST, or
+   FINISHED once its last track was in) is told to go on at the next
+   buffer-low event, where it left off (playlist_peek_offset), as a full
+   buffer does. An automatic change under way (TRACK_SKIP_AUTO: the next
+   track already decoding) keeps it too: nothing buffered became wrong,
+   where the flush restarts the playing track. Any other state takes the
+   flush (a new playlist's change, the end of the playlist already
+   decided, a stopped fill: a frequency switch). Returns whether it was
+   handled here. */
+static bool audio_on_audio_append(void)
+{
+    int n;
+    unsigned long b;
+
+    if (skip_pending != TRACK_SKIP_NONE && skip_pending != TRACK_SKIP_AUTO)
+        return false;
+    switch (filling)
+    {
+    case STATE_FILLING:
+    case STATE_FULL:
+        break;              /* its next load peeks past the old end */
+    case STATE_END_OF_PLAYLIST:
+    case STATE_FINISHED:
+        /* the main loop registers the buffer-low event again
+           (buf_get_watermark() == 0 in END_OF_PLAYLIST) */
+        filling = STATE_END_OF_PLAYLIST;
+        break;
+    default:
+        return false;
+    }
+    ahead_bytes(&n, &b);
+    ui_log("audio", "append kept=%d kb=%lu", n, b / 1024);
+    return true;
+}
+#endif /* HAVE_IPOD_UI */
+
 /* Invalidates all but currently playing track
-   (Q_AUDIO_FLUSH) */
-static void audio_on_audio_flush(void)
+   (Q_AUDIO_FLUSH; data 1: the ipodui append, audio_playlist_appended()) */
+static void audio_on_audio_flush(int append)
 {
     logf("%s", __func__);
 
     if (track_list_empty())
         return; /* Nothing to flush out */
+
+#ifdef HAVE_IPOD_UI
+    if (append && audio_on_audio_append())
+        return;
+    {
+        int n;
+        unsigned long b;
+
+        ahead_bytes(&n, &b);
+        ui_log("audio", "flush dropped=%d kb=%lu append=%d fill=%d skip=%d",
+               n, b / 1024, append, (int)filling, (int)skip_pending);
+    }
+#else
+    (void)append;
+#endif
 
     switch (skip_pending)
     {
@@ -4646,6 +4818,7 @@ void audio_playback_handler(struct queue_event *ev)
                 queue_clear(&audio_queue);
 #ifdef HAVE_IPOD_UI
                 pause_posted = false;   /* #345: dropped with the rest */
+                pause_held = false;     /* #362: with it */
 #endif
             }
             return; /* no more playback */
@@ -4657,10 +4830,15 @@ void audio_playback_handler(struct queue_event *ev)
             {   /* #345: the latest wish (no yield between the two) */
                 pause_posted = false;
                 audio_on_pause(pause_wanted);
+                pause_held = false;     /* #362: taken (or stopped) */
                 break;
             }
 #endif
             audio_on_pause(ev->data);
+#ifdef HAVE_IPOD_UI
+            if (ev->data)
+                pause_held = false;     /* #362: audio_pause()'s hold */
+#endif
             break;
 
         case Q_AUDIO_SKIP:
@@ -4685,7 +4863,7 @@ void audio_playback_handler(struct queue_event *ev)
 
         case Q_AUDIO_FLUSH:
             LOGFQUEUE("playback < Q_AUDIO_FLUSH: %d", (int)ev->data);
-            audio_on_audio_flush();
+            audio_on_audio_flush(ev->data);
             break;
 
         /** Buffering messages **/
@@ -4738,6 +4916,14 @@ void audio_playback_handler(struct queue_event *ev)
             LOGFQUEUE("playback < Q_AUDIO_RATE_REPICK");
             if (play_status != PLAY_STOPPED)
                 audio_auto_change_frequency(audio_current_track(), true);
+            break;
+#endif
+#ifdef PCMBUF_FMT_SWITCH
+        case Q_AUDIO_FMT_SWITCH:
+            /* #214: the output reached the next track's format: re-clock
+               and restart, no re-buffer */
+            LOGFQUEUE("playback < Q_AUDIO_FMT_SWITCH");
+            pcmbuf_fmt_switch();
             break;
 #endif
         case Q_AUDIO_REMAKE_AUDIO_BUFFER:
@@ -5016,7 +5202,11 @@ void audio_pcmbuf_track_change(bool pcmbuf)
 /* May pcmbuf start PCM playback when the buffer is full enough? */
 bool audio_pcmbuf_may_play(void)
 {
-    return play_status == PLAY_PLAYING && !ff_rw_mode && !pause_on_track_change;
+    return play_status == PLAY_PLAYING && !ff_rw_mode && !pause_on_track_change
+#ifdef HAVE_IPOD_UI
+           && !pause_held           /* #362: a pause the thread owes */
+#endif
+           ;
 }
 
 
@@ -5138,17 +5328,58 @@ void audio_pause(void)
         audio_queue_post(Q_AUDIO_PAUSE, true);
         return;
     }
+    pause_pcm_hold(true);   /* #362: quiet now, not after the thread's fill */
 #endif
     audio_queue_send(Q_AUDIO_PAUSE, true);
 }
 
 #ifdef HAVE_IPOD_UI
+/* #362: the PCM half of a pause, from the posting thread, ahead of the
+ * audio thread (which may sit in a track load or a fill's storage waits
+ * for seconds). pause: hold a playing stream, exactly as audio_on_pause()
+ * would (the pause tick, the fade or the channel pause); !pause: undo a
+ * hold the thread has not taken yet. The thread's state (play_status, the
+ * iap note, the event) stays the thread's: it reconciles from the queued
+ * Q_AUDIO_PAUSE. Called on the CPU only (be_dispatch, audio_pause()'s
+ * remote call), so it never runs beside the audio thread there: the CPU's
+ * threads switch only where they block or yield, and nothing here does
+ * (pcm_play_lock guards the FIQ/DMA side, on either core). */
+static void pause_pcm_hold(bool pause)
+{
+    XCORE_ASSERT_CPU("pause_pcm_hold");
+    if (pause)
+    {
+        if (pause_held || play_status != PLAY_PLAYING || ff_rw_mode
+            || quiet_restart)
+            return;             /* nothing sounds, or already held */
+        pause_held = true;
+        ui_log("audio", "pause held early");
+        pcmbuf_note_pause(true);
+        pcmbuf_fade(global_settings.fade_on_stop, false);
+        if (!global_settings.fade_on_stop)
+            pcmbuf_pause(true);
+    }
+    else if (pause_held)
+    {
+        pause_held = false;
+        if (play_status != PLAY_PLAYING)
+            return;             /* the thread paused or stopped meanwhile
+                                   (a pause at a track's end): it stands */
+        ui_log("audio", "pause hold undone");
+        pcmbuf_note_pause(false);
+        pcmbuf_fade(global_settings.fade_on_stop, true);
+        if (!ff_rw_mode)
+            pcmbuf_pause(false);
+    }
+}
+
 /* #345: pause (or resume) without waiting for the audio thread */
 void audio_pause_post(bool pause)
 {
     LOGFQUEUE("audio > audio Q_AUDIO_PAUSE posted %d", (int)pause);
     if (!pause)
         DEVSTATS_REQUEST(DEVSTATS_REQ_RESUME);
+    pause_pcm_hold(pause);      /* #362: the sound stops now */
     pause_wanted = pause;
     if (!pause_posted)
     {
@@ -5300,6 +5531,16 @@ void audio_flush_and_reload_tracks(void)
     LOGFQUEUE("audio > audio Q_AUDIO_FLUSH");
     audio_queue_post(Q_AUDIO_FLUSH, 0);
 }
+
+#ifdef HAVE_IPOD_UI
+/* p090-shuffle: the playlist only grew at its end; what is buffered stays
+   (falls back to the flush in a state that needs it) */
+void audio_playlist_appended(void)
+{
+    LOGFQUEUE("audio > audio Q_AUDIO_FLUSH append");
+    audio_queue_post(Q_AUDIO_FLUSH, 1);
+}
+#endif
 
 /** --- Miscellaneous public interfaces --- **/
 
@@ -5456,10 +5697,31 @@ void audio_set_crossfade(int enable)
 
 #ifdef HAVE_PLAY_FREQ
 #ifdef HAVE_PCM_24BIT_OUT
+/* #289: the decoders that hand the DSP more than 16 bits whatever the
+   file says: libmad (MP1/2/3, 28 fraction bits) and libfaad (AAC in MP4,
+   RM or ADTS, 29). The DSP's 24-bit output stage keeps them */
+static bool audio_codec_deep(int codectype)
+{
+    switch (codectype)
+    {
+    case AFMT_MPA_L1:
+    case AFMT_MPA_L2:
+    case AFMT_MPA_L3:
+    case AFMT_MP4_AAC:
+    case AFMT_MP4_AAC_HE:
+    case AFMT_RM_AAC:
+    case AFMT_AAC_BSF:
+        return true;
+    default:
+        return false;
+    }
+}
+
 /* ProkBox #268: the output depth for a track (apps/audiophile_core.c) */
 static int audio_guess_depth(struct mp3entry *id3)
 {
     return audiophile_pick_depth(id3->bits_per_sample,
+                                 audio_codec_deep(id3->codectype),
 #ifdef HAVE_CROSSFADE
                                  global_settings.crossfade != 0,
 #else
@@ -5501,18 +5763,103 @@ static unsigned long audio_guess_frequency(struct mp3entry *id3)
         return caps->samprs[caps->default_freq];
 }
 
+#ifdef PCMBUF_FMT_SWITCH
+/* #214: crossfade mixes two tracks at one format, so with it on a format
+   change keeps the drain and re-buffer (logged as a rate gap) */
+static bool audio_fmt_seamless(void)
+{
+#ifdef HAVE_CROSSFADE
+    return global_settings.crossfade == 0;
+#else
+    return true;
+#endif
+}
+
+/* the output rate and depth a track wants */
+static unsigned long audio_track_format(struct mp3entry *id3, int *depth)
+{
+    *depth = audio_guess_depth(id3);
+    if (global_settings.play_frequency == 0)
+        return audio_guess_frequency(id3);
+    return mixer_get_frequency();
+}
+
+/* #214: the codec moves on to the next track by itself (an automatic
+   change): from here its PCM is written at that track's format, and the
+   output switches to it at the boundary (pcmbuf.c) */
+static void audio_fmt_next_track(void)
+{
+    struct track_info info;
+    struct mp3entry *id3;
+    unsigned long rate;
+    int depth, wdepth;
+
+    if (!audio_fmt_seamless() || !track_list_current(0, &info))
+        return;
+    id3 = valid_mp3entry(bufgetid3(info.id3_hid));
+    if (!id3)
+        return;
+    rate = audio_track_format(id3, &depth);
+    if (rate == pcmbuf_write_format(&wdepth) && depth == wdepth)
+        return;
+    ui_log("audio", "output next %lu/%d for %lu/%u", rate, depth,
+           id3->frequency, (unsigned)id3->bits_per_sample);
+    pcmbuf_set_write_format(rate, depth);
+}
+
+/* pcmbuf.c: the output stopped at another format, or a start found one
+   waiting (the tick or the codec's thread) */
+void audio_pcmbuf_fmt_switch_post(void)
+{
+    audio_queue_post(Q_AUDIO_FMT_SWITCH, 0);
+}
+
+/* pcmbuf.c: size the PCM buffer for the largest standard format (up to
+   48 kHz at the deepest frame) the session may switch to without a
+   remake. p090-floor: not for 88.2/96 kHz while the output is not there
+   (pcmbuf.c sizes for the current format when that is larger): that
+   doubled the buffer, 1.9 MB of the 64 MB unit's audio buffer at every
+   rate, and left the paused window's library commit under the floor. A
+   track change into 88.2/96 kHz keeps the switch seamless with 1.5 s
+   buffered (24-bit); a start that changes the output to such a rate
+   remakes the buffer at 3 s of it. */
+size_t audio_pcmbuf_size_byterate(void)
+{
+    return audiophile_max_byterate(0,
+                                   !audio_fmt_seamless(),
+                                   pcm_current_sink() == PCM_SINK_BUILTIN);
+}
+#endif /* PCMBUF_FMT_SWITCH */
+
 static bool audio_auto_change_frequency(struct mp3entry *id3, bool play)
 {
     if (!valid_mp3entry(id3))
         return false;
+#ifdef PCMBUF_FMT_SWITCH
+    /* #214: a track buffered ahead keeps buffering whatever its format:
+       the switch comes at its boundary, not by a drain and re-buffer */
+    if (!play && audio_fmt_seamless())
+        return false;
+#endif
     unsigned long guessed_frequency = global_settings.play_frequency == 0 ? audio_guess_frequency(id3) : 0;
 #ifdef HAVE_PCM_24BIT_OUT
     /* #268: a depth change remakes the buffer as a rate change does */
     int depth = audio_guess_depth(id3);
     if (!guessed_frequency)
         guessed_frequency = mixer_get_frequency();
+#ifdef PCMBUF_FMT_SWITCH
+    /* #214: a start or a manual skip remakes the buffer where the output
+       or the write side (still at a track the codec had moved on to)
+       differs from this track's format */
+    int wdepth;
+    unsigned long wrate = pcmbuf_write_format(&wdepth);
+    if (mixer_get_frequency() != guessed_frequency ||
+        mixer_get_depth() != depth ||
+        wrate != guessed_frequency || wdepth != depth)
+#else
     if (mixer_get_frequency() != guessed_frequency ||
         mixer_get_depth() != depth)
+#endif
 #else
     if (guessed_frequency && mixer_get_frequency() != guessed_frequency)
 #endif

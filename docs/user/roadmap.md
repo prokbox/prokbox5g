@@ -1,7 +1,7 @@
 ---
 title: "What's coming"
 description: "What we are working on for ProkBox5g, release by release, and what has changed."
-roadmap_version: "0.8.3"
+roadmap_version: "0.9.0"
 page_class: "roadmap"
 ---
 
@@ -11,11 +11,10 @@ This page lists what we plan for each coming release of ProkBox5g, and where eac
 
 | Release | What it brings | Where it stands | Items under way |
 |---|---|---|---|
-| [0.9.0](#release-090) | Sound and languages: better audio, menus in more languages, better song details, and fixes. | _Under way_ | 11 of 20 |
 | [0.9.1](#release-091) | Album art, Album Flow and other screen improvements. | _Under way_ | 4 of 7 |
 | [0.9.2](#release-092) | Sleep and battery life, and the first kit for making your own games, with a Sudoku game. | _Under way_ | 3 of 6 |
-| [0.9.3](#release-093) | Video: more formats, a better video player, and fixes. | _Under way_ | 5 of 14 |
-| [0.9.4](#release-094) | Your library and USB, and the second game kit, with a short role-playing game. | _Under way_ | 1 of 13 |
+| [0.9.3](#release-093) | Video: more formats, a better video player, and fixes. | _Under way_ | 5 of 19 |
+| [0.9.4](#release-094) | Your library and USB, and the second game kit, with a short role-playing game. | _Under way_ | 1 of 20 |
 | [0.9.5](#release-095) | Docks, cars and connections. | _Under way_ | 1 of 5 |
 | [0.9.6](#release-096) | Extras, games and more ways to shape your sound, and the third game kit, with an arcade racing game. | _Under way_ | 1 of 6 |
 | [0.9.7](#release-097) | Polish: a careful clean-up of the whole player, making everything as lean and refined as we can, with no new features. | _Planned_ | - |
@@ -35,31 +34,6 @@ Each item has a status: **Considering** (an idea we are looking at, not designed
 > - **Disk Mode**: a mode in which the player shows up on your computer as a drive, even when its main software cannot start.
 > - **Sample rate**: how many times a second the sound is measured, such as 44.1 kHz or 96 kHz.
 > - **Bit depth**: how finely each of those measurements is stored, such as 16-bit or 24-bit.
-
-## Release 0.9.0
-
-Sound and languages: better audio, menus in more languages, better song details, and fixes.
-
-- _In testing:_ On Now Playing, a long artist name scrolls so you can read all of it. [](#item-long-artist-names-scroll-on-now-playing)
-- _In testing:_ Files tagged with the newer numbered genres, such as Audiobook and Podcast, show the right genre. [](#item-newer-numbered-genres-show-correctly)
-- _In testing:_ Now Playing shows every artist on a song, not just the first. Browsing by artist still uses the first artist. [](#item-every-artist-on-now-playing)
-- _In development:_ A new Settings › Audiophile menu with optional 88.2 and 96 kHz output. It is off by default. It runs the audio chip beyond its official range, so it comes with a warning. Your player tests itself first and offers only the rates that pass. If anything goes wrong, it drops back to a safe rate. [](#item-optional-88-2-and-96-khz-output)
-- _In development:_ An extra info page in Now Playing shows a song's format, bit depth and sample rate, for example FLAC, 24-bit, 96 kHz. [](#item-format-and-sample-rate-page-in-now-playing)
-- _In development:_ Menus in Japanese. [](#item-menus-in-japanese)
-- _In development:_ Japanese and Korean characters show correctly in song, artist and album names. [](#item-japanese-and-korean-characters-in-names)
-- _In development:_ Lists sort by the sort-name tags, such as Sort Artist, when your files have them. [](#item-sorting-by-sort-artist-and-other-sort-tags)
-- _In design:_ We are working on keeping the volume the same when you turn on an equaliser preset. Today presets make everything quieter. [](#item-equaliser-presets-keep-the-volume)
-- _In design:_ Songs the player cannot play stay in your library, greyed out with a sign, and are skipped instead of failing without explanation. [](#item-unplayable-songs-greyed-out-and-skipped)
-- _In design:_ Video soundtracks and click sounds move to the second processor core too, like music. [](#item-video-sound-and-clicks-on-the-second-core)
-- _Planned:_ MP3 and AAC files use the 24-bit output too, keeping more of their detail. [](#item-24-bit-output-for-mp3-and-aac)
-- _Planned:_ We are working on switching between songs with different sample rates with at most a very short pause. [](#item-near-seamless-sample-rate-changes)
-- _Planned:_ Menus in Dutch and German. [](#item-menus-in-dutch-and-german)
-- _Planned:_ We are working on better Opus support: loudness tags for volume levelling, and Opus files that end in .ogg. We are also checking that gapless endings are clean. [](#item-better-opus-support)
-- _Planned:_ 32-bit FLAC files play, instead of being skipped. [](#item-32-bit-flac-files-play)
-- _Planned:_ A new guide page on putting audiobooks on the player: which formats play, chapters, resume and speed, and why copy-protected books cannot play. [](#item-guide-page-on-adding-audiobooks)
-- _Planned:_ Opening some screens while music plays no longer stops the music. [](#item-music-keeps-playing-when-opening-screens)
-- _Planned:_ Make up to three equaliser settings of your own, with a picture of each curve, alongside the built-in ones. [](#item-your-own-equaliser-settings)
-- _Considering:_ We are looking at letting the sound chip mute itself during silent stretches, to cut faint hiss in quiet passages and while paused. [](#item-quieter-silence)
 
 ## Release 0.9.1
 
@@ -93,15 +67,20 @@ Video: more formats, a better video player, and fixes.
 - _In testing:_ A simple, documented way to give your videos posters, by placing picture files beside them. [](#item-video-posters-from-picture-files)
 - _In testing:_ No white flash when you wake the screen while a video is paused: the screen stays dark until the picture is ready. [](#item-no-white-flash-waking-a-paused-video)
 - _In development:_ MPEG-4 videos (up to 320 × 240) play, as well as H.264. These are the two video formats the original player supported. [](#item-mpeg-4-video-up-to-320-240)
+- _Planned:_ We are working on better Opus support: loudness tags for volume levelling, and Opus files that end in .ogg. We are also checking that gapless endings are clean. [](#item-better-opus-support)
 - _Planned:_ AVI video files play, when the video inside is a kind the player can decode. [](#item-avi-video-files)
 - _Planned:_ MKV and WebM video files play, once the player can decode the kinds of video they usually hold. [](#item-mkv-and-webm-video-files)
 - _Planned:_ A clearer message when a video is too large to play: it says what is wrong and how to convert it. [](#item-clearer-message-for-too-large-videos)
 - _Planned:_ Some videos no longer start with glitches and a pause of a few seconds. [](#item-clean-video-starts-no-glitches)
 - _Planned:_ The volume and progress bars respond straight away while a video plays. [](#item-quick-volume-and-progress-bars-in-video)
 - _Planned:_ Photos: browse your pictures by album, view them full screen, and play slideshows with music. Copy photos over by drag-and-drop, with no app. [](#item-photos)
+- _Planned:_ Scrolling speeds up the longer you turn the wheel, and more so in long lists. [](#item-faster-scrolling-in-long-lists)
+- _Planned:_ High-efficiency AAC files play with their full, bright treble instead of a duller sound. [](#item-full-quality-he-aac)
+- _Planned:_ Night Mode: a warm evening tint over the whole screen, on a schedule or by a switch. [](#item-night-mode)
 - _Considering:_ We are looking at playing MPEG-4 videos larger than 320 × 240. [](#item-mpeg-4-video-larger-than-320-240)
 - _Considering:_ We are looking at playing MPEG-1 and MPEG-2 videos (.mpg files). [](#item-mpeg-1-and-mpeg-2-video)
 - _Considering:_ We are looking at H.265 (HEVC) video, as an experiment. It ships only if it works well, and is marked experimental if it does. [](#item-h-265-video-as-an-experiment)
+- _Considering:_ We are looking at letting the sound chip mute itself during silent stretches, to cut faint hiss in quiet passages and while paused. [](#item-quieter-silence)
 
 ## Release 0.9.4
 
@@ -118,6 +97,13 @@ Your library and USB, and the second game kit, with a short role-playing game.
 - _Planned:_ The second game kit, for bigger games. It comes with an original short role-playing game built with the kit. [](#item-second-game-kit-with-a-role-playing-game)
 - _Planned:_ Long files such as DJ mixes and podcasts show their sections: the current section is named on Now Playing, and next and previous move between sections. [](#item-sections-in-dj-mixes-and-podcasts)
 - _Planned:_ Spoken menus: the player can read out menu items and song, artist and album names. [](#item-spoken-menus)
+- _Planned:_ Adding a few songs to a large library updates it faster. [](#item-faster-library-updates)
+- _Planned:_ Removing many songs at once updates the library faster. [](#item-faster-removal-of-many-songs)
+- _Planned:_ Songs copied by the old sync software show their details sooner, read from its own library. [](#item-faster-details-for-synced-songs)
+- _Planned:_ Songs you play can be logged on the player for Last.fm, ready to send when you connect it to your computer. [](#item-last-fm-play-logging)
+- _Planned:_ Your computer's music app recognises the player when you plug it in. [](#item-recognised-by-your-computer)
+- _Planned:_ Play counts and On-The-Go playlists made on the player go back to your computer's music library at the next sync. [](#item-play-counts-and-playlists-sync-back)
+- _Planned:_ Smart playlists that fill themselves in: Favourites, Top Rated, Top 25 Most Played and Recently Added. [](#item-smart-playlists)
 - _Considering:_ We are looking at automatic Top 25 Most Played and Recently Played playlists. [](#item-top-25-and-recently-played-playlists)
 - _Considering:_ We are looking at showing lyrics from a .lrc file next to a song, as plain text on Now Playing. [](#item-lyrics-from-lrc-files)
 

@@ -74,6 +74,7 @@
 #include "ipodui/alarm.h"
 #include "ipodui/screens/panels.h"
 #include "ipodui/screens/screens.h"
+#include "ipodui/locale.h"
 
 /* -- time zone ---------------------------------------------------------------- */
 
@@ -211,26 +212,34 @@ static int roller_enter(struct ui_screen *s, const void *arg)
     d->r.cur = 0;
     if (d->which == DT_DATE)
     {
-        /* US order for English: month, day, year */
+        /* the language's order (LANG_IPODUI_DATE_SHORT): month, day,
+         * year in English */
+        int fd, fm, fy;
+
+        ui_date_slots(&fd, &fm, &fy);
         s->title = str(LANG_IPODUI_DATE);
         d->r.n = 3;
-        field(&d->r, 0, 1, 12, tm->tm_mon + 1, 2);
-        field(&d->r, 1, 1, 31, tm->tm_mday, 2);
-        field(&d->r, 2, 2000, 2099, tm->tm_year + 1900, 4);
+        field(&d->r, fm, 1, 12, tm->tm_mon + 1, 2);
+        field(&d->r, fd, 1, 31, tm->tm_mday, 2);
+        field(&d->r, fy, 2000, 2099, tm->tm_year + 1900, 4);
     }
     else
     {
         s->title = str(LANG_IPODUI_TIME);
-        d->h12 = global_settings.timeformat != 0;
+        d->h12 = ui_clock_12h();
         if (d->h12)
         {
-            /* as on the 7G: hour 1-12, minute, AM/PM */
+            /* as on the 7G: hour 1-12, minute, AM/PM (the marker first
+             * where the language writes it first) */
+            int fh, fi, fa;
+
+            ui_time_slots(&fh, &fi, &fa);
             d->r.n = 3;
-            field(&d->r, 0, 1, 12, tm->tm_hour % 12 ? tm->tm_hour % 12 : 12,
+            field(&d->r, fh, 1, 12, tm->tm_hour % 12 ? tm->tm_hour % 12 : 12,
                   2);
-            field(&d->r, 1, 0, 59, tm->tm_min, 2);
-            field(&d->r, 2, 0, 1, tm->tm_hour >= 12, 2);
-            d->r.f[2].text = true;
+            field(&d->r, fi, 0, 59, tm->tm_min, 2);
+            field(&d->r, fa, 0, 1, tm->tm_hour >= 12, 2);
+            d->r.f[fa].text = true;
             d->r.txt[0] = str(LANG_IPODUI_AM);
             d->r.txt[1] = str(LANG_IPODUI_PM);
         }
@@ -267,15 +276,27 @@ static void roller_apply(const struct dt_roller *d)
 
     if (d->which == DT_DATE)
     {
-        int y = d->r.f[2].value, m = d->r.f[0].value;
+        int fd, fm, fy, y, m;
+
+        ui_date_slots(&fd, &fm, &fy);
+        y = d->r.f[fy].value;
+        m = d->r.f[fm].value;
         tm.tm_year = y - 1900;
         tm.tm_mon = m - 1;
-        tm.tm_mday = MIN(d->r.f[1].value, days_in_month(m, y));
+        tm.tm_mday = MIN(d->r.f[fd].value, days_in_month(m, y));
+    }
+    else if (d->h12)
+    {
+        int fh, fi, fa;
+
+        ui_time_slots(&fh, &fi, &fa);
+        tm.tm_hour = d->r.f[fh].value % 12 + 12 * d->r.f[fa].value;
+        tm.tm_min = d->r.f[fi].value;
+        tm.tm_sec = 0;
     }
     else
     {
-        tm.tm_hour = d->h12 ? d->r.f[0].value % 12 + 12 * d->r.f[2].value
-                            : d->r.f[0].value;
+        tm.tm_hour = d->r.f[0].value;
         tm.tm_min = d->r.f[1].value;
         tm.tm_sec = 0;
     }
@@ -332,9 +353,7 @@ struct dt_tile {
 
 static const char *cap_date(char *buf, size_t len)
 {
-    struct tm *tm = get_time();
-    snprintf(buf, len, "%s %d, %d", str(LANG_MONTH_JANUARY + tm->tm_mon),
-             tm->tm_mday, tm->tm_year + 1900);
+    ui_fmt_date_tm(buf, len, LANG_IPODUI_DATE_CAPTION, get_time());
     return buf;
 }
 
@@ -358,7 +377,7 @@ static const char *cap_onoff(bool on)
 static const char *cap_24h(char *buf, size_t len)
 {
     (void)buf; (void)len;
-    return cap_onoff(global_settings.timeformat == 0);
+    return cap_onoff(!ui_clock_12h());
 }
 
 static const char *cap_tit(char *buf, size_t len)
@@ -397,8 +416,8 @@ static void dt_changed(void)
 
 static void act_24h(void)
 {
-    global_settings.timeformat = global_settings.timeformat ? 0 : 1;
-    UPDATE_TRACE("datetime 24h=%d", (int)(global_settings.timeformat == 0));
+    ui_clock_set_12h(!ui_clock_12h());
+    UPDATE_TRACE("datetime 24h=%d", (int)!ui_clock_12h());
     dt_changed();
 }
 
@@ -448,7 +467,7 @@ static void dt_refresh(void)
     for (i = 0; i < ARRAYLEN(dt_items); i++)
         dt_items[i].label = str(dt_lang[i]);
     snprintf(dt_value[0], DT_VALUE_LEN, "%s%c%s", str(dt_lang[3]),
-             UI_VALUE_SEP, cap_onoff(global_settings.timeformat == 0));
+             UI_VALUE_SEP, cap_onoff(!ui_clock_12h()));
     snprintf(dt_value[1], DT_VALUE_LEN, "%s%c%s", str(dt_lang[4]),
              UI_VALUE_SEP, cap_onoff(global_settings.ipodui_time_in_title));
     dt_items[3].label = dt_value[0];
@@ -472,7 +491,7 @@ static int dt_enter(struct ui_screen *s, const void *arg)
     dt_menu = (struct ui_menu){ NULL, dt_items, ARRAYLEN(dt_items), true,
                                 false, dt_refresh };
 #endif
-    dt_menu.title = str(LANG_IPODUI_DATE_TIME);
+    dt_menu.title = str(LANG_IPODUI_DATE_TIME_HEAD);
     dt_refresh();
     return ui_menu_screen.enter(s, &dt_menu);
 }

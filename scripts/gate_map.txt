@@ -206,9 +206,12 @@ scripts/trim-deps.txt                ipodui-p9-smoke-boot
 # fades. The firmware-side files (mixer, playback, audio thread, pcmbuf, the
 # WM8758 driver and its sim twin) feed every p15 script plus the playback
 # ones that pause, end or switch tracks.
-apps/ipodui/screens/eq.c           ipodui-p15-eq-engine ipodui-p11-eq
-apps/ipodui/eq_hw.h                ipodui-p15-eq-engine ipodui-p11-eq
-apps/ipodui/eq_hw_presets.c        ipodui-p15-eq-engine ipodui-p11-eq
+apps/ipodui/screens/eq.c           ipodui-p15-eq-engine ipodui-p11-eq ipodui-eqtable-*
+apps/ipodui/eq_hw.h                ipodui-p15-eq-engine ipodui-p11-eq ipodui-eqtable-*
+apps/ipodui/eq_hw_presets.c        ipodui-p15-eq-engine ipodui-p11-eq ipodui-eqtable-*
+# #352: the preset tables per output-rate family
+apps/ipodui/eqtable_core.*         ipodui-eqtable-* ipodui-p15-eq-engine
+tests/ui/fixtures/eqtable-hi.txt   ipodui-eqtable-*
 apps/ipodui/volcurve.c             ipodui-p15-volume ipodui-p11-vlimit* ipodui-p5-volume
 apps/ipodui/volcurve.h             ipodui-p15-volume ipodui-p11-vlimit* ipodui-p5-volume
 apps/ipodui/fadecurve.h            ipodui-p15-fade

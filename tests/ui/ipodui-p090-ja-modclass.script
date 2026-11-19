@@ -1,0 +1,139 @@
+# p090-int4 (jaglyph): with the shell in Japanese, every Class A Extra
+# draws its kana and kanji without a storage read. The ShellCJK fonts are
+# sparse (a glyph not in the cache is one read of the .fnt); the Japanese
+# tier pins the glyphs of every Class A module's strings (the build's
+# ipodui_classa_lang.h) in RAM at the language load, so the class
+# accountant books no glyph read to the module: no "modclass viol" line
+# (which check_trace fails in any script). The reads left are the modules'
+# own entry reads (stopwatch.dat, the contacts and calendars folders), the
+# same as in English; red before the pin: a viol for every Extra visited.
+# Visits Clocks (its menu, Add: the region and city pickers), Calendars,
+# Contacts, Alarms (Create Alarm, Repeat), Notes, Screen Lock, Stopwatch
+# (New Timer, a lap), then Settings > Date & Time and Legal (the Settings
+# module).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p090-ja-modclass.script
+# needs: cjk
+# trace: modclass
+# timeout: 240
+# golden: skip
+# env: IPODUI_SIM_NOTICE=clear
+# log: ipodui: cjk pin glyphs=
+# log: modclass clocks class=A
+# log: modclass alarms class=A
+# log: modclass stopwatch class=A
+
+wait 4000
+rm_file /.rockbox/stopwatch.dat
+rm_file /.rockbox/alarms.dat
+sim_clock 07:05
+lang_set japanese
+reboot
+
+wait 6000            # boot 2: Japanese, the pin at the language load
+key SELECT           # the notice
+wait 1500
+wheel +2             # Extras
+wait 1500
+key SELECT
+wait 1500
+key SELECT           # Clocks
+wait 1500
+key SELECT           # the Clocks menu
+wait 1200
+key SELECT           # Add: the regions
+wait 1500
+wheel +4             # Europe
+wait 600
+key SELECT           # its cities
+wait 1500
+wheel +12
+wait 800
+shot clocks-cities
+key MENU
+wait 1000
+key MENU
+wait 1000
+key MENU             # back to Clocks
+wait 1000
+key MENU             # the Extras list
+wait 1200
+wheel +1             # Calendars
+wait 600
+key SELECT
+wait 1500
+shot calendars
+key MENU
+wait 1200
+wheel +1             # Contacts
+wait 600
+key SELECT
+wait 1500
+shot contacts
+key MENU
+wait 1200
+wheel +1             # Alarms
+wait 600
+key SELECT
+wait 1500
+key SELECT           # Create Alarm: the editor
+wait 1200
+wheel +3             # Repeat
+wait 700
+key SELECT
+wait 1200
+shot alarm-repeat
+key MENU
+wait 1000
+key MENU
+wait 1000
+key MENU
+wait 1200
+wheel +1             # Notes
+wait 600
+key SELECT
+wait 1500
+shot notes
+key MENU
+wait 1200
+wheel +1             # Screen Lock
+wait 600
+key SELECT
+wait 1500
+shot lock
+key MENU
+wait 1200
+wheel +1             # Stopwatch
+wait 600
+key SELECT
+wait 1500
+key SELECT           # New Timer
+wait 1200
+key PLAY
+wait 2200
+key SELECT           # a lap
+wait 1100
+key PLAY             # stop
+wait 800
+shot stopwatch
+key MENU
+wait 1200
+key MENU
+wait 1200
+hold MENU 1200       # the main menu
+wait 1500
+wheel -20
+wait 400
+wheel +3             # Settings
+wait 400
+key SELECT
+wait 1500
+wheel +40            # Legal (second from the end)
+wait 600
+wheel -1
+wait 400
+key SELECT
+wait 2500
+shot legal
+key MENU
+wait 1200
+quit

@@ -1,9 +1,20 @@
 # Shuffle Songs start time on the synthetic 50k library: run through
 # tests/perf/shuf_start50k.sh (a clone of build/sim-50k's settled disk).
 # Starts Shuffle Songs from the main menu five times; each start traces
-# "shuf: start songs ok queued=50 us=<wall> cpu=<UI thread CPU>" from
-# lib_shuffle_start() entry to the first track queued and started.
+# "shuf: start songs ok queued=4 us=<wall> cpu=<UI thread CPU> reads=<n>
+# writes=<n>" from lib_shuffle_start() entry to the first batch queued and
+# started (p090-shuffle, docs/design/shuffle.md "Instant start").
+# The checks (red on the 0.9.0 base, which queued all 50 first): the
+# first sound waits for at most 4 entries and 12 read() calls (a base start
+# read ~100: 2 per file name); the backfill to 50 lands within 3 s; the
+# play request reaches sound within 1.5 s of the simulator's own disk
+# ("audio start ms=", the request to the first PCM).
 # trace: shuf
+# logrange: 1 4 shuf: start songs ok queued=(\d+)
+# logrange: 1 12 shuf: start songs ok .* reads=(\d+)
+# logrange: 0 3000 shuf: backfill ms=(\d+)
+# logrange: 0 1500 audio start ms=(\d+)
+# log: shuf: refill +46 -0
 
 wait 3000
 wait_db 1500000

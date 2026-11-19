@@ -1,0 +1,48 @@
+# 0.9.0 (int4, ledger 3.19's finding): apps/language.c refuses a .lng
+# numbered against another string table. Such a file (a copy left on the
+# disk by an older build, say) used to load and show every string shifted
+# by the IDs that moved; genlang now writes the table's hash into a shell
+# build's .lng header and lang.h, and the load compares them.
+#  - deutsch-shifted.lng (German against an english.lang with one phrase
+#    more at the top) and deutsch-v6.lng (the old header, no hash) are
+#    refused (rc 3, logged "lang refused (other table)", no splash) and
+#    the built-in English stays: "Back" reads "Back".
+#  - The build's own deutsch.lng loads (rc 0): "Back" reads "Zurück".
+#  - A refused file after it leaves the German in place.
+# Fixtures: tests/fixtures/lng/make_lng_fixtures.sh ("# needs: lng"), made
+# with this sim's own genlang, features and target id.
+#   scripts/shots.sh tests/ui/ipodui-lng-idhash.script
+# needs: lng
+# timeout: 60
+# log: p9 lang load rc=3
+# log: p9 lang load rc=0
+# log: lang refused (other table)
+#
+# Commands: uisimulator/common/sim_cmd_p9.c (lang_set, lang_load,
+# lang_str).
+
+wait 3000
+lang_set -          # boot in the built-in English whatever the disk had
+reboot
+wait 5000
+lang_str Back Back
+
+copy ../../build/lng-fixtures/deutsch-shifted.lng /.rockbox/langs/lngtest-shifted.lng
+copy ../../build/lng-fixtures/deutsch-v6.lng /.rockbox/langs/lngtest-v6.lng
+
+lang_load /.rockbox/langs/lngtest-shifted.lng 3
+lang_str Back Back
+lang_load /.rockbox/langs/lngtest-v6.lng 3
+lang_str Back Back
+shot refused         # after the refusals (the strings checked above)
+
+lang_load /.rockbox/langs/deutsch.lng 0
+lang_str Back Zurück
+
+lang_load /.rockbox/langs/lngtest-shifted.lng 3
+lang_str Back Zurück
+shot loaded          # German loaded (the menu redraws at its next entry)
+
+rm_file /.rockbox/langs/lngtest-shifted.lng
+rm_file /.rockbox/langs/lngtest-v6.lng
+quit

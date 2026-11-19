@@ -10,16 +10,14 @@
 # the device's path is the ring in the arena.
 # A 96 kHz FLAC, then an MP3 (the codec and the rate change at the
 # boundary), and the Visualizer opened over the MP3; then again over the
-# FLAC after a skip back. 0.8.3 (IPODUI_AUDIOPHILE off) plays the FLAC at
-# 48 kHz 24-bit (the depth change still remakes the buffer at the
-# boundary); the arena keeps the 96 kHz ring for 0.9.0.
+# FLAC after a skip back.
 #   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p19-viz-playing.script
 # golden: skip
 # reset: viz
 # np: viz-full
 # fulls-extra: 1          (the Now Playing row appears: play_files)
 # timeout: 120
-# log: np mode shuffle -> visualizer ev=0
+# log: np mode info -> visualizer ev=0
 # log: viz start style=0 path=bcm n=512
 # nolog: viz ring outside the arena
 # nolog: viz tap open rc=
@@ -47,6 +45,8 @@ key SELECT          # Rating
 wait 600
 key SELECT          # Shuffle
 wait 600
+key SELECT          # Info (#277)
+wait 500
 key SELECT          # Visualizer
 wait 1500
 expect_playing 1000
@@ -64,6 +64,8 @@ key SELECT          # Rating
 wait 600
 key SELECT          # Shuffle
 wait 600
+key SELECT          # Info
+wait 500
 key SELECT          # Visualizer
 wait 1500
 expect_playing 1000

@@ -1,7 +1,11 @@
+/* Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md. */
 warble.c
 ../../../firmware/common/strmemccpy.c
 ../../../firmware/common/strlcpy.c
 ../../../firmware/common/unicode.c
+#ifdef IPODUI_TRIM_UTF8PROC
+../../../firmware/common/nfc.c
+#endif
 ../../../firmware/common/pathfuncs.c
 ../../../firmware/common/crc32.c
 ../../../firmware/buflib_mempool.c

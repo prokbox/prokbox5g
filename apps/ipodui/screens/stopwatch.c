@@ -47,6 +47,7 @@
 #include "ipodui/stopwatch.h"
 #include "ipodui/caldigits.h"
 #include "ipodui/screens/screens.h"
+#include "ipodui/locale.h"
 
 /* Behaviour (the 7G's): Extras > Stopwatch lists Resume (only while a
  * timing exists), New Timer, Clear Logs, then the logs, newest first, each
@@ -75,14 +76,14 @@ struct sw_wk {
     union {
         struct {
             struct ui_menu_item item[3 + SW_LOGS_MAX];
-            char lbl[SW_LOGS_MAX][20];      /* "12/5/20" SEP "16:36" */
+            char lbl[SW_LOGS_MAX][28];      /* "12/5/20" SEP "4:36 PM" */
         } l;
         struct {
             struct ui_menu_item item[4 + SW_LAST_LAPS];
-            char lbl[4 + SW_LAST_LAPS][26];
+            char lbl[4 + SW_LAST_LAPS][40];
         } d;
     } u;
-    char dtitle[10];
+    char dtitle[16];                        /* "2026/11/13" */
     struct sw_logs_file logs;
     /* the timer screen */
     int off;                                /* first lap row in view */
@@ -118,7 +119,7 @@ static void fmt_date(char *buf, size_t len, uint32_t rtc)
     int y, mo, d, h, mi;
 
     ui_sw_split(rtc, &y, &mo, &d, &h, &mi);
-    snprintf(buf, len, "%d/%d/%02d", mo, d, y % 100);
+    ui_fmt_date(buf, len, LANG_IPODUI_DATE_SHORT, y, mo, d, -1, h, mi);
 }
 
 static void fmt_clock(char *buf, size_t len, uint32_t rtc)
@@ -126,11 +127,7 @@ static void fmt_clock(char *buf, size_t len, uint32_t rtc)
     int y, mo, d, h, mi;
 
     ui_sw_split(rtc, &y, &mo, &d, &h, &mi);
-    if (global_settings.timeformat)             /* 12 hour clock */
-        snprintf(buf, len, "%d:%02d %s", h % 12 ? h % 12 : 12, mi,
-                 str(h < 12 ? LANG_IPODUI_AM : LANG_IPODUI_PM));
-    else
-        snprintf(buf, len, "%02d:%02d", h, mi);
+    ui_fmt_time(buf, len, h, mi);
 }
 
 /* -- the timer screen ------------------------------------------------------ */
@@ -388,8 +385,8 @@ static void ditem(int *n, const char *name, uint32_t ms, const char *plain)
 
     if (!plain)
         fmt_ms(t, sizeof(t), ms);
-    snprintf(wk->u.d.lbl[*n], sizeof(wk->u.d.lbl[0]), "%.15s%c%.9s", name,
-             UI_VALUE_SEP, plain ? plain : t);
+    locale_value_row(wk->u.d.lbl[*n], sizeof(wk->u.d.lbl[0]), name,
+                     UI_VALUE_SEP, plain ? plain : t);
     wk->u.d.item[*n] = (struct ui_menu_item){ wk->u.d.lbl[*n], NULL, NULL, NULL,
         NULL, &ui_preview_x_stopwatch, NULL };
     (*n)++;
@@ -416,7 +413,8 @@ static int detail_enter(struct ui_screen *s, const void *arg)
                  (int)l->nlaps - i);
         ditem(&n, name, l->last[i], NULL);
     }
-    wk->dmenu = (struct ui_menu){ wk->dtitle, wk->u.d.item, n, true, false,
+    /* full width, as the 7G's: the times never cut the names (P20) */
+    wk->dmenu = (struct ui_menu){ wk->dtitle, wk->u.d.item, n, false, false,
                                   NULL };
     return ui_menu_screen.enter(s, &wk->dmenu);
 }
@@ -501,8 +499,8 @@ static void list_refresh(void)
     {
         fmt_date(d, sizeof(d), wk->logs.log[i].start_rtc);
         fmt_clock(c, sizeof(c), wk->logs.log[i].start_rtc);
-        snprintf(wk->u.l.lbl[i], sizeof(wk->u.l.lbl[0]), "%.8s%c%.8s", d, UI_VALUE_SEP,
-                 c);
+        locale_value_row(wk->u.l.lbl[i], sizeof(wk->u.l.lbl[0]), d,
+                         UI_VALUE_SEP, c);
         wk->u.l.item[3 + i] = (struct ui_menu_item){ wk->u.l.lbl[i], NULL, NULL,
             NULL, log_act[i], pv, NULL };
     }

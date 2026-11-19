@@ -111,6 +111,11 @@ struct ui_list {
      * still moves onto it; the screen skips such rows (ui_list_skip())
      * and ignores SELECT on them. RAM compares only. */
     bool (*is_off)(int idx, void *data);
+    /* #286 (optional): why row idx can't play (enum unplayable_reason,
+     * metadata.h), 0 if it plays. Such a row draws greyed with the
+     * can't-play glyph (list.c); the list still moves
+     * onto it; SELECT on it shows why (ui_noplay_show()). RAM only. */
+    int  (*unplayable)(int idx, void *data);
     /* motion (private) */
     struct ui_scroll scroll;    /* px; at rest pos == target == row y of top */
     int  strip_id;              /* owner id for the strip's row slots */

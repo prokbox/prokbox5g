@@ -42,6 +42,10 @@ void dc_dirty_buf(void *buf);
 #if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
 /* ProkBox (R1, #107): the cached copy of a sector or NULL, claiming nothing */
 void * dc_peek(IF_MV(int volume,) sector_t secnum);
+/* ProkBox (int4-dcache): references the cache's invariants rule out (a
+ * map bit for a free entry, a dirty mark on a buffer it doesn't hold),
+ * passed by and counted (disk_cache.c) */
+extern volatile unsigned int dc_bad_refs;
 #endif
 void dc_discard_buf(void *buf);
 void dc_commit_all(IF_MV_NONVOID(int volume));

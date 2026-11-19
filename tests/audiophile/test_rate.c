@@ -64,18 +64,58 @@ int main(void)
             }
         }
     }
-    /* depth: 24 only for >16-bit sources, no crossfade, the built-in sink */
-    static const struct { int bits; bool xf, sink; int want; } d[] = {
-        { 16, false, true, 16 }, { 0, false, true, 16 },
-        { 24, false, true, 24 }, { 20, false, true, 24 },
-        { 32, false, true, 24 }, { 24, true, true, 16 },
-        { 24, false, false, 16 },
+    /* depth: 24 only for >16-bit sources or a deep decoder (#289: MP3 and
+       AAC report 0 bits), no crossfade, the built-in sink */
+    static const struct { int bits; bool deep, xf, sink; int want; } d[] = {
+        { 16, false, false, true, 16 }, { 0, false, false, true, 16 },
+        { 24, false, false, true, 24 }, { 20, false, false, true, 24 },
+        { 32, false, false, true, 24 }, { 24, false, true, true, 16 },
+        { 24, false, false, false, 16 },
+        /* #289: lossy MP3/AAC (0 bits, deep decoder) */
+        { 0, true, false, true, 24 },   { 16, true, false, true, 24 },
+        { 0, true, true, true, 16 },    { 0, true, false, false, 16 },
+        /* lossy without a deep decoder (Vorbis, Opus, WMA today) */
+        { 0, false, false, true, 16 },
     };
     for (unsigned i = 0; i < sizeof d / sizeof d[0]; i++, n++) {
-        int got = audiophile_pick_depth(d[i].bits, d[i].xf, d[i].sink);
+        int got = audiophile_pick_depth(d[i].bits, d[i].deep, d[i].xf,
+                                        d[i].sink);
         if (got != d[i].want) {
-            printf("FAIL depth %d xf %d sink %d: got %d want %d\n",
-                   d[i].bits, d[i].xf, d[i].sink, got, d[i].want);
+            printf("FAIL depth %d deep %d xf %d sink %d: got %d want %d\n",
+                   d[i].bits, d[i].deep, d[i].xf, d[i].sink, got,
+                   d[i].want);
+            fails++;
+        }
+    }
+    /* #289: an all-lossy queue (MP3 then AAC then MP3, all 0 bits) keeps
+       one depth: no switch between its tracks */
+    {
+        int first = audiophile_pick_depth(0, true, false, true);
+        for (int k = 0; k < 3; k++, n++)
+            if (audiophile_pick_depth(0, true, false, true) != first) {
+                printf("FAIL lossy queue toggles depth\n");
+                fails++;
+            }
+    }
+    /* #214: the PCM buffer's sizing format, literal bytes a second:
+       96 kHz x 8 with both high rates, 88.2 x 8 with 88.2 only, 48 x 8
+       without, x 4 when the chain needs 16-bit frames */
+    static const struct { int mask; bool xf, sink; unsigned long want; }
+        br[] = {
+        { 0, false, true, 384000 },
+        { AP_RATE_88 | AP_RATE_96, false, true, 768000 },
+        { AP_RATE_88, false, true, 705600 },
+        { AP_RATE_96, false, true, 768000 },
+        { 0, true, true, 192000 },
+        { AP_RATE_88 | AP_RATE_96, false, false, 384000 },
+    };
+    for (unsigned i = 0; i < sizeof br / sizeof br[0]; i++, n++) {
+        unsigned long got = audiophile_max_byterate(br[i].mask, br[i].xf,
+                                                    br[i].sink);
+        if (got != br[i].want) {
+            printf("FAIL max byterate mask %d xf %d sink %d: got %lu "
+                   "want %lu\n", br[i].mask, br[i].xf, br[i].sink, got,
+                   br[i].want);
             fails++;
         }
     }
@@ -135,7 +175,7 @@ int main(void)
             }
         }
         n++;
-        if (audiophile_pick_depth(24, false, true) != 24) {
+        if (audiophile_pick_depth(24, false, false, true) != 24) {
             printf("FAIL upgrade: a 24-bit source not at 24-bit\n");
             fails++;
         }
@@ -159,6 +199,32 @@ int main(void)
             }
         }
 #endif
+    }
+    /* p090-osr128: the self-test's length and verdict (literal numbers) */
+    if (audiophile_test_ms(false) != 600 || audiophile_test_ms(true) != 4000
+        || AP_TEST_QUIET_MS != 2000) {
+        printf("FAIL self-test length: %lu / %lu ms, quiet %d ms\n",
+               audiophile_test_ms(false), audiophile_test_ms(true),
+               AP_TEST_QUIET_MS);
+        fails++;
+    }
+    n++;
+    static const struct { unsigned long hz, got, gap; bool want; } v[] = {
+        { 96000, 96000, 0, true },      { 96000, 96000, 760, true },
+        { 96000, 96000, 19999, true },  { 96000, 96000, 20000, false },
+        { 96000, 96000, 250000, false },{ 96000, 93120, 900, true },
+        { 96000, 93119, 900, false },   { 96000, 98880, 900, true },
+        { 96000, 98881, 900, false },   { 88200, 0, 0, false },
+        { 88200, 88150, 1400, true },
+    };
+    for (unsigned i = 0; i < sizeof v / sizeof v[0]; i++, n++) {
+        if (audiophile_rate_test_ok(v[i].hz, v[i].got, v[i].gap)
+            != v[i].want) {
+            printf("FAIL self-test verdict %lu Hz got %lu gap %lu us: want "
+                   "%s\n", v[i].hz, v[i].got, v[i].gap,
+                   v[i].want ? "pass" : "FAIL");
+            fails++;
+        }
     }
     printf("%d cases, %d failed\n", n, fails);
     return fails != 0;

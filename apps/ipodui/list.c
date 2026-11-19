@@ -258,6 +258,31 @@ static const char *label_of(struct ui_list *l, int idx, char *buf)
     return s;
 }
 
+static int mark_w(struct ui_list *l, int idx);
+static int noplay_w(struct ui_list *l, int idx);
+
+/* What an inline value of width vw takes from text_w(): the value is
+ * measured first and always shown whole; the name gets what is left.
+ * The gap between them (UI_VALUE_GAP) narrows, down to UI_VALUE_GAP_MIN,
+ * before the name is cut (P20: "Sorteer op" + "Achternaam" in a split
+ * list); a name that still doesn't fit ends in "..." (put_fit). */
+static int value_take(struct ui_list *l, int idx, const char *s, int vw)
+{
+    char name[LABEL_MAX];
+    const char *v = strchr(s, UI_VALUE_SEP);
+    int base = text_w(l) - mark_w(l, idx) - noplay_w(l, idx);
+    int gap = UI_VALUE_GAP, lw = 0;
+    size_t n = MIN((size_t)(v - s), (size_t)LABEL_MAX - 1);
+
+    memcpy(name, s, n);
+    name[n] = '\0';
+    font_getstringsize((const unsigned char *)name, &lw, NULL, l->vp.font);
+    while (gap > UI_VALUE_GAP_MIN
+           && lw > base - (vw + gap - row_pad(l) - ui_paint_chevron_w()))
+        gap--;
+    return vw + gap - row_pad(l) - ui_paint_chevron_w();
+}
+
 /* #38: draws row idx's inline value, if its label has one, right-aligned
  * where the chevron would be, in the row viewport (row coordinates, text
  * top ty); returns the width it takes (value + gap) or 0. */
@@ -278,7 +303,7 @@ static int draw_value(struct ui_list *l, int idx, int w, int ty, bool sel)
     lcd_set_drawmode(DRMODE_FG);
     lcd_putsxy(w - row_pad(l) - vw, ty, v);
     lcd_set_drawmode(DRMODE_SOLID);
-    return vw + UI_VALUE_GAP - row_pad(l) - ui_paint_chevron_w();
+    return value_take(l, idx, s, vw);
 }
 
 /* What row idx's inline value takes from text_w() (as draw_value()
@@ -293,7 +318,7 @@ static int value_w(struct ui_list *l, int idx)
     if (!v || !*++v)
         return 0;
     font_getstringsize(v, &vw, NULL, l->vp.font);
-    return MAX(0, vw + UI_VALUE_GAP - row_pad(l) - ui_paint_chevron_w());
+    return MAX(0, value_take(l, idx, s, vw));
 }
 
 /* #69: whether row idx has a chevron's place (drawn when selected) */
@@ -313,11 +338,105 @@ static int mark_w(struct ui_list *l, int idx)
            - (row_chevron(l, idx) ? 0 : ui_paint_chevron_w());
 }
 
-/* The selected row's text box, less its inline value and its mark: the
- * marquee scrolls inside it, never over either. */
+/* -- #286: rows that can't play ------------------------------------------ */
+
+/* A row that can't play (ui_list.unplayable, #286): light grey label(s)
+ * and the can't-play glyph at the row's right edge, where the
+ * now-playing mark sits (owner, 2026-11-13: option A of the rendered
+ * sheet, the glyph a little bigger and centred). The glyph is a ring
+ * crossed by a slash, 13 px across (the title's cap is 11, the
+ * now-playing mark 13 high): an odd size, so the ring and the slash
+ * centre on a pixel and the 11 cap rows of a single-line row centre it
+ * exactly (draw_row()). */
+#define NOPLAY_D    13          /* the glyph's ink, square */
+#define NOPLAY_S    14          /* its alpha map's stride: whole bytes */
+#define NOPLAY_GAP  4           /* label end to the glyph */
+
+static int row_noplay(struct ui_list *l, int idx)
+{
+    return l->unplayable ? l->unplayable(idx, l->data) : 0;
+}
+
+/* The anti-aliased font path's blit (firmware/drivers/lcd-color-common.c;
+ * lcd.h leaves it out; as npmark.c) */
+extern void lcd_alpha_bitmap_part(const unsigned char *src, int src_x,
+                                  int src_y, int stride, int x, int y,
+                                  int width, int height);
+
+/* Rockbox's alpha format (4 bits a pixel, 0 opaque .. 15 clear, the
+ * first pixel in the low nibble): 91 B, built once on first use from
+ * geometry (4 x 4 samples a pixel), so it costs no image data. */
+static unsigned char noplay_alpha[NOPLAY_S * NOPLAY_D / 2];
+static bool noplay_built;
+
+static void build_noplay(void)
+{
+    /* eighth-pixel units: centre 52 (pixel 6's centre), outer radius 52
+     * (6.5 px), ring 2 px, slash 2 px wide (|dx - dy| / sqrt 2 <= 8,
+     * squared 128) from top left to bottom right */
+    const int c = NOPLAY_D * 4, ro = NOPLAY_D * 4, ri = ro - 16;
+    int x, y, sx, sy;
+
+    _Static_assert((NOPLAY_S & 1) == 0 && NOPLAY_S > NOPLAY_D,
+                   "noplay: whole bytes per row");
+    memset(noplay_alpha, 0xff, sizeof(noplay_alpha));
+    for (y = 0; y < NOPLAY_D; y++)
+        for (x = 0; x < NOPLAY_D; x++)
+        {
+            int n = 0, a, i = (y * NOPLAY_S + x) / 2;
+
+            for (sy = 0; sy < 4; sy++)
+                for (sx = 0; sx < 4; sx++)
+                {
+                    int dx = 8 * x + 2 * sx + 1 - c;
+                    int dy = 8 * y + 2 * sy + 1 - c;
+                    int d2 = dx * dx + dy * dy;
+
+                    if (d2 > ro * ro)
+                        continue;
+                    if (d2 >= ri * ri || (dx - dy) * (dx - dy) <= 128)
+                        n++;
+                }
+            a = 15 - (n * 15 + 8) / 16;
+            noplay_alpha[i] = (x & 1) ? (noplay_alpha[i] & 0x0f) | a << 4
+                                      : (noplay_alpha[i] & 0xf0) | a;
+        }
+    noplay_built = true;
+}
+
+/* The glyph with its ink's top-left at x, y of the current viewport */
+static void draw_noplay(int x, int y, bool sel)
+{
+    const struct ui_theme *t = ui_theme;
+
+    if (!noplay_built)
+        build_noplay();
+    lcd_set_foreground(sel ? t->sel_fg : t->list_fg_sub);
+    lcd_set_drawmode(DRMODE_FG);
+    lcd_alpha_bitmap_part(noplay_alpha, 0, 0, NOPLAY_S, x, y,
+                          NOPLAY_D, NOPLAY_D);
+    lcd_set_drawmode(DRMODE_SOLID);
+}
+
+/* What row idx's can't-play glyph takes from text_w() on the right, with
+ * its gap (it sits in the chevron's place on a row without one, as the
+ * now-playing mark does); 0 for a row that plays. */
+static int noplay_w(struct ui_list *l, int idx)
+{
+    if (!row_noplay(l, idx))
+        return 0;
+    if (l->has_mark && l->has_mark(idx, l->data))
+        return 0;               /* the mark wins (a row can't be both) */
+    return NOPLAY_D + NOPLAY_GAP
+           - (row_chevron(l, idx) ? 0 : ui_paint_chevron_w());
+}
+
+/* The selected row's text box, less its inline value, its mark and its
+ * can't-play sign: the marquee scrolls inside it, never over any. */
 static int sel_text_w(struct ui_list *l)
 {
-    return text_w(l) - value_w(l, l->selected) - mark_w(l, l->selected);
+    return text_w(l) - value_w(l, l->selected) - mark_w(l, l->selected)
+           - noplay_w(l, l->selected);
 }
 
 /* Measures the selected label and restarts the marquee delay. */
@@ -432,6 +551,7 @@ static void put_fit(int x, int y, int w, const char *text, int font)
         lcd_putsxy(x, y, (const unsigned char *)text);
         return;
     }
+    UI_FIT_TRACE("row", text, tw, w);
     font_getstringsize((const unsigned char *)"...", &ew, NULL, font);
     n = font_measurestring((const unsigned char *)text, LABEL_MAX - 1,
                            MAX(w - ew, 0), &tw, NULL, font);
@@ -477,7 +597,7 @@ static bool draw_row(struct ui_list *l, int idx, const struct viewport *rv,
     int w = row_w(l);               /* the selection bar's end */
     int x0 = st.thumb;
     bool sel = (idx == l->selected), two, final = true, chev;
-    int mw;
+    int mw, nw, why;
     char buf[LABEL_MAX];
     const char *label, *sub = NULL;
     int base;
@@ -526,6 +646,12 @@ static bool draw_row(struct ui_list *l, int idx, const struct viewport *rv,
     if (mw)
         ui_npmark_draw(w - row_pad(l) - (chev ? ui_paint_chevron_w() : 0),
                        h, sel);
+    why = row_noplay(l, idx);   /* #286 */
+#ifdef SIMULATOR
+    if (why)                    /* tests/ui/ipodui-286-unplayable.script */
+        DEBUGF("ipodui: noplay row=%d why=%d sel=%d\n", idx, why, sel);
+#endif
+    nw = noplay_w(l, idx);      /* the glyph's room on the right */
 
     two = (st.flags & UI_ROW_TWO_LINE) && l->get_sublabel;
     if (two)
@@ -539,6 +665,28 @@ static bool draw_row(struct ui_list *l, int idx, const struct viewport *rv,
     else
         base = row_base(h);
 
+    if (nw)
+    {
+        /* right-aligned where the chevron's ink ends; vertically centred
+         * on the text: a single-line row centres its cap rows, so the
+         * row's middle; a two-line row's text block (two_block_h, from
+         * the title's ascender to the second line's baseline) sits 1 px
+         * above the middle, so the glyph centres on the block instead
+         * (its odd size rounds up, towards the heavier title) */
+        int gx = w - row_pad(l) - (chev ? ui_paint_chevron_w() : 0)
+                 - NOPLAY_D;
+        int gy = two ? (h - t->two_block_h) / 2 - 1
+                       + (t->two_block_h - NOPLAY_D) / 2
+                     : (h - NOPLAY_D) / 2;
+
+#ifdef SIMULATOR                /* tests/ui/ipodui-286-unplayable.script */
+        DEBUGF("ipodui: noplay glyph row=%d x=%d y=%d d=%d h=%d\n", idx,
+               gx, gy, NOPLAY_D, h);
+#endif
+        draw_noplay(gx, gy, sel);
+    }
+    mw += nw;
+
     if (sub)
     {
         /* the second line first: buf is reused for the label below */
@@ -546,7 +694,8 @@ static bool draw_row(struct ui_list *l, int idx, const struct viewport *rv,
         tv.x += st.text_x;
         tv.width = text_w(l) - mw;
         tv.font = t->font_small;
-        tv.fg_pattern = sel ? t->sel_fg_sub : t->list_fg_sub;
+        tv.fg_pattern = sel ? t->sel_fg_sub
+                        : why ? t->list_fg_off : t->list_fg_sub;
         tv.drawmode = DRMODE_FG;
         lcd_set_viewport(&tv);
         put_fit(0, cell_y(tv.font, base + t->two_sub_dy, h), tv.width, sub,
@@ -564,6 +713,7 @@ static bool draw_row(struct ui_list *l, int idx, const struct viewport *rv,
         tv.x += st.text_x;
         tv.width = text_w(l) - mw;
         tv.fg_pattern = sel ? t->sel_fg
+                        : why ? t->list_fg_off
                         : l->is_off && l->is_off(idx, l->data)
                           ? t->list_fg_off : t->list_fg;
         tv.drawmode = DRMODE_FG;

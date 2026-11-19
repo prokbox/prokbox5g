@@ -34,6 +34,8 @@ key SELECT          # Rating
 wait 600
 key SELECT          # Shuffle
 wait 600
+key SELECT          # Info (#277)
+wait 500
 key SELECT          # Visualizer: its load stalls, the piece stays taken
 wait 6000
 ab_mark leaked
@@ -51,6 +53,8 @@ key SELECT          # Rating
 wait 600
 key SELECT          # Shuffle
 wait 600
+key SELECT          # Info (#277)
+wait 500
 key SELECT          # Visualizer again: playing, no buffer: the CPU face
 wait 2000
 shot second_view

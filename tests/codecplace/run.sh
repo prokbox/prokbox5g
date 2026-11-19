@@ -48,6 +48,21 @@ if ! "$HOSTCC" -std=gnu99 -O1 -g -Wall -Wextra -Werror ${EXTRA_CFLAGS:-} \
     cat "$TMP/cc.log"
     exit 1
 fi
+# #283: the same file on a 512 KB ring, a film's chunk seeks only
+# shellcheck disable=SC2086
+if ! "$HOSTCC" -std=gnu99 -O1 -g -Wall -Wextra -Werror ${EXTRA_CFLAGS:-} \
+        -Wno-unused-function -DBIG_RING -DRLEN='(512 * 1024)' \
+        -I$T/stub -Iapps -o "$TMP/test_codecplace_big" \
+        "$T/test_codecplace.c" apps/codec_place_core.c apps/codec_cop.c \
+        2>"$TMP/cc.log"; then
+    echo "FAIL: compiling test_codecplace -DBIG_RING ($HOSTCC)"
+    cat "$TMP/cc.log"
+    exit 1
+fi
+if ! "$TMP/test_codecplace_big"; then
+    echo "FAIL: codec placement (a film's chunk seeks, 512 KB ring)"
+    exit 1
+fi
 if "$TMP/test_codecplace"; then
     echo "ok   codec placement (codec_place_core.c, codec_cop.c: the COP default (Apple layout) and its loud CPU fallback; A/B arms: CPU-pinned plain path, core per run by screen state, 30 s hold, no reload, fields on CPU runs, cop_assist; D's full-buffer sleep)"
 else

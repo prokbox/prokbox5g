@@ -1,11 +1,16 @@
 # Stock bootloader identity (Phase 8a fix round, finding 9): the sha256 of
-# build/boot/bootloader.bin built from main with the version string pinned,
-# so the bytes do not depend on the commit or the date. validate.sh builds
+# build/boot/bootloader.bin built with the version string pinned, so the
+# bytes do not depend on the commit or the date. validate.sh builds
 # build/boot with the same VERSION and fails when the hash differs.
-# Recorded from main ab6df75672 with arm-none-eabi-gcc 16.2.0. Re-record
-# only when main itself changes the stock bootloader (an upstream sync):
-#   git archive main | tar -x -C <tmp> && cd <tmp> && mkdir -p build/boot &&
+# Recorded from main ab6df75672 with arm-none-eabi-gcc 16.2.0
+# (04f555b9e88f1b80...). Re-recorded at p090-int5s (2026-11-14), same
+# compiler, for one deliberate fix in a file the stock bootloader links:
+#   disk_cache.o  p090-fsfix #355 (ledger 2.109): a buffer's slot from its
+#                 byte offset; .text 53,128 both, the index code changed
+# (firmware/core_alloc.c also changed in int5s, simulator-only code.)
+# Re-record only when a deliberate change reaches the stock bootloader:
+#   git archive <ref> | tar -x -C <tmp> && cd <tmp> && mkdir -p build/boot &&
 #   cd build/boot && ../../tools/configure --target=22 --type=b \
 #       --compiler-prefix=arm-none-eabi- </dev/null &&
 #   make VERSION=ipodui-boot-identity && shasum -a 256 bootloader.bin
-04f555b9e88f1b80b507a8914cce19656788ecb3e7fd27839b8acdce9f8b4ff9  bootloader.bin
+9935d934981043732e34724b824c918dc9753528562ea61352fea7847ed84d1e  bootloader.bin

@@ -185,8 +185,18 @@ void audiohw_enable_lineout(bool enable);
 int dac_reglog_read(unsigned int *seq, uint16_t *out, int max);
 #endif
 
-#define DACLIMITER1             0x18 /* default 032 unused */
-#define DACLIMITER2             0x19 /* default 000 unused */
+#define DACLIMITER1             0x18 /* default 032; ProkBox #203 */
+#define DACLIMITER1_LIMEN       (1 << 8)
+/* decay 0000 = 750 us .. x2 per step .. 1010-1111 = 768 ms; attack 0000 =
+ * 94 us .. x2 per step .. 1011-1111 = 192 ms (44.1 kHz values; the WM8978
+ * table, wm8978.h WMC_LIMDCY/WMC_LIMATK, the same block) */
+#define DACLIMITER1_LIMDCY(x)   (((x) & 0xf) << 4)
+#define DACLIMITER1_LIMATK(x)   ((x) & 0xf)
+#define DACLIMITER2             0x19 /* default 000; ProkBox #203 */
+/* threshold 000 = -1 dB .. -1 dB per step .. 101-111 = -6 dB; boost
+ * 0000 = 0 dB .. 1100 = +12 dB */
+#define DACLIMITER2_LIMLVL(x)   (((x) & 7) << 4)
+#define DACLIMITER2_LIMBOOST(x) ((x) & 0xf)
 #define NOTCHFILTER1            0x1b /* default 000 unused */
 #define NOTCHFILTER2            0x1c /* default 000 unused */
 #define NOTCHFILTER3            0x1d /* default 000 unused */

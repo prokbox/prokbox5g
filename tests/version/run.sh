@@ -137,6 +137,13 @@ case "$bid" in
     [0-9a-f]*-[0-9][0-9][0-9][0-9][0-9][0-9]) ck "release: RBVERSION (Build:) stays <id>-<date>" y y ;;
     *) ck "release: RBVERSION (Build:) stays <id>-<date>" "<id>-<yymmdd>" "$bid" ;;
 esac
+# rockbox-info "Version:" (tools/mkinfo.pl) must say what About says: rt9's
+# override build wrote the dev string there (mkinfo read only VERSION)
+mkdir -p "$W/mi"
+(cd "$W/mi" && env -u VERSION PROKBOX_VERSION=1.2.3 ROOTDIR="$ROOT" TOOLSDIR="$ROOT/tools" \
+    BINARY=x TARGET_ID=0 MEMORYSIZE=64 perl "$ROOT/tools/mkinfo.pl" "$W/mi/info.txt" >/dev/null 2>&1)
+ck "release: rockbox-info Version: is the release version" "Version: 1.2.3" \
+    "$(grep '^Version:' "$W/mi/info.txt" 2>/dev/null)"
 out=$(cd "$R" && RELEASE_BUILD=1 sh scripts/release_build.sh "$W/o" 2>&1); rc=$?
 ck "RELEASE_BUILD=1 off a tag: rc" "2" "$rc"
 case "$out" in *"not at a clean release tag"*) ck "RELEASE_BUILD=1 off a tag: message" y y ;; *) ck "RELEASE_BUILD=1 off a tag: message" y "$out" ;; esac

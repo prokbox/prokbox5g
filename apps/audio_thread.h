@@ -98,6 +98,8 @@ enum
                                    change notice: wake and scan */
     Q_AUDIO_FILL_HELD,          /* #326: sleep entry held the fills: a
                                    fill's boost is given back */
+    Q_AUDIO_FMT_SWITCH,         /* #214: the PCM stopped at the next
+                                   track's format: re-clock, restart */
 #endif
 };
 

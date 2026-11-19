@@ -378,7 +378,14 @@ uint32_t jref_ext(struct jref *jr, uint32_t op, const uint32_t *a, uint32_t n,
         return HP_E_VERSION;
     /* code the PP has just written: Apple's flush before the first call
      * into it (quirks.md #40); interrupts are off outside idle_wait() */
+#if BCMFW_CORE_FLUSH
+    /* #466: the cold form by the core, here where nothing else runs: the
+       old code's instruction lines dropped (#59) with no host write to
+       the cache word on a running core (#60) */
+    hp_code_flush_cold();
+#else
     hp_code_flush();
+#endif
     JB(J_OPS) |= o->init(jr) & ~OWN_OPS;
     return HP_OK;
 }

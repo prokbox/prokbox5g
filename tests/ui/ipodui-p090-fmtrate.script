@@ -1,0 +1,79 @@
+# b16 (b15 seam96, rs0): after a seamless output-format switch (#214)
+# the next track plays at its own speed. The codec starts each track's
+# run before the output reaches the boundary; it used to set the DSP's
+# output to the output's rate of that moment (the outgoing track's), so
+# the incoming track was converted to the old rate while its chunks were
+# tagged with the new one: 96 kHz after 48 kHz played twice as fast, a
+# 44.1 kHz track after 48 kHz about 8 % slow. expect_rate measures the
+# position against the host's clock (the sim plays at the speed of sound,
+# ipodui-simrate.script), each direction:
+#   A  48 -> 44.1 kHz (Hi-Res off);
+#   B  48 -> 96 kHz 24-bit (Hi-Res on; the seam96 row's switch);
+#   C  96 -> 44.1 kHz (Hi-Res on).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p090-fmtrate.script
+# needs: library
+# golden: skip
+# reset: mainmenu
+# timeout: 200
+# fulls-extra: 3          (the Now Playing row appears at play_files and goes at audio_stop)
+# log: audiophile test mask=0x83 on=1
+# logbetween: a b pcm fsw n=\d+ 44100/
+# logbetween: b c pcm fsw n=\d+ 96000/24
+# logbetween: c d pcm fsw n=\d+ 44100/
+# nolog: rate gap
+# nolog: fsw chk=FAIL
+wait 4000
+copy fixtures/rate48k.flac /Music/fr48k.flac
+copy fixtures/rate96k-24bit.flac /Music/fr96k24.flac
+wait 500
+
+ab_mark a
+play_files /Music/fr48k.flac /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait_pos 1500 30000 Concert
+rate_mark
+wait 8000
+expect_rate 95 105      # (before b16: ~92 %, converted to 48 kHz)
+audio_stop
+wait 1000
+
+ab_mark b
+wheel +3 300            # Settings
+wait 400
+key SELECT 50
+wait 1200
+wheel +11 300           # Audiophile
+wait 1000
+key SELECT 50
+wait 1200
+key SELECT 50           # High Sample Rate: the warning
+wait 1000
+wheel -1 300            # Continue
+wait 300
+key SELECT 50
+wait 3800
+key SELECT 50           # the result: OK
+wait 1500
+play_files /Music/fr48k.flac /Music/fr96k24.flac
+wait_pos 1000 30000 fr96k24
+rate_mark
+wait 3000
+expect_rate 85 115      # (before b16: ~200 %, the clip ended early; a 3 s
+                        # window of a 6 s fixture: wider than A and C, 93..97 % seen)
+audio_stop
+wait 1000
+
+ab_mark c
+play_files /Music/fr96k24.flac /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait_pos 1500 30000 Concert
+rate_mark
+wait 8000
+expect_rate 95 105      # (before b16: ~46 %, converted to 96 kHz)
+expect_rate_gaps 0
+expect_underruns 0
+ab_mark d
+shot end
+audio_stop
+wait 1000
+rm_file /Music/fr48k.flac
+rm_file /Music/fr96k24.flac
+quit

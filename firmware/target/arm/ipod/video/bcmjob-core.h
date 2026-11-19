@@ -84,6 +84,14 @@ struct bjc_port
      * (HP_E_NOMEM).  Called on the decoding (art) thread: memory only,
      * never the port */
     void *(*dec_buf)(bool get);
+#ifdef HAVE_BCMFW_DEVTEST
+    /* sitting b10 (bench builds; NULL: none): the port lock's own record
+     * for the ring look: [0] lcd_port_lock() refusals (no mutex: IRQs off
+     * or not set up) and [1] the last refused caller's address, [2] port
+     * locks entered with the tick block already set and [3] the last such
+     * caller's address */
+    void (*lock_stats)(uint32_t out[4]);
+#endif
 };
 
 /* bcmjob_upload_rect() (bcmjob.h, jobs rev 0.4) on the device: BACK's
@@ -247,6 +255,31 @@ bool bjc_dec_lends(void);
 #define BJC_INJECT_ERR HP_E_INVAL   /* a counted failure, not a normal outcome */
 void bjc_inject_fail(uint32_t op, uint32_t n);
 void bjc_inject_forgive(uint32_t op);
+/* Sitting b10 (jobsx; bcmjob_ring.h): at a job wait's timeout the driver
+ * reads the ring back first, through the port with no doorbell, the
+ * port lock held over a BJR_WINDOW_US window, and traces it ("bcmjob ring"
+ * lines); at most BJR_LOOKS_MAX looks a boot, plus one each time a bench
+ * row arms it.  get: the last look (seq 0: none yet).  forgive: the op's
+ * slow and failed marks go, so a bench row's next try runs at all (two
+ * timeouts mark an op slow for the boot).  The ring owner's thread only */
+struct bjc_ring_look;
+void bjc_ring_look_get(struct bjc_ring_look *out);
+void bjc_ring_look_arm(void);
+void bjc_dev_forgive(uint32_t op);
+/* #257 (bcmjob_ring.h struct bjc_ovl_look): when an OVERLAY's reply never
+ * comes, the driver reads back what the host can see of the load (the op
+ * running, J_OPS against the evicted overlay's and the new one's, the
+ * region's FNV-1a against the file's) and traces it ("bcmjob ovlook"),
+ * at most OVL_LOOKS_MAX a boot.  get: the last look (returns its seq, 0:
+ * none); now: a look at overlay k's region taken at once (OK, or OFF
+ * without our image), kept as the last.  flushes: the last host code
+ * flush before a rewrite ([0], "drain") and before OVERLAY ([1], "code");
+ * returns the flushes this boot.  The ring owner's thread only */
+struct bjc_ovl_look;
+struct bjc_code_flush;
+uint32_t bjc_ovl_look_get(struct bjc_ovl_look *out);
+int bjc_ovl_look_now(int k, struct bjc_ovl_look *out);
+uint32_t bjc_ovl_flushes(struct bjc_code_flush *out);
 #endif
 
 /* ---- one writer for the driver's state (P19 S0, design MF-2) ------------

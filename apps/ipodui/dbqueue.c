@@ -1243,6 +1243,17 @@ bool dbq_working(void)
     return working;
 }
 
+void dbq_tc_rebase_now(void)
+{
+    char scratch[MAX_PATH + 1];
+
+    if (!dbq_booted || !rebase_owed)
+        return;
+    working = true;
+    job_rebase(scratch);        /* not done: dbq_tc_poll() again, later */
+    working = false;
+}
+
 void dbq_tc_poll(void)
 {
     static bool waiting;    /* one "waits" line per wait */

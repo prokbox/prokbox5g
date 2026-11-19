@@ -204,7 +204,8 @@ static uint16_t max_dma_chunk_size;
    while the PCM is stopped, read by the FIQ: IRAM (uncached) */
 static uint8_t pcm_pp_bpf IDATA_ATTR = 4;
 static uint16_t pcm_pp_freq IDATA_ATTR = HW_FREQ_DEFAULT;
-/* the stall watch's progress word (pcm_builtin_progress()) */
+/* the stall watch's progress word (pcm_builtin_progress()): one a piece
+   and one a start */
 static unsigned long pcm_pp_pieces IBSS_ATTR;
 #define PCM_PP_PIECE_DONE() (pcm_pp_pieces++)
 #else
@@ -816,6 +817,72 @@ void pcm_pp_queue_refuse(void)
 }
 #endif /* PCM_PP_QUEUE */
 
+#ifdef HAVE_CORE_LAYOUT_A
+/* 0.9.0 fiqstall (b16, #436): a whole-cache write-back holds the core's
+ * cached accesses until it ends, the FIQ vector's fetch at 0x1C among them
+ * (logical SDRAM, cached), so a FIQ that comes during one runs only when
+ * it is over: 250-760 us at 24-30 MHz, with the FIQ open (the late pcs sat
+ * in commit_dcache's wait loop, psr 0x1f; the mechanism is a hypothesis
+ * until a sitting shows the fix).  The cache has no line or
+ * range operation (pp5022-reference quirk 10), so the write-back cannot be
+ * cut; it can be put where no piece ends.  Before a core's whole-cache
+ * maintenance, while that core takes the PCM's FIQ and may take it now,
+ * wait until the playing piece has need_us left (the FIFO's 16 words then
+ * cover the FIQ's own entry), or, when it has less, until the FIQ has
+ * armed the next one: a piece lasts 1.6-3.9 ms, the worst stall seen
+ * under 0.8 ms.  No wait with the FIQ masked (the caller's, or in the FIQ
+ * itself), with the source masked (a PCM lock), with the queue on (a
+ * whole piece waits in the hardware) or while stopped; a FIQ that ran
+ * while it waited ends the wait (a last piece arms none).  Bounded: a FIQ
+ * that does not come in PCM_PP_WIN_BOUND_US lets the caller go (counted).
+ * Returns 0: no wait; 1: waited; 2: gave up at the bound */
+/* fiq-window: begin (tests/pcmdma/test_fiqwin.c runs this block) */
+#define PCM_PP_WIN_BOUND_US 8000u
+/* the FIQ writes these behind the loop's back: read them afresh */
+#define PW_RD(v) (*(volatile __typeof__(v) *)&(v))
+
+int ICODE_ATTR pcm_pp_fiq_window(uint32_t need_us)
+{
+    uint32_t fiq0, t0;
+    int waited = 0;
+
+    if (pcm_core != CURRENT_CORE || dma_play_data.state == 0)
+        return 0;
+#ifdef PCM_PP_QUEUE
+    if (pq_on)
+        return 0;
+#endif
+    if (!(CORE_INT_REG(CPU_INT_EN_STAT, CURRENT_CORE) & DMA_MASK) ||
+        !interrupt_enabled(FIQ_STATUS))
+        return 0;
+    fiq0 = PW_RD(pcm_fiq_last_us);
+    t0 = USEC_TIMER;
+    for (;;)
+    {
+        uint32_t arm, words, now;
+        int32_t left;
+
+        do {    /* one piece's three words: the FIQ may rewrite them */
+            uint16_t w = PW_RD(pcm_arm_words);
+            uint8_t f = PW_RD(pcm_arm_free);
+
+            arm = PW_RD(pcm_arm_us);
+            words = w > f ? (uint32_t)(w - f) : 0;
+            now = USEC_TIMER;
+        } while (arm != PW_RD(pcm_arm_us));
+        if (PW_RD(pcm_fiq_last_us) != fiq0)
+            return 1;       /* a FIQ ran: the next piece armed (or none) */
+        left = (int32_t)(arm + pcm_words_us(words) - now);
+        if (left >= (int32_t)need_us)
+            return waited;
+        if (now - t0 > PCM_PP_WIN_BOUND_US)
+            return 2;
+        waited = 1;
+    }
+}
+/* fiq-window: end */
+#endif /* HAVE_CORE_LAYOUT_A */
+
 /* NOTE: direct stack use forbidden by GCC stack handling bug for FIQ */
 void fiq_playback(void) ICODE_ATTR __attribute__((interrupt("FIQ")));
 void fiq_playback(void)
@@ -1386,6 +1453,11 @@ static void sink_dma_start(const void *addr, size_t size)
 #ifdef HAVE_CORE_LAYOUT_A
     pcm_fiq_warm = 0;   /* 0.8.3: the FIFO starts empty */
 #endif
+    /* p090-apstall: a start moves the stall watch's progress word too, so
+     * its count begins at this run, never at the last piece of the run
+     * before (a stop and restart can fall between two ticks).  The FIQ,
+     * the word's other writer, has nothing in flight: the stop above */
+    PCM_PP_PIECE_DONE();
     sink_start_pcm();
 }
 

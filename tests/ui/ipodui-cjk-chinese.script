@@ -1,0 +1,94 @@
+# #235 (package G2): Chinese-only hanzi (GB2312 / Big5 level 1, outside
+# JIS X 0208) draw in lists and on Now Playing: the Simplified artist
+# 周杰伦 (伦 东) and the Traditional 張學友 (張 學 傷), drawn from the SC and
+# TC faces. Compare at 3x zoom with the Japanese rows: same baseline, same
+# row height, no blanks.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-cjk-chinese.script
+# A bare disk with only the 24 songs of tests/fixtures/cjk/
+# make_cjk_library.py (kana, kanji, a CP932 name kanji, full-width forms,
+# Simplified and Traditional Chinese, Hangul, one Latin album), the
+# ShellCJK fonts in the sparse form. Shots: Artists, an artist's albums
+# (a CJK header), Albums, Songs, Now Playing of a Japanese song. Compare
+# at 3x zoom with the Latin rows: same baseline, same row height.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-cjk-lists.script
+# needs: cjk
+# disk: bare
+# golden: skip
+# timeout: 180
+
+wait 4000
+mkdir /Music
+mkdir /Music/CJK
+copy ../../build/cjk-library/01.mp3 /Music/CJK/01.mp3
+copy ../../build/cjk-library/02.mp3 /Music/CJK/02.mp3
+copy ../../build/cjk-library/03.mp3 /Music/CJK/03.mp3
+copy ../../build/cjk-library/04.mp3 /Music/CJK/04.mp3
+copy ../../build/cjk-library/05.mp3 /Music/CJK/05.mp3
+copy ../../build/cjk-library/06.mp3 /Music/CJK/06.mp3
+copy ../../build/cjk-library/07.mp3 /Music/CJK/07.mp3
+copy ../../build/cjk-library/08.mp3 /Music/CJK/08.mp3
+copy ../../build/cjk-library/09.mp3 /Music/CJK/09.mp3
+copy ../../build/cjk-library/10.mp3 /Music/CJK/10.mp3
+copy ../../build/cjk-library/11.mp3 /Music/CJK/11.mp3
+copy ../../build/cjk-library/12.mp3 /Music/CJK/12.mp3
+copy ../../build/cjk-library/13.mp3 /Music/CJK/13.mp3
+copy ../../build/cjk-library/14.mp3 /Music/CJK/14.mp3
+copy ../../build/cjk-library/15.mp3 /Music/CJK/15.mp3
+copy ../../build/cjk-library/16.mp3 /Music/CJK/16.mp3
+copy ../../build/cjk-library/17.mp3 /Music/CJK/17.mp3
+copy ../../build/cjk-library/18.mp3 /Music/CJK/18.mp3
+copy ../../build/cjk-library/19.mp3 /Music/CJK/19.mp3
+copy ../../build/cjk-library/20.mp3 /Music/CJK/20.mp3
+copy ../../build/cjk-library/21.mp3 /Music/CJK/21.mp3
+copy ../../build/cjk-library/22.mp3 /Music/CJK/22.mp3
+copy ../../build/cjk-library/23.mp3 /Music/CJK/23.mp3
+copy ../../build/cjk-library/24.mp3 /Music/CJK/24.mp3
+update_db_wait 60000
+wait 3000
+
+key SELECT          # Music
+wait 800
+wheel +1            # Artists
+wait 400
+key SELECT
+wait 1200
+wheel +2            # 周杰伦
+wait 600
+shot artists_simplified
+key SELECT          # the artist's albums
+wait 1200
+shot albums_simplified
+wheel +1
+wait 400
+key SELECT
+wait 1200
+shot songs_simplified
+key MENU
+wait 600
+key MENU
+wait 600
+wheel +2            # 張學友
+wait 600
+shot artists_traditional
+key MENU
+wait 600
+wheel +2            # Songs
+wait 400
+key SELECT
+wait 1200
+wheel +8 300        # 以父之名 (the global Songs list)
+wait 800
+shot songs_all
+key SELECT          # play: Now Playing
+wait 5000
+shot nowplaying_simplified
+key MENU
+wait 800
+wheel -2 300        # 一千個傷心的理由
+wait 800
+key SELECT
+wait 5000
+shot nowplaying_traditional
+audio_stop
+wait 500
+quit

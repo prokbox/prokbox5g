@@ -1,0 +1,172 @@
+# #266 (Japanese shell, 0.9.0): the Japanese shell, toured for fit, with
+# the ShellCJK companion fonts installed (# needs: cjk). Boot 1 shows the
+# first-boot notice in English; the language is set and the device
+# restarts with it unacknowledged, so boot 2 shows it in Japanese (the
+# legal paragraphs stay English, owner 2026-11-10). Then the main menu,
+# Music, Artists (a list), Extras, every Settings row, About, Language,
+# EQ, Legal, Now Playing, the USB screen and the post-unplug library
+# page (OK to Disconnect with its step line), in Japanese. Last,
+# Settings > Language > English switches back while running.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p20-lang-ja.script
+# needs: library
+# needs: cjk
+# timeout: 300
+# golden: skip
+# env: IPODUI_SIM_NOTICE=clear
+# log: notice shown key=
+# nolog: ipodui: fit cut
+# log: language set english rc=0
+#
+# Every text cut with "..." is traced ("ipodui: fit cut ..."; paint.h
+# UI_FIT_TRACE): the language pass lists them from the run's log.
+
+sim_clock 15:08
+clock_format 24
+wait 4000
+lang_set japanese
+reboot
+
+wait 6000            # boot 2: settings_apply() loads japanese.lng
+shot notice
+wheel +6
+wait 400
+shot notice-end
+key SELECT
+wait 1500
+shot main
+key SELECT           # Music
+wait 1500
+shot music
+wheel +8
+wait 600
+shot music-end
+wheel -8
+wait 400
+wheel +1             # Artists
+wait 400
+key SELECT
+wait 1500
+shot artists
+key MENU
+wait 1200
+wheel -1             # Album Flow? no: back to the top row
+wait 400
+key MENU
+wait 1200
+wheel +2             # Extras
+wait 400
+key SELECT
+wait 1500
+shot extras
+wheel +8
+wait 600
+shot extras-end
+key MENU
+wait 1200
+wheel +1             # Settings
+wait 400
+key SELECT
+wait 1500
+shot settings-0
+wheel +5
+wait 600
+shot settings-5
+wheel +5
+wait 600
+shot settings-10
+wheel +6
+wait 600
+shot settings-16
+wheel -16            # About
+wait 600
+key SELECT
+wait 1500
+shot about
+wheel +6
+wait 600
+shot about-end
+key MENU
+wait 1200
+wheel +40            # the last row (Reset Settings): row counts
+wait 600             # differ by build (int2 17 rows, 0.9.0 18: Audiophile)
+wheel -2             # Language (third from the end)
+wait 600
+key SELECT
+wait 1500
+shot language
+key MENU
+wait 1200
+wheel -40            # About (the first row)
+wait 600
+wheel +9             # EQ, the tenth row
+wait 600
+key SELECT
+wait 1500
+shot eq
+key MENU
+wait 1200
+wheel +40
+wait 600
+wheel -1             # Legal (second from the end)
+wait 400
+key SELECT
+wait 1500
+shot legal
+hold MENU 1200       # to the main menu
+wait 1500
+wheel +4             # Shuffle Songs
+wait 400
+key SELECT
+wait 3000
+shot nowplaying
+key SELECT
+wait 800
+shot nowplaying-2
+key SELECT
+wait 800
+shot nowplaying-3
+hold MENU 1200
+wait 1500
+usb_connect
+wait 2500
+shot usb
+usb_eject
+wait 1500
+shot usb-ejecting
+mkdir /Music/P20Ja
+copy fixtures/refresh.mp3 /Music/P20Ja/a.mp3
+copy fixtures/sig-cover.jpg /Music/P20Ja/cover.jpg
+commit_hold 4
+usb_disconnect
+usb_eject off
+commit_hold_wait 30000
+wait 1500
+shot library-update  # OK to Disconnect, the bar, the step in Japanese
+commit_release
+expect_in_db /Music/P20Ja/a.mp3 30000
+wait_db 45000
+art_wait 120000
+wait 2500
+
+wheel -20            # the top
+wait 400
+wheel +3             # Settings
+wait 400
+key SELECT
+wait 1500
+wheel +40            # the last row (Reset Settings): row counts
+wait 600             # differ by build (int2 17 rows, 0.9.0 18: Audiophile)
+wheel -2             # Language (third from the end)
+wait 600
+key SELECT
+wait 1500
+wheel -10            # English (the first row)
+wait 400
+key SELECT           # back to the main menu, in English
+wait 2000
+shot main-en
+remove /Music/P20Ja/a.mp3
+remove /Music/P20Ja/cover.jpg
+update_db_wait 30000
+lang_set -
+quit

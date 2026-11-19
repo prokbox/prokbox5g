@@ -39,8 +39,8 @@
 #
 # Device memory: WARBLE_CODEC_BUF gives the codec only what the device's
 # codec slot leaves free with the COP's stack reserved: 1,048,576 B
-# (CODEC_SIZE) - 5,192 B (flac.codec's image, fw-ship at #278) - 12,288 B
-# (COP_CODEC_STACK) = 1,031,096 B. The 24/192, 65535-sample stream must
+# (CODEC_SIZE) - 7,892 B (flac.codec's image, plugin_end_addr, fw-ui at
+# #318) - 12,288 B (COP_CODEC_STACK) = 1,028,396 B. The 24/192, 65535-sample stream must
 # decode in it with the frame-size fields of STREAMINFO zeroed (the worst
 # case: the frame copy sized for verbatim frames), and must be refused,
 # with "flac rejected blocksize=65535 why=memory", with 1 KiB less than it
@@ -62,7 +62,7 @@ command -v ffmpeg >/dev/null 2>&1 || {
     echo "flacblock: FAILED: ffmpeg not found (the fixtures' encoder)" >&2
     exit 1; }
 
-DEVICE_FREE=1031096
+DEVICE_FREE=1028396
 T=build/flacblock
 rm -rf "$T"
 mkdir -p "$T"
@@ -153,11 +153,11 @@ else
     bad "1 KiB short ($less B): not refused as it should be: $(cat "$T/less.log" | tr '\n' ' ')"
 fi
 
-# #285: the widest sample the decoder takes is FLAC_OUTPUT_DEPTH, 29 bits.
-# A 29-bit stream decodes exactly (warble's raw output is the samples
-# themselves at that width: no shift); 30 bits (synth.py) and a 32-bit
-# stream from the reference encoder are refused at open, logged, with no
-# PCM and a codec error, not a crash.
+# #285: a 29-bit stream, the widest the decoder hands on at its own
+# width, decodes exactly (warble's raw output is the samples themselves:
+# no shift).  Wider ones (30..32 bits) play since #318, reduced to 29 bits
+# with dither: tests/flac32 checks them (and the rate they are refused
+# above).
 if command -v flac >/dev/null 2>&1; then
     python3 tests/flacarm/synth.py "$T/b29.flac" 29 1152 16 29
     flac -s -f -d -o "$T/b29.wav" "$T/b29.flac" 2>/dev/null
@@ -168,26 +168,8 @@ if command -v flac >/dev/null 2>&1; then
     else
         bad "29-bit: not as flac -d decodes it: $(tail -2 "$T/b29.log" | tr '\n' ' ')"
     fi
-    python3 tests/flacarm/synth.py "$T/b30.flac" 30 1152 8 30
-    python3 tests/flacarm/gen.py "$T/src32.raw" 32 48000 0.2 music
-    flac -s -f --force-raw-format --endian=little --sign=signed --channels=2 \
-        --bps=32 --sample-rate=48000 -o "$T/b32.flac" "$T/src32.raw"
-    for b in 30 32; do
-        [ "$($FB info "$T/b$b.flac" | sed -n 's/.*bps=\([0-9]*\).*/\1/p')" = $b ] \
-            || { bad "$b-bit: the fixture is not $b-bit"; continue; }
-        rc=0
-        "$WARBLE" -r "$T/b$b.flac" "$T/b$b.out" 2>"$T/b$b.log" || rc=$?
-        # warble reports the codec's error and exits 0; a crash exits >= 128
-        if [ $rc -lt 128 ] && grep -q "flac: $b-bit not supported" "$T/b$b.log" \
-                && grep -q "error: codec error" "$T/b$b.log" \
-                && [ ! -s "$T/b$b.out" ]; then
-            ok "$b-bit: refused at open, logged, codec error, no PCM"
-        else
-            bad "$b-bit: not refused cleanly (exit $rc): $(tail -2 "$T/b$b.log" | tr '\n' ' ')"
-        fi
-    done
 else
-    echo "note bit-depth limit: not checked (needs flac)"
+    echo "note 29-bit stream: not checked (needs flac)"
 fi
 
 echo "flacblock: $checked streams checked"

@@ -43,6 +43,9 @@ wait 900
 shot sound_check
 wheel +1 300
 wait 900
+shot audiophile
+wheel +1 300
+wait 900
 shot clicker
 wheel +1 300
 wait 900

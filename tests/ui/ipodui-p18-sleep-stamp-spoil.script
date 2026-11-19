@@ -27,7 +27,10 @@ wait 2000
 play_files /Music/Tone%20Collective/Sine%20Studies/03%20Warble.mp3
 wait_pos 3000 60000 Warble  # a new track: the disk wakes for its read
 disk_active 1000        # the sim's disk model says so (hostfs has none;
-wait 3000               # the device reads the driver's last activity)
+wait 6000               # the device reads the driver's last activity)
+                        # (past Now Playing's 8 s auto-return and its slide:
+                        # the sim now plays at real time, so the cut no
+                        # longer lands after the slide by luck)
 power_cut               # a crash in the awake period
 reboot
 sleep_mode soft

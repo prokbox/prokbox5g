@@ -1,16 +1,26 @@
 # P12 W1-N (docs/phase12-brief.md 9; brief section: UTF-8 notes in the
 # shell type): a UTF-8 note (with a BOM) draws Latin-1 and Latin
-# Extended-A letters and the curly quotes, dashes and ellipsis; Greek,
-# Cyrillic, Japanese and an emoji show one hollow box per character, never
-# a blank or a guess (the count is logged: missing=). A Windows-1252 note
-# (no valid UTF-8) reads its accents and quotes, and its euro sign (in the
+# Extended-A letters and the curly quotes, dashes and ellipsis; its
+# Japanese draws from the ShellCJK companions, which every release ships
+# (scripts/release_flags.sh RELEASE_REQUIRED; 0.9.0, #235/#266); Greek,
+# Cyrillic and an emoji show one hollow box per character, never a blank
+# or a guess (the count is logged: missing=). A Windows-1252 note (no
+# valid UTF-8) reads its accents and quotes, and its euro sign (in the
 # type since the 0.8.0 glyph coverage, p19-font-coverage d03d19fa71; was a
-# box before). The 20 boxes of the UTF-8 note keep the missing-glyph path
-# covered.
+# box before). The 15 boxes of the UTF-8 note (8 Greek, 6 Cyrillic, 1
+# emoji) keep the missing-glyph path covered. Before #511 the script did
+# not ask for the companions, so its count hung on whether the sim disk
+# had been installed with build/cjk-fonts present: 20 without (the 5 kana
+# boxed too), 15 with, as in every full gate.
+# p090-notescjk: "# needs: cjk", as every 0.9.0 install ships the
+# companions.  Their glyph-record reads are the font layer's, booked apart
+# from the module's (devstats font_cmds, modclass.c), so Notes keeps its
+# entry budget of 2 and "nolog: modclass viol" holds.
 #   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p12-notes-unicode.script
 # needs: library
+# needs: cjk
 # timeout: 180
-# log: notes view r=4 bytes=214 lines=6 missing=20 enc=0
+# log: notes view r=4 bytes=214 lines=6 missing=15 enc=0
 # log: notes view r=6 bytes=47 lines=2 missing=0 enc=3
 # nolog: modclass viol
 # golden: skip
@@ -55,9 +65,9 @@ wheel +2            # Main Menu: "Extras"
 wait 800
 key SELECT
 wait 1200
-wheel +7            # Extras: to the last row (Stopwatch; the list does not wrap)
+wheel +8            # Extras: to the last row (EQ, #82; the list does not wrap)
 wait 600
-wheel -2            # "Notes", counted from the end: the same with or without a Games row
+wheel -3            # "Notes", counted from the end: the same with or without a Games row
 wait 800
 key SELECT
 wait 1200

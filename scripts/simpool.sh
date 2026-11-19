@@ -143,7 +143,7 @@ simpool_prime() {
         grep -qE '^#[[:space:]]*needs:[[:space:]]*video' "$_s" && _v=1
         grep -qE '^#[[:space:]]*needs:[[:space:]]*music' "$_s" && _m=1
         grep -qE '^#[[:space:]]*needs:[[:space:]]*library' "$_s" && _l=1
-        grep -qE '^#[[:space:]]*needs:[[:space:]]*np' "$_s" && _np=1
+        grep -qE '^#[[:space:]]*needs:[[:space:]]*np([[:space:]]|$)' "$_s" && _np=1
         grep -qE '^#[[:space:]]*needs:[[:space:]]*ab' "$_s" && _ab=1
     done
     mkdir -p "$_t"

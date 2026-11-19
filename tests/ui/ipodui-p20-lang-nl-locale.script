@@ -1,0 +1,163 @@
+# P20 (0.9.0, p090-locale): the Dutch shell's dates, times, numbers and
+# fits, on the screens the language tour (ipodui-p20-lang-nl) doesn't
+# reach; the steps of ipodui-p20-lang-de-locale. Friday 13 November 2026,
+# 7:05, the 24-hour clock Dutch defaults to:
+#   main-extras  "6 okt 2026" (the panel's fixed sim date; DATE_PANEL,
+#                the month lower-case mid-line)
+#   alarm        "za 14 nov, 07:00" (DATE_ALARM)
+#   eqedit       the band names at 44.1 kHz (the German script: 96 kHz)
+#   sortby       Sorteer op + Achternaam: the gap narrows before a cut
+#   np-info      "44,1 kHz"
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p20-lang-nl-locale.script
+# needs: library
+# needs: npinfo
+# timeout: 300
+# golden: skip
+# env: IPODUI_SIM_NOTICE=clear
+# nolog: ipodui: fit cut
+# log: ipodui: alarms panel row=2
+# log: ipodui: stopwatch log total=
+# log: eqedit name 4 x=
+# log: np mode shuffle -> info
+# nolog: np mode info -> visualizer
+# Every text cut with "..." is traced ("ipodui: fit cut ..."): none may be.
+
+wait 4000
+wait_db 30000
+time_in_title off     # a script before may have left it on
+rm_file /.rockbox/stopwatch.dat
+rm_file /.rockbox/alarms.dat
+rtc_at 2026-11-13 07:05:00
+sim_clock 07:05
+lang_set nederlands
+reboot
+wait 6000            # boot 2: the notice in German, unacknowledged
+key SELECT
+wait 1500
+rtc_at 2026-11-13 07:05:00
+sim_clock 07:05
+wheel +2             # Extras: the panel's clock and date
+wait 1500
+shot main-extras
+key SELECT
+wait 1500
+wheel +3             # Alarms
+wait 800
+key SELECT
+wait 1500
+key SELECT           # Create Alarm: the editor
+wait 1200
+wheel +3             # Repeat
+wait 700
+key SELECT
+wait 1200
+wheel +1             # Every Day
+wait 600
+key SELECT
+wait 1200
+key MENU             # the commit
+wait 1500
+wheel +2             # the alarm: when it next rings
+wait 1000
+shot alarm
+key MENU
+wait 1200
+wheel -20
+wait 400
+wheel +6             # Stopwatch
+wait 800
+shot extras
+key SELECT
+wait 1500
+key SELECT           # New Timer
+wait 1200
+key PLAY
+wait 2200
+key SELECT           # a lap
+wait 1100
+key PLAY             # stop: the log
+wait 800
+key MENU
+wait 1200
+shot sw-list
+wheel +3             # the log
+wait 600
+key SELECT
+wait 1200
+shot sw-detail
+key MENU
+wait 800
+key MENU
+wait 1000
+wheel +12 100        # Custom EQ, the last row
+wait 400
+key SELECT
+wait 1500
+wheel +12 100        # Custom 3
+wait 400
+key SELECT           # its editor
+wait 1500
+shot eqedit
+key MENU
+wait 1200
+key MENU
+wait 1200
+hold MENU 1200       # the main menu
+wait 1500
+
+wheel -20
+wait 400
+wheel +3             # Settings
+wait 400
+key SELECT
+wait 1500
+wheel +40            # Reset Settings, the last row
+wait 600
+wheel -3             # Sort By
+wait 600
+shot sortby
+key SELECT           # the other value: Last Name
+wait 1000
+shot sortby-last
+key SELECT           # back to First Name
+wait 1000
+wheel -1             # Date & Time
+wait 600
+key SELECT
+wait 1500
+shot datetime
+key SELECT           # Date: the rollers
+wait 1500
+shot date-roller
+key MENU
+wait 1200
+hold MENU 1200
+wait 1500
+
+repeat off
+mkdir /NPINFO
+copy ../../build/npinfo-fixtures/cd16.mp3 /NPINFO/cd16.mp3
+play_files /NPINFO/cd16.mp3
+wait 1500
+key SELECT
+wait 700
+key MENU
+wait 700
+wheel +10            # Now Playing, the last row
+wait 500
+key SELECT
+wait 1200
+key SELECT           # Scrubber
+wait 400
+key SELECT           # Rating
+wait 400
+key SELECT           # Shuffle
+wait 400
+key SELECT           # Info
+wait 900
+shot np-info
+hold MENU 1200
+wait 1500
+
+lang_set -
+quit

@@ -39,7 +39,7 @@
 #include <stdint.h>
 
 enum extra_id { XT_CLOCKS, XT_CALENDARS, XT_CONTACTS, XT_ALARMS, XT_GAMES,
-                XT_NOTES, XT_SCREENLOCK, XT_STOPWATCH, XT__N };
+                XT_NOTES, XT_SCREENLOCK, XT_STOPWATCH, XT_EQ, XT__N };
 
 struct ui_preview_ops;                  /* preview.h */
 struct ui_panel;                        /* preview.h */
@@ -113,6 +113,7 @@ void extras_go_games(void);
 void extras_go_notes(void);
 void extras_go_screenlock(void);
 void extras_go_stopwatch(void);
+void extras_go_eq(void);
 /* the Extra an action opens, or -1 */
 int extras_of_action(void (*fn)(void));
 /* Calendars' row panel: the time, today's calendar page, the weekday

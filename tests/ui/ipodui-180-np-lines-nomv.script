@@ -1,0 +1,79 @@
+# #180: Now Playing's artist and album lines get the title's marquee
+# (same pacing: 1 s delay, 2 px per 50 ms, 1 s rest, 40 px gap), one
+# line at a time: title -> artist -> album, a lap each, skipping lines
+# that fit; the lines at rest end in "..." (changes-from-7g.md 2.56).
+# On the CPU (F2; the BCM's PAN: ipodui-p19-mq-lines).
+#   b  long_title.mp3 (short artist and album): only the title moves
+#   c  long_all.mp3 (all three too wide): the turn passes title -> artist
+#      -> album
+# This copy leaves out case a (the joined three-artist track, #167, which
+# arrives with package F; the full script ipodui-180-np-lines-turns is
+# pended until then).  Before #180 the artist line was only ever "Aardvark Multi, Aardw...":
+# expect_drawn of the joined string and every artist/album log fail.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-180-np-lines-nomv.script
+# needs: music
+# needs: np
+# timeout: 200
+# golden: skip
+# logbetween: b0 b1 np mq render w=\d+ line=0
+# logbetween: b0 b1 update np:title
+# logbetween: b0 b1 no update np:artist
+# logbetween: b0 b1 no update np:album
+# logbetween: c0 c1 np mq line=1 from=0
+# logbetween: c1 c2 np mq line=2 from=1
+# logbetween: c1 c2 update np:album y=105 h=18
+# nolog: glass owned STALE
+# nolog: shot POISONED
+
+wait 3000
+sim_clock 15:08
+clock_format 24
+repeat off
+wait_db 30000
+art_wait 60000
+mkdir /NPTest
+copy ../../build/np-fixtures/long_title.mp3 /NPTest/long_title.mp3
+copy ../../build/np-fixtures/long_all.mp3 /NPTest/long_all.mp3
+play_files /NPTest/long_title.mp3
+wait 1000
+np_pin 8000 50
+key SELECT          # Music (the menu re-reads "Now Playing" after a push/pop)
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+text_mark
+key SELECT
+wait 3000
+
+ab_mark b0
+play_files /NPTest/long_title.mp3
+wait 5000
+shot b_title
+ab_mark b1
+
+ab_mark c0
+play_files /NPTest/long_all.mp3
+wait 1000
+audio_pause on      # the track is 30 s: hold it while the turns go round
+wheel +1 100        # (input: the light stays on)
+wait 7000
+wheel -1 100
+wait 7000
+wheel +1 100
+wait 2500           # the title's lap is done: the artist moves
+ab_mark c1
+shot c_artist
+wheel -1 100
+wait 7000
+wheel +1 100
+wait 6000           # the artist's lap is done: the album moves
+shot c_album
+ab_mark c2
+key MENU
+wait 800
+audio_stop
+rm_file /NPTest/long_title.mp3
+rm_file /NPTest/long_all.mp3
+quit

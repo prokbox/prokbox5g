@@ -29,6 +29,7 @@ wait 700
 wheel +10           # "Now Playing"
 wait 500
 key SELECT
+wait 1500           # Now Playing up before the hold (the sim's audio now runs at wall speed)
 wait_pos 3000 30000
 hold SELECT 1500    # Add to On-The-Go / Browse Album / Browse Artist / Cancel
 wait 800

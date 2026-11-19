@@ -27,6 +27,9 @@
 #ifdef HAVE_PANIC_RECORD
 #include "panic_record.h"
 #endif
+#if defined(IPOD_VIDEO) && defined(HAVE_IPOD_UI) && defined(SIMULATOR)
+#include "panic.h"      /* p090-floor2: the device-pool checks */
+#endif
 
 /* not static so it can be discovered by core_get_data() */
 struct buflib_context core_ctx;
@@ -80,9 +83,34 @@ void core_allocator_init(void)
      * unit (IPODUI_SIM_RAM), as on the device above */
     if (probed_ramsize != 64)
         audiobufend = audiobuffer + sizeof(audiobuffer) - (32 << 20);
+    /* p090-floor2: the floor gate's device-shaped pool (system-sdl.c),
+     * the device's own size from the release ELF, not MEMORYSIZE - 1 */
+    if (sim_device_pool)
+    {
+        if (sim_device_pool > sizeof(audiobuffer) - sizeof(intptr_t))
+            panicf("sim: device pool %lu B > the simulator's %lu B",
+                   (unsigned long)sim_device_pool,
+                   (unsigned long)sizeof(audiobuffer));
+        audiobufend = start + sim_device_pool;
+        if (probed_ramsize != 64)
+            audiobufend -= (32 << 20);
+    }
 #endif
 
     buflib_init(&core_ctx, start, audiobufend - start);
+
+#if defined(IPOD_VIDEO) && defined(HAVE_IPOD_UI) && defined(SIMULATOR)
+    /* p090-floor2: what device-only code pins at boot (the directory burst
+     * slots at the first mount, the BCM job slots), held for good */
+    if (sim_device_pinned)
+    {
+        int h = core_alloc(sim_device_pinned);
+        if (h <= 0)
+            panicf("sim: device-only pinned block %lu B refused",
+                   (unsigned long)sim_device_pinned);
+        core_pin(h);
+    }
+#endif
 
 #ifdef BUFLIB_DEBUG_PRINT
     test_alloc = core_alloc(112);

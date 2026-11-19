@@ -21,9 +21,9 @@
  *
  ****************************************************************************/
 
-/* The one call codec_cop.c makes into apps/video/vplayer.h: its video
- * guard (6e9fecc4a8; a soundtrack stays on the CPU in 0.8.3, #283 moves
- * it in 0.9.0). test_small_reads() checks the guard */
+/* The one call codec_cop.c made into apps/video/vplayer.h: its video
+ * guard (6e9fecc4a8, a soundtrack on the CPU in 0.8.3; gone with #283 in
+ * 0.9.0). Kept so test_small_reads() goes red if the guard comes back */
 #ifndef STUB_VPLAYER_H
 #define STUB_VPLAYER_H
 #include <stdbool.h>

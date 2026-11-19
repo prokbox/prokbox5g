@@ -1,7 +1,7 @@
 # #126: Mirror's last resort (sim-ui-video): the model stands in an
 # overlay before J_BARS_FLIP (bcm_flip 0), so Bars stays on the BCM and
 # Mirror is drawn on the CPU, logged once.
-# log: np mode shuffle -> visualizer ev=0
+# log: np mode info -> visualizer ev=0
 # log: viz light hold=1
 # log: viz start style=1
 # log: np mode visualizer -> normal ev=0
@@ -30,6 +30,8 @@ key SELECT          # Rating
 wait 600
 key SELECT          # Shuffle
 wait 600
+key SELECT          # Info (#277)
+wait 500
 key SELECT          # Visualizer
 wait 1500
 shot bars

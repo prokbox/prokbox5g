@@ -147,3 +147,15 @@
 327		Considering		We are looking at letting the sound chip mute itself during silent stretches, to cut faint hiss in quiet passages and while paused.		Quieter silence
 330				Spoken menus: the player can read out menu items and song, artist and album names.		Spoken menus
 346				Photos: browse your pictures by album, view them full screen, and play slideshows with music. Copy photos over by drag-and-drop, with no app.		Photos
+381				Scrolling speeds up the longer you turn the wheel, and more so in long lists.		Faster scrolling in long lists
+382				Adding a few songs to a large library updates it faster.		Faster library updates
+383				Removing many songs at once updates the library faster.		Faster removal of many songs
+384				-	
+385				Songs copied by the old sync software show their details sooner, read from its own library.		Faster details for synced songs
+387				-	
+492				Songs you play can be logged on the player for Last.fm, ready to send when you connect it to your computer.		Last.fm play logging
+493				Your computer's music app recognises the player when you plug it in.		Recognised by your computer
+502				Play counts and On-The-Go playlists made on the player go back to your computer's music library at the next sync.		Play counts and playlists sync back
+503				High-efficiency AAC files play with their full, bright treble instead of a duller sound.		Full-quality HE-AAC
+504				Night Mode: a warm evening tint over the whole screen, on a schedule or by a switch.		Night Mode
+508				Smart playlists that fill themselves in: Favourites, Top Rated, Top 25 Most Played and Recently Added.		Smart playlists

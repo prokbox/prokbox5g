@@ -2,6 +2,7 @@
  * ALAC (Apple Lossless Audio Codec) decoder
  * Copyright (c) 2005 David Hammerton
  * All rights reserved.
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This is the quicktime container demuxer.
  *
@@ -449,7 +450,10 @@ static void stream_read_sample_to_chunk(stream_t *stream, uint32_t *first_chunk,
     stream_skip(stream, 4);
 }
 
-static bool read_chunk_stco(qtmovie_t *qtmovie, size_t chunk_len)
+/* An stco, or a co64 if wide (upstream 2676854a3a, hand-ported: an
+ * 8-byte offset is kept as 4 bytes as it is read; one past 4 GB, which
+ * no audio on FAT32 can have, becomes 0xffffffff). */
+static bool read_chunk_stco(qtmovie_t *qtmovie, size_t chunk_len, bool wide)
 {
     uint32_t i, k, old_i;
     uint32_t numentries;
@@ -518,13 +522,16 @@ static bool read_chunk_stco(qtmovie_t *qtmovie, size_t chunk_len)
     {
         if (i % accuracy_divider == 0)
         {
-            qtmovie->res->lookup_table[idx++].offset = stream_read_uint32(qtmovie->stream);
+            uint32_t high = wide ? stream_read_uint32(qtmovie->stream) : 0;
+            uint32_t offset = stream_read_uint32(qtmovie->stream);
+            qtmovie->res->lookup_table[idx++].offset =
+                high ? 0xffffffff : offset;
         }
         else
         {
-            stream_skip(qtmovie->stream, 4);
+            stream_skip(qtmovie->stream, wide ? 8 : 4);
         }
-        size_remaining -= 4;
+        size_remaining -= wide ? 8 : 4;
     }
 
     idx = 0;
@@ -621,7 +628,9 @@ static bool read_chunk_stbl(qtmovie_t *qtmovie, size_t chunk_len)
             }
             break;
         case MAKEFOURCC('s','t','c','o'):
-            if (!read_chunk_stco(qtmovie, sub_chunk_len))
+        case MAKEFOURCC('c','o','6','4'):
+            if (!read_chunk_stco(qtmovie, sub_chunk_len,
+                                 sub_chunk_id == MAKEFOURCC('c','o','6','4')))
             {
                return false;
             }
@@ -852,10 +861,19 @@ int qtmovie_read(stream_t *file, demux_res_t *demux_res)
 
         if (chunk_len == 1)
         {
-            //DEBUGF("need 64bit support\n");
-            return 0;
+            /* 64-bit size: only one that fits in 32 bits can be in a
+               file on FAT32.  The header is 16 bytes, so take 8 off to
+               leave the size as if it had the usual 8-byte one. */
+            chunk_id = stream_read_uint32(qtmovie.stream);
+            if (stream_read_uint32(qtmovie.stream) != 0)
+                return 0;
+            chunk_len = stream_read_uint32(qtmovie.stream);
+            if (chunk_len < 16)
+                return 0;
+            chunk_len -= 8;
         }
-        chunk_id = stream_read_uint32(qtmovie.stream);
+        else
+            chunk_id = stream_read_uint32(qtmovie.stream);
 
         //DEBUGF("Found a chunk %c%c%c%c, length=%d\n",SPLITFOURCC(chunk_id),chunk_len);
         switch (chunk_id)

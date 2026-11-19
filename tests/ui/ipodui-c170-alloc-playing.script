@@ -1,0 +1,45 @@
+# #170: an allocation while playing must not stop the music or pop Now
+# Playing. heap_tight takes the heap's free slack, so the next allocation
+# must come out of the audio block; then the power log's ring (7,160 B,
+# powerlog.c, the #170 instance) is made by "drive_ab start" while a song
+# plays under Now Playing. Before ledger 3.7 that was "audio shrink
+# want=... status=1": a stop ("Codec: cleaning up"), a restart, and on a
+# slow host "np pop stopped". Now it is cut off the reserve past PCM
+# ("audio reserve take"), and the song plays on.
+# Nothing between the marks may stop or shrink playback.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-c170-alloc-playing.script
+# needs: music
+# golden: skip
+# timeout: 60
+# logbetween: c_in c_out no audio shrink want|np pop stopped|Codec: cleaning up|fade dir=out
+# logbetween: c_in c_out audio reserve take want=\d+ left=\d+ status=1
+# log: start h=2 step_min=30 n=4
+# nolog: reserve short
+# nolog: splash-pass
+wait 3000
+rm_file /.rockbox/power.csv
+rm_file /.rockbox/power.cfg
+repeat all
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait 1500
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 1500
+heap_tight          # no slack left: the ring must come from audio
+drive_ab period 60000
+drive_ab length 2
+drive_ab step 30
+ab_mark c_in
+drive_ab start      # the power log's ring: an allocation while playing
+wait 2500
+shot playing
+ab_mark c_out
+drive_ab stop
+wait 500
+audio_stop
+wait 500
+rm_file /.rockbox/power.csv
+rm_file /.rockbox/power.cfg

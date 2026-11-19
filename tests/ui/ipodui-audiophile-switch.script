@@ -1,0 +1,105 @@
+# #270 p090-apstall: the Hi-Res stall watch (apps/audiophile.c) must not
+# call a legitimate silence a codec fault. With High Sample Rate On, a
+# 96 kHz track (fixtures/rate96k.flac: 5 s of silence, 96 kHz mono FLAC)
+# and a 44.1 kHz library track change places every way a listener can:
+#   s1-s2  straight play_files switches 96 -> 44.1 -> 96 kHz, three times;
+#   s2-s3  NEXT and PREV across the two rates;
+#   s3-s4  a pause on the 96 kHz track, a skip while paused, resume;
+#   s4-s5  a stop and a fresh start at 96 kHz (the rate stays set, so
+#          no new "output" line there).
+# None of them may trip "high rate fault"; each section must really have
+# played 96 kHz (the "output 96000 Hz" line), so the check is not vacuous.
+# The true fault stays caught: ipodui-audiophile-popup.script
+# (PROKBOX_HIRATE_FAULT=run) and ipodui-audiophile-stall.script
+# (PROKBOX_HIRATE_FAULT=stall, the progress word frozen).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-audiophile-switch.script
+# needs: library
+# golden: skip
+# reset: mainmenu
+# timeout: 200
+# log: audiophile test mask=0x83 on=1
+# logbetween: s1 s2 output 96000 Hz
+# logbetween: s1 s2 output 44100 Hz
+# logbetween: s2 s3 output 96000 Hz
+# logbetween: s2 s3 output 44100 Hz
+# logbetween: s3 s4 output 96000 Hz
+# nolog: high rate fault
+# nolog: audiophile popup shown
+wait 4000
+copy fixtures/rate96k.flac /Music/rate96k.flac
+wait 500
+
+wheel +3 300            # Settings
+wait 400
+key SELECT 50
+wait 1200
+wheel +11 300           # Audiophile
+wait 1000
+key SELECT 50
+wait 1200
+key SELECT 50           # High Sample Rate: the warning
+wait 1000
+wheel -1 300            # Continue
+wait 300
+key SELECT 50
+wait 3800
+key SELECT 50           # the result: OK
+wait 1500
+
+ab_mark s1
+play_files /Music/rate96k.flac
+wait 1200
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait 1200
+play_files /Music/rate96k.flac
+wait 1200
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait 1200
+play_files /Music/rate96k.flac
+wait 1200
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait 1200
+play_files /Music/rate96k.flac
+wait 1500
+expect_playing 500
+
+ab_mark s2
+play_files /Music/rate96k.flac /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3 /Music/rate96k.flac
+wait 1200
+key RIGHT               # NEXT: 96 -> 44.1 kHz
+wait 1200
+key RIGHT               # NEXT: 44.1 -> 96 kHz
+wait 1200
+key LEFT                # PREV (under 3 s in): 96 -> 44.1 kHz
+wait 1200
+key RIGHT               # NEXT: back to 96 kHz
+wait 1500
+expect_playing 500
+
+ab_mark s3
+play_files /Music/rate96k.flac /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3 /Music/rate96k.flac
+wait 1200
+key PLAY                # pause at 96 kHz
+wait 1500
+key RIGHT               # skip while paused: 44.1 kHz, still paused
+wait 1500
+key RIGHT               # and on to 96 kHz, paused
+wait 1500
+key PLAY                # resume at 96 kHz
+wait 1500
+expect_playing 500
+
+ab_mark s4
+audio_stop
+wait 1500
+play_files /Music/rate96k.flac
+wait 2000
+expect_playing 500
+ab_mark s5
+
+shot end
+wait 500
+audio_stop
+wait 1000
+rm_file /Music/rate96k.flac
+quit

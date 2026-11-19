@@ -113,7 +113,6 @@ struct font {
     uint32_t file_offset_offset;   /* offset to file offset data   */
     int long_offset;
 #endif
-
 };
 
 /* font routines*/
@@ -142,6 +141,29 @@ int font_get_width(struct font* ft, ucschar_t ch);
 const unsigned char * font_get_bits(struct font* ft, ucschar_t ch);
 #ifdef HAVE_IPOD_UI
 bool font_has_glyph(struct font *pf, ucschar_t c);
+/* ProkBox (#235/#266): font_id draws U+3000 and above from comp_id (a
+ * font of the same height and ascent); comp_id < 0 removes it. */
+void font_set_companion(int font_id, int comp_id);
+/* ProkBox (#235): a glyph source for a sparse font's cache misses (the
+ * library glyph file, apps/ipodui/libglyph.c). fn(pf, c) runs before
+ * the font's own one-record read, with pf's buffer pinned; it may put
+ * any number of records (1 width byte + the cell, the font's stride)
+ * into pf's cache with font_fill_put(), c's among them or not. */
+typedef bool (*font_fill_fn)(struct font *pf, ucschar_t c);
+void font_set_fill(int font_id, font_fill_fn fn);
+void font_fill_put(struct font *pf, ucschar_t c, const unsigned char *rec);
+/* the id and record stride of a loaded sparse font (0 when it is not) */
+uint32_t font_sparse_id(int font_id);
+int font_sparse_stride(int font_id);
+/* the glyph cache's capacity of a loaded cached font, 0 otherwise */
+int font_cache_slots(int font_id);
+/* jaglyph: keep the records of cps[0..n) (ascending, from U+3000; the
+ * ones the font lacks are skipped) of a loaded sparse font in RAM, so a
+ * cache miss of one copies instead of reading. cps must not move during
+ * the call (pinned). Replaces any earlier set; n = 0 frees it (and so
+ * does font_unload()). Returns the bytes kept (0: none), < 0 on failure
+ * (nothing kept); *reads the storage reads made (4 KB each, forward). */
+long font_sparse_pin(int font_id, const uint16_t *cps, int n, int *reads);
 #endif
 
 #endif

@@ -141,24 +141,24 @@ int main(void)
 
     /* EQ2 and EQ3 only: the low-power mode keeps them (S1) */
     bands(b, 6, -4, 0);
-    dac_eq_set(b, 6);
+    dac_eq_set(b, 6, 0);
     expect_r7("EQ2/EQ3 only", R7_44K);
 
     /* band 4 at +6 dB: M128ENB, written before EQ4's gain */
     bands(b, 6, -4, 6);
-    dac_eq_set(b, 6);
+    dac_eq_set(b, 6, 0);
     expect_r7("band 4 +6", R7_44K | M128ENB);
     expect("band 4 +6: EQ4 holds the gain", (chip[R21] & GAIN_MASK) == 6);
     expect("band 4 +6: R7 written before EQ4", last_at[R7] < last_at[R21]);
 
     /* the same bands again: nothing to write to R7 */
     before = r7_writes;
-    dac_eq_set(b, 6);
+    dac_eq_set(b, 6, 0);
     expect("same bands: no R7 write", r7_writes == before);
 
     /* a cut on band 4 counts too */
     bands(b, 0, 0, -3);
-    dac_eq_set(b, 3);
+    dac_eq_set(b, 3, 0);
     expect_r7("band 4 -3", R7_44K | M128ENB);
 
     /* rate changes keep it, with the new rate's bits */
@@ -188,16 +188,16 @@ int main(void)
 
     /* band 4 flat again: cleared, after EQ4 is flat */
     bands(b, 6, -4, 0);
-    dac_eq_set(b, 6);
+    dac_eq_set(b, 6, 0);
     expect_r7("band 4 flat", R7_44K);
     expect("band 4 flat: EQ4 flat", (chip[R21] & GAIN_MASK) == 12);
     expect("band 4 flat: R7 written after EQ4", last_at[R7] > last_at[R21]);
 
     /* EQ off clears it */
     bands(b, 0, 0, 9);
-    dac_eq_set(b, 9);
+    dac_eq_set(b, 9, 0);
     expect_r7("band 4 +9", R7_44K | M128ENB);
-    dac_eq_set(NULL, 0);
+    dac_eq_set(NULL, 0, 0);
     expect_r7("EQ off", R7_44K);
     audiohw_set_frequency(HW_FREQ_32);
     expect_r7("EQ off, 32k", R7_32K);
@@ -208,23 +208,23 @@ int main(void)
     expect_r7("3D on", R7_44K | M128ENB);
     expect("3D on: depth written", chip[R41] == 8);
     bands(b, 0, 0, 4);
-    dac_eq_set(b, 4);
+    dac_eq_set(b, 4, 0);
     bands(b, 0, 0, 0);
-    dac_eq_set(b, 0);
+    dac_eq_set(b, 0, 0);
     expect_r7("3D on, band 4 flat", R7_44K | M128ENB);
-    dac_eq_set(NULL, 0);
+    dac_eq_set(NULL, 0, 0);
     expect_r7("3D on, EQ off", R7_44K | M128ENB);
     dac_set_width3d(0);
     expect_r7("3D off, EQ off", R7_44K);
 
     /* ... and band 4 holds it while the 3D stage goes off */
     bands(b, 0, 0, 5);
-    dac_eq_set(b, 5);
+    dac_eq_set(b, 5, 0);
     dac_set_width3d(10);
     dac_set_width3d(0);
     expect_r7("band 4 +5, 3D on then off", R7_44K | M128ENB);
     expect("3D off: depth 0", chip[R41] == 0);
-    dac_eq_set(NULL, 0);
+    dac_eq_set(NULL, 0, 0);
     expect_r7("EQ off after 3D off", R7_44K);
 
     if (checks < 27) {

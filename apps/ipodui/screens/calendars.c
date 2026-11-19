@@ -73,6 +73,7 @@
 #include "ipodui/xindex.h"
 #include "ipodui/xical_core.h"
 #include "ipodui/screens/calendars.h"
+#include "ipodui/locale.h"
 
 /* The working block: 7 KB from the screen arena in a resident build,
  * 12 KB from the module arena (calendars.mod); the rest of the
@@ -282,13 +283,7 @@ static int win_open(const struct cal_work *w)
 
 static void fmt_time(char *buf, size_t len, uint32_t rtc)
 {
-    int h = (int)(rtc % DAY_S / 3600), m = (int)(rtc % 3600 / 60);
-
-    if (global_settings.timeformat)     /* 12 hour clock */
-        snprintf(buf, len, "%d:%02d %s", h % 12 ? h % 12 : 12, m,
-                 str(h < 12 ? LANG_IPODUI_AM : LANG_IPODUI_PM));
-    else
-        snprintf(buf, len, "%02d:%02d", h, m);
+    ui_fmt_time(buf, len, (int)(rtc % DAY_S / 3600), (int)(rtc % 3600 / 60));
 }
 
 /* a day's row: "9:00 AM - 9:30 AM", or All Day */
@@ -318,14 +313,8 @@ static void fmt_day(char *buf, size_t len, int32_t day, bool year)
     struct tm tm;
 
     tz_rtc_split((uint32_t)day * DAY_S, &tm);
-    if (year)
-        snprintf(buf, len, "%s, %s %d, %d",
-                 str(LANG_IPODUI_SUNDAY + tm.tm_wday),
-                 str(LANG_MONTH_JANUARY + tm.tm_mon), tm.tm_mday,
-                 tm.tm_year + 1900);
-    else
-        snprintf(buf, len, "%s, %s %d", str(LANG_IPODUI_SUNDAY + tm.tm_wday),
-                 str(LANG_MONTH_JANUARY + tm.tm_mon), tm.tm_mday);
+    ui_fmt_date_tm(buf, len, year ? LANG_IPODUI_DATE_DAY
+                                  : LANG_IPODUI_DATE_DAY_THIS_YEAR, &tm);
 }
 
 static int32_t today(void)
@@ -379,8 +368,8 @@ static void month_set(struct cal_work *w, int32_t day)
 
     xcal_civil(dd, &y, &m, &d);
     w->month0 = (int32_t)xcal_days(y, m, 1);
-    snprintf(w->mtitle, sizeof(w->mtitle), "%s %d",
-             str(LANG_MONTH_JANUARY + m - 1), y);
+    ui_fmt_date(w->mtitle, sizeof(w->mtitle), LANG_IPODUI_DATE_MONTH, y, m,
+                1, -1, 0, 0);
 }
 
 /* the grid's first day: the Sunday on or before the 1st */
@@ -646,8 +635,12 @@ static const char *row_sub(int idx, void *data, char *buf, size_t len)
         if (!r->start_rtc)
             return "";
         tz_rtc_split(r->start_rtc, &tm);
-        snprintf(buf, len, "%s %d/%d/%02d", str(LANG_IPODUI_X_DUE),
-                 tm.tm_mon + 1, tm.tm_mday, tm.tm_year % 100);
+        {
+            char d[24];
+
+            ui_fmt_date_tm(d, sizeof(d), LANG_IPODUI_DATE_SHORT, &tm);
+            snprintf(buf, len, "%s %s", str(LANG_IPODUI_X_DUE), d);
+        }
         return buf;
     }
     fmt_span(buf, len, r, (uint32_t)w->sel * DAY_S);

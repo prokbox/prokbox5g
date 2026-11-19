@@ -93,6 +93,7 @@ unsigned ui_paint_blend(unsigned bg, unsigned fg, int a);
  * selection) where the chevron would be, and Name clips before it. */
 #define UI_VALUE_SEP        '\x1f'
 #define UI_VALUE_GAP        8       /* px between name and value (~) */
+#define UI_VALUE_GAP_MIN    4       /* narrowed to before a name is cut */
 
 /* Colour of panel row y (0..239): ui_theme's panel gradient. */
 unsigned ui_paint_panel_row(int y);
@@ -106,7 +107,30 @@ void ui_paint_panel_bg(int y, int h);
  * lines drawn. */
 int  ui_paint_text_wrap(int cx, int y_last, int max_w, int max_lines,
                         int pitch, const char *s);
+/* The lines ui_paint_text_wrap() would draw, without drawing */
+int  ui_paint_text_wrap_lines(int max_w, int max_lines, const char *s);
+/* The same, top-anchored: the first line's baseline at y_first */
+int  ui_paint_text_wrap_top(int cx, int y_first, int max_w, int max_lines,
+                            int pitch, const char *s);
+/* #266: the byte index after the next wrap unit of s from j (spaces
+ * skipped): a word, or one East Asian character with its closing marks
+ * (Japanese breaks between characters). For every wrap loop. */
+int ui_wrap_next(const char *s, int j);
+
 /* Draws 's' centred on x = cx, baseline y, clipped to max_w with "...". */
 void ui_paint_text_centre(int cx, int y_base, int max_w, const char *s);
+
+/* P20 (translations): every text the shell cuts with "..." to fit, traced
+ * in the simulator only ("ipodui: fit cut <where> w=<px> avail=<px>
+ * '<text>'"), so a language pass can list what overflows. No code on
+ * target. */
+#ifdef SIMULATOR
+#include "debug.h"
+#define UI_FIT_TRACE(where, text, w, avail) \
+    DEBUGF("ipodui: fit cut %s w=%d avail=%d '%s'\n", (where), (w), \
+           (avail), (text))
+#else
+#define UI_FIT_TRACE(where, text, w, avail) do { } while (0)
+#endif
 
 #endif /* IPODUI_PAINT_H */

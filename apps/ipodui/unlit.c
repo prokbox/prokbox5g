@@ -67,6 +67,7 @@
 #include "ipodui/devmode.h"
 #include "ipodui/artcache.h"
 #include "ipodui/screens/nowplaying.h"
+#include "ipodui/locale.h"
 #include "ipodui/preview.h"     /* ui_fb_settle() (P19) */
 #include "ipodui/screens/video.h"   /* ui_video_session() (#184) */
 
@@ -158,7 +159,7 @@ static void draw_full(void)
 
     draw_begin();
     st.shown_min = minute_now(&sec);
-    st.shown_12h = global_settings.timeformat != 0;
+    st.shown_12h = ui_clock_12h();
     read_status(&st.shown);
     unlit_clock_layout(st.shown_min, st.shown_12h, &c);
     fill(NULL, 0, 0, LCD_WIDTH, LCD_HEIGHT, UNLIT_PAPER);
@@ -178,7 +179,7 @@ static void draw_digits(void)
 
     draw_begin();
     st.shown_min = minute_now(&sec);
-    st.shown_12h = global_settings.timeformat != 0;
+    st.shown_12h = ui_clock_12h();
     unlit_clock_layout(st.shown_min, st.shown_12h, &c);
     unlit_paint_clock(&c, &shown_clock, fill, NULL);
     draw_end();
@@ -498,7 +499,7 @@ void ui_unlit_tick(void)
     if (!st.face)
         return;
     m = minute_now(&sec);
-    if (m != st.shown_min || st.shown_12h != (global_settings.timeformat != 0))
+    if (m != st.shown_min || st.shown_12h != ui_clock_12h())
         apply(ui_unlit_step(&st, UE_MINUTE, current_tick, true), "minute");
     read_status(&now);
     if (memcmp(&now, &st.shown, sizeof(now)))

@@ -7,6 +7,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2005 Magnus Holmgren
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -156,6 +157,43 @@ long get_replaygain_int(long int_gain)
     return convert_gain(int_gain * FP_ONE / 100);
 }
 
+/* #292: Opus's loudness tags (RFC 7845 5.2.1), R128_TRACK_GAIN and
+ * R128_ALBUM_GAIN: a signed Q7.8 integer, in 1/256 dB, of gain on top of
+ * the header's output gain (which the codec applies already) to reach
+ * -23 LUFS (EBU R128).  ReplayGain's reference is about 5 dB louder (-18
+ * LUFS), the offset other players use, so the ReplayGain value is the R128
+ * one + 5 dB.  Only an Opus file's: in other formats the tags have no
+ * agreed meaning.  For Opus they win over REPLAYGAIN_* comments, whose
+ * relation to the output gain is undefined (RFC 7845 5.2.1). */
+#define R128_TO_RG_OFFSET (5 * FP_ONE)
+
+static bool parse_r128(const char* key, const char* value,
+                       struct mp3entry* entry)
+{
+    static const char *r128_options[] = {"r128_track_gain",
+                                         "r128_album_gain", NULL};
+    int op = string_option(key, r128_options, true);
+    char *end;
+    long q;
+
+    if (op < 0)
+        return false;
+    q = strtol(value, &end, 10);
+    if (end == value)
+        return true;                    /* not a number: ignored */
+    q = MAX(q, -32768);
+    q = MIN(q, 32767);
+    q = q * (FP_ONE / 256) + R128_TO_RG_OFFSET;
+    if (op == 0) {
+        entry->track_level = q;
+        entry->track_gain  = convert_gain(q);
+    } else {
+        entry->album_level = q;
+        entry->album_gain  = convert_gain(q);
+    }
+    return true;
+}
+
 /* Parse a ReplayGain tag conforming to the "VorbisGain standard". If a
  * valid tag is found, update mp3entry struct accordingly. Existing values 
  * are not overwritten.
@@ -172,7 +210,12 @@ void parse_replaygain(const char* key, const char* value,
                                        "replaygain_track_peak", "rg_peak",
                                        "replaygain_album_peak", NULL};
 
-    int rg_op = string_option(key, rg_options, true);
+    int rg_op;
+
+    if (entry->codectype == AFMT_OPUS && parse_r128(key, value, entry))
+        return;
+
+    rg_op = string_option(key, rg_options, true);
 
     if ((rg_op == 0 || rg_op == 1) && !entry->track_gain)
     {  /*replaygain_track_gain||rg_radio*/

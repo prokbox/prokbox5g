@@ -140,7 +140,7 @@ static void reseal(const char *root, const char *name, size_t offset, uint32_t v
     put(root, name, m, sizeof(m));
 }
 static struct dbgen_ops ops = { files, 3, validate, cancel, NULL, NULL,
-                                NULL, NULL, NULL };
+                                NULL, NULL, NULL, NULL, NULL };
 
 int main(int argc, char **argv)
 {
@@ -429,7 +429,7 @@ int main(int argc, char **argv)
     put(root, "database_manifest1.dat", manifests[1], lens[1]);
     CHECK(dbgen_select(root, active, work, sizeof(work), &ops) == DBGEN_OK);
     CHECK(!strcmp(active, gen1));
-    reseal(root, "database_manifest1.dat", 4, 2);   /* version 2 */
+    reseal(root, "database_manifest1.dat", 4, 99);  /* version 99 */
     uint32_t foreign_dir = fingerprint(gen1);
     CHECK(dbgen_select(root, active, work, sizeof(work), &ops) == DBGEN_OK);
     CHECK(!strcmp(active, gen0));
@@ -451,8 +451,8 @@ int main(int argc, char **argv)
      * Nothing is written by selection. */
     put(root, "database_manifest0.dat", manifests[0], lens[0]);
     put(root, "database_manifest1.dat", manifests[1], lens[1]);
-    reseal(root, "database_manifest0.dat", 4, 2);
-    reseal(root, "database_manifest1.dat", 4, 2);
+    reseal(root, "database_manifest0.dat", 4, 99);
+    reseal(root, "database_manifest1.dat", 4, 99);
     for (unsigned i = 0; i < ops.count; i++)
     { path(p, gen3, files[i].name); unlink(p); }
     uint32_t dirs[3] = { fingerprint(gen0), fingerprint(gen1), fingerprint(gen2) };
@@ -533,8 +533,8 @@ int main(int argc, char **argv)
     fill(gen0, 1); fill(gen1, 2); fill(gen2, 3); fill(gen3, 5);
     put(root, "database_manifest0.dat", manifests[0], lens[0]);
     put(root, "database_manifest1.dat", manifests[1], lens[1]);
-    reseal(root, "database_manifest0.dat", 4, 2);
-    reseal(root, "database_manifest1.dat", 4, 2);
+    reseal(root, "database_manifest0.dat", 4, 99);
+    reseal(root, "database_manifest1.dat", 4, 99);
     CHECK(dbgen_select(root, active, work, sizeof(work), &ops) == DBGEN_SALVAGED);
     CHECK(dbgen_prepare(root, active, candidate, work, sizeof(work), &ops) == DBGEN_OK);
     CHECK(strcmp(candidate, active) && strcmp(candidate, gen0)

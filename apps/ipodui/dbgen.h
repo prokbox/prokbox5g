@@ -29,11 +29,15 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "libstamp.h"
+
 struct crcfast;                 /* crcfast.h */
 
 #define DBGEN_PATH_MAX 260
 #define DBGEN_GENERATIONS 4     /* database_gen0..3 under the root */
-#define DBGEN_MAX_FILES 32
+/* p090-upgpage: 28 (was 32): the manifest's last four file slots hold the
+ * library stamp now (struct libstamp), the manifest's size unchanged */
+#define DBGEN_MAX_FILES 28
 #define DBGEN_SCRATCH_MIN 1024
 
 enum dbgen_result {
@@ -49,9 +53,15 @@ enum dbgen_result {
                               * never selected, but reserves its directory. */
     DBGEN_SALVAGED,          /* select only: no usable manifest; out names a
                               * structurally validated directory instead. */
-    DBGEN_READBACK           /* p081-fatdb: a directory write did not read
+    DBGEN_READBACK,          /* p081-fatdb: a directory write did not read
                               * back; the directory is kept as it is and
                               * set aside by the next prepare. */
+    DBGEN_STALE              /* p090-upgpage, select only: the newest intact
+                              * manifest's library stamp is not this
+                              * firmware's (ops->stamp; older, newer or
+                              * none): never selected nor read, out names
+                              * its directory (for a statistics export
+                              * only), ops->stale gets the stamp found. */
 };
 
 struct dbgen_file {
@@ -97,6 +107,14 @@ struct dbgen_ops {
     /* p081-bootload: optional (NULL: firmware's crc_32r()). Tables for the
      * files' CRCs four bytes a step: the same values, about twice as fast. */
     const struct crcfast *crc;
+    /* p090-upgpage: optional (NULL: no stamp written or checked). This
+     * firmware's library stamp: publish writes it into the manifest;
+     * select and select_quick refuse (DBGEN_STALE) a manifest whose stamp
+     * libstamp_check() does not pass. A version-1 manifest (before the
+     * stamp) reads as one with no stamp. */
+    const struct libstamp *stamp;
+    /* optional: DBGEN_STALE's stamp as found (all zero: none) */
+    struct libstamp *stale;
 };
 
 /* Paths are native filesystem paths. scratch belongs to this worker and is
@@ -110,6 +128,11 @@ struct dbgen_ops {
  * A directory unreadable (IO) during salvage defers it: IO returns. */
 enum dbgen_result dbgen_select(const char *root, char out[DBGEN_PATH_MAX],
     void *scratch, size_t bytes, const struct dbgen_ops *ops);
+
+/* p090-upgpage: with ops->stamp, a manifest whose stamp does not pass is
+ * met before any content is read: the first intact manifest tried (the
+ * newest, or the older one when the newest's generation fails) decides
+ * DBGEN_STALE, never a fallback past it, never salvage. */
 
 /* p081-bootload: the boot's tentative choice, with no file content read:
  * the directory dbgen_select() would try first (the newest intact

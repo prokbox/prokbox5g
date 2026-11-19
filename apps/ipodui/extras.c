@@ -37,6 +37,7 @@
 #include "ipodui/extras.h"
 #include "ipodui/modclass.h"
 #include "ipodui/screens/panels.h"
+#include "ipodui/screens/eqedit.h"
 #include "ipodui/stopwatch.h"       /* the Stopwatch row's panel (extras_roots.h) */
 #include "ipodui/sdk/sdk_int.h"     /* W4-0: the Games list, the games' tables */
 
@@ -63,6 +64,9 @@ const struct extra_ent extras_table[XT__N] = {
                         &ui_preview_x_screenlock },
     [XT_STOPWATCH]  = { LANG_IPODUI_X_STOPWATCH, MOD_STOPWATCH,
                         MOD_SLOT_FIRST, UI_T_PUSH, 1, NULL },
+    /* #82: the custom EQ's slot list, resident (no module) */
+    [XT_EQ]         = { LANG_IPODUI_X_EQ, XT_NO_MODULE, 0, UI_T_PUSH, 0,
+                        NULL },
 };
 
 /* -- the landed Extras (extras_roots.h) ------------------------------------ */
@@ -159,8 +163,8 @@ bool extras_available(enum extra_id x)
 /* -- open Extras ----------------------------------------------------------- */
 /* The Extras whose root is on the stack, newest last: at most two (an
  * Extra opened from inside another, or under a ring screen) */
-#define OPEN_MAX 2
-static struct { int8_t mod; uint8_t depth; } open_x[OPEN_MAX];
+#define EXTRAS_OPEN_MAX 2
+static struct { int8_t mod; uint8_t depth; } open_x[EXTRAS_OPEN_MAX];
 static int n_open;
 
 static void prune(void)
@@ -200,6 +204,8 @@ int extras_open(enum extra_id x)
     e = &extras_table[x];
     if (x == XT_GAMES)                  /* W4-0: the resident Games list */
         return ui_push_t(&sdk_games_screen, NULL, e->transition);
+    if (x == XT_EQ)                     /* #82: the resident slot list */
+        return ui_push_t(&ui_eqslots_screen, NULL, e->transition);
     r = root_of(x);
     if (r < 0)
     {
@@ -222,7 +228,7 @@ int extras_open(enum extra_id x)
     if (rc >= 0)
     {
         prune();
-        if (n_open == OPEN_MAX)
+        if (n_open == EXTRAS_OPEN_MAX)
         {
             open_x[0] = open_x[1];
             n_open--;
@@ -250,13 +256,14 @@ GO(extras_go_games, XT_GAMES)
 GO(extras_go_notes, XT_NOTES)
 GO(extras_go_screenlock, XT_SCREENLOCK)
 GO(extras_go_stopwatch, XT_STOPWATCH)
+GO(extras_go_eq, XT_EQ)
 
 int extras_of_action(void (*fn)(void))
 {
     static void (*const go[XT__N])(void) = {
         extras_go_clocks, extras_go_calendars, extras_go_contacts,
         extras_go_alarms, extras_go_games, extras_go_notes,
-        extras_go_screenlock, extras_go_stopwatch,
+        extras_go_screenlock, extras_go_stopwatch, extras_go_eq,
     };
     int i;
 

@@ -26,12 +26,13 @@
 # (idempotent, generated tones only):
 #   cd16.mp3    30 s MP3, 44.1 kHz, 16-bit source, 256 kb/s
 #   hires.flac  30 s FLAC, 192 kHz, 24-bit
+#   hires96.flac 30 s FLAC, 96 kHz, 24-bit (Hi-Res 128x's script)
 #   aac.m4a     30 s AAC-LC, 44.1 kHz, 192 kb/s
 # Run before scripts/shots.sh tests/ui/ipodui-np-info.script.
 set -eu
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd -P)
 OUT="$ROOT/build/npinfo-fixtures"
-VERSION=1
+VERSION=2
 command -v ffmpeg >/dev/null || { echo "make_npinfo_fixtures: ffmpeg not found" >&2; exit 1; }
 [ "$(cat "$OUT/.version" 2>/dev/null || true)" = "$VERSION" ] && exit 0
 mkdir -p "$OUT"
@@ -42,8 +43,10 @@ ffmpeg -v error -y -f lavfi -i "$(src 440 44100)" -ac 2 -c:a libmp3lame -b:a 256
     -metadata title="Sixteen Forty-Four" -metadata artist="Info Fixtures" -metadata album="Quality" "$T/cd16.mp3"
 ffmpeg -v error -y -f lavfi -i "$(src 523 192000)" -ac 2 -sample_fmt s32 -c:a flac \
     -metadata title="Twenty-Four 192" -metadata artist="Info Fixtures" -metadata album="Quality" "$T/hires.flac"
+ffmpeg -v error -y -f lavfi -i "$(src 587 96000)" -ac 2 -sample_fmt s32 -c:a flac \
+    -metadata title="Twenty-Four 96" -metadata artist="Info Fixtures" -metadata album="Quality" "$T/hires96.flac"
 ffmpeg -v error -y -f lavfi -i "$(src 660 44100)" -ac 2 -c:a aac -b:a 192k \
     -metadata title="Advanced Coding" -metadata artist="Info Fixtures" -metadata album="Quality" "$T/aac.m4a"
-mv "$T"/cd16.mp3 "$T"/hires.flac "$T"/aac.m4a "$OUT"/
+mv "$T"/cd16.mp3 "$T"/hires.flac "$T"/hires96.flac "$T"/aac.m4a "$OUT"/
 rmdir "$T"
 echo "$VERSION" > "$OUT/.version"

@@ -40,13 +40,19 @@
 #include <string.h>
 #include SORTKEY_H
 
-#define EXPECTED_VERSION 2   /* 2: #146 class flags, same key order */
-#define EXPECTED_HASH    0xa0982d78u
+/* 2: #146 class flags, same key order; 3: the 0.9.0 format (p090), and
+ * the 0.9.0 CJK key order (#235: script groups, '#' lead 0xFE, kana,
+ * Hangul, kanji, full width), recorded at 3 without a bump: no released
+ * firmware carries 3, and 3 already rebuilds every 0.8.x database. */
+#define EXPECTED_VERSION 3
+#define EXPECTED_HASH    0x935cb0bfu
 /* #47: the grouping rules (ui_casefold_char() over U+0000..U+1FFF,
  * ui_groupkey() and ui_casefold_cmp() over the corpus), recorded with
- * UI_GROUPING_VERSION */
+ * UI_GROUPING_VERSION. #235 changed ui_groupkey() with the key order; it
+ * stays at 1 because SORTKEY_VERSION 3 rebuilds the database and with it
+ * every list file (stamped with SORTKEY_VERSION and the commit id). */
 #define EXPECTED_GROUPING_VERSION 1
-#define EXPECTED_GROUPING_HASH    0x9c7a5c48u
+#define EXPECTED_GROUPING_HASH    0x18a2d0b5u
 
 #define KEYLEN 96   /* UI_SORTKEY_LEN in apps/tagcache.c */
 
@@ -75,6 +81,11 @@ static const char *const corpus[] = {
     "Ελληνικά", "Русский", "日本語", "한국어", "עברית", "العربية",
     "\xff\xfe broken", "abc\xc3", "\xc3\x28 bad", "\xe2\x82 cut",
     "tab\there", "new\nline", "\x01control",
+    /* #235: kana, Hangul, kanji, full width, mixed */
+    "ゆず", "ユズ", "ﾕｽﾞ", "カーネーション", "いすゞ", "ヴィレッジ", "ぁぃぅ",
+    "ㄱ", "ㅏ", "ㄳ", "가수", "힙합", "\xe1\x84\x80" "jamo", "東京事変",
+    "\xe3\x90\x80", "\xef\xa4\x80", "ＡＢＣ", "１２３", "B'z", "AKB48",
+    "a東b가cあ", "1東京", "ーあ", "あ　い", "\xf8\xfe raw",
     /* long names: truncation at the key length */
     "A very long album title that goes on and on well past the key length "
     "limit used by the database commit sort, to check truncation",

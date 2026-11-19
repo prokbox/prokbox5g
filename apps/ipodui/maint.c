@@ -300,6 +300,11 @@ static int give(size_t bytes, size_t floor, const char *what)
     return rc;
 }
 
+bool maint_taking(void)
+{
+    return taking;
+}
+
 bool maint_take(enum maint_job j, size_t bytes)
 {
     enum maint_why why;

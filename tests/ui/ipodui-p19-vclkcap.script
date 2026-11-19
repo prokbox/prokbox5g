@@ -19,6 +19,12 @@
 #   again:    the next play checks again (still no picture): INCONCLUSIVE
 #             a second time, and the start gives up (logged)
 #   gaveup:   the next play: no check, no "Preparing Video...", (gave up)
+# Each play stays under 3 s of playing: the stop keeps a resume point only
+# from 3 s (tagtree track-finish, tagcache ui_spot_enqueue), and the sim's
+# audio now runs at real time (p090-simrate), so longer waits made the next
+# play resume near the end of the 13 s clip (a play that ends at once: the
+# 5th play's expect_video saw "none").  A play elapses about wait - 0.8 s
+# (the check) + 0.25 s.
 # All in one start, seven plays.  Every play still plays.  Movies: Audio First (row 1) each time.
 
 # trace: video
@@ -69,7 +75,7 @@ wait 1200
 
 ab_mark pass
 key SELECT          # no token: the check passes at the top band
-wait 4000
+wait 3000
 expect_video 10 playing
 key MENU
 wait 1500
@@ -78,7 +84,7 @@ rm_file /.rockbox/vcheck.tok
 rm_file /.rockbox/vcheck.bin
 ab_mark missing
 key SELECT          # the stream gone: unchecked
-wait 2500
+wait 2000
 expect_video 10 playing
 key MENU
 wait 1500
@@ -87,7 +93,7 @@ copy ../../bcmfw/video/vcheck.bin /.rockbox/vcheck.bin
 copy fixtures/refresh.mp3 /.rockbox/.sim_vcheck_wrong
 ab_mark wrong
 key SELECT          # the stream's bytes wrong
-wait 2500
+wait 2000
 expect_video 10 playing
 key MENU
 wait 1500
@@ -96,7 +102,7 @@ rm_file /.rockbox/.sim_vcheck_wrong
 copy fixtures/refresh.mp3 /.rockbox/.sim_vcheck_nomem
 ab_mark nomem
 key SELECT          # no memory for the check
-wait 2500
+wait 2000
 expect_video 10 playing
 key MENU
 wait 1500
@@ -107,14 +113,14 @@ rm_file /.rockbox/.sim_vcheck_nomem
 copy fixtures/refresh.mp3 /.rockbox/.sim_vcheck_nopic
 ab_mark nopic
 key SELECT          # no picture from the image: inconclusive
-wait 4000
+wait 2000
 expect_video 10 playing
 key MENU
 wait 1500
 
 ab_mark again
 key SELECT          # the next play checks again: inconclusive, gives up
-wait 4000
+wait 2000
 expect_video 10 playing
 key MENU
 wait 1500
@@ -124,7 +130,7 @@ ab_mark gaveup
 key SELECT          # this start gave up: no check, the stock clock
 wait 400
 shot gaveup_start   # no "Preparing Video..."
-wait 2500
+wait 1700
 expect_video 10 playing
 key MENU
 wait 1500

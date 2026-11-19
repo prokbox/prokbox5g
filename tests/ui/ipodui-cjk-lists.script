@@ -1,0 +1,81 @@
+# #235 (package G): a library tagged in Japanese, Chinese and Korean draws
+# real glyphs in every list and on Now Playing, no blanks and no boxes.
+# A bare disk with only the 24 songs of tests/fixtures/cjk/
+# make_cjk_library.py (kana, kanji, a CP932 name kanji, full-width forms,
+# Simplified and Traditional Chinese, Hangul, one Latin album), the
+# ShellCJK fonts in the sparse form. Shots: Artists, an artist's albums
+# (a CJK header), Albums, Songs, Now Playing of a Japanese song. Compare
+# at 3x zoom with the Latin rows: same baseline, same row height.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-cjk-lists.script
+# needs: cjk
+# disk: bare
+# golden: skip
+# timeout: 180
+
+wait 4000
+mkdir /Music
+mkdir /Music/CJK
+copy ../../build/cjk-library/01.mp3 /Music/CJK/01.mp3
+copy ../../build/cjk-library/02.mp3 /Music/CJK/02.mp3
+copy ../../build/cjk-library/03.mp3 /Music/CJK/03.mp3
+copy ../../build/cjk-library/04.mp3 /Music/CJK/04.mp3
+copy ../../build/cjk-library/05.mp3 /Music/CJK/05.mp3
+copy ../../build/cjk-library/06.mp3 /Music/CJK/06.mp3
+copy ../../build/cjk-library/07.mp3 /Music/CJK/07.mp3
+copy ../../build/cjk-library/08.mp3 /Music/CJK/08.mp3
+copy ../../build/cjk-library/09.mp3 /Music/CJK/09.mp3
+copy ../../build/cjk-library/10.mp3 /Music/CJK/10.mp3
+copy ../../build/cjk-library/11.mp3 /Music/CJK/11.mp3
+copy ../../build/cjk-library/12.mp3 /Music/CJK/12.mp3
+copy ../../build/cjk-library/13.mp3 /Music/CJK/13.mp3
+copy ../../build/cjk-library/14.mp3 /Music/CJK/14.mp3
+copy ../../build/cjk-library/15.mp3 /Music/CJK/15.mp3
+copy ../../build/cjk-library/16.mp3 /Music/CJK/16.mp3
+copy ../../build/cjk-library/17.mp3 /Music/CJK/17.mp3
+copy ../../build/cjk-library/18.mp3 /Music/CJK/18.mp3
+copy ../../build/cjk-library/19.mp3 /Music/CJK/19.mp3
+copy ../../build/cjk-library/20.mp3 /Music/CJK/20.mp3
+copy ../../build/cjk-library/21.mp3 /Music/CJK/21.mp3
+copy ../../build/cjk-library/22.mp3 /Music/CJK/22.mp3
+copy ../../build/cjk-library/23.mp3 /Music/CJK/23.mp3
+copy ../../build/cjk-library/24.mp3 /Music/CJK/24.mp3
+update_db_wait 60000
+wait 3000
+
+key SELECT          # Music
+wait 800
+shot music
+wheel +1            # Artists
+wait 400
+key SELECT
+wait 1200
+shot artists
+wheel +1 300        # the second artist
+wait 800
+key SELECT
+wait 1200
+shot artist_albums
+key MENU
+wait 800
+key MENU
+wait 800
+wheel +1            # Albums
+wait 400
+key SELECT
+wait 1200
+shot albums
+key MENU
+wait 800
+wheel +1            # Songs
+wait 400
+key SELECT
+wait 1200
+shot songs
+wheel +2 300
+wait 800
+key SELECT          # play it: Now Playing
+wait 3000
+shot nowplaying
+audio_stop
+wait 500
+quit

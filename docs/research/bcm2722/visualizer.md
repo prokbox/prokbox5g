@@ -318,6 +318,8 @@ Both pass on `sim-ui-video` (the gate) and on the release-config simulator (`bui
 
 **On silicon:** the merged image needs no re-verify (it is byte-identical). The overlay itself has its first silicon run on the next sitting. Its kernels are `viz-ovl.bin`'s (§9's forms), and its start-up checks keep the C on the BCM if a vector form misbehaves.
 
+**Sitting b11 (2026-11-10), merged image `b9bcbe57`:** `viz-ovl-m.bin` (22,432 B) loaded into a fresh region and passed its checks (ops `01f8bfff`, `J_VPU` `0x5b`, the FFT and the bars on the vector unit), as did `dec-ovl.bin` (23,884 B). **The swap hung the image, both ways** (BCM `quirks.md` #59, #257): the chip's own flush before the new `init` left the old overlay's instruction lines in place. The fix is the driver's (`bcmjob-core.c` `host_code_flush`, `host-driver.md` §6a): once the region has run code in a power-up, each load flushes the cache from the host, with the cold start's 0 → 1 edge of bit 31, before the region is rewritten and before `OVERLAY`. The image and both files are unchanged. vc2sim's line store (`VC2SIM_ICACHE=edge31`) hangs the unflushed swap both ways and passes the flushed one (`jobs_image_test.py` `t_ovl_swap_cache`; `--only ovl_merged` 77 of 77 with it, 1 of 73 failed with `JOBS_OVL_HOSTFLUSH=0`). b12's rows `ovsw`, `artsoak` and `ovtrk` are the silicon check that 0.8.2's chip drawing waits on. The view's "no chip visualiser" answer now says why (`art_bcm_viz_why()`: no file for the image, the job driver off, or refused), each logged once.
+
 ## 9. Forms and silicon
 
 The image's vector forms are **unchecked on silicon**: `forms_test.py` counts them, as for the video images.

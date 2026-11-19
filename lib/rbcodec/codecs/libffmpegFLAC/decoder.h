@@ -13,7 +13,14 @@
 #define MAX_FRAMESIZE  65536  /* Maxsize in bytes of one compressed frame */
 #define MIN_FRAME_SIZE 11     /* smallest valid FLAC frame possible */
 
-#define FLAC_OUTPUT_DEPTH 29 /* Provide samples left-shifted to 28 bits+sign */
+#include "flac_limits.h" /* FLAC_OUTPUT_DEPTH (29): samples left-shifted to 28 bits+sign */
+/* #318: streams of FLAC_OUTPUT_DEPTH + 1 .. 32 bits decode at their full
+   width (a 32-bit stereo stream's side channel has 33 bits: FLACContext's
+   wide buffer) and are then reduced to FLAC_OUTPUT_DEPTH bits with TPDF
+   dither (dither.h).  A multichannel one, downmixed, is reduced to
+   FLAC_DOWNMIX_DEPTH first, which the downmix sums hold without overflow. */
+#define FLAC_MAX_BPS       32
+#define FLAC_DOWNMIX_DEPTH 24
 
 enum decorrelation_type {
     INDEPENDENT,
@@ -46,10 +53,25 @@ typedef struct FLACContext {
     int framesize;
 
     int32_t *decoded[MAX_CHANNELS];
+
+    /* #318: max_blocksize 33-bit samples for a 32-bit stereo stream's side
+       channel (the caller allocates it; NULL for any other stream: a frame
+       that needs it without one is an error), which channel of the current
+       frame went there (-1: none), and the dither generator's state */
+    int64_t *wide;
+    int wide_ch;
+    uint32_t dither;
 } FLACContext;
 
 int flac_decode_frame(FLACContext *s,
                       uint8_t *buf, int buf_size,
                       void (*yield)(void)) ICODE_ATTR_FLAC;
+
+/* #318: after flac_decode_frame(), a stereo or mono frame wider than
+   FLAC_OUTPUT_DEPTH is still at its own width (what a reference decoder
+   gives); this reduces it to FLAC_OUTPUT_DEPTH bits with TPDF dither.  It
+   does nothing to any other frame.  Call it once a frame, on every frame
+   that is played, in order (the dither's sequence is the stream's). */
+void flac_reduce_frame(FLACContext *s);
 
 #endif

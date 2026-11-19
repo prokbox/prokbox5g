@@ -900,4 +900,16 @@ typedef __SIZE_TYPE__      size_t;
 #define MB(a) (*(volatile uint32_t *)(a))
 #endif
 
+/* #466 (quirk #60; sitting b17): the overlay loads flush the cache
+ * themselves, in the cold form, inside OVERLAY while nothing else runs
+ * (quirks.md #56's recipe 1), and say so (HP_CAP_CORE_FLUSH) so the PP
+ * stops flushing from the host on a running core.  The merged image only
+ * (the overlay region's); 0: the @25a form, the PP's host flush needed */
+#ifndef BCMFW_CORE_FLUSH
+#if BCMFW_VIDEO && BCMFW_JOBS && BCMFW_JOBS_MERGED_OVL
+#define BCMFW_CORE_FLUSH     1
+#else
+#define BCMFW_CORE_FLUSH     0
+#endif
+#endif
 #endif /* BCMFW_CONFIG_H */

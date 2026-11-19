@@ -1,0 +1,26 @@
+# P20 (0.9.0, p090-locale): the first-start battery question in Japanese.
+# Its note (LANG_IPODUI_BATTQ_NOTE) wraps as every shell text does
+# (ui_wrap_next(): between kana and kanji), not only at ASCII spaces, so
+# a Japanese sentence wider than 280 px goes on to its second line
+# instead of being cut. Also the notice in Japanese, laid out tighter
+# when it is taller than 224 px ("legal ... tight=").
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p20-lang-ja-battq.script
+# needs: cjk
+# env: IPODUI_SIM_BATTQ=clear
+# env: IPODUI_SIM_NOTICE=clear
+# golden: skip
+# log: battq shown
+# nolog: ipodui: fit cut
+
+wait 4500
+lang_set japanese
+reboot
+wait 6000            # the notice in Japanese, then the question
+shot notice
+key SELECT
+wait 1500
+shot battq
+key SELECT           # Stock: the answer
+wait 1500
+lang_set -
+quit

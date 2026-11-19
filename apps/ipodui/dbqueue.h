@@ -90,6 +90,10 @@ uint8_t *dbq_groups(int *n, uint8_t **placed);
 bool dbq_idx_live(void);
 void dbq_published(struct tagcache_context *old);
 void dbq_tc_poll(void);
+/* p090-floor3: the rebase alone, if owed, at once (tagcache thread: a
+ * publication's end, PLAY's request), so the passive hold on the retired
+ * library ends before the audio buffer is sized */
+void dbq_tc_rebase_now(void);
 bool dbq_prepare_wait(void);
 /* 3.20: a rebase or materialization runs now (the header's busy glyph).
  * Any thread; one volatile read. */

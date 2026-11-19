@@ -105,5 +105,16 @@ struct ui_theme {
 
 extern const struct ui_theme *ui_theme;
 void ui_theme_init(void);                    /* loads fonts, sets ui_theme */
+/* ShellCJK companions (#235/#266): (re)load them with the glyph cache the
+ * current UI language and library need (Japanese or a CJK library: the
+ * full tier); after a language change. */
+void ui_theme_cjk_for_lang(void);
+/* main loop, every pass (one compare when nothing changed): after a
+ * library commit, at the first moment nothing plays, pick the glyph tier
+ * the library's glyph file asks for and attach the file (#235) */
+void ui_theme_cjk_poll(void);
+/* whether the CJK companion of the list font is loaded (Settings >
+ * Language offers Japanese only then) */
+bool ui_theme_has_cjk(void);
 
 #endif /* _IPODUI_THEME_H_ */

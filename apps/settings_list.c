@@ -1312,14 +1312,20 @@ const struct settings_list settings[] = {
                   "ipodui locked", NULL),
     OFFON_SETTING(0, ipodui_time_in_title, LANG_IPODUI_DATE_TIME, false,
                   "ipodui time in title", NULL),
+    OFFON_SETTING(0, ipodui_clock_set, LANG_IPODUI_DATE_TIME, false,
+                  "ipodui clock set", NULL),
     INT_SETTING(0, ipodui_tz_city, LANG_IPODUI_DATE_TIME, UI_TZ_CITY_DEFAULT,
                 "ipodui time zone", UNIT_INT, 0, UI_TZ_CITIES_MAX - 1, 1,
                 NULL, NULL, NULL),
     OFFON_SETTING(0, ipodui_sort_last, LANG_IPODUI_SORT_BY, false,
                   "ipodui sort by last", NULL),
+    /* 0 Off, 1..22 the presets, 23..25 the custom slots (#82) */
     INT_SETTING(0, ipodui_eq_preset, LANG_IPODUI_EQ, 0,
-                "ipodui eq preset", UNIT_INT, 0, 22, 1,
+                "ipodui eq preset", UNIT_INT, 0, 25, 1,
                 NULL, NULL, NULL),
+    TEXT_SETTING(0, ipodui_eq_custom1, "ipodui eq custom 1", "", NULL, NULL),
+    TEXT_SETTING(0, ipodui_eq_custom2, "ipodui eq custom 2", "", NULL, NULL),
+    TEXT_SETTING(0, ipodui_eq_custom3, "ipodui eq custom 3", "", NULL, NULL),
     /* the first-boot notice's acknowledged build (ipodui/notice.h) */
     INT_SETTING(0, ipodui_notice_ack, LANG_IPODUI_LEGAL, 0,
                 "ipodui notice ack", UNIT_INT, 0, 0x7fffffff, 1,
@@ -1356,6 +1362,12 @@ const struct settings_list settings[] = {
                 NULL, NULL, NULL),
     INT_SETTING(0, ipodui_width3d, LANG_IPODUI_ABOUT, 0,
                 "ipodui stereo width", UNIT_INT, 0, 3, 1,
+                NULL, NULL, NULL),
+    /* 0.9.0 Hi-Res 128x (apps/audiophile.h) */
+    OFFON_SETTING(0, ipodui_osr128, LANG_IPODUI_ABOUT, false,
+                  "ipodui hi-res 128x", NULL),
+    INT_SETTING(0, ipodui_osr128_ok, LANG_IPODUI_ABOUT, 0,
+                "ipodui hi-res 128x ok", UNIT_INT, 0, 255, 1,
                 NULL, NULL, NULL),
 #endif
     /* one-build WP3: the fitted battery (ipodui/battcell.h; hidden) */

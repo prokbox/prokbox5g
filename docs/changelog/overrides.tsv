@@ -1,6 +1,6 @@
 # Reviewed user-facing text for commits made without a "Changelog:" trailer (scripts/changelog.py).
 # <sha>TAB<text, optionally "[Section] text">; "-" drops the commit.  UK spelling, our own words.
-# A commit that has a Changelog: trailer never needs a line here.
+# A commit with a Changelog: trailer needs a line here only to correct it (a line wins over the trailer).
 8afa0041c5	Album covers no longer start over again when nothing has changed
 b393409beb	Your library is built first: covers and other background work wait until it has finished
 45b9067e15	The library page says in plain words which step it is on, with a light that keeps moving
@@ -66,3 +66,44 @@ b14491719f	[Interface] Touching the wheel wakes the screen when it shows the clo
 6a38eda2a2	[Storage and USB] One build for flash and hard-drive players: the player finds out which it has
 32204c0f5e	[Power and start-up] The first start asks which battery is fitted
 1936a90514	[Video] A video that cannot start stops the sound and shows a message instead of a blank screen
+# 0.9.0: B4 trailers named a section that does not exist ([Artwork])
+1d41dab050	[Interface] A damaged cover picture can no longer corrupt memory when its album plays
+b3c698483d	[Interface] A damaged cover inside an Ogg or Opus file no longer leaves the player stuck working on it
+# 0.9.0 (reviewed for rt9)
+6e3455c230	-
+db0ba27da2	Japanese text breaks between lines in the right places
+fe28b55f12	-
+c82cb49278	Songs and audiobooks that can't play are greyed out with a small sign
+cd931b54d9	-
+a61157bd1f	Settings > Language switches between English, Deutsch and Nederlands at once
+45345836ee	Menus in German and Dutch (first drafts)
+262968834d	-
+16524eb793	Menus in Japanese (first draft)
+caf0e2b8ef	-
+755d4b9944	The equaliser and other sound processing now run on the second core, with the decoding
+8fb9d44ccb	-
+501da51fbb	After a seamless change of sample rate, the next song plays at its own speed
+708574b304	[Playback and sound] A stop during a change of sample rate no longer leaves the player waiting for a change that never comes
+6cad5a808c	-
+28693a8f08	[Playback and sound] Fewer short drop-outs in demanding files while the second core tidies its memory
+05e1050f5b	The audio chip is powered at 3.0 V, as in the original software, for a little more headroom
+8ce3cd1150	-
+69e4218eba	-
+0cd26c9cbb	-
+bcda8c9b3e	[Playback and sound] The Hi-Res 128x test plays a few seconds at each rate, including a near-silent stretch, and fails on the smallest break
+e8fd8c3f9a	-
+4aad9ca0d6	-
+b12ec008ed	-
+68bf80b9a5	-
+3ffa28ccc9	-
+6552e89268	-
+e7f30be3e3	Settings > Legal now credits the font used for Japanese, Korean and Chinese characters
+aca64e8249	[Playback and sound] A damaged Apple Lossless file now stops the track instead of writing past the decoder's memory
+cb5d2b1fec	[Playback and sound] 24-bit Apple Lossless files now play at their full 24-bit precision; before, the lowest 8 bits were lost
+2ffba23381	-
+6f6a607a3c	[Video] A rare video-chip hiccup when switching between album art and the visualiser is fixed
+2c831bc40c	-
+164460c02c	-
+b9f6d09903	[Playback and sound] With Hi-Res 128x on, music at 88.2 and 96 kHz now runs the audio chip's sound processing at full speed, which removes a faint crackle in quiet endings; the audio chip's limiter now guards the equaliser against sudden peaks
+72d5be4b15	-
+c3012119f8	-

@@ -36,7 +36,8 @@
  * CPU draws the row again; the CPU's F2 then goes on from the phase.
  *
  * One marquee at a time (one ANIM runs on the BCM at a time), on the UI
- * thread (the job owner).  Today's user: Now Playing's title. */
+ * thread (the job owner).  Today's user: Now Playing's title, artist and
+ * album lines, one at a time (#180: a lap each, then the next). */
 
 #include <stdbool.h>
 #include <stdint.h>

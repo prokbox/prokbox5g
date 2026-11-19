@@ -49,6 +49,9 @@ static int32_t decoded1[MAX_BLOCKSIZE] IBSS_ATTR_FLAC;
     DEBUGF("flac rejected blocksize=%d why=%s\n", (n), (why))
 #endif
 
+/* #318: FLAC_TOO_WIDE_FOR_RATE, the cost limit on 30..32-bit streams, is in
+   metadata/flac_limits.h, shared with the library's unplayable reason */
+
 #define MAX_SUPPORTED_SEEKTABLE_SIZE 5000
 
 /* Notes about seeking:
@@ -139,6 +142,13 @@ static bool flac_alloc(FLACContext *fc)
     }
     if (fc->channels == 1)
         fc->decoded[1] = fc->decoded[0];    /* pcmbuf_insert()'s 2nd source */
+    /* #318: a 32-bit stereo stream's side channel has 33 bits a sample */
+    if (fc->bps == FLAC_MAX_BPS && fc->channels == 2)
+    {
+        fc->wide = codec_malloc(fc->max_blocksize * sizeof(int64_t));
+        if (!fc->wide)
+            return false;
+    }
 #ifdef FLAC_FRAME_COPY
     frame_bound = flac_frame_worst(fc);
     /* the stream's own bound when it has one (it can only be smaller) */
@@ -198,7 +208,11 @@ static bool flac_init(FLACContext* fc, int first_frame_offset)
 
         if ((buf[0] & 0x7f) == 0)       /* 0 is the STREAMINFO block */
         {
-            if (ci->read_filebuf(buf, blocklength) < blocklength) return false;
+            /* only one, and it must fit in buf */
+            if (found_streaminfo || blocklength < 18 ||
+                blocklength > sizeof(buf) ||
+                ci->read_filebuf(buf, blocklength) < blocklength)
+                return false;
 
             fc->filesize = ci->filesize;
             fc->min_blocksize = (buf[0] << 8) | buf[1];
@@ -208,20 +222,25 @@ static bool flac_init(FLACContext* fc, int first_frame_offset)
             fc->max_framesize = (buf[7] << 16) | (buf[8] << 8) | buf[9];
             fc->samplerate = (buf[10] << 12) | (buf[11] << 4)
                              | ((buf[12] & 0xf0) >> 4);
+            if (fc->samplerate == 0)
+                return false;
             fc->channels = ((buf[12]&0x0e)>>1) + 1;
             fc->bps = (((buf[12]&0x01) << 4) | ((buf[13]&0xf0)>>4) ) + 1;
 
-            /* #285: the decoder hands samples on at FLAC_OUTPUT_DEPTH bits
-               (shifted up by FLAC_OUTPUT_DEPTH - bps), so it is exact up
-               to 29 bits a sample (tests/flacarm's syn29) and wrong above.
-               Wider streams (32-bit FLAC) are refused here, before any
-               PCM: playback skips the track as unplayable (#281).  The
-               library still lists them: their metadata is fine. */
-            if (fc->bps > FLAC_OUTPUT_DEPTH) {
+            /* #318: up to FLAC_OUTPUT_DEPTH bits a sample the decoder hands
+               samples on shifted up to that depth; wider ones (30..32-bit
+               FLAC) decode at their own width and are reduced to it with
+               TPDF dither.  The wide path costs more a sample: a rate it
+               cannot keep up with is refused here, before any PCM, and
+               playback skips the track as unplayable (#281). */
+            if (FLAC_TOO_WIDE_FOR_RATE(fc->bps, fc->samplerate,
+                                       fc->channels)) {
 #ifdef HAVE_IPOD_UI
-                    ci->ui_log("flac", "%d-bit not supported", fc->bps);
+                    ci->ui_log("flac", "%d-bit at %d Hz x%d too slow",
+                               fc->bps, fc->samplerate, fc->channels);
 #else
-                    DEBUGF("flac: %d-bit not supported\n", fc->bps);
+                    DEBUGF("flac: %d-bit at %d Hz x%d too slow\n",
+                           fc->bps, fc->samplerate, fc->channels);
 #endif
                     return false;
             }
@@ -369,11 +388,43 @@ static bool frame_sync(FLACContext* fc) {
      * fill fc with its metadata.
      */
     if(flac_decode_frame(fc,
-       bit_buffer, buff_size, ci->yield) < 0) {
+       bit_buffer, buff_size, ci->yield) != 0) {
         return false;
     }
 
     return true;
+}
+
+/* How far to look past a bad frame for a good one before giving up on the
+   stream */
+#define MAX_RESYNC_BYTES (1024*1024)
+
+/* Find the next frame that decodes after one that did not, starting a byte
+   on so as not to find the same one again. Returns false at the end of the
+   file, or with ci->curpos less than that far on when there is none. */
+static bool flac_resync(FLACContext* fc)
+{
+    off_t start = ci->curpos;
+
+    while (ci->curpos - start < MAX_RESYNC_BYTES) {
+        off_t pos = ci->curpos;
+
+        bit_buffer = flac_request_frame(&buff_size, MAX_FRAMESIZE+16);
+        if (buff_size < MIN_FRAME_SIZE)
+            return false;
+
+        init_get_bits(&fc->gb, bit_buffer, buff_size*8);
+        skip_bits(&fc->gb, 8);
+        if (frame_sync(fc))
+            return true;
+
+        /* frame_sync() stopped at a sync code that did not decode, which
+           the next pass skips, or found none in this buffer */
+        if (ci->curpos == pos)
+            ci->advance_buffer(buff_size - 1);
+    }
+
+    return false;
 }
 
 /* Seek to sample - adapted from libFLAC 1.1.3b2+ */
@@ -610,6 +661,10 @@ enum codec_status codec_run(void)
 
     /* The main decoding loop */
     buf = flac_request_frame(&bytesleft, MAX_FRAMESIZE);
+    /* ProkBox (#281 with upstream a9319e71c4's resync): a track in which
+       no frame ever decodes is unplayable, not a track that ended, so the
+       queue's run of failures still counts it */
+    bool played = false;
     while (bytesleft) {
         long action = ci->get_command(&param);
 
@@ -628,10 +683,22 @@ enum codec_status codec_run(void)
             ci->seek_complete();
         }
 
-        if((res=flac_decode_frame(&fc,buf,
-                             bytesleft,ci->yield)) < 0) {
-             LOGF("FLAC: Frame %d, error %d\n",frame,res);
-             return CODEC_ERROR;
+        res = flac_decode_frame(&fc, buf, bytesleft, ci->yield);
+        if (res < 0) {
+            /* skip the bad data to the next good frame, which the elapsed
+               time follows from its sample number */
+            LOGF("FLAC: Frame %d, error %d\n",frame,res);
+            if (!flac_resync(&fc)) {
+                if (played && ci->curpos + MIN_FRAME_SIZE > ci->filesize)
+                    break;
+                return CODEC_ERROR;
+            }
+            buf = bit_buffer;
+            bytesleft = buff_size;
+            fc.sample_skip = 0; /* a seek's skip was into the bad frame */
+            res = 0;
+        } else if (res > 0) {
+            break; /* too little data left for a frame */
         }
         consumed=fc.gb.index/8;
         if (res == 0 && consumed > (int)bytesleft) {
@@ -643,8 +710,10 @@ enum codec_status codec_run(void)
 #endif
 
         ci->yield();
+        flac_reduce_frame(&fc);     /* #318: 30..32-bit streams */
         ci->pcmbuf_insert(&fc.decoded[0][fc.sample_skip], &fc.decoded[1][fc.sample_skip],
                           fc.blocksize - fc.sample_skip);
+        played = true;
 
         fc.sample_skip = 0;
 

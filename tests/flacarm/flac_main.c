@@ -30,18 +30,25 @@
  * stream's width, interleaved: the format flac -d --force-raw-format
  * writes, so the two files must be byte-identical.  Every function of the
  * driver is named drv_* (or main), so the cycle plugin's per-symbol profile
- * separates the decoder's cycles from the driver's.  Prints
+ * separates the decoder's cycles from the driver's.  A stream wider than
+ * FLAC_OUTPUT_DEPTH (#318) also goes through flac_reduce_frame() to
+ * ./out29.raw (4-byte samples), which run.sh checks against
+ * tests/flacarm/dither.py applied to the reference's samples.  Prints
  * "FRAMES <n> SAMPLES <n> BPS <n> CH <n>" or "ERROR <code> AT <frame>". */
 #include <stdint.h>
 #include <string.h>
 #include "decoder.h"
 
 #define IN_BASE  ((uint8_t *)0x02000000)    /* the stream, up to 32 MB */
-#define OUT_BASE ((uint8_t *)0x04000000)    /* the PCM, up to 64 MB */
+#define OUT_BASE ((uint8_t *)0x04000000)    /* the PCM, up to 32 MB */
+#define RED_BASE ((uint8_t *)0x06000000)    /* #318: reduced, up to 32 MB */
 #define MAXBS    65535
 
 uint8_t bs_log2_tab[256];                   /* codeclib's, for av_log2 */
 static int32_t dec[2][MAXBS];
+/* #318: a 33-bit side channel, MAXBS samples; outside .bss, which must end
+   below start.S's stack (1 MB) */
+#define WIDE_BASE ((int64_t *)0x01000000)
 static FLACContext fc;
 
 static int drv_sh(int op, void *arg)
@@ -71,9 +78,14 @@ static void drv_yield(void)
 {
 }
 
+/* The samples as a reference decoder writes them: right-justified in
+   (bps + 7) / 8 bytes.  A stream wider than FLAC_OUTPUT_DEPTH comes out of
+   flac_decode_frame() at its own width (sh 0); after flac_reduce_frame()
+   (bps FLAC_OUTPUT_DEPTH, 4 bytes) it is the 29-bit stream flac.c plays. */
 static uint8_t *drv_out(uint8_t *o, int n, int ch, int bps)
 {
-    int sh = FLAC_OUTPUT_DEPTH - bps, w = (bps + 7) / 8;
+    int sh = bps > FLAC_OUTPUT_DEPTH ? 0 : FLAC_OUTPUT_DEPTH - bps;
+    int w = (bps + 7) / 8;
     for (int i = 0; i < n; i++)
         for (int c = 0; c < ch; c++) {
             int32_t v = fc.decoded[c][i] >> sh;
@@ -113,7 +125,7 @@ int main(void)
     char *p = msg;
     int h, len, pos, frames = 0, res = 0;
     uint32_t samples = 0;
-    uint8_t *o = OUT_BASE;
+    uint8_t *o = OUT_BASE, *r = RED_BASE;
 
     a[0] = (uint32_t)"selftest"; a[1] = 1; a[2] = 8;
     h = drv_sh(0x01, a);
@@ -159,6 +171,7 @@ int main(void)
     if (fc.channels > 2) { drv_puts("ERROR channels\n"); return 1; }
     fc.decoded[0] = dec[0];
     fc.decoded[1] = fc.channels == 2 ? dec[1] : dec[0];
+    fc.wide = fc.bps == FLAC_MAX_BPS && fc.channels == 2 ? WIDE_BASE : 0;
 
     while (len - pos >= MIN_FRAME_SIZE) {
         int left = len - pos;
@@ -168,6 +181,10 @@ int main(void)
         if (res)
             break;
         o = drv_out(o, fc.blocksize, fc.channels, fc.bps);
+        if (fc.bps > FLAC_OUTPUT_DEPTH) {
+            flac_reduce_frame(&fc);
+            r = drv_out(r, fc.blocksize, fc.channels, FLAC_OUTPUT_DEPTH);
+        }
         samples += fc.blocksize;
         pos += fc.framesize;
         frames++;
@@ -179,6 +196,14 @@ int main(void)
     drv_sh(0x05, a);
     a[0] = h;
     drv_sh(0x02, a);
+    if (r != RED_BASE) {
+        a[0] = (uint32_t)"out29.raw"; a[1] = 5; a[2] = 9;     /* "wb" */
+        h = drv_sh(0x01, a);
+        a[0] = h; a[1] = (uint32_t)RED_BASE; a[2] = r - RED_BASE;
+        drv_sh(0x05, a);
+        a[0] = h;
+        drv_sh(0x02, a);
+    }
 
     if (res) {
         p = memcpy(p, "ERROR ", 6) + 6;

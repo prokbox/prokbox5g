@@ -38,10 +38,10 @@ shot set_backlight
 wheel +3             # EQ
 wait 900
 shot set_eq
-wheel +3             # Date & Time
+wheel +4             # Date & Time
 wait 900
 shot set_datetime
-wheel -6             # Backlight
+wheel -7             # Backlight
 wait 900
 key SELECT           # the Backlight leaf
 wait 1200

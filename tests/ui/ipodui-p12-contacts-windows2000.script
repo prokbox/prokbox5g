@@ -76,7 +76,7 @@ wheel +1            # Settings
 wait 600
 key SELECT
 wait 1200
-wheel +13           # Sort By
+wheel +14           # Sort By
 wait 800
 shot sort_row
 key SELECT          # First -> Last
@@ -104,7 +104,7 @@ wheel +1
 wait 600
 key SELECT
 wait 1200
-wheel +13
+wheel +14
 wait 800
 key SELECT
 wait 800

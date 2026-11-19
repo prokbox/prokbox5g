@@ -409,6 +409,27 @@ sub buildzip {
         # ten glyphs come from DejaVu Sans; its licence asks for the notice
         copy("$ROOT/apps/ipodui/fonts/DEJAVU-FONT-LICENSE.txt",
              "$temp_dir/fonts/DEJAVU-FONT-LICENSE.txt");
+        # ProkBox 0.9.0 (#235, #266): the ShellCJK companions (Japanese
+        # menus, CJK tags) and their OFL notice, generated (not kept in
+        # git) into build/cjk-fonts by make_cjk_fonts.sh, which is keyed on
+        # every input and a no-op when they are current. A release zip
+        # (no developer mode) makes sure they are there and current, and
+        # is refused without them (Settings > Language would hide Japanese
+        # and CJK tags would draw blank); other shell zips take them when
+        # present.
+        my $cjk = "$ROOT/build/cjk-fonts";
+        if (($ENV{EXTRA_DEFINES} // '') !~ /-DHAVE_IPOD_UI_DEVMODE\b/) {
+            system("sh", "$ROOT/tests/fixtures/cjk/make_cjk_fonts.sh") == 0
+                or die "ShellCJK fonts: tests/fixtures/cjk/make_cjk_fonts.sh failed; a release zip needs them";
+        }
+        if (-f "$cjk/14-ShellCJK-Bold.fnt") {
+            for my $f (qw(14-ShellCJK-Bold.fnt 11-ShellCJK-Bold.fnt
+                          11-ShellCJK.fnt 35-ShellCJK-Index.fnt
+                          OFL-NOTO-CJK.txt)) {
+                copy("$cjk/$f", "$temp_dir/fonts/$f")
+                    or die "ShellCJK fonts: $cjk/$f: $!";
+            }
+        }
     }
 
     # HAVE_BCMFW_VIDEO or HAVE_BCMFW_MERGED_VIDEO: the resident (and the
@@ -738,7 +759,10 @@ sub buildzip {
     }
 
     glob_mkdir("$temp_dir/docs");
+    # ProkBox: CREDITS too (scripts/legal_audit.py check 5: the GPL's
+    # credit to Rockbox's authors ships with every zip)
     for(("COPYING",
+         "CREDITS",
          "LICENSES",
          "KNOWN_ISSUES"
         )) {
@@ -819,13 +843,16 @@ sub buildzip {
     # ProkBox --ipodui-release (HAVE_IPOD_UI without HAVE_IPOD_UI_DEVMODE):
     # the release has no plugin API (IPODUI_TRIM_PLUGINS), so nothing opens
     # anything under rocks/ (Lua scripts, picross and sokoban data, viewer
-    # and tidy configs); the Language screen is English only (COMP-6), so
-    # only english.lng stays in langs/.  Stock and dev zips are unchanged.
+    # and tidy configs); the Language screen offers the shell's languages
+    # (apps/ipodui/screens/language.c: English, Deutsch, Nederlands; P20;
+    # Japanese, #266, offered once the ShellCJK fonts are installed),
+    # so only their .lng files stay in langs/.  Stock and dev zips are
+    # unchanged.
     if (($ENV{EXTRA_DEFINES} // '') =~ /-DHAVE_IPOD_UI\b/
         && ($ENV{EXTRA_DEFINES} // '') !~ /-DHAVE_IPOD_UI_DEVMODE\b/) {
         rmtree("$temp_dir/rocks");
         for my $f (glob("$temp_dir/langs/*")) {
-            unlink($f) unless $f =~ m{/english\.lng$};
+            unlink($f) unless $f =~ m{/(english|deutsch|nederlands|japanese)\.lng$};
         }
     }
 

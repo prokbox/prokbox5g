@@ -40,6 +40,11 @@
 
 /* Refill window (shuffle.md item 3) */
 #define LIB_SHUF_WINDOW     50      /* entries added per refill */
+/* p090-shuffle (shuffle.md "Instant start"): a start queues this many,
+ * plays, and backfills the window to LIB_SHUF_WINDOW from the UI pass.
+ * 4: three NEXTs before the backfill lands still find a track, and the
+ * first sound waits for 4 file-name reads instead of 50 */
+#define LIB_SHUF_FIRST      4
 #define LIB_SHUF_LOW        10      /* refill when this few are left... */
 #define LIB_SHUF_URGENT     2       /* ...at once (wake the disk) at this */
 #define LIB_SHUF_HISTORY    100     /* played entries kept before deleting */

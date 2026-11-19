@@ -263,13 +263,98 @@ static void disable_all_interrupts(void)
     GPIOL_INT_EN        = 0;
 }
 
+/* the whole-cache write-back itself (the cache enabled) */
+static inline void commit_dcache_hw(void)
+{
+    CACHE_OPERATION |= CACHE_OP_FLUSH;
+    while ((CACHE_CTL & CACHE_CTL_BUSY) != 0);
+    nop; nop; nop; nop;
+}
+
+#if defined(HAVE_CORE_LAYOUT_A) && !defined(BOOTLOADER)
+/* ProkBox 0.9.0 fiqstall (b16, #436): a whole-cache write-back stalls the
+ * core's cached accesses (the FIQ vector's fetch among them [hypothesis])
+ * for up to 761 us at 24 MHz (b16, the FIQ open).  Each one on a core is
+ * timed, and before it the PCM's window (pcm_pp_fiq_window(), pcm-pp.c)
+ * waits until no piece ends inside the stall: the estimate is a decaying
+ * maximum of the measured stalls, never under the b16 worst (MSTALL_SEED_US
+ * rounds 761 up), plus the FIQ's way to the next piece (MSTALL_MARGIN_US).
+ * The IRQ is masked over the write-back: an IRQ's entry would wait for it
+ * all the same (its vector is cached too), and the time measured is then
+ * the write-back's own */
+#define MSTALL_SEED_US   800u
+#define MSTALL_MARGIN_US 40u
+static uint32_t ms_est[NUM_CORES] IBSS_ATTR;
+static uint32_t ms_max[NUM_CORES] IBSS_ATTR;
+static uint32_t ms_hz[NUM_CORES] IBSS_ATTR;
+static uint32_t ms_waits[NUM_CORES] IBSS_ATTR;
+static uint32_t ms_bound[NUM_CORES] IBSS_ATTR;
+
+void cache_mstall_take_stats(unsigned int core, struct cache_mstall *out)
+{
+    if (core >= NUM_CORES)
+    {
+        out->max_us = out->mhz = out->waits = out->bound = 0;
+        out->est_us = 0;
+        return;
+    }
+    out->max_us = ms_max[core];
+    out->mhz = ms_hz[core] / 1000000;
+    out->waits = ms_waits[core];
+    out->bound = ms_bound[core];
+    out->est_us = ms_est[core] > MSTALL_SEED_US ? ms_est[core]
+                                                : MSTALL_SEED_US;
+    ms_max[core] = ms_hz[core] = ms_waits[core] = ms_bound[core] = 0;
+}
+
+/* before a whole-cache operation on this core */
+static void ICODE_ATTR mstall_window(unsigned int core)
+{
+    uint32_t est = ms_est[core];
+    int r;
+
+    if (est < MSTALL_SEED_US)
+        est = MSTALL_SEED_US;
+    r = pcm_pp_fiq_window(est + MSTALL_MARGIN_US);
+    if (r == 1)
+        ms_waits[core]++;
+    else if (r == 2)
+        ms_bound[core]++;
+}
+
+/* after it: us is what it took */
+static void ICODE_ATTR mstall_note(unsigned int core, uint32_t us)
+{
+    uint32_t est = ms_est[core];
+
+    if (us > ms_max[core])
+    {
+        ms_max[core] = us;
+        ms_hz[core] = cpu_frequency;    /* no division here: the FIQ */
+    }
+    est -= est >> 8;        /* forgets an outlier in a few hundred */
+    ms_est[core] = us > est ? us : est;
+}
+#endif /* HAVE_CORE_LAYOUT_A && !BOOTLOADER */
+
 void ICODE_ATTR commit_dcache(void)
 {
     if (CACHE_CTL & CACHE_CTL_ENABLE)
     {
-        CACHE_OPERATION |= CACHE_OP_FLUSH;
-        while ((CACHE_CTL & CACHE_CTL_BUSY) != 0);
-        nop; nop; nop; nop;
+#if defined(HAVE_CORE_LAYOUT_A) && !defined(BOOTLOADER)
+        const unsigned int core = CURRENT_CORE;
+        int istat;
+        uint32_t t0;
+
+        mstall_window(core);
+        istat = disable_interrupt_save(IRQ_STATUS);
+        t0 = USEC_TIMER;
+        commit_dcache_hw();
+        mstall_note(core, USEC_TIMER - t0);
+        restore_interrupt(istat);
+#else
+        commit_dcache_hw();
+#endif
     }
 }
 
@@ -355,15 +440,22 @@ static void ICODE_ATTR cop_commit_discard(void)
     register int istat;
     register int open;
     register uint32_t t0, tmax;
+    uint32_t t_all;
 
-    commit_dcache();                /* FIQ open: the bulk */
-    istat = disable_interrupt_save(IRQ_FIQ_STATUS);
+    /* 0.9.0 fiqstall: no piece ends in what follows; the bulk with the
+     * FIQ as the caller had it, the IRQ masked from here to the end (see
+     * mstall_window()); istat keeps the caller's state */
+    mstall_window(COP);
+    t_all = USEC_TIMER;
+    istat = disable_interrupt_save(IRQ_STATUS);
+    commit_dcache_hw();
+    (void)disable_interrupt_save(IRQ_FIQ_STATUS);
     /* the FIQ may open between blocks only if it was open at the call */
     open = (istat & FIQ_STATUS) ? (istat | IRQ_FIQ_STATUS)
                                 : ((istat | IRQ_STATUS) & ~FIQ_STATUS);
     t0 = USEC_TIMER;
     tmax = 0;
-    commit_dcache();                /* what was dirtied since */
+    commit_dcache_hw();             /* what was dirtied since */
     while (p < end)
     {
         register volatile unsigned long *const blk =
@@ -390,6 +482,7 @@ static void ICODE_ATTR cop_commit_discard(void)
             tmax = t;
     }
     restore_interrupt(istat);
+    mstall_note(COP, USEC_TIMER - t_all);
     cds_n++;
     if (tmax > cds_max)
         cds_max = tmax;
@@ -409,12 +502,23 @@ void ICODE_ATTR commit_discard_idcache(void)
             return;
         }
 #endif
+#if defined(HAVE_CORE_LAYOUT_A) && !defined(BOOTLOADER)
+        /* 0.9.0 fiqstall: the same window when this core takes the FIQ */
+        const unsigned int core = CURRENT_CORE;
+        uint32_t t0;
+
+        mstall_window(core);
+        t0 = USEC_TIMER;
+#endif
         register int istat = disable_interrupt_save(IRQ_FIQ_STATUS);
 
-        commit_dcache();
+        commit_dcache_hw();
         cache_invalidate_special();
 
         restore_interrupt(istat);
+#if defined(HAVE_CORE_LAYOUT_A) && !defined(BOOTLOADER)
+        mstall_note(core, USEC_TIMER - t0);
+#endif
     }
 }
 

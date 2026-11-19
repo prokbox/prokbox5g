@@ -91,8 +91,12 @@
 #define O_BINARY 0
 #endif
 
+#ifdef HAVE_IPOD_UI
+#include "devstats.h"           /* DEVSTATS_FONT_*: empty without it */
+#endif
 #if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
 #include "font_shell_map.h"
+#include "font_sparse.h"
 /* The shell fonts (apps/ipodui/fonts) cover U+0020..U+024F, plus the
  * characters of font_shell_slot[] (quotes, dashes, music notes, euro, ...)
  * drawn in the C1 control slots U+0080..U+009F; see font_shell_map.h.
@@ -156,8 +160,25 @@ struct buflib_alloc_data {
     char *path; /* font path and filename (allocd at end of buffer) */
     size_t path_bufsz; /* size of path buffer */
     int refcount;        /* how many times has this font been loaded? */
+#ifdef HAVE_IPOD_UI
+    /* ProkBox (#235): the sparse form (font_sparse.h): the shared index
+     * set it draws from (-1: a stock font), its record stride and id.
+     * Here, not in struct font: sysfont's generated initializer is
+     * positional. Reached from a loaded font's pf (font is first). */
+    signed char sparse_set;
+    unsigned short sparse_stride;
+    uint32_t sparse_id;
+    /* jaglyph: the pinned records (font_sparse_pin()): a movable block,
+     * pin_n code points (uint16, ascending, padded to 4 bytes) then their
+     * records; -1 / 0 when none */
+    int pin_handle;
+    unsigned short pin_n;
+#endif
     unsigned char buffer[];
 };
+#ifdef HAVE_IPOD_UI
+#define SPD(pf) ((struct buflib_alloc_data *)(pf))
+#endif
 static int buflib_allocations[MAXFONTS];
 static int ui_font = FONT_LASTUSERFONT;
 
@@ -219,6 +240,169 @@ static inline unsigned char *buffer_from_handle(int handle)
 /* Font cache structures */
 static void cache_create(struct font* pf);
 static NO_INLINE void glyph_cache_load(const char *font_path, struct font *pf);
+static int glyph_bytes( struct font *pf, int width );
+
+#ifdef HAVE_IPOD_UI
+/* ProkBox (#235): the sparse form's resident index (font_sparse.h: the
+ * presence bitmap and the counts, FONT_SPARSE_INDEX bytes), one movable
+ * block per distinct glyph set, shared by every font of that set (the
+ * three ShellCJK sizes hold one set: one block, not three). Nothing keeps
+ * a pointer into it across a yield. */
+#define SPARSE_SETS 2
+static int sparse_handle[SPARSE_SETS];
+static int sparse_refs[SPARSE_SETS];
+static int fill_font = -1;              /* font_set_fill() */
+static font_fill_fn fill_fn;
+
+static void sparse_init(void)
+{
+    for (int i = 0; i < SPARSE_SETS; i++)
+    {
+        sparse_handle[i] = -1;
+        sparse_refs[i] = 0;
+    }
+}
+
+static const uint8_t *sparse_map(const struct font *pf)
+{
+    return core_get_data(sparse_handle[(int)SPD(pf)->sparse_set]);
+}
+
+/* whether set s holds the index at the file's FONT_SPARSE_MAPOFF:
+ * compared in pieces, no second copy */
+static bool sparse_same(int fd, int s)
+{
+    unsigned char buf[256];
+    size_t off;
+
+    if (lseek(fd, FONT_SPARSE_MAPOFF, SEEK_SET) != FONT_SPARSE_MAPOFF)
+        return false;
+    for (off = 0; off < FONT_SPARSE_INDEX; off += sizeof(buf))
+    {
+        size_t n = MIN(sizeof(buf), FONT_SPARSE_INDEX - off);
+        if (read(fd, buf, n) != (ssize_t)n
+            || memcmp(buf, (const char *)core_get_data(sparse_handle[s])
+                           + off, n))
+            return false;
+    }
+    return true;
+}
+
+/* the sparse font's sub-header and its index set; false: refuse it */
+static bool sparse_attach(struct font *pf, int fd)
+{
+    struct font_sparse_sub sub;
+    int s, free_s = -1;
+
+    SPD(pf)->sparse_set = -1;
+    if (lseek(fd, FONT_SPARSE_SUBOFF, SEEK_SET) != FONT_SPARSE_SUBOFF
+        || read(fd, &sub, sizeof(sub)) != sizeof(sub)
+        || sub.magic != FONT_SPARSE_MAGIC
+        || sub.stride != 1u + glyph_bytes(pf, pf->maxwidth)
+        || pf->firstchar != FONT_SPARSE_FIRST
+        || pf->size != FONT_SPARSE_SIZE
+        || (uint32_t)pf->bits_size != sub.count * sub.stride)
+    {
+        logf("font: sparse header refused");
+        return false;
+    }
+    for (s = 0; s < SPARSE_SETS; s++)
+    {
+        if (sparse_handle[s] <= 0)
+        {
+            if (free_s < 0)
+                free_s = s;
+        }
+        else if (sparse_same(fd, s))
+            break;
+    }
+    if (s == SPARSE_SETS)
+    {
+        unsigned char *map;
+        bool ok;
+
+        if (free_s < 0)
+            return false;
+        s = free_s;
+        sparse_handle[s] = core_alloc_ex(FONT_SPARSE_INDEX, NULL);
+        if (sparse_handle[s] <= 0)
+        {
+            sparse_handle[s] = -1;
+            return false;
+        }
+        /* pinned for its life, like the shell fonts (theme.c): the COP
+         * may draw from it while a compaction on the CPU runs */
+        map = core_get_data_pinned(sparse_handle[s]);
+        ok = lseek(fd, FONT_SPARSE_MAPOFF, SEEK_SET) == FONT_SPARSE_MAPOFF
+             && read(fd, map, FONT_SPARSE_INDEX) == FONT_SPARSE_INDEX;
+        if (!ok)
+        {
+            core_free(sparse_handle[s]);
+            sparse_handle[s] = -1;
+            return false;
+        }
+    }
+    sparse_refs[s]++;
+    SPD(pf)->sparse_set = s;
+    SPD(pf)->sparse_stride = sub.stride;
+    SPD(pf)->sparse_id = sub.font_id;
+    return true;
+}
+
+static void sparse_detach(struct font *pf)
+{
+    int s = SPD(pf)->sparse_set;
+
+    if (s < 0)
+        return;
+    SPD(pf)->sparse_set = -1;
+    if (--sparse_refs[s] <= 0 && sparse_handle[s] > 0)
+    {
+        core_free(sparse_handle[s]);
+        sparse_handle[s] = -1;
+        sparse_refs[s] = 0;
+    }
+}
+
+/* jaglyph: the pinned records (font_sparse_pin()) */
+#define PIN_CPS_BYTES(n) ALIGN_UP((size_t)(n) * sizeof(uint16_t), 4)
+
+static void sparse_pin_free(struct buflib_alloc_data *pd)
+{
+    if (pd->pin_handle > 0)
+        core_free(pd->pin_handle);  /* pinned for its life, freed so */
+    pd->pin_handle = -1;
+    pd->pin_n = 0;
+}
+
+/* a miss of code point c: its pinned record into dst (the cache entry's
+ * width byte and cell), true when pf holds it pinned. No yield. */
+static bool sparse_pin_get(struct font *pf, ucschar_t c, unsigned char *dst)
+{
+    const struct buflib_alloc_data *pd = SPD(pf);
+    const uint16_t *cps;
+    int lo = 0, hi = pd->pin_n - 1;
+
+    if (pd->pin_n == 0 || c > 0xffff)
+        return false;
+    cps = core_get_data(pd->pin_handle);
+    while (lo <= hi)
+    {
+        int mid = (lo + hi) >> 1;
+        if (cps[mid] == c)
+        {
+            memcpy(dst, (const unsigned char *)cps + PIN_CPS_BYTES(pd->pin_n)
+                        + (size_t)mid * pd->sparse_stride, pd->sparse_stride);
+            return true;
+        }
+        if (cps[mid] < c)
+            lo = mid + 1;
+        else
+            hi = mid - 1;
+    }
+    return false;
+}
+#endif /* HAVE_IPOD_UI */
 /* End Font cache structures */
 
 void font_init(void)
@@ -227,6 +411,9 @@ void font_init(void)
     cache_fd = -1;
     while (i<MAXFONTS)
         buflib_allocations[i++] = -1;
+#ifdef HAVE_IPOD_UI
+    sparse_init();
+#endif
 }
 
 /* Check if we have x bytes left in the file buffer */
@@ -504,6 +691,16 @@ int font_load_ex( const char *path, size_t buf_size, int glyphs )
     /* examine f and calc buffer size */
     bool cached = false;
     size_t bufsize = buf_size;
+#ifdef HAVE_IPOD_UI
+    /* ProkBox (#235): the sparse form is always cached, with a glyph LRU */
+    bool sparse = (f.depth & FONT_SPARSE_DEPTH) != 0;
+    f.depth &= ~FONT_SPARSE_DEPTH;
+    if (sparse && !glyphs)
+    {
+        close(fd);
+        return -1;
+    }
+#endif
     size_t glyph_buf_size = font_glyphs_to_bufsize( &f, glyphs );
 
     if ( bufsize && glyphs && bufsize > glyph_buf_size)
@@ -523,6 +720,13 @@ int font_load_ex( const char *path, size_t buf_size, int glyphs )
         cached = true;
     else
         bufsize = file_size;
+#ifdef HAVE_IPOD_UI
+    if (sparse && !cached)
+    {
+        cached = true;                  /* a tiny set: still record reads */
+        bufsize = glyph_buf_size;
+    }
+#endif
 
     /* check already loaded */
     int font_id = find_font_index(path);
@@ -599,6 +803,11 @@ int font_load_ex( const char *path, size_t buf_size, int glyphs )
 
     pdata = core_get_data_pinned(handle);
     pdata->refcount     = 1;
+#ifdef HAVE_IPOD_UI
+    pdata->sparse_set   = -1;
+    pdata->pin_handle   = -1;
+    pdata->pin_n        = 0;
+#endif
     pdata->path = pdata->buffer + bufsize;
     /* save load path so we can recognize this font later */
     memcpy(pdata->path, path, path_len+1);
@@ -619,6 +828,22 @@ int font_load_ex( const char *path, size_t buf_size, int glyphs )
 
     if ( cached )
     {
+#ifdef HAVE_IPOD_UI
+        if (sparse)
+        {
+            if (!sparse_attach(pf, fd))
+            {
+                close(fd);
+                core_free(handle);
+                return -1;
+            }
+            pf->width = NULL;
+            pf->bits = NULL;
+            pf->file_width_offset = pf->file_offset_offset = 0;
+            cache_create(pf);
+        }
+        else
+#endif
         if ( ! font_load_cached( pf, nwidth, noffset ) )
         {
             core_free( handle );
@@ -682,6 +907,12 @@ void font_unload(int font_id)
             glyph_cache_save(font_id);
             close(pf->fd);
         }
+#ifdef HAVE_IPOD_UI
+        sparse_pin_free(pdata);
+        sparse_detach(pf);
+        if (fill_font == font_id)
+            fill_font = -1;
+#endif
         core_free(handle);
         buflib_allocations[font_id] = -1;
 
@@ -813,6 +1044,40 @@ load_cache_entry(struct font_cache_entry* p, void* callback_data)
     int fd;
 
     lock_font_handle(pf->handle, true);
+#ifdef HAVE_IPOD_UI
+    if (SPD(pf)->sparse_set >= 0)
+    {
+        /* ProkBox (#235): one read of one record at its rank */
+        const uint8_t *map = sparse_map(pf);
+        int bit = font_sparse_bit(char_code + pf->firstchar);
+        int n = font_sparse_has(map, bit)
+            ? font_sparse_rank(map, (const uint16_t *)
+                               (map + FONT_SPARSE_BITMAP), bit) : -1;
+        off_t at = FONT_SPARSE_DATA + (off_t)n * SPD(pf)->sparse_stride;
+
+        /* jaglyph: a pinned record costs no read */
+        if (n >= 0 && sparse_pin_get(pf, char_code + pf->firstchar,
+                                     &p->width))
+        {
+            lock_font_handle(pf->handle, false);
+            return;
+        }
+        DEVSTATS_FONT_BEGIN();      /* the shell's font work, not the
+                                       screen's (modclass.c) */
+        if (n < 0 || lseek(pf->fd, at, SEEK_SET) != at
+            || read(pf->fd, &p->width, SPD(pf)->sparse_stride)
+               != (ssize_t)SPD(pf)->sparse_stride)
+        {
+            /* a hole (font_companion() never sends one) or a short read:
+             * a blank half-em, paper not ink */
+            p->width = pf->maxwidth / 2;
+            memset(p->bitmap, 0xff, glyph_bytes(pf, pf->maxwidth));
+        }
+        DEVSTATS_FONT_END();
+        lock_font_handle(pf->handle, false);
+        return;
+    }
+#endif
     if (pf->file_width_offset)
     {
         int width_offset = pf->file_width_offset + char_code;
@@ -875,10 +1140,222 @@ static void cache_create(struct font* pf)
     unsigned char *cache_buf = pf->buffer_start + bitmap_size;
     size_t cache_size = pf->buffer_size - bitmap_size;
     ALIGN_BUFFER(cache_buf, cache_size, sizeof(ucschar_t));
+#ifdef HAVE_IPOD_UI
+    /* ProkBox (#266): a 4-bit glyph's 0 is full ink, 15 the paper; the
+     * blank placeholder must be paper, or a cache miss while the font is
+     * disabled (USB) draws a solid box */
+    memset(pf->buffer_start, pf->depth ? 0xff : 0, bitmap_size);
+#else
     memset(pf->buffer_start, 0, bitmap_size);
+#endif
     /* Initialise cache */
     font_cache_create(&pf->cache, cache_buf, cache_size, bitmap_size);
 }
+
+#if defined(HAVE_IPOD_UI)
+/* ProkBox (#235 first slice, #266): the ShellCJK companion. A code point
+ * from U+3000 up that pf lacks is drawn from pf's companion font when one
+ * is set, loaded, of the same height (so the glyph sits on pf's line) and
+ * its window holds the code point; a hole of the companion draws its
+ * default glyph (blank). Latin text pays one compare. */
+/* 1 + the companion's id for each font id; 0 = none */
+static signed char font_comp[MAXFONTS];
+
+static struct font *font_companion(const struct font *pf, ucschar_t c)
+{
+    int i;
+
+    if (c < 0x3000)
+        return NULL;
+    for (i = 0; i < MAXFONTS; i++)
+    {
+        int id = font_comp[i] - 1;
+        struct font *cf;
+
+        if (id < 0 || buflib_allocations[i] <= 0
+            || buflib_allocations[id] <= 0
+            || pf != &((struct buflib_alloc_data *)
+                       core_get_data(buflib_allocations[i]))->font)
+            continue;
+        cf = &((struct buflib_alloc_data *)
+               core_get_data(buflib_allocations[id]))->font;
+        if (cf->height != pf->height || c < cf->firstchar
+            || c >= cf->firstchar + cf->size)
+            return NULL;
+        /* #235: a code point the sparse set lacks stays with pf (its
+         * aliases, or its default glyph) */
+        if (SPD(cf)->sparse_set >= 0
+            && !font_sparse_has(sparse_map(cf), font_sparse_bit(c)))
+            return NULL;
+        return cf;
+    }
+    return NULL;
+}
+
+void font_set_companion(int font_id, int comp_id)
+{
+    if (font_id < 0 || font_id >= MAXFONTS)
+        return;
+    font_comp[font_id] = (comp_id >= 0 && comp_id < MAXFONTS)
+                         ? comp_id + 1 : 0;
+}
+
+static struct font *font_of_id(int font_id)
+{
+    if (font_id < 0 || font_id >= MAXFONTS
+        || buflib_allocations[font_id] <= 0)
+        return NULL;
+    return &((struct buflib_alloc_data *)
+             core_get_data(buflib_allocations[font_id]))->font;
+}
+
+uint32_t font_sparse_id(int font_id)
+{
+    struct font *pf = font_of_id(font_id);
+    return pf && SPD(pf)->sparse_set >= 0 ? SPD(pf)->sparse_id : 0;
+}
+
+int font_sparse_stride(int font_id)
+{
+    struct font *pf = font_of_id(font_id);
+    return pf && SPD(pf)->sparse_set >= 0 ? SPD(pf)->sparse_stride : 0;
+}
+
+/* jaglyph: one forward pass over the records, a 4 KB read covers every
+ * wanted record inside it (the kana sit together; the kanji spread) */
+#define PIN_CHUNK 4096
+
+long font_sparse_pin(int font_id, const uint16_t *cps, int n, int *reads)
+{
+    struct font *pf = font_of_id(font_id);
+    int i, m = 0, got = 0, handle, chunk, fhandle;
+    unsigned char *blk, *buf;
+    size_t stride, size;
+    off_t chunk_at = -1;
+    ssize_t chunk_len = 0;
+
+    if (reads)
+        *reads = 0;
+    if (!pf || SPD(pf)->sparse_set < 0)
+        return -1;
+    sparse_pin_free(SPD(pf));
+    if (!cps || n <= 0)
+        return 0;
+    if (pf->fd < 0 || pf->disabled)
+        return -1;
+    if (n > 0xffff)
+        n = 0xffff;
+    for (i = 0; i < n; i++)
+        if (font_sparse_has(sparse_map(pf), font_sparse_bit(cps[i])))
+            m++;
+    if (m == 0)
+        return 0;
+    stride = SPD(pf)->sparse_stride;
+    size = PIN_CPS_BYTES(m) + (size_t)m * stride;
+    fhandle = pf->handle;
+    lock_font_handle(fhandle, true);    /* pf stays put across the reads */
+    handle = core_alloc_ex(size, NULL);
+    chunk = handle > 0 ? core_alloc_ex(PIN_CHUNK, NULL) : -1;
+    if (handle <= 0 || chunk <= 0)
+    {
+        if (handle > 0)
+            core_free(handle);
+        lock_font_handle(fhandle, false);
+        return -1;
+    }
+    /* pinned for its life, like the index (sparse_attach()): the COP may
+     * draw a miss from it while a compaction on the CPU runs */
+    blk = core_get_data_pinned(handle);
+    buf = core_get_data_pinned(chunk);
+    for (i = 0; i < n; i++)
+    {
+        const uint8_t *map = sparse_map(pf);
+        int bit = font_sparse_bit(cps[i]);
+        off_t at;
+
+        if (!font_sparse_has(map, bit))
+            continue;
+        at = FONT_SPARSE_DATA + (off_t)font_sparse_rank(map,
+                (const uint16_t *)(map + FONT_SPARSE_BITMAP), bit) * stride;
+        if (chunk_at < 0 || at < chunk_at
+            || at + (off_t)stride > chunk_at + chunk_len)
+        {
+            chunk_at = at;
+            chunk_len = -1;
+            if (lseek(pf->fd, at, SEEK_SET) == at)
+                chunk_len = read(pf->fd, buf, PIN_CHUNK);
+            if (reads)
+                (*reads)++;
+            if (chunk_len < (ssize_t)stride)
+                break;                  /* a short read: none pinned */
+        }
+        ((uint16_t *)blk)[got] = cps[i];
+        memcpy(blk + PIN_CPS_BYTES(m) + (size_t)got * stride,
+               buf + (at - chunk_at), stride);
+        got++;
+    }
+    core_free(chunk);
+    pf = font_of_id(font_id);
+    if (got != m)
+    {
+        core_free(handle);
+        lock_font_handle(fhandle, false);
+        return -1;
+    }
+    SPD(pf)->pin_handle = handle;
+    SPD(pf)->pin_n = (unsigned short)m;
+    lock_font_handle(fhandle, false);
+    return (long)size;
+}
+
+int font_cache_slots(int font_id)
+{
+    struct font *pf = font_of_id(font_id);
+    return pf && pf->fd >= 0 ? (int)pf->cache._capacity : 0;
+}
+
+void font_set_fill(int font_id, font_fill_fn fn)
+{
+    fill_font = fn ? font_id : -1;
+    fill_fn = fn;
+}
+
+static void fill_entry(struct font_cache_entry *p, void *arg)
+{
+    struct font *pf = ((void **)arg)[0];
+    memcpy(&p->width, ((void **)arg)[1], SPD(pf)->sparse_stride);
+}
+
+void font_fill_put(struct font *pf, ucschar_t c, const unsigned char *rec)
+{
+    void *arg[2] = { pf, (void *)rec };
+
+    if (SPD(pf)->sparse_set < 0 || c < pf->firstchar
+        || c >= pf->firstchar + pf->size)
+        return;
+    font_cache_get(&pf->cache, c - pf->firstchar, false, fill_entry, arg);
+}
+
+/* before a cached sparse font's lookup of 'code' (from firstchar): a miss
+ * goes to the fill source first, when pf has one */
+static void font_fill_try(struct font *pf, ucschar_t code)
+{
+    if (SPD(pf)->sparse_set < 0 || fill_font < 0
+        || buflib_allocations[fill_font] != pf->handle
+        || font_cache_get(&pf->cache, code, true, NULL, NULL))
+        return;
+    lock_font_handle(pf->handle, true);
+    fill_fn(pf, code + pf->firstchar);
+    lock_font_handle(pf->handle, false);
+}
+#define FONT_COMPANION(pf, c) do { \
+        struct font *cf_ = font_companion((pf), (c)); \
+        if (cf_) \
+            (pf) = cf_; \
+    } while (0)
+#else
+#define FONT_COMPANION(pf, c) do { } while (0)
+#endif
 
 /*
  * Returns width of character
@@ -888,6 +1365,7 @@ int font_get_width(struct font* pf, ucschar_t char_code)
     int width;
     struct font_cache_entry *e;
 
+    FONT_COMPANION(pf, char_code);
     /* check input range*/
     char_code = font_remap(pf, char_code);
     if (char_code < pf->firstchar || char_code >= pf->firstchar+pf->size)
@@ -895,7 +1373,12 @@ int font_get_width(struct font* pf, ucschar_t char_code)
     char_code -= pf->firstchar;
 
     if (pf->fd >= 0 && pf != &sysfont)
+    {
+#ifdef HAVE_IPOD_UI
+        font_fill_try(pf, char_code);
+#endif
         width = font_cache_get(&pf->cache,char_code,false,load_cache_entry,pf)->width;
+    }
     else if (pf->disabled &&
         (e = font_cache_get(&pf->cache,char_code,true,load_cache_entry,pf)))
         width = e->width; /* falls back to pf->maxwidth if !e */
@@ -911,6 +1394,7 @@ const unsigned char* font_get_bits(struct font* pf, ucschar_t char_code)
 {
     const unsigned char* bits;
 
+    FONT_COMPANION(pf, char_code);
     /* check input range*/
     char_code = font_remap(pf, char_code);
     if (char_code < pf->firstchar || char_code >= pf->firstchar+pf->size)
@@ -919,6 +1403,9 @@ const unsigned char* font_get_bits(struct font* pf, ucschar_t char_code)
 
     if (pf->fd >= 0 && pf != &sysfont)
     {
+#ifdef HAVE_IPOD_UI
+        font_fill_try(pf, char_code);
+#endif
         bits =
             (unsigned char*)font_cache_get(&pf->cache, char_code,
                                 false, load_cache_entry, pf)->bitmap;
@@ -965,7 +1452,10 @@ const unsigned char* font_get_bits(struct font* pf, ucschar_t char_code)
  * character the type lacks (apps/ipodui/screens/notes.c, contacts.c). */
 bool font_has_glyph(struct font *pf, ucschar_t c)
 {
-    ucschar_t r = font_remap(pf, c);
+    ucschar_t r;
+
+    FONT_COMPANION(pf, c);
+    r = font_remap(pf, c);
 
     if (r < pf->firstchar || r >= pf->firstchar + pf->size)
         return false;
@@ -1131,6 +1621,10 @@ static NO_INLINE void glyph_cache_load(const char *font_path, struct font *pf)
             close(fd);
         } else {
         latin:
+#ifdef HAVE_IPOD_UI
+            if (SPD(pf)->sparse_set >= 0)
+                return;         /* #235: no Latin in a sparse CJK font */
+#endif
             /* load latin1 chars into cache */
             for ( ch = 32 ; ch < 256  && ch < pf->cache._capacity + 32; ch++ )
                 font_get_bits(pf, ch);

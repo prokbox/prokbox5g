@@ -16,6 +16,11 @@
 # log: eq engine=hw preset=1 maxerr=13 precut=8
 # log: eq engine=hw preset=5 maxerr=22 precut=
 # log: eq engine=sw preset=0 maxerr=0 precut=0
+# #203: every hardware curve logs its level plan (eqlab_level(), host-tested
+# in tests/eqlevel): Acoustic and Dance keep their precut and get the
+# loudness back as make-up (tenth dB)
+# log: eq level precut=8 loud=49 makeup=31
+# log: eq level precut=9 loud=65 makeup=25
 # golden: skip end_off
 
 wait 4000

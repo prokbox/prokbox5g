@@ -71,6 +71,14 @@
  *   expect_pcm paused|playing <ms>
  *                         (shell builds, #345) the playback PCM channel is
  *                         in that state within ms (paused: not playing).
+ *   expect_pcm held <ms>  (shell builds, #362) the pause reached the PCM
+ *                         within ms: its fade-out has begun (the pause
+ *                         tick, pcmbuf_note_pause()) or the channel no
+ *                         longer plays. The press-to-pause time.
+ *   expect_audio paused|playing <ms>
+ *                         (shell builds, #362) the audio thread's own state
+ *                         (audio_status(), no posted wish folded in) is
+ *                         that within ms.
  *
  * Returns false for any other command. */
 bool sim_cmd_audio(const char *cmd, char *argv[], int argc, int lineno);

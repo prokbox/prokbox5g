@@ -1,0 +1,47 @@
+# #235 (package G): the first library build of 10,000 CJK-tagged songs
+# and browsing it, ShellCJK fonts loaded (tests/perf/cjk10k.sh sets up
+# build/sim-cjk10k). Reads: "wait_db" (the build), "lib open" (each list),
+# the scroll's frame lines, and the glyph tier line.
+# needs: cjk
+# golden: skip
+# timeout: 1800
+# trace: lib
+
+wait 3000
+wait_db 1500000     # first run: the database builds
+wait 15000
+
+key SELECT          # Music
+wait 1000
+wheel +1 300        # Artists
+wait 600
+key SELECT
+wait 1500
+shot artists
+wheel +40 50        # scroll: 40 rows, 50 ms apart
+wait 1500
+shot artists_40
+wheel +200 15       # fast, 15 ms apart: the quick-scroll letter
+wait 2500
+shot artists_240
+key MENU
+wait 1000
+wheel +1 300        # Albums
+wait 600
+key SELECT
+wait 1500
+shot albums
+wheel +60 50
+wait 1500
+shot albums_60
+key MENU
+wait 1000
+wheel +1 300        # Songs
+wait 600
+key SELECT
+wait 1500
+shot songs
+wheel +100 50
+wait 1500
+shot songs_100
+quit

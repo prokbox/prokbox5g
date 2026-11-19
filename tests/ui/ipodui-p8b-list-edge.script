@@ -36,12 +36,12 @@ shot set_r7
 wheel +1 300
 wait 1200
 shot set_r8
-wheel +8 300
+wheel +9 300        # Reset Settings, row 17 (the last)
 wait 1500
 shot set_end
-wheel -7 300
+wheel -8 300        # back to row 9
 wait 1200
-wheel -1 300
+wheel -1 300        # row 8 as before
 wait 1200
 shot set_up
 key MENU

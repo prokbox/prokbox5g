@@ -28,6 +28,7 @@
 #include "metadata.h"
 #include "lang.h"
 #include "ipodui/np_info.h"
+#include "ipodui/locale.h"
 
 /* Format names are names, not words: they are not translated */
 static const char *format_name(unsigned int ct, bool *lossless)
@@ -66,14 +67,18 @@ static const char *format_name(unsigned int ct, bool *lossless)
 }
 
 /* 44100 -> "44.1", 48000 -> "48", 22050 -> "22.05" */
+/* "44.1" / "44,1": the language's decimal mark (P20) */
 static void khz_str(char *buf, size_t n, unsigned long hz)
 {
     if (hz % 1000 == 0)
-        snprintf(buf, n, "%lu", hz / 1000);
+        ui_fmt_decimal(buf, n, hz / 1000, 0, 0);
     else if (hz % 100 == 0)
-        snprintf(buf, n, "%lu.%lu", hz / 1000, (hz % 1000) / 100);
+        ui_fmt_decimal(buf, n, hz / 1000, (hz % 1000) / 100, 1);
     else
-        snprintf(buf, n, "%lu.%02lu", hz / 1000, (hz % 1000 + 5) / 10);
+    {
+        unsigned long c = (hz % 1000 + 5) / 10;     /* 100 at x.995 up */
+        ui_fmt_decimal(buf, n, hz / 1000 + c / 100, c % 100, 2);
+    }
 }
 
 void np_info_lines(char *l1, size_t n1, char *l2, size_t n2)

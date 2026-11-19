@@ -19,3 +19,15 @@ is independent firmware, built by the community on Rockbox. Apple Inc. did not m
 # Legal, paragraph 5 (LANG_IPODUI_LEGAL_5): the long disclaimer's
 # independence text, "a fork of Rockbox" (docs/legal.md section 2).
 ProkBox5g is not Apple software and not an Apple product. It is free, open-source, community-driven firmware: a fork of Rockbox, tuned for the iPod Video (5th generation and 5.5). Apple Inc. did not make it, has not approved or endorsed it, does not support it, and has no connection with this project. If something goes wrong with ProkBox5g, ask the ProkBox community, not Apple.
+# P20: the same credits in the German and Dutch shell (apps/lang/deutsch.lang,
+# nederlands.lang; translations of the entries above, same reasons):
+# LEGAL_1, NOTICE_1 (from after its "%s"), NOTICE_4, LEGAL_5; the committees' final
+# wording (int4). Japanese keeps the English legal texts (owner).
+Basiert auf Rockbox (rockbox.org), lizenziert unter der GNU GPL v2 oder neuer.
+ist unabhängige Firmware der Community auf Basis von Rockbox. Apple Inc. hat sie weder erstellt noch genehmigt, empfohlen oder unterstützt; sie enthält keine Apple-Software.
+© Mitwirkende von Rockbox und ProkBox. Freie Software (GNU GPL v2 oder neuer), ohne Gewährleistung.
+ProkBox5g ist keine Apple-Software und kein Apple-Produkt. Es handelt sich um freie, quelloffene Firmware aus der Community: einen Fork von Rockbox, abgestimmt auf den iPod Video (5. Generation und 5.5). Apple Inc. hat sie weder hergestellt noch genehmigt oder empfohlen, bietet keinen Support dafür und steht in keiner Verbindung zu diesem Projekt. Wenn mit ProkBox5g etwas nicht funktioniert, hilft die ProkBox-Community weiter, nicht Apple.
+Gebaseerd op Rockbox (rockbox.org), beschikbaar onder de GNU GPL v2 of later.
+is onafhankelijke firmware van de community, gebouwd op Rockbox, zonder Apple-software. Apple Inc. heeft het niet gemaakt, goedgekeurd, onderschreven of ondersteund.
+© de bijdragers aan Rockbox en ProkBox. Vrije software (GNU GPL v2 of later), zonder garantie.
+ProkBox5g is geen Apple-software en geen Apple-product. Het is vrije, opensource firmware, gemaakt door en voor de community: een fork van Rockbox, afgestemd op de iPod Video (5e generatie en 5.5). Apple Inc. heeft het niet gemaakt, niet goedgekeurd of onderschreven, biedt er geen ondersteuning voor en heeft niets met dit project te maken. Gaat er iets mis met ProkBox5g, vraag dan de ProkBox-community om hulp, niet Apple.

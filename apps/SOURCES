@@ -163,12 +163,16 @@ ipodui/scroll.c
 ipodui/anim.c
 ipodui/uilat.c
 ipodui/paint.c
+ipodui/locale_core.c
+ipodui/locale.c
 ipodui/material.c
 ipodui/theme.c
 ipodui/input.c
 ipodui/menu.c
 ipodui/library.c
 ipodui/sortkey.c
+ipodui/libglyph.c
+ipodui/libglyph_fill.c
 ipodui/screens/stub.c
 ipodui/qscroll.c
 ipodui/screens/browse.c
@@ -254,6 +258,8 @@ ipodui/sleep.c
 ipodui/clockpol_core.c
 ipodui/clockpol.c
 #endif
+ipodui/eqlab_core.c             /* the EQ model: level plan, slots (#203, #82) */
+ipodui/eqtable_core.c           /* preset tables per rate family (#352) */
 #ifdef HAVE_IPOD_UI_DEVMODE
 ipodui/devmode.c
 ipodui/devstatus.c
@@ -354,6 +360,7 @@ ipodui/screens/audiophile.c     /* #270: Settings > Audiophile */
 #endif
 ipodui/notice.c
 ipodui/screens/newsw.c
+ipodui/screens/noplay.c         /* #286: why a greyed row can't play */
 ipodui/screens/language.c
 ipodui/drum.c                   /* the drum picker */
 ipodui/battcurve.c              /* one-build WP3: the fitted cell's curve */
@@ -364,6 +371,7 @@ ipodui/screens/datetime.c
 #endif
 ipodui/screens/brightness.c
 ipodui/screens/eq.c
+ipodui/screens/eqedit.c
 ipodui/eq_hw_presets.c
 ipodui/volcurve.c
 ipodui/sc_hw.c

@@ -63,6 +63,7 @@
 #include "jstage.h"
 #include "jviz.h"
 #include "bcmjob_pp.h"      /* the line ops (bcmjob-viz.c) */
+#include "bcmjob_ring.h"    /* b10: the ring at a timeout */
 
 /* firmware/export/bcmjob_pp.h's (not on this test's include path) */
 bool bcmjob_bars_flip(void);
@@ -96,6 +97,7 @@ static uint8_t mem[MEM_BYTES];
 static uint16_t panel[W * H], ppfb[W * H];
 static struct jref chip;
 static bool powered, dead, stalled, lit_, charging_;
+static bool took_hang;          /* records taken (CMD_RD moves), never run */
 static uint32_t gen_no, now_us_, slow_until, restarts, power_calls;
 static uint32_t port_ops, e2_bytes, anim[1 + HP_MAX_PAYLOAD], anim_t0, anim_next;
 static bool anim_on;
@@ -286,6 +288,64 @@ static uint32_t ovl_base = OVL_BASE, lent_len_seen, lent_rec_len;
 static int chip_decode(const uint8_t *jpg, uint32_t len, const struct jdec_out *out,
                        int n, struct jdec_info *info);
 #define DEC_BIT     (1u << (J_OP_DECODE - 0x20))
+
+/* ---- the chip's caches (#257; BCM quirks.md #56, #59) --------------------
+ * The cache word (0x1000_0C00) through the port: a request (bit 30) reads
+ * bit 0 clear once, then set.  The instruction side, as vc2sim's
+ * 'edge31' model: once code has run from the region (an OVERLAY's init),
+ * an OVERLAY whose region was written since the last 0 -> 1 edge of bit
+ * 31 runs the old overlay's lines and hangs the chip (sitting b11:
+ * J_CUR_OP 0x35, the heartbeat frozen).  The data side, #257 H(b): a
+ * region write before any request since that init lands under the old
+ * overlay's dirty lines, and hangs it too.  cc_model false: neither */
+#define CC_WORD     0x10000C00u
+static bool cc_model = true;
+static uint32_t cc_word, cc_poll, cc_edges, cc_reqs, cc_hangs;
+static bool cc_done, cc_ran, cc_stale, cc_need_drain, cc_dirty_hit;
+static bool cc_force;                   /* the next OVERLAY hangs regardless */
+/* #466: the image flushes its own cache at OVERLAY in the cold form
+   (HP_CAP_CORE_FLUSH): the old lines go there, with no host write */
+static bool core_flush;
+static void cc_reset(void)
+{
+    cc_word = cc_poll = 0;
+    cc_done = cc_ran = cc_stale = cc_need_drain = cc_dirty_hit = false;
+}
+static void cc_write(uint32_t v)
+{
+    bool edge = (v & 0x80000000u) && !(cc_word & 0x80000000u);
+
+    if (v & 0x40000000u)
+    {
+        cc_reqs++;
+        cc_need_drain = false;          /* dirty data lines go back now */
+        cc_poll = 1;
+        cc_done = true;
+    }
+    if (edge)
+    {
+        cc_edges++;
+        cc_stale = false;               /* the old lines dropped */
+    }
+    cc_word = v & ~1u;
+}
+static uint32_t cc_read(void)
+{
+    if (cc_poll)
+    {
+        cc_poll--;
+        return cc_word;
+    }
+    return cc_word | (cc_done ? 1u : 0u);
+}
+static void cc_region_write(uint32_t a, uint32_t bytes)
+{
+    if (a + bytes <= ovl_base || a >= ovl_base + OVL_SIZE)
+        return;
+    cc_stale = true;
+    if (cc_need_drain)
+        cc_dirty_hit = true;
+}
 static void dec_ovl_drop(void)
 {
     if (!ovl_dec)
@@ -334,6 +394,8 @@ uint32_t jref_ext(struct jref *j, uint32_t op, const uint32_t *a, uint32_t n,
     if (hdr[1] != stub_abi || hdr[3] != ovl_base + 4 * a[0])
         return HP_E_VERSION;
     ovl_loaded = true;
+    cc_ran = cc_need_drain = true;      /* the new overlay's code runs */
+    cc_stale = cc_dirty_hit = false;
     if (ovl_dec && !ovl_as_viz)
     {
         /* dec_ovl.c's init: the hook, DECODE, the cue to lend */
@@ -381,7 +443,7 @@ static void chip_start(void)
     *w32(BLOCK + J_DEC_IN_WR) = HP_ENC(0);
     *w32(BLOCK + J_CUR_OP) = HP_ENC(0);
     *w32(BLOCK + J_POWER) = chip_mhz << 16 | J_PWR_IDLE_SLEEP;
-    *w32(HP_CAPS) = HP_CAP_NULL | HP_CAP_JOBS_2D;
+    *w32(HP_CAPS) = HP_CAP_NULL | HP_CAP_JOBS_2D | (core_flush ? HP_CAP_CORE_FLUSH : 0);
     *w32(HP_CMD_BASE) = HP_CMD_RING;
     *w32(HP_CMD_SIZE) = cmd_words;
     *w32(HP_EVT_BASE) = HP_EVT_RING;
@@ -411,8 +473,9 @@ static void chip_start(void)
     memcpy(panel, ppfb, sizeof(ppfb));
     publish();
     anim_on = false;
-    dead = stalled = false;
+    dead = stalled = took_hang = false;
     powered = true;
+    cc_reset();                         /* the host's start flush */
     gen_no++;
 }
 
@@ -555,6 +618,24 @@ static void chip_run(void)
             rec[1 + i] = *w32(HP_CMD_RING + 4 * ((rd + 1 + i) & (cmd_words - 1)));
         *w32(HP_CMD_RD) = HP_ENC((rd + 1 + n) & 0xFFFF);
         op = HP_REC_OP(rec[0]);
+        if (op == J_OP_OVERLAY && core_flush)
+            cc_stale = false;   /* the image's own cold flush (#466) */
+        if (op == J_OP_OVERLAY &&
+            (cc_force || (cc_model && cc_ran && (cc_stale || cc_dirty_hit))))
+        {
+            cc_force = false;
+            /* the old overlay's lines, or its data over the new code */
+            *w32(BLOCK + J_CUR_OP) = HP_ENC(op);
+            cc_hangs++;
+            dead = true;
+            return;
+        }
+        if (took_hang && op >= 0x20)
+        {
+            /* the job taken and stalled: J_CUR_OP names it, nothing runs */
+            *w32(BLOCK + J_CUR_OP) = HP_ENC(op);
+            continue;
+        }
         if (op == hold2_op && hold2_us)
         {
             if (!hold2_at)
@@ -760,6 +841,11 @@ static int p_rd(uint32_t a, uint32_t *v)
 {
     a = port_addr(a, false);
     port_ops++;
+    if (a == CC_WORD)
+    {
+        *v = cc_read();
+        return 0;
+    }
     now_us_ += xc_rd_us;
     xc_point();
     if (a == HP_VERSION)
@@ -777,6 +863,12 @@ static int p_wr(uint32_t a, uint32_t v)
 {
     a = port_addr(a, true);
     port_ops++;
+    if (a == CC_WORD)
+    {
+        cc_write(v);
+        return 0;
+    }
+    cc_region_write(a, 4);
     xc_point();
     evt_check(a);
     memcpy(mem + a, &v, 4);
@@ -794,6 +886,7 @@ static int p_wr_block(uint32_t a, const uint16_t *s, uint32_t n)
     now_us_ += port_us;
     if (restart_at_block && !--restart_at_block)
         p_restart();
+    cc_region_write(a, 2 * n);
     if (a >= SCRATCH && a < SCRATCH + RING_POOL && lock_depth <= 0)
         ring_unlocked++;
     if (a >= SCRATCH && a < SCRATCH + RING_POOL && due_now)
@@ -832,6 +925,7 @@ static uint32_t p_upload(uint32_t a, const uint16_t *s, uint32_t bytes)
         mem[a + bytes - 1] ^= 0x01;
         tear_upload = false;
     }
+    cc_region_write(a, bytes);
     e2_bytes += bytes;
     return bytes;
 }
@@ -914,10 +1008,24 @@ static void *p_dec_buf(bool get)
     return piece_mem;
 }
 
+#ifdef HAVE_BCMFW_DEVTEST
+/* the device's port lock record (bcmjob-dev.c jd_lock_stats), fixed */
+static void p_lock_stats(uint32_t out[4])
+{
+    out[0] = 2;
+    out[1] = 0x1234;
+    out[2] = 1;
+    out[3] = 0x5678;
+}
+#endif
+
 static const struct bjc_port port = {
     p_rd, p_wr, p_wr_block, p_upload, p_doorbell, p_lock, p_unlock, p_now_us,
     p_now_ms, p_yield, p_gen, p_lit, p_push, p_restart, p_power, p_charging,
     p_upload_any, p_dec_buf,
+#ifdef HAVE_BCMFW_DEVTEST
+    p_lock_stats,
+#endif
 };
 
 /* ---- trace and helpers ----------------------------------------------------- */
@@ -1635,6 +1743,143 @@ static void t_resync_order(void)
 }
 
 #ifdef HAVE_BCMFW_DEVTEST
+#ifdef HAVE_BCMFW_DEVTEST
+/* Sitting b10 (2026-11-09): the self-test's FILL timed out on silicon with
+ * the heartbeat moving.  A bench build reads the ring back at the timeout
+ * (bcmjob_ring.h): the image's indices against the driver's, the fence,
+ * J_DONE, the heartbeat over a window with no doorbell.  Three chips:
+ * alive but never taking the ring (b10's), taking records and never
+ * running them, and dead.  Short lines for ipodui.log (63 characters) */
+static int ring_lines_short(void)
+{
+    int i, bad = 0;
+
+    for (i = 0; i < nlines; i++)
+        if (!strncmp(lines[i], "bcmjob ring", 11) && strlen(lines[i]) > 63)
+            bad++;
+    return bad;
+}
+
+static void t_ring_look(void)
+{
+    struct bjc_ring_look l;
+    char v[120];
+    uint32_t seq, k;
+
+    fresh();
+    CHECK(bcmjob_have(J_OP_FILL), "look: up");
+    memset(&l, 0xA5, sizeof(l));
+    bjc_ring_look_get(&l);
+    CHECK(l.seq == 0, "look: none before a timeout (%u)", l.seq);
+    /* b10's: alive, the ring never taken */
+    stalled = true;
+    seq = fill_fence();
+    CHECK(seq && bcmjob_wait(seq, J_T_FENCE_BASE + J_T_DRAW) == BCMJOB_TIMEOUT,
+          "look: the self-test's wait times out");
+    bjc_ring_look_get(&l);
+    CHECK(l.seq == 1 && l.bad == 0, "look: one, every read ok (%u, %u)",
+          l.seq, l.bad);
+    CHECK(bjr_took(&l) == 0 && bjr_fence_done(&l) == 0 &&
+          bjr_beat_moved(&l) == 1, "look: not taken, fence not done, beat "
+          "moved (%d %d %d)", bjr_took(&l), bjr_fence_done(&l),
+          bjr_beat_moved(&l));
+    CHECK(l.sent == 2 && l.done == 0 && l.done1 == 0 &&
+          (l.cmd_wr & 0xFFFF) == l.host_wr && (l.cmd_rd1 & 0xFFFF) ==
+          (l.cmd_rd & 0xFFFF), "look: 2 sent, none done, the image's write "
+          "index the driver's, its read index still (%u %u %x %x)", l.sent,
+          l.done, l.cmd_wr, l.host_wr);
+    CHECK(HP_REC_OP(l.next_hdr) == J_OP_FILL && l.fence_want == seq,
+          "look: the next header is the FILL, the fence wanted ours (%08x)",
+          l.next_hdr);
+    CHECK(l.window_us >= BJR_WINDOW_US, "look: the window (%u us)",
+          l.window_us);
+    bjr_fmt_verdict(v, sizeof(v), &l);
+    CHECK(!strcmp(v, "image took the record: no; fence: not; heartbeat "
+                  "moved: yes"), "look: the verdict line (%s)", v);
+    CHECK(logged("bcmjob ring took=no fence=not beat=yes") &&
+          logged("bcmjob ring wr=") && logged("bcmjob ring fence=") &&
+          logged("bcmjob ring us=") && logged("bcmjob ring bells="),
+          "look: its lines in the trace");
+    CHECK(ring_lines_short() == 0, "look: every line fits ipodui.log");
+    /* the laptop's review: the port lock's record rides along */
+    CHECK(l.lk_off == 2 && l.lk_off_at == 0x1234 && l.lk_nest == 1 &&
+          l.lk_nest_at == 0x5678 &&
+          logged("bcmjob ring lockoff=2@00001234 nest=1@00005678"),
+          "look: the port lock's record (%u %u)", l.lk_off, l.lk_nest);
+    /* the look precedes the driver's own checks: alive() still ran */
+    CHECK(logged("bcmjob fault op=0x25 why=timeout"), "look: the fault line");
+
+    /* taken and stalled: the indices meet, J_CUR_OP names the FILL */
+    fresh();
+    CHECK(bcmjob_have(J_OP_FILL), "took: up");
+    took_hang = true;
+    seq = fill_fence();
+    CHECK(seq && bcmjob_wait(seq, 28) == BCMJOB_TIMEOUT, "took: timeout");
+    bjc_ring_look_get(&l);
+    bjr_fmt_verdict(v, sizeof(v), &l);
+    CHECK(!strcmp(v, "image took the record: yes; fence: not; heartbeat "
+                  "moved: yes") && (l.cur_op & 0xFF) == J_OP_FENCE,
+          "took: the verdict line (%s, cur %x)", v, l.cur_op);
+    took_hang = false;
+
+    /* dead: no heartbeat over the window */
+    fresh();
+    CHECK(bcmjob_have(J_OP_FILL), "dead: up");
+    dead = true;
+    seq = fill_fence();
+    CHECK(seq && bcmjob_wait(seq, 28) == BCMJOB_TIMEOUT, "dead: timeout");
+    bjc_ring_look_get(&l);
+    CHECK(bjr_beat_moved(&l) == 0 && bjr_took(&l) == 0,
+          "dead: the beat stood still (%d)", bjr_beat_moved(&l));
+    CHECK(logged("bcmjob ring took=no fence=not beat=no"), "dead: logged");
+    dead = false;
+
+    /* bounded: BJR_LOOKS_MAX a boot, then one more each time a bench row
+       arms it */
+    fresh();
+    CHECK(bcmjob_have(J_OP_FILL), "bounded: up");
+    stalled = true;
+    for (k = 0; k < BJR_LOOKS_MAX + 2; k++)
+    {
+        seq = fill_fence();
+        (void)bcmjob_wait(seq, 28);
+        bjc_dev_forgive(J_OP_FILL);
+    }
+    bjc_ring_look_get(&l);
+    CHECK(l.seq == BJR_LOOKS_MAX, "bounded: %u looks", l.seq);
+    bjc_ring_look_arm();
+    seq = fill_fence();
+    (void)bcmjob_wait(seq, 28);
+    bjc_ring_look_get(&l);
+    CHECK(l.seq == BJR_LOOKS_MAX + 1, "armed: one more (%u)", l.seq);
+    stalled = false;
+    CHECK(lock_depth == 0, "look: the lock balanced (%d)", lock_depth);
+}
+
+/* jobsx: the bench's forgive (bjc_dev_forgive): a self-test that timed
+ * out twice marks FILL slow for the boot; the bench clears it so the next
+ * state runs at all */
+static void t_dev_forgive(void)
+{
+    uint32_t seq, k;
+
+    fresh();
+    CHECK(bcmjob_have(J_OP_FILL), "forgive: up");
+    stalled = true;
+    for (k = 0; k < 2; k++)
+    {
+        seq = fill_fence();
+        (void)bcmjob_wait(seq, 28);
+    }
+    stalled = false;
+    CHECK(!bcmjob_have(J_OP_FILL), "forgive: FILL slow after two timeouts");
+    bjc_dev_forgive(J_OP_FILL);
+    CHECK(bcmjob_have(J_OP_FILL), "forgive: FILL offered again");
+    seq = fill_fence();
+    CHECK(seq && bcmjob_wait(seq, 500) == BCMJOB_OK, "forgive: it runs");
+}
+#endif
+
 /* The bench's forced job failure (bjc_inject_fail): the job goes out
  * asking for a reply and its HP_OK reply reads as failed, through the
  * real reply path: logged, counted, and the second counted failure in a
@@ -3223,11 +3468,77 @@ static void t_dec_lent(void)
 /* The merged image's one region, two overlays (visualizer.md 8.5): the
  * visualizer's and DECODE's both due; a load of either evicts the other
  * ("bcmjob overlay evict"), whose load is due again at once, swap after
- * swap (no try spent by an eviction) */
+ * swap (no try spent by an eviction).  #257: the chip's cache model (the
+ * line store and the dirty data lines) hangs any swap the driver does not
+ * flush for; the first load of a power-up flushes nothing, every swap
+ * flushes before the rewrite and before OVERLAY; a hang's look reads the
+ * step and the region's FNV back before the restart */
+/* #466: an image that flushes at OVERLAY itself (HP_CAP_CORE_FLUSH):
+ * swaps both ways with the host's drain alone before the rewrite (no
+ * code flush, no enable edge from the host), no hang under either model
+ * (the old lines, the old overlay's dirty data); without the cap the
+ * driver flushes as before (t_ovl_swap) */
+static void t_ovl_core_flush(void)
+{
+    struct bjc_ovl_rec rec, vrec;
+    uint32_t reqs, hangs0, words0, base0 = ovl_base;
+    bool offer0 = ovl_offer, dec0 = ovl_dec, viz0 = ovl_as_viz, doff0 = dec_offer;
+    int k;
+
+    ovl_offer = ovl_dec = true;
+    ovl_base = DEC_BASE;
+    stub_abi = image_abi = OVL_ABI;
+    dec_offer = false;
+    core_flush = true;
+    fresh();
+    ovl_make(OVL_ABI);
+    rec.bytes = sizeof(ovl_file);
+    rec.fnv = fnv1a(ovl_file, sizeof(ovl_file));
+    rec.abi = OVL_ABI;
+    rec.abi_at = OVL_ABI_AT;
+    rec.base = DEC_BASE;
+    vrec = rec;
+    bjc_ovl_set(BJC_OVL_VIZ, &vrec);
+    bjc_ovl_set(BJC_OVL_DEC, &rec);
+    reqs = cc_reqs;
+    hangs0 = cc_hangs;
+    words0 = cc_edges;
+    ovl_as_viz = true;
+    CHECK(ovl_load_k(BJC_OVL_VIZ, &vrec, 0) == BCMJOB_OK && bcmjob_have(J_OP_SPECTRUM),
+          "core flush: the visualizer's loaded");
+    for (k = 0; k < 5; k++)
+    {
+        ovl_as_viz = false;
+        nlines = 0;
+        CHECK(ovl_load_k(BJC_OVL_DEC, &rec, 0) == BCMJOB_OK && bcmjob_have(J_OP_DECODE) &&
+              !bcmjob_have(J_OP_SPECTRUM) && logged("bcmjob ovl flush drain-only rc=0") &&
+              !logged("bcmjob ovl flush code") && cc_hangs == hangs0,
+              "core flush, swap %d: DECODE in, the drain alone, no hang", k);
+        ovl_as_viz = true;
+        nlines = 0;
+        CHECK(ovl_load_k(BJC_OVL_VIZ, &vrec, 0) == BCMJOB_OK && bcmjob_have(J_OP_SPECTRUM) &&
+              !bcmjob_have(J_OP_DECODE) && logged("bcmjob ovl flush drain-only rc=0") &&
+              !logged("bcmjob ovl flush code") && cc_hangs == hangs0,
+              "core flush, swap %d back: the visualizer in, the drain alone, no hang", k);
+    }
+    CHECK(cc_edges == words0 && cc_reqs > reqs,
+          "core flush: the host's drains (%u requests), no enable edge (%u)",
+          cc_reqs - reqs, cc_edges - words0);
+    core_flush = false;
+    ovl_offer = offer0;
+    ovl_dec = dec0;
+    ovl_as_viz = viz0;
+    dec_offer = doff0;
+    ovl_base = base0;
+}
+
 static void t_ovl_swap(void)
 {
     struct bjc_ovl_rec rec, vrec;
-    int k;
+    struct bjc_ovl_look lk_;
+    struct bjc_code_flush fl[2];
+    uint32_t reqs, hangs0;
+    int k, r;
 
     ovl_offer = ovl_dec = true;
     ovl_base = DEC_BASE;
@@ -3246,9 +3557,14 @@ static void t_ovl_swap(void)
     CHECK(bjc_ovl_region() == DEC_BASE, "the region: %lx", (unsigned long)bjc_ovl_region());
     CHECK(bjc_ovl_due(BJC_OVL_DEC) && bjc_ovl_due(BJC_OVL_VIZ), "both due in the region");
     ovl_as_viz = true;
+    nlines = 0;
+    reqs = cc_reqs;
+    hangs0 = cc_hangs;
     CHECK(ovl_load_k(BJC_OVL_VIZ, &vrec, 0) == BCMJOB_OK && bcmjob_have(J_OP_SPECTRUM) &&
           bcmjob_have(J_OP_BARS) && !bcmjob_have(J_OP_DECODE) && !bjc_ovl_due(BJC_OVL_VIZ) &&
           bjc_ovl_due(BJC_OVL_DEC), "the visualizer's loaded, DECODE's still due");
+    CHECK(cc_reqs == reqs && !logged("bcmjob ovl flush"),
+          "the power-up's first load: no flush (%u requests)", cc_reqs - reqs);
     for (k = 0; k < 3; k++)
     {
         ovl_as_viz = false;
@@ -3258,13 +3574,45 @@ static void t_ovl_swap(void)
               bjc_ovl_due(BJC_OVL_VIZ) && !bjc_ovl_due(BJC_OVL_DEC) &&
               logged("bcmjob overlay evict k=0 by=1"), "swap %d: DECODE in, the visualizer out "
               "and due", k);
+        CHECK(logged("bcmjob ovl flush drain rc=0") && logged("bcmjob ovl flush code rc=0") &&
+              cc_hangs == hangs0, "swap %d: both flushes, no hang", k);
         ovl_as_viz = true;
         nlines = 0;
         CHECK(ovl_load_k(BJC_OVL_VIZ, &vrec, 0) == BCMJOB_OK && bcmjob_have(J_OP_SPECTRUM) &&
               !bcmjob_have(J_OP_DECODE) && !bjc_dec_lends() && bjc_ovl_due(BJC_OVL_DEC) &&
               !bjc_ovl_due(BJC_OVL_VIZ) && logged("bcmjob overlay evict k=1 by=0"),
               "swap %d: the visualizer in, DECODE out and due", k);
+        CHECK(logged("bcmjob ovl flush drain rc=0") && logged("bcmjob ovl flush code rc=0") &&
+              cc_hangs == hangs0, "swap %d back: both flushes, no hang", k);
     }
+    CHECK(bjc_ovl_flushes(fl) == 12 && fl[0].rc == 0 && fl[1].rc == 0 &&
+          fl[1].seq == fl[0].seq + 1 && (fl[1].after & 0xC0000000u) == 0 && fl[1].polls,
+          "the flushes: %u, the last %u/%u, word %08x", bjc_ovl_flushes(fl), fl[0].seq,
+          fl[1].seq, fl[1].after);
+    /* the region rewritten after the drain's edge and no code flush (as
+       the model's hang stands in for it): the chip hangs inside OVERLAY;
+       the look reads the step and the region back before the restart */
+    CHECK(bjc_ovl_look_get(&lk_) == 0, "no look before a hang");
+    cc_force = true;
+    ovl_as_viz = false;
+    nlines = 0;
+    r = ovl_load_k(BJC_OVL_DEC, &rec, 0);
+    CHECK(r != BCMJOB_OK && cc_hangs == hangs0 + 1 && logged("bcmjob ovlook k=1 step=queued") &&
+          logged_has("bcmjob ovlook fnv=", "same") && logged("bcmjob fault op=0x00 why=dead"),
+          "a hang in OVERLAY: %d, its look", r);
+    CHECK(bjc_ovl_look_get(&lk_) == 1 && lk_.k == BJC_OVL_DEC && lk_.step == BJO_STEP_QUEUED &&
+          lk_.fnv_read == lk_.fnv_want && lk_.bytes == sizeof(ovl_file) &&
+          lk_.base == DEC_BASE && !lk_.bad && (lk_.cur_op & 0xFFFF) == J_OP_OVERLAY &&
+          lk_.evicted_ops == OVL_BITS && lk_.code.seq && lk_.drain.seq,
+          "the look: seq, k %u, step %u, fnv %08x/%08x, bad %u", lk_.k, lk_.step,
+          lk_.fnv_read, lk_.fnv_want, lk_.bad);
+    /* a fresh power-up: its first load needs no flush, and works */
+    nlines = 0;
+    reqs = cc_reqs;
+    CHECK(ovl_load_k(BJC_OVL_DEC, &rec, 0) == BCMJOB_OK && bcmjob_have(J_OP_DECODE) &&
+          cc_reqs == reqs, "after the restart: loaded, no flush");
+    CHECK(bjc_ovl_look_now(BJC_OVL_DEC, &lk_) == BCMJOB_OK && lk_.step == BJO_STEP_INIT_DONE &&
+          lk_.fnv_read == lk_.fnv_want, "a look on demand: step %u", lk_.step);
     CHECK(lock_depth == 0 && bufs_out == 0, "lock %d, buffers %d", lock_depth, bufs_out);
     ovl_offer = ovl_dec = ovl_as_viz = ovl_viz_in = false;
     ovl_base = OVL_BASE;
@@ -3905,6 +4253,7 @@ static void t_decode(void)
           bufs_out);
     t_dec_lent();
     t_ovl_swap();
+    t_ovl_core_flush();
     dec_offer = false;
     fresh();
     for (k = 0; k < 3; k++)
@@ -4639,6 +4988,8 @@ int main(void)
     t_overlay();
 #ifdef HAVE_BCMFW_DEVTEST
     t_inject();
+    t_ring_look();
+    t_dev_forgive();
 #endif
     CHECK(lock_depth == 0, "the port lock balanced (%d)", lock_depth);
     CHECK(lone_tail == 0, "no port block with a lone trailing halfword (%u)",

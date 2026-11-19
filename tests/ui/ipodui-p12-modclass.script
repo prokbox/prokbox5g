@@ -14,7 +14,7 @@ wheel +3             # Settings
 wait 400
 key SELECT
 wait 1000
-wheel +15            # Legal (MOD_SETTINGS)
+wheel +16            # Legal (MOD_SETTINGS)
 wait 400
 key SELECT
 wait 3000            # a whole period on top: one "modclass settings" line

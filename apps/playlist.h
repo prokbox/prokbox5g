@@ -182,6 +182,7 @@ int playlist_delete_range_ipodui(struct playlist_info* playlist,
                                  int first, int count);
 /* #109 queue by database index (docs/design/queue-by-index.md) */
 int playlist_reserve_ipodui(int n, bool keep);
+void playlist_sync_append_ipodui(void);   /* p090-shuffle */
 int playlist_insert_dbq_ipodui(struct playlist_info *pl, uint32_t first_k,
                                int count, uint32_t tag);
 /* #154: a video's one-item queue, kept apart from the audio queue's

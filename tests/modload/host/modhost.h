@@ -124,7 +124,8 @@ void lcd_update_rect(int x, int y, int w, int h);
 /* -- lang.h / settings.h ---------------------------------------------------------- */
 enum { LANG_IPODUI_MUSIC_MENU = 1, LANG_IPODUI_MOD_ERR_TITLE,
        LANG_IPODUI_MOD_ERR_HEAD, LANG_IPODUI_MOD_ERR_BODY,
-       LANG_IPODUI_MAIN_MENU, LANG_IPODUI_LEGAL, LANG_IPODUI_DATE_TIME };
+       LANG_IPODUI_MAIN_MENU, LANG_IPODUI_LEGAL, LANG_IPODUI_DATE_TIME,
+       LANG_IPODUI_DATE_TIME_HEAD };
 #define str(id) ((const char *)"")
 #define ID2P(id) ((const char *)"")
 struct user_settings { char lang_file[32]; };

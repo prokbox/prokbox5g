@@ -46,7 +46,8 @@
 #      carry it): every VERSION / MAGIC define in apps/ipodui/sortkey.h,
 #      apps/ipodui/dbgen.c and apps/tagcache.[ch], every #define of the
 #      library file's and the boot stamp's headers (apps/ipodui/libfile.h,
-#      apps/ipodui/bootstamp.h: section layout and size rules too), the
+#      apps/ipodui/bootstamp.h: section layout and size rules too; and the
+#      library stamp's, apps/ipodui/libstamp.h, p090-upgpage), the
 #      library generator (tests/perf/synthetic_library.py) and FIXTURE_REV
 #      below (bump it when these rules change);
 #   2. the files: Synth/.synthetic, a boot stamp of BOOT_STAMP_VERSION,
@@ -86,12 +87,15 @@ say() { echo "ensure65k: $*" >&2; }
 VM='^#[[:space:]]*define[[:space:]]+[A-Z0-9_]*(VERSION|MAGIC)[[:space:]]'
 AD='^#[[:space:]]*define[[:space:]]'
 for f in apps/ipodui/sortkey.h apps/ipodui/dbgen.c apps/tagcache.c apps/tagcache.h \
-         apps/ipodui/libfile.h apps/ipodui/bootstamp.h tests/perf/synthetic_library.py; do
+         apps/ipodui/libfile.h apps/ipodui/bootstamp.h apps/ipodui/libstamp.h \
+         tests/perf/synthetic_library.py; do
     [ -f "$ROOT/$f" ] || { say "FAIL $f is missing: no key"; exit 2; }
 done
 LINES=$( { cat "$ROOT/apps/ipodui/sortkey.h" "$ROOT/apps/ipodui/dbgen.c" \
                "$ROOT/apps/tagcache.c" "$ROOT/apps/tagcache.h" | grep -E "$VM"
            cat "$ROOT/apps/ipodui/libfile.h" "$ROOT/apps/ipodui/bootstamp.h" | grep -E "$AD"
+           # p090-upgpage: the library stamp (LIBSTAMP_SCHEMA and the rest)
+           grep -E "$AD" "$ROOT/apps/ipodui/libstamp.h"
          } | sort)
 N=$(printf '%s\n' "$LINES" | grep -c .)
 NL=$(grep -cE "$AD" "$ROOT/apps/ipodui/libfile.h")

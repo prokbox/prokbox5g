@@ -19,7 +19,7 @@ wheel +3             # Settings
 wait 600
 key SELECT
 wait 1500
-wheel +12            # Date & Time
+wheel +13            # Date & Time
 wait 600
 key SELECT
 wait 1500

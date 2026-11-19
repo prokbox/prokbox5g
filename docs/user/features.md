@@ -36,10 +36,10 @@ A ProkBox5g cell with a coloured tag is planned rather than finished. The tag sh
 | | Original software (1.3) | Rockbox 4.0 | ProkBox5g |
 |---|---|---|---|
 | Ready-made equaliser presets (Rock, Jazz, Spoken Word and so on) | Yes | None included: you can save your own | Yes, 22 presets[^eq] |
-| Your own equaliser settings | No | Yes: 10 bands, each fully adjustable | {{< plan 82 >}} |
+| Your own equaliser settings | No | Yes: 10 bands, each fully adjustable | Yes: three of your own, 5 bands each, shaped on a picture of the curve |
 | Even volume across songs | Sound Check | ReplayGain, by track or by album | Sound Check, using ReplayGain tags[^sc] |
 | Crossfade between songs | No | Yes | No |
-| Bass, treble, stereo width, crossfeed and other effects | No | Yes | No |
+| Bass, treble, stereo width, crossfeed and other effects | No | Yes | Stereo width only, in Settings › Audiophile |
 | Volume limit, with an optional code | Yes | Yes[^vlimit] | Yes |
 
 ## Bit depth and sample rates
@@ -48,9 +48,9 @@ Bit depth is how finely each moment of sound is stored, and sample rate is how m
 
 | | Original software (1.3) | Rockbox 4.0 | ProkBox5g |
 |---|---|---|---|
-| Bit depth sent to the audio chip | Not published | 16-bit | FLAC, WAV and AIFF play at their full depth (24-bit); MP3 and AAC are sent at 16-bit. MP3 and AAC at 24-bit: {{< plan 289 >}} |
-| Highest sample rate sent to the audio chip | Not published | 48 kHz | 48 kHz today. 88.2 and 96 kHz: {{< plan 270 >}} |
-| Files above 48 kHz (such as 96 or 192 kHz FLAC) | Not published | Play, converted down to 44.1 or 48 kHz[^hrm] | Play, converted down[^hrm][^hr] |
+| Bit depth sent to the audio chip | Not published | 16-bit | 24-bit for every format: FLAC, WAV and AIFF at their full depth, MP3 and AAC with the extra detail their decoders make |
+| Highest sample rate sent to the audio chip | Not published | 48 kHz | 48 kHz, or 88.2 and 96 kHz with Hi-Res on (Settings › Audiophile) once your player passes a short test |
+| Files above 48 kHz (such as 96 or 192 kHz FLAC) | Not published | Play, converted down to 44.1 or 48 kHz[^hrm] | Play, converted down, or at 88.2 or 96 kHz with Hi-Res on[^hrm][^hr] |
 
 ## Getting music on and off
 
@@ -123,8 +123,8 @@ Bit depth is how finely each moment of sound is stored, and sample rate is how m
 
 | | Original software (1.3) | Rockbox 4.0 | ProkBox5g |
 |---|---|---|---|
-| Menu languages | 21 | More than 40 | English. Dutch and German: {{< plan 273 >}} Japanese: {{< plan 266 >}} |
-| Japanese, Chinese and Korean song names | Yes | Yes, once you choose a font that has the characters | Not yet. Japanese and Korean: {{< plan 235 item-japanese-and-korean-characters-in-names >}} Chinese: no plan yet |
+| Menu languages | 21 | More than 40 | English, German, Dutch and Japanese (drafts: see [Translations](translations.md)) |
+| Japanese, Chinese and Korean song names | Yes | Yes, once you choose a font that has the characters | Yes: Japanese, Korean and the common Chinese characters; rarer Chinese characters show as blanks |
 
 ## Accessories and docks
 
@@ -166,27 +166,27 @@ Skins, plugins and the full settings menus are not coming to ProkBox5g; see [Not
 | Licence | Apple's own | GNU GPL v2 or later | GNU GPL v2 or later |
 | Price | Came with the player | Free | Free |
 
-## Previews: not released yet
+## Hi-res output and format details
 
-These pictures come from the simulator we develop on, running work that is not in a release yet. Each one is planned for the release named under it, and may still change before it arrives.
+These pictures come from the simulator we develop on.
 
-**Optional 88.2 and 96 kHz output.** A new Settings › Audiophile menu. With Hi-Res on, music recorded at 88.2 or 96 kHz plays at its own rate once your player has passed a short self-test. {{< plan 270 >}}
+**Optional 88.2 and 96 kHz output.** A new Settings › Audiophile menu. With Hi-Res on, music recorded at 88.2 or 96 kHz plays at its own rate once your player has passed a short self-test.
 
-![Settings › Audiophile with Hi-Res on](images/preview/audiophile.png "Not released yet: planned for 0.9.0")
+![Settings › Audiophile with Hi-Res on](images/preview/audiophile.png "Settings › Audiophile")
 
-**Format details in Now Playing.** One more press of the centre button shows the song's format, bit depth and sample rate, and what the player is sending to the headphones. Here a 24-bit, 96 kHz FLAC test file plays with Hi-Res on. {{< plan 277 >}}
+**Format details in Now Playing.** One more press of the centre button shows the song's format, bit depth and sample rate, and what the player is sending to the headphones. Here a 24-bit, 96 kHz FLAC test file plays with Hi-Res on.
 
-![Now Playing showing FLAC, 24-bit, 96 kHz, and the output at 24-bit, 96 kHz](images/preview/now-playing-format.png "Not released yet: planned for 0.9.0")
+![Now Playing showing FLAC, 24-bit, 96 kHz, and the output at 24-bit, 96 kHz](images/preview/now-playing-format.png "Format details in Now Playing")
 
-[^flac]: 32-bit FLAC files are rare. They stay in your library but are skipped cleanly, because the player cannot play them. Playing them: {{< plan 318 >}}
+[^flac]: 32-bit FLAC files are rare. Those up to 48 kHz play, reduced to the player's 24-bit output; faster ones stay in your library but are skipped cleanly.
 [^ape]: In Rockbox, Monkey's Audio files play smoothly only at the Fast compression level. ProkBox5g is expected to be the same (not measured).
 [^gap1]: Gapless playback arrived with software 1.2 in 2006. Apple did not say which formats it covers.
-[^gap]: Not for WMA, AC3, RealAudio or the game-console formats. For ProkBox5g we are also checking Opus endings: {{< plan 292 >}}
-[^eq]: Named like the presets on the later iPod classic. Presets make music quieter ({{< plan 203 >}}).
+[^gap]: Not for WMA, AC3, RealAudio or the game-console formats. In ProkBox5g, Opus files end exactly where they should.
+[^eq]: Named like the presets on the later iPod classic. Turning one on keeps your music at the same loudness.
 [^sc]: ProkBox5g's Sound Check uses ReplayGain tags in your files. It does not read the loudness values iTunes stores.
 [^vlimit]: Rockbox sets a maximum volume, without a code.
 [^hrm]: How these files sound after the conversion has not been measured.
-[^hr]: 192 kHz files used to cut out every few seconds. 0.8.3 should play them better, but we have not yet tried it with a 192 kHz album on a real player.
+[^hr]: 192 kHz files used to cut out every few seconds. They should now play smoothly, but we have not yet tried a 192 kHz album on a real player.
 [^off]: iTunes copies back only songs bought from its store. Other music stays in hidden folders under coded names; the player's disk mode is meant for ordinary files.
 [^rbitl]: Rockbox's music scan also walks the folders where iTunes keeps songs, so it finds and plays them by their tags. It does not read iTunes' own library files.
 [^itl]: ProkBox5g only reads that library: it never changes what iTunes put there.

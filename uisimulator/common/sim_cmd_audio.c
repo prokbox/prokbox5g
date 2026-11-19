@@ -28,9 +28,13 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 #include "config.h"
 #include "audio.h"
 #include "sim_cmd_audio.h"
+#ifdef HAVE_IPOD_UI
+#include "pcmbuf.h"     /* #214: expect_fmt_switches */
+#endif
 #ifdef HAVE_VIZ_TAP
 #include <stdlib.h>
 #include "kernel.h"
@@ -105,6 +109,7 @@ static void viz_tap_cmd(char *argv[], int argc, int lineno)
 
 void sim_audio_load_hold(long ms);      /* apps/playback.c */
 int sim_header_play_drawn(void);        /* apps/ipodui/header.c */
+long pcmbuf_pause_tick(void);           /* apps/pcmbuf.c (#362) */
 
 /* #345: waits up to ms for done(); returns the ms it took, -1 if never */
 static long wait_for(bool (*done)(int), int arg, long ms)
@@ -136,15 +141,37 @@ static bool pcm_is(int want)
                                    : st != CHANNEL_PLAYING;
 }
 
-/* "expect_shown|expect_pcm paused|playing <ms>" */
+/* #362 held: the pause reached the PCM (its fade began, or it is quiet) */
+static bool pcm_held(int unused)
+{
+    (void)unused;
+    return pcmbuf_pause_tick() != 0 || pcm_is(CHANNEL_PAUSED);
+}
+
+/* #362: the audio thread's own state, no posted wish folded in */
+static bool audio_is(int paused)
+{
+    int st = audio_status();
+
+    return paused ? st == (AUDIO_STATUS_PLAY | AUDIO_STATUS_PAUSE)
+                  : st == AUDIO_STATUS_PLAY;
+}
+
+/* "expect_shown|expect_pcm|expect_audio paused|playing <ms>",
+ * "expect_pcm held <ms>" */
 static void expect_state(const char *cmd, char *argv[], int lineno)
 {
     bool paused = !strcmp(argv[1], "paused");
     bool shown = !strcmp(cmd, "expect_shown");
-    long t = wait_for(shown ? shown_is : pcm_is,
+    bool audio = !strcmp(cmd, "expect_audio");
+    bool held = !shown && !audio && !strcmp(argv[1], "held");
+    long ms = atol(argv[2]);
+    long t = held  ? wait_for(pcm_held, 0, ms)
+           : audio ? wait_for(audio_is, paused, ms)
+           : wait_for(shown ? shown_is : pcm_is,
                       shown ? (paused ? UI_PLAY_PAUSED : UI_PLAY_PLAYING)
                             : (paused ? CHANNEL_PAUSED : CHANNEL_PLAYING),
-                      atol(argv[2]));
+                      ms);
 
     if (t >= 0)
         fprintf(stderr, "sim_script: %s ok %s after %ld ms\n", cmd, argv[1],
@@ -152,9 +179,10 @@ static void expect_state(const char *cmd, char *argv[], int lineno)
     else
         fprintf(stderr, "sim_script:%d: %s failed: not %s within %s ms "
                 "(%s %d)\n", lineno, cmd, argv[1], argv[2],
-                shown ? "drawn" : "pcm",
+                shown ? "drawn" : audio ? "audio" : "pcm",
                 shown ? sim_header_play_drawn()
-                      : (int)mixer_channel_status(PCM_MIXER_CHAN_PLAYBACK));
+                : audio ? audio_status()
+                : (int)mixer_channel_status(PCM_MIXER_CHAN_PLAYBACK));
 }
 #endif /* HAVE_IPOD_UI */
 
@@ -167,10 +195,30 @@ bool sim_cmd_audio(const char *cmd, char *argv[], int argc, int lineno)
         fprintf(stderr, "sim_script: load_hold %s\n", argv[1]);
         return true;
     }
-    if ((!strcmp(cmd, "expect_shown") || !strcmp(cmd, "expect_pcm"))
-        && argc >= 3)
+    if ((!strcmp(cmd, "expect_shown") || !strcmp(cmd, "expect_pcm")
+         || !strcmp(cmd, "expect_audio")) && argc >= 3)
     {
         expect_state(cmd, argv, lineno);
+        return true;
+    }
+#endif
+#ifdef PCMBUF_FMT_SWITCH
+    /* #214 expect_fmt_switches <n>: the seamless output-format switches
+     * between tracks so far, none whose sample check failed and none
+     * whose edge still stepped after the soft ramp */
+    if (!strcmp(cmd, "expect_fmt_switches") && argc >= 2)
+    {
+        unsigned long want = strtoul(argv[1], NULL, 10);
+        unsigned long got = pcmbuf_fmt_switches();
+        unsigned long bad = pcmbuf_fmt_check_fails();
+        unsigned long hard = pcmbuf_fmt_hard_edges();
+
+        if (got != want || bad || hard)
+            fprintf(stderr, "sim_script:%d: %s failed: %lu, want %lu "
+                    "(sample checks failed %lu, hard edges %lu)\n", lineno,
+                    cmd, got, want, bad, hard);
+        else
+            fprintf(stderr, "sim_script: %s ok: %lu\n", cmd, got);
         return true;
     }
 #endif

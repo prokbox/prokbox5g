@@ -89,8 +89,23 @@ static const char* const genres[] = {
     "BritPop", "Negerpunk", "Polsk Punk", "Beat", "Christian Gangsta Rap",
     "Heavy Metal", "Black Metal", "Crossover", "Contemporary Christian",
     "Christian Rock", "Merengue", "Salsa", "Thrash Metal", "Anime", "Jpop",
-    "Synthpop"
+    "Synthpop",
+
+    /* winamp 5.6 extensions, 148-191 (ProkBox #163; the names as FFmpeg's
+     * ff_id3v1_genre_str has them) */
+    "Abstract", "Art Rock", "Baroque", "Bhangra", "Big Beat", "Breakbeat",
+    "Chillout", "Downtempo", "Dub", "EBM", "Eclectic", "Electro",
+    "Electroclash", "Emo", "Experimental", "Garage", "Global", "IDM",
+    "Illbient", "Industro-Goth", "Jam Band", "Krautrock", "Leftfield",
+    "Lounge", "Math Rock", "New Romantic", "Nu-Breakz", "Post-Punk",
+    "Post-Rock", "Psytrance", "Shoegaze", "Space Rock", "Trop Rock",
+    "World Music", "Neoclassical", "Audiobook", "Audio Theatre",
+    "Neue Deutsche Welle", "Podcast", "Indie Rock", "G-Funk", "Dubstep",
+    "Garage Rock", "Psybient"
 };
+
+/* ProkBox #163: a compile-time check that the table ends at 191 */
+typedef char id3_genres_end_at_191[ARRAYLEN(genres) == 192 ? 1 : -1];
 
 char* id3_get_num_genre(unsigned int genre_num)
 {
@@ -351,14 +366,48 @@ static int parsealbumart( struct mp3entry* entry, char* tag, int bufferpos )
         tag += 3;
     }
 
+    /* what was read of the frame ends with a nil, at end */
+    char *end = entry->id3v2buf + bufferpos - 1;
+
     if (entry->albumart.type != AA_TYPE_UNKNOWN)
     {
         /* skip picture type */
         tag += 1;
-        /* skip description */
-        tag = strchr(tag, '\0') + 1;
-        /* fixup offset&size for image data */
-        entry->albumart.pos  += tag - start;
+        /* skip description: in UTF-16 (encodings 1 and 2) it ends with
+         * two nils at an even offset, otherwise with one */
+        if (*start == 0x01 || *start == 0x02)
+        {
+            while (tag + 1 < end && (tag[0] != '\0' || tag[1] != '\0'))
+                tag += 2;
+            tag += 2;
+        }
+        else if (tag < end)
+        {
+            tag = strchr(tag, '\0') + 1;
+        }
+        else
+        {
+            tag = end + 1;
+        }
+        /* no end found before the end of what was read */
+        if (tag > end)
+            entry->albumart.type = AA_TYPE_UNKNOWN;
+    }
+
+    if (entry->albumart.type != AA_TYPE_UNKNOWN)
+    {
+        /* fixup offset&size for image data; in the file, an unsynchronised
+         * frame has a 0x00 after each 0xFF here that is followed by 0x00 or
+         * by 0xE0 and above */
+        int skip = tag - start;
+        if (unsync)
+        {
+            for (char *p = start; p < tag; p++)
+                if ((unsigned char)p[0] == 0xFF
+                    && ((unsigned char)p[1] >= 0xE0 || p[1] == 0))
+                    skip++;
+        }
+        entry->albumart.pos  += skip;
         entry->albumart.size -= tag - start;
         if (unsync)
         {
@@ -375,6 +424,41 @@ static int parsealbumart( struct mp3entry* entry, char* tag, int bufferpos )
 /* parse user defined text, looking for album artist and replaygain
  * information.
  */
+#ifdef HAVE_IPOD_UI
+/* 0.9.0 (#235): the sort frames. The value is already in id3v2buf; a
+ * dedicated frame replaces a TXXX alias read before it. */
+static int parsesortartist(struct mp3entry* entry, char* tag, int bufferpos)
+{
+    entry->sortartist = tag;
+    return bufferpos;
+}
+static int parsesortalbum(struct mp3entry* entry, char* tag, int bufferpos)
+{
+    entry->sortalbum = tag;
+    return bufferpos;
+}
+static int parsesortalbumartist(struct mp3entry* entry, char* tag,
+                                int bufferpos)
+{
+    entry->sortalbumartist = tag;
+    return bufferpos;
+}
+
+/* The field a TXXX description names as a sort value, or NULL */
+static char **id3_sort_alias(struct mp3entry *entry, const char *desc)
+{
+    if (!strcasecmp(desc, "ARTISTSORT"))
+        return &entry->sortartist;
+    if (!strcasecmp(desc, "ALBUMSORT"))
+        return &entry->sortalbum;
+    if (!strcasecmp(desc, "ALBUMARTISTSORT")
+        || !strcasecmp(desc, "ALBUM ARTIST SORT")
+        || !strcasecmp(desc, "ALBUMARTISTSORTORDER"))
+        return &entry->sortalbumartist;
+    return NULL;
+}
+#endif
+
 static int parseuser( struct mp3entry* entry, char* tag, int bufferpos )
 {
     char* value = NULL;
@@ -390,6 +474,18 @@ static int parseuser( struct mp3entry* entry, char* tag, int bufferpos )
             length = strlen(value) + 1;
             strlcpy(tag, value, length);
             entry->albumartist = tag;
+#ifdef HAVE_IPOD_UI
+        } else if (id3_sort_alias(entry, tag)) {
+            /* 0.9.0 (#235): a TXXX sort alias (Picard, foobar2000); a
+             * dedicated frame (TSOP, TSOA, TSO2) wins whatever the order */
+            char **field = id3_sort_alias(entry, tag);
+            length = strlen(value) + 1;
+            if (!*field && value[0]) {
+                strlcpy(tag, value, length);
+                *field = tag;
+            } else
+                length = 0;
+#endif
         } else {
             /* Call parse_replaygain(). */
             parse_replaygain(tag, value, entry);
@@ -516,6 +612,19 @@ static const struct tag_resolver taglist[] = {
     { "COM",  3, offsetof(struct mp3entry, comment), NULL, false },
     { "TCON", 4, offsetof(struct mp3entry, genre_string), &parsegenre, false },
     { "TCO",  3, offsetof(struct mp3entry, genre_string), &parsegenre, false },
+#ifdef HAVE_IPOD_UI
+    /* 0.9.0 (#235): sort values. iTunes and MusicBee write the v2.4 IDs
+     * in v2.3 tags too; TSO2 is iTunes' own (Sort Album Artist); XSOP/XSOA
+     * are the v2.3 drafts some taggers wrote; TSP/TSA/TS2 are v2.2 */
+    { "TSOP", 4, 0, &parsesortartist, false },
+    { "XSOP", 4, 0, &parsesortartist, false },
+    { "TSP",  3, 0, &parsesortartist, false },
+    { "TSOA", 4, 0, &parsesortalbum, false },
+    { "XSOA", 4, 0, &parsesortalbum, false },
+    { "TSA",  3, 0, &parsesortalbum, false },
+    { "TSO2", 4, 0, &parsesortalbumartist, false },
+    { "TS2",  3, 0, &parsesortalbumartist, false },
+#endif
 #ifdef HAVE_ALBUMART
     { "APIC", 4, 0, &parsealbumart, true },
     { "PIC",  3, 0, &parsealbumart, true },
@@ -1057,6 +1166,11 @@ retry_with_limit:
 
                 /* found a tag matching one in tagList */
                 tag = buffer + bufferpos;
+#ifdef HAVE_ALBUMART
+                /* where the frame starts: what read_unsynched() reads of
+                   the file can be longer than the framelen it returns */
+                off_t frame_pos = lseek(fd, 0, SEEK_CUR);
+#endif
 
                 if(global_unsynch && version <= ID3_VER_2_3)
                     bytesread = read_unsynched(fd, tag, framelen);
@@ -1140,6 +1254,21 @@ retry_with_limit:
                     /* remove trailing spaces */
                     while ( bytesread > 0 && isspace(tag[bytesread-1]))
                         bytesread--;
+
+                    /* ProkBox #167: an ID3v2.4 artist, album artist or
+                     * composer list (values separated by NULs) joins with
+                     * ", "; the first value's length is kept */
+                    if (ptag && !*ptag)
+                    {
+                        uint16_t *first =
+                            ptag == &entry->artist ? &entry->artist_len1
+                          : ptag == &entry->albumartist ? &entry->albumartist_len1
+                          : ptag == &entry->composer ? &entry->composer_len1
+                          : NULL;
+                        if (first)
+                            bytesread = metadata_join_values(tag, bytesread,
+                                            buffersize - bufferpos, first);
+                    }
                 }
 
                 if(bytesread == 0)
@@ -1174,7 +1303,7 @@ retry_with_limit:
                     ((tr->tag_length == 4 && !memcmp( header, "APIC", 4)) ||
                      (tr->tag_length == 3 && !memcmp( header, "PIC" , 3))))
                 {
-                    entry->albumart.pos = lseek(fd, 0, SEEK_CUR) - framelen;
+                    entry->albumart.pos = frame_pos;
                     entry->albumart.size = totframelen;
                     entry->albumart.type = (unsynch || (global_unsynch && version <= ID3_VER_2_3))
                                            ? AA_FLAG_ID3_UNSYNC

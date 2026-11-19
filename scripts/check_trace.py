@@ -767,6 +767,7 @@ RE_STRIPCLAIM = re.compile(r'panel strip claim owner=(\w+) top=(.*)')
 NP_BANDS = {  # band -> max rows (the screen's own bands, nowplaying.c)
     'body': 220, 'info': 178, 'title': 34, 'row': 34, 'rowfull': 34,
     'stars': 34, 'glyphs': 34, 'chapter': 34, 'counter': 34,
+    'artist': 34, 'album': 34,  # #180: the marquee's other lines
     'viz': 240,  # the visualizer's CPU path (viz.h: the full panel; its
                  # bands start at y 0, so a script says '# np: viz-full')
 }
@@ -2675,7 +2676,7 @@ def check_p15(lines, script, script_lines, ok, bad):
     -fade*); a selected rule that finds none of its lines FAILS. With the
     lines present, a rule always runs.
 
-      p15eq    `eq engine=hw|sw preset=<n> maxerr= precut=`: n in 0..22;
+      p15eq    `eq engine=hw|sw preset=<n> maxerr= precut=`: n in 0..25 (23..25 the custom slots: hw, maxerr 0);
                Off (0) is sw with maxerr=0 precut=0; maxerr and precut
                equal the generated table (apps/ipodui/eq_hw_presets.c) for
                n >= 1; engine is hw iff maxerr <= 15 (EQ_HW_MAXERR; the
@@ -2757,11 +2758,17 @@ def check_p15(lines, script, script_lines, ok, bad):
             if eng not in ('hw', 'sw'):
                 errs.append('%s: engine %s is not hw|sw' % (where, eng))
                 continue
-            if not 0 <= n <= len(table):
+            if len(table) < n <= len(table) + 3:
+                # #82: Custom 1-3 (ipodui_eq_preset 23..25) always run
+                # on the codec, maxerr 0, precut from eqlab_level()
+                if (eng, maxerr) != ('hw', 0) or not 0 <= precut <= 12:
+                    errs.append('%s: a custom slot must be hw maxerr=0 '
+                                'precut 0..12' % where)
+            elif not 0 <= n <= len(table):
                 errs.append('%s: preset %d outside 0..%d'
-                            % (where, n, len(table)))
+                            % (where, n, len(table) + 3))
                 continue
-            if n == 0:
+            elif n == 0:
                 if (eng, maxerr, precut) != ('sw', 0, 0):
                     errs.append('%s: Off must be sw maxerr=0 precut=0' % where)
             else:

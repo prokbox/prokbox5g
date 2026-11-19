@@ -69,3 +69,20 @@ else
     echo "FAIL: raw PMU path"
     exit 1
 fi
+# b12: the same without the device test builds' RTC record (the release
+# file's shape: the retry, no diagnostics)
+# shellcheck disable=SC2086
+if ! "$HOSTCC" -std=gnu99 -O1 -g -Wall -Wextra -Werror ${EXTRA_CFLAGS:-} \
+        -DPMU_RAW_HOST_NODIAG -iquote "$T" -iquote firmware/export \
+        -o "$TMP/test_pmu_raw_rel" "$T/test_pmu_raw.c" \
+        firmware/common/sleep_wake_core.c 2>"$TMP/cc3.log"; then
+    echo "FAIL: compiling test_pmu_raw, release shape ($HOSTCC)"
+    cat "$TMP/cc3.log"
+    exit 1
+fi
+if "$TMP/test_pmu_raw_rel"; then
+    echo "ok   raw PMU path, release shape (no RTC record)"
+else
+    echo "FAIL: raw PMU path, release shape"
+    exit 1
+fi

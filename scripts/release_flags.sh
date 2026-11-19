@@ -42,8 +42,14 @@ RELEASE_SHAPE="--target=22 --type=n --ipodui --ipodui-release --bcmfw --bcmfw-de
 # The ProkBox start-up program (bootloader), shipped in the zip.
 RELEASE_BOOT="--target=22 --type=b --ipodui"
 
-# Files the release zip must carry (paths inside the zip).
-RELEASE_REQUIRED="bootloader-ipodvideo.ipod .rockbox/modules.pak .rockbox/bcmvideo.bin .rockbox/dec-ovl.bin .rockbox/viz-ovl-m.bin .rockbox/vcheck.bin"
+# Files every release zip must carry (paths inside the zip). The four
+# .lng files are the Settings > Language list (P20: English, Deutsch,
+# Nederlands; #266: Japanese, listed once the ShellCJK fonts of #235 are
+# installed; apps/ipodui/screens/language.c, tools/buildzip.pl). The four
+# ShellCJK fonts and their OFL notice (0.9.0, #235/#266) draw Japanese
+# menus and CJK tags. The licence texts and the credits (docs/: GPL,
+# legal_audit.py check 5).
+RELEASE_REQUIRED="bootloader-ipodvideo.ipod .rockbox/modules.pak .rockbox/bcmvideo.bin .rockbox/dec-ovl.bin .rockbox/viz-ovl-m.bin .rockbox/vcheck.bin .rockbox/langs/english.lng .rockbox/langs/deutsch.lng .rockbox/langs/nederlands.lng .rockbox/langs/japanese.lng .rockbox/fonts/14-ShellCJK-Bold.fnt .rockbox/fonts/11-ShellCJK-Bold.fnt .rockbox/fonts/11-ShellCJK.fnt .rockbox/fonts/35-ShellCJK-Index.fnt .rockbox/fonts/OFL-NOTO-CJK.txt .rockbox/docs/COPYING.txt .rockbox/docs/CREDITS.txt .rockbox/docs/LICENSES.txt"
 
 # The resident cap: _end in rockbox.elf, decimal bytes (validate.sh
 # REL_BCM_END_MAX, the same backstop).

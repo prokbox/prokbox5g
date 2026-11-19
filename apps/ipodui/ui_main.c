@@ -430,6 +430,25 @@ static bool draw_dirty(struct ui_screen *s, unsigned dirty)
     return header;
 }
 
+/* ipodui.h (#487): the busy glyph by hand. The loop's own header pass
+ * redraws whatever this left (the header's last-drawn state changed) */
+void ui_header_busy_step(int phase)
+{
+    struct ui_screen *s = ui_top();
+    int hx = 0, hw = LCD_WIDTH;
+
+    if (!s || s->header_w == UI_HEADER_NONE || s->header_w == UI_HEADER_DARK
+        || !is_backlight_on(true))
+        return;
+    ui_header_poll(&header_state);
+    header_state.busy = (unsigned char)phase;
+    if (!ui_header_draw(&header_state, false))
+        return;
+    ui_header_push_rect(&hx, &hw);
+    ui_lcd_push("header", hx, 0, hw, ui_theme->header_h);
+    UPDATE_TRACE("settle glyph phase=%d", phase);
+}
+
 #ifdef SIMULATOR
 /* Simulator-only invariant (owner, device, 2026-10-24: scrolling Extras >
  * Alarms painted a full-width row over the panel): on a split screen a
@@ -1879,7 +1898,9 @@ static void shell_main(void)
         dac_trace();                /* P15: codec standby counts */
 #endif
         lib_window_log();           /* 8b: a closed empty window, once */
+        ui_theme_cjk_poll();        /* #235: the glyph tier after a commit */
         np_hires_poll();            /* #278: hi-res held at full speed */
+        ui_eq_rate_poll();          /* #352: the preset table's family */
         if (ui_unlit_active())
         {
             /* H2: the face suspends drawing, never logic. The top screen,

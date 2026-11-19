@@ -68,9 +68,9 @@ wheel +2                    # Main Menu: "Extras" (the Now Playing row
 wait 800                    # sits at the end)
 key SELECT
 wait 1200
-wheel +7                    # Extras: the last row (Stopwatch; no wrap)
+wheel +8                    # Extras: the last row (EQ, #82; no wrap)
 wait 600
-wheel -2                    # "Notes", from the end: with or without a Games row
+wheel -3                    # "Notes", from the end: with or without a Games row
 wait 800
 key SELECT
 wait 1200
@@ -87,9 +87,9 @@ wheel +2
 wait 800
 key SELECT
 wait 1200
-wheel +7
+wheel +8
 wait 600
-wheel -2
+wheel -3
 wait 800
 key SELECT
 wait 1200

@@ -145,6 +145,28 @@ volatile unsigned long *fc_ctl(void)
     return &ctl;
 }
 
+/* 0.9.0 fiqstall: the window must come before the call's first
+ * write-back, with the mask the call was entered with, asking at least
+ * the b16 worst (761 us) */
+long cpu_frequency = 30000000;
+static int n_window;
+static int entry_cpsr;
+
+int pcm_pp_fiq_window(uint32_t need_us)
+{
+    observe("pcm_pp_fiq_window");
+    n_window++;
+    if (n_flush)
+        fail("%s: the FIQ window after %d write-back(s)", ctx, n_flush);
+    if (cpsr != entry_cpsr)
+        fail("%s: the FIQ window under mask 0x%x, entered with 0x%x", ctx,
+             cpsr, entry_cpsr);
+    if (need_us < 761)
+        fail("%s: the FIQ window asks %u us, under b16's worst stall", ctx,
+             (unsigned)need_us);
+    return 0;
+}
+
 uint32_t fc_usec(void)
 {
     static uint32_t t;
@@ -198,7 +220,8 @@ static void run_case(unsigned core, int entry)
         for (unsigned i = 0; i < LINES; i++)
             fc_status[c][i * STRIDE] = SENTINEL;
     fc_cache_op = 0;
-    cpsr = last_cpsr = entry;
+    cpsr = last_cpsr = entry_cpsr = entry;
+    n_window = 0;
     masked_once = 0;
     dirty = 10;
     last_n = 0;
@@ -207,7 +230,9 @@ static void run_case(unsigned core, int entry)
     commit_discard_dcache();
     observe("return");
 
-    checks += 6;
+    checks += 7;
+    if (n_window != 1)
+        fail("%s: %d FIQ windows, want 1", name, n_window);
     if (last_n != LINES)
         fail("%s: %u of %u status words rewritten", name, last_n, LINES);
     if (rewritten() != LINES || fc_status[core ^ 1][0] != SENTINEL)
@@ -230,9 +255,12 @@ static void run_case(unsigned core, int entry)
     if (core == COP)
     {
         checks += 2;
-        if (n_flush < 2 || flush_ev[0].cpsr != entry || flush_ev[0].n)
-            fail("%s: no bulk write-back before the mask (%d flushes; the "
-                 "first under 0x%x)", name, n_flush,
+        /* 0.9.0 fiqstall: the bulk with the IRQ masked, the FIQ as at
+         * the call */
+        if (n_flush < 2 || flush_ev[0].cpsr != (entry | IRQ_STATUS) ||
+            flush_ev[0].n)
+            fail("%s: no bulk write-back before the FIQ's mask (%d flushes; "
+                 "the first under 0x%x)", name, n_flush,
                  n_flush ? flush_ev[0].cpsr : -1);
         if (n_flush < 2 || flush_ev[1].cpsr != (entry | IRQ_FIQ_STATUS)
             || flush_ev[1].n)
@@ -261,12 +289,19 @@ int main(void)
     fc_core = COP;
     n_flush = 0;
     dirty = 4;
-    cpsr = last_cpsr = 0;
+    cpsr = last_cpsr = entry_cpsr = 0;
+    n_window = 0;
+    ctx = "commit_dcache";
     last_n = rewritten();
     commit_dcache();
-    checks++;
+    checks += 3;
     if (n_flush != 1 || dirty)
         fail("commit_dcache: %d flushes, %d dirty after", n_flush, dirty);
+    if (n_window != 1)
+        fail("commit_dcache: %d FIQ windows, want 1", n_window);
+    if (n_flush == 1 && flush_ev[0].cpsr != IRQ_STATUS)
+        fail("commit_dcache: the write-back under 0x%x, want the IRQ masked "
+             "and the FIQ as at the call", flush_ev[0].cpsr);
     printf("     %d calls, %d checks\n", cases + 1, checks);
     if (checks < 50)
         fail("vacuous: %d checks", checks);

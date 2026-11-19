@@ -8,6 +8,7 @@
  *
  * Copyright (C) 2005 Dave Chapman
  * Copyright (C) 2009 Yoshihisa Uchida
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -43,9 +44,10 @@ static bool set_format(struct libpcm_pcm_format *format)
         return false;
     }
 
-    if (fmt->bitspersample == 0)
+    /* less than a byte would give bytespersample 0 and divide by it */
+    if (fmt->bitspersample < 8)
     {
-        DEBUGF("CODEC_ERROR: bitspersample is 0\n");
+        DEBUGF("CODEC_ERROR: bitspersample %d < 8\n", fmt->bitspersample);
         return false;
     }
 

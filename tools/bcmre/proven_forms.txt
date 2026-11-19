@@ -56,6 +56,8 @@ region | jv_dot8 | guard | J_VPU_MAC (jdec's IDCT check)
 region | jv_put* | guard | J_VPU_MAC (the put and fill ride the IDCT check); PUTV, sitting 2: a V D's +r y drops below 16 (quirk 39); jv_put keeps rows 0 to size-1 since p19-vplayer-health
 region | jv_fill | guard | J_VPU_MAC (jdec's put and fill)
 region | jv_yuv16 | guard | J_VPU_YUV (jdec's colour stage check)
+region | m4_vidct* | guard | J_VPU_M4_IDCT (bcmfw/mpeg4/m4_vpu.c: gen_vpu_m4.py's probe blocks, put and add, against the C); every form it runs is filed silicon or apple (vpu_test.py forms), never run on silicon as a whole
+region | m4_vmc* | guard | J_VPU_M4_MC (bcmfw/mpeg4/m4_vpu.c: all 14 kernels against the C); every form it runs is filed silicon or apple (vpu_test.py forms), never run on silicon as a whole
 # The PP's port writers in a bench or lab function (the 16-bit forms)
 region | port:dt_pa_* | bench | bench row ALGN's port checks (bcm-devtest-hal.c)
 region | port:bcm_video_wr_variant | bench | bench row CR1's Apple forms (bcm-devtest-hal.c)

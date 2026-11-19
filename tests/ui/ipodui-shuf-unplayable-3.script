@@ -6,14 +6,16 @@
 # a row (fewer for a shorter queue, apps/playback.c SILENT_FAIL_MAX) and the
 # ending queue asks for no more refills (a chunked refill already under
 # way when playback gives up ends at the entries it has: one more record
-# write, so 2 at most).
+# write, so 2 at most). p090-shuffle: the start queues 4 and backfills
+# behind, so the queue is still growing when every entry has failed: the
+# run ends at the queue's length then (14 in the simulator), not 50.
 #   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-shuf-unplayable-3.script
 # disk: bare
 # needs: unplayable
 # disk-file: build/unplayable-fixtures/bad1.flac Music/bad1.flac
 # disk-file: build/unplayable-fixtures/bad2.flac Music/bad2.flac
 # disk-file: build/unplayable-fixtures/bad3.flac Music/bad3.flac
-# log: audio unplayable run=50 queue=
+# logrange: 4 50 audio unplayable run=(\d+) queue=
 # golden: skip menu
 # timeout: 90
 

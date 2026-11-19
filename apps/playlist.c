@@ -119,6 +119,7 @@
 #include "ipodui/library.h"     /* lib_queue_is_book() */
 #include "ipodui/safefile.h"    /* #91: no rename onto an existing name */
 #include "ipodui/dbqueue.h"     /* #109: queue by database index */
+#include "playback.h"           /* p090: audio_playlist_appended() */
 #ifdef HAVE_DIRCACHE
 /* dcfrefs[] is sized to the setting, indices[] may grow (#109 L3); the
  * shell trims dircache (IPODUI_TRIM_DIRCACHE) */
@@ -4318,6 +4319,24 @@ void playlist_sync(struct playlist_info* playlist)
     if ((audio_status() & AUDIO_STATUS_PLAY) && playlist->started)
         audio_flush_and_reload_tracks();
 }
+
+#ifdef HAVE_IPOD_UI
+/* p090-shuffle: playlist_sync() after entries were only appended at the
+ * end (a library shuffle's refill): the control file is synced the same
+ * way, but the audio thread keeps the tracks it has buffered
+ * (audio_playlist_appended()) instead of dropping and reading them again */
+void playlist_sync_append_ipodui(void)
+{
+    struct playlist_info* playlist = &current_playlist;
+
+    playlist_write_lock(playlist);
+    sync_control_unlocked(playlist);
+    playlist_write_unlock(playlist);
+
+    if ((audio_status() & AUDIO_STATUS_PLAY) && playlist->started)
+        audio_playlist_appended();
+}
+#endif
 
 /* Update resume info for current playing song.  Returns -1 on error. */
 int playlist_update_resume_info(const struct mp3entry* id3)

@@ -32,7 +32,9 @@
  *     clocking the I2S and the drain stops or slows;
  *   - a stall watch (a tick task, ~10 instructions a tick, acting only
  *     while the PCM plays above 48 kHz) treats 50 ms without a DMA piece
- *     as a codec fault: the high rates are off for the rest of the
+ *     in one run of the PCM (250 ms in the simulator, whose output clock
+ *     is a host thread; see AP_STALL_TICKS) as a codec fault: the high
+ *     rates are off for the rest of the
  *     session, playback re-picks its rate (a short gap, resumed in place)
  *     and the shell shows its popup once;
  *   - not below 10 % battery;
@@ -60,6 +62,7 @@
 #include "xcore.h"
 #include "ipodui/uilog.h"
 #include "dac_ext.h"
+#include "corelayout.h"
 #include "audiophile.h"
 #include "ipodui/np_info.h"
 
@@ -71,7 +74,22 @@ static volatile uint8_t ap_popup XCORE_BSS;     /* not yet acknowledged */
 static volatile uint8_t ap_logged XCORE_BSS;    /* the fault line written */
 static unsigned long ap_fault_hz XCORE_BSS;
 
-#define AP_STALL_TICKS  (HZ / 20)   /* 50 ms without a DMA piece */
+/* How long the output may go without a piece before it counts as a codec
+ * fault.  The device: 50 ms, over three DMA pieces at 96 kHz (1,500
+ * frames, 15.6 ms each), and the FIQ that counts them is never held off
+ * that long.  The simulator's "DMA" is a host thread (SDL's audio
+ * callback): at 96 kHz it pulls its pieces 20-40 ms apart (p090-apstall,
+ * measured: 2-4 ticks, about 40 % of them 4), and a loaded host
+ * deschedules the whole process for tens of ms more (the sim logs up to
+ * 40 ms of run jitter), so 50 ms there tripped on host load alone and
+ * turned Hi-Res off for the session.  250 ms covers that and still
+ * catches a dead clock (PROKBOX_HIRATE_FAULT=stall) */
+#ifdef SIMULATOR
+#define AP_STALL_TICKS  (HZ / 4)
+#else
+#define AP_STALL_TICKS  (HZ / 20)
+#endif
+#define AP_STALL_MS     (AP_STALL_TICKS * 1000 / HZ)
 
 int audiophile_hirate_allowed(void)
 {
@@ -103,10 +121,19 @@ static void ap_log_osr(void)
 
 /* ---- the stall watch (tick) ------------------------------------------ */
 
+/* A stall counts only inside one run of the PCM at one rate: the progress
+ * word moves at every start as well as at every piece (pcm-pp.c and
+ * pcm-sdl.c sink_dma_start()), and every tick that sees the PCM stopped,
+ * at 48 kHz or below, or on another sink restarts the count.  A rate
+ * change always stops the PCM first (mixer_set_frequency()), so the
+ * re-clock, a track change, a pause's silence tail and an underrun's
+ * silence (the mixer keeps the pieces coming) never count. */
 static unsigned long ap_last_prog;
 static int ap_stall;
 #ifdef SIMULATOR
 static int ap_sim_run;          /* PROKBOX_HIRATE_FAULT=run: ticks left */
+static bool ap_sim_dead;        /* PROKBOX_HIRATE_FAULT=stall: the clock
+                                 * died: the progress word stands still */
 #endif
 
 static void ap_fault(void)
@@ -134,6 +161,10 @@ static void ap_tick(void)
     }
 #endif
     unsigned long p = pcm_builtin_progress();
+#ifdef SIMULATOR
+    if (ap_sim_dead)
+        p = ap_last_prog;
+#endif
     if (p != ap_last_prog)
     {
         ap_last_prog = p;
@@ -150,8 +181,18 @@ static void ap_tick(void)
    written, so no cache maintenance; the counters the PCM callback (the
    FIQ, on the COP in layout A) writes are uncached */
 static const uint32_t ap_silence[128] __attribute__((aligned(32)));
+/* p090-osr128: the near-silent stretch of Hi-Res 128x's test: a square
+   wave of +-1 LSB (16-bit, -96 dBFS, 750 Hz at 96 kHz), both channels.
+   Never exact zeros, so the DAC's auto-mute (AMUTE) never engages and the
+   interpolator and modulator idle on the smallest signal they get, where
+   the owner heard the crackle (the silent tail of a 16/96 track) */
+static const uint32_t ap_quiet[128] __attribute__((aligned(32))) = {
+    [0 ... 63] = 0x00010001, [64 ... 127] = 0xffffffff
+};
+static const uint32_t * volatile ap_buf XCORE_BSS;
 static volatile unsigned long ap_t_first XCORE_BSS, ap_t_last XCORE_BSS;
 static volatile unsigned long ap_pieces XCORE_BSS;
+static volatile unsigned long ap_gap_max XCORE_BSS;
 
 static void ap_more(const void **start, size_t *size)
 {
@@ -159,9 +200,11 @@ static void ap_more(const void **start, size_t *size)
 
     if (!ap_pieces)
         ap_t_first = now;
+    else if (now - ap_t_last > ap_gap_max)
+        ap_gap_max = now - ap_t_last;
     ap_t_last = now;
     ap_pieces++;
-    *start = ap_silence;
+    *start = ap_buf;
     *size = sizeof(ap_silence);
 }
 
@@ -170,40 +213,83 @@ static enum pcm_dma_status ap_status(enum pcm_dma_status status)
     return status;
 }
 
-/* One rate: ~0.6 s; pass when the drain rate is within 3 % of nominal */
-static bool ap_try(unsigned long hz)
+/* One rate: High Sample Rate's test ~0.6 s of silence; Hi-Res 128x's
+   (p090-osr128) 4 s, its first AP_TEST_QUIET_MS the +-1 LSB stretch, the
+   rest exact silence, so an intermittent fault has time to show.  The
+   verdict is audiophile_rate_test_ok() (drain rate within 3 %, no gap of
+   20 ms).  The log line adds what the PP side can see: the longest gap
+   between pieces and, in layout A, the FIQs that found the I2S FIFO
+   empty (e=).  The codec is write-only: nothing of its analogue output
+   (a crackle) can be measured here */
+static bool ap_try(unsigned long hz, bool longer)
 {
-    unsigned long us, frames, got;
-    long end;
+    unsigned long us, frames, got, gap, empty = 0;
+    long end, half;
+    bool ok;
+#ifdef HAVE_CORE_LAYOUT_A
+    struct pcm_pp_stats st0, st1;
+#endif
 
     pcm_set_frequency(hz);
     pcm_apply_settings();
     ap_log_osr();
     pcm_builtin_set_depth(16);
     ap_pieces = 0;
-    pcm_play_data(ap_more, ap_status, ap_silence, sizeof(ap_silence));
-    end = current_tick + HZ * 6 / 10;
+    ap_gap_max = 0;
+    ap_buf = longer ? ap_quiet : ap_silence;
+#ifdef HAVE_CORE_LAYOUT_A
+    pcm_pp_get_stats(&st0);
+#endif
+    pcm_play_data(ap_more, ap_status, ap_buf, sizeof(ap_silence));
+    end = current_tick + audiophile_test_ms(longer) * HZ / 1000;
+    half = current_tick + AP_TEST_QUIET_MS * HZ / 1000;
     while (TIME_BEFORE(current_tick, end))
+    {
         sleep(HZ / 20);
+        if (longer && !TIME_BEFORE(current_tick, half))
+            ap_buf = ap_silence;        /* the next piece: exact zeros */
+    }
     pcm_play_stop();
+#ifdef HAVE_CORE_LAYOUT_A
+    pcm_pp_get_stats(&st1);
+    empty = st1.fifo_empty - st0.fifo_empty;
+#endif
 
     us = ap_t_last - ap_t_first;
     frames = ap_pieces > 1 ? (ap_pieces - 1) * (sizeof(ap_silence) / 4) : 0;
     got = us ? (unsigned long)((uint64_t)frames * 1000000 / us) : 0;
-    ui_log("audio", "high rate test %lu Hz: %lu pieces, %lu Hz measured: %s",
-           hz, ap_pieces, got,
-           got * 100 >= hz * 97 && got * 100 <= hz * 103 ? "pass" : "FAIL");
-    return got * 100 >= hz * 97 && got * 100 <= hz * 103;
+    gap = ap_gap_max;
+    ok = audiophile_rate_test_ok(hz, got, gap);
+    ui_log("audio", "high rate test %lu Hz%s: %lu pieces, %lu Hz measured, "
+           "gap %lu us, e=%lu: %s", hz, longer ? " 128x 4 s" : "",
+           ap_pieces, got, gap, empty, ok ? "pass" : "FAIL");
+    return ok;
 }
 #endif /* !SIMULATOR */
 
-int audiophile_selftest(void)
+/* Hi-Res 128x: the high rates that run the DAC at 128x now (the setting
+   and the rates its own test passed); AP_RATE_* are DAC_OSR128_*'s bits */
+#if AP_RATE_88 != DAC_OSR128_88 || AP_RATE_96 != DAC_OSR128_96
+#error "AP_RATE_* and DAC_OSR128_* must match"
+#endif
+static unsigned int ap_osr128_rates(void)
+{
+    if (!global_settings.ipodui_osr128)
+        return 0;
+    return global_settings.ipodui_osr128_ok & (AP_RATE_88 | AP_RATE_96);
+}
+
+/* One self-test run: each high rate through the real output path with
+   the DAC at 64x (High Sample Rate's test) or 128x (Hi-Res 128x's), the
+   saved choice back after; returns AP_TESTED | the rates that passed */
+static int ap_run_test(bool osr128)
 {
     int mask = 0;
 #ifdef SIMULATOR
-    const char *f = getenv("PROKBOX_HIRATE_FAULT");
+    const char *f = getenv(osr128 ? "PROKBOX_OSR128_FAULT"
+                                  : "PROKBOX_HIRATE_FAULT");
 
-    sleep(HZ);      /* about as long as the device's test */
+    sleep(osr128 ? 2 * HZ : HZ);    /* about as long as the device's */
     mask = AP_RATE_88 | AP_RATE_96;
     if (f && !strcmp(f, "test96"))
         mask = AP_RATE_88;
@@ -218,8 +304,9 @@ int audiophile_selftest(void)
     unsigned long was_hz;
     int index = 0;
 
-    if (pcm_current_sink() != PCM_SINK_BUILTIN)
-        return global_settings.ipodui_hirate_ok;
+    if (pcm_current_sink() != PCM_SINK_BUILTIN)    /* the stored result */
+        return osr128 ? global_settings.ipodui_osr128_ok
+                      : global_settings.ipodui_hirate_ok;
     playlist_get_resume_info(&index);
     audio_stop();
     long end = current_tick + 2 * HZ;
@@ -232,18 +319,27 @@ int audiophile_selftest(void)
 #ifdef HAVE_DAC_STANDBY
     dac_wake();
 #endif
-    if (ap_try(SAMPR_88))
+    dac_set_osr128(osr128 ? DAC_OSR128_88 | DAC_OSR128_96 : 0);
+    if (ap_try(SAMPR_88, osr128))
         mask |= AP_RATE_88;
-    if (ap_try(SAMPR_96))
+    if (ap_try(SAMPR_96, osr128))
         mask |= AP_RATE_96;
-    /* the rated clock back through the driver (PLL, R6, R7) */
+    /* the rated clock back through the driver (PLL, R6, R7), then the
+       saved Hi-Res 128x choice (applied at the next high rate) */
     pcm_set_frequency(was_hz);
     pcm_apply_settings();
+    dac_set_osr128(ap_osr128_rates());
     ap_log_osr();
     if (playing && playlist_amount() > 0)
         playlist_start(index < 0 ? 0 : index, elapsed, offset);
 #endif
-    mask |= AP_TESTED;
+    return mask | AP_TESTED;
+}
+
+int audiophile_selftest(void)
+{
+    int mask = ap_run_test(false);
+
     global_settings.ipodui_hirate_ok = mask;
     if (!(mask & (AP_RATE_88 | AP_RATE_96)))
         global_settings.ipodui_hirate = false;
@@ -252,6 +348,33 @@ int audiophile_selftest(void)
            mask & AP_RATE_88 ? "pass" : "fail",
            mask & AP_RATE_96 ? "pass" : "fail");
     return mask;
+}
+
+int audiophile_osr128_selftest(void)
+{
+    int mask = ap_run_test(true);
+
+    global_settings.ipodui_osr128_ok = mask;
+    if (!(mask & (AP_RATE_88 | AP_RATE_96)))
+        global_settings.ipodui_osr128 = false;
+    settings_save();
+    dac_set_osr128(ap_osr128_rates());
+    ui_log("audio", "hi-res 128x self-test: 88.2 %s, 96 %s",
+           mask & AP_RATE_88 ? "pass" : "fail",
+           mask & AP_RATE_96 ? "pass" : "fail");
+    return mask;
+}
+
+void audiophile_set_osr128(bool on)
+{
+    if (on == global_settings.ipodui_osr128)
+        return;
+    global_settings.ipodui_osr128 = on;
+    settings_save();
+    dac_set_osr128(ap_osr128_rates());
+    ui_log("audio", "hi-res 128x %s (rates 0x%x)", on ? "on" : "off",
+           ap_osr128_rates());
+    ap_log_osr();
 }
 
 void audiophile_set_hirate(bool on)
@@ -281,11 +404,13 @@ void audiophile_service(void)
     if (ap_failed && !ap_logged)
     {
         ap_logged = 1;
-        ui_log("audio", "high rate fault at %lu Hz: no output for 50 ms; "
-               "standard rates for this session", ap_fault_hz);
+        ui_log("audio", "high rate fault at %lu Hz: no output for %d ms; "
+               "standard rates for this session", ap_fault_hz, AP_STALL_MS);
     }
 #ifdef SIMULATOR
-    /* =run: arm once, when a high-rate track first plays */
+    /* =run: arm once, when a high-rate track first plays (a forced
+     * fault 2 s on); =stall: the progress word stops there instead, so
+     * the watch itself must find it */
     static bool armed;
     if (!armed && pcm_is_playing() && pcm_get_frequency() > SAMPR_48)
     {
@@ -293,6 +418,11 @@ void audiophile_service(void)
         armed = true;
         if (f && !strcmp(f, "run"))
             ap_sim_run = 2 * HZ;
+        else if (f && !strcmp(f, "stall"))
+        {
+            ap_sim_dead = true;
+            ui_log("audio", "high rate sim: the output clock stops now");
+        }
     }
 #endif
 }
@@ -337,6 +467,7 @@ void audiophile_init(void)
                audiophile_width_cut_db(ap_width_depth[level]));
     }
 #ifdef HAVE_HIRATE_OUT
+    dac_set_osr128(ap_osr128_rates());  /* Hi-Res 128x, saved */
     tick_add_task(ap_tick);
 #endif
 }

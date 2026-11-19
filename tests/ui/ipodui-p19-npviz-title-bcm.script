@@ -52,6 +52,8 @@ key SELECT          # Rating
 wait 600
 key SELECT          # Shuffle
 wait 600
+key SELECT          # Info (#277)
+wait 500
 key SELECT          # Visualizer
 wait 1500
 hold SELECT 1200    # the style list

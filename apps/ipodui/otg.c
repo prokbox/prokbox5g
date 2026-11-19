@@ -826,7 +826,9 @@ int otg_save(char *name, size_t len)
 int otg_play(int pos)
 {
     struct io io = { 0, 0 };
-    struct playlist_insert_context c;
+    /* zeroed: a failed create leaves "progress" unset and release(),
+     * which this function calls on that path too, splashes on it */
+    struct playlist_insert_context c = { 0 };
     struct lr r;
     char *sb = begin(&io), *line;
     int fd, len, i = 0, added = 0, start = 0;

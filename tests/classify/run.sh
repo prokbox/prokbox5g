@@ -45,3 +45,39 @@ if ! "$HOSTCC" -std=gnu99 -O1 -g -Wall -Wextra -Werror ${EXTRA_CFLAGS:-} \
     exit 1
 fi
 "$TMP/test_bookclass" || { echo "FAIL: bookclass"; exit 1; }
+
+# #163: parser rows. The genre comes from the real ID3 parser (warble -m on
+# tests/fixtures/mv/, made by make_multivalue_fixtures.py), then the same
+# rules classify it: ID3v2.3 TCON "(183)" is Audiobook, so a book anywhere.
+if [ -z "${WARBLE:-}" ]; then
+    for w in build/warble/warble.*; do
+        [ -x "$w" ] && WARBLE=$w && break
+    done
+fi
+if [ -z "${WARBLE:-}" ] || [ ! -x "$WARBLE" ]; then
+    echo "FAIL: warble not found (scripts/test.sh builds it)"
+    exit 2
+fi
+fail=0
+n=0
+while read -r fixture want; do
+    [ -n "$fixture" ] || continue
+    if ! "$WARBLE" -m "tests/fixtures/mv/$fixture" >"$TMP/m.txt" 2>/dev/null; then
+        echo "FAIL: warble -m tests/fixtures/mv/$fixture"
+        fail=1
+        continue
+    fi
+    genre=$(sed -n 's/^Genre: //p' "$TMP/m.txt")
+    got=$("$TMP/test_bookclass" --one "$genre" "/Music/a/$fixture")
+    n=$((n + 1))
+    if [ "$got" != "$want" ]; then
+        echo "FAIL: $fixture: genre '$genre' is $got, want $want"
+        fail=1
+    fi
+done <<EOF
+g183.mp3 book
+g148.mp3 music
+EOF
+[ "$n" = 2 ] || { echo "FAIL: parser rows ran $n of 2"; exit 1; }
+[ "$fail" = 0 ] || exit 1
+echo "ok   bookclass parser rows: $n (g183.mp3 '(183)' is a book)"

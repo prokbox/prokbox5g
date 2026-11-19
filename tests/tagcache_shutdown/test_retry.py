@@ -82,6 +82,7 @@ static long current_tick;
 static char ui_db_root[] = "/.rockbox";
 static int tagcache_queue, command_queue_mutex;
 static bool ui_generation_unresolved, ui_generation_fresh, ui_db_fresh;
+static bool ui_upgrade_owed;     /* p090-upgpage */
 static bool ui_candidate_pending, ui_maintenance_for_snapshot, ui_import_pending;
 static bool ui_pre_pending, ui_pre_request, ui_busy = true, ui_stats_recovering;
 static bool ui_stats_restart, ui_candidate_maybe_published, ui_reload_pending;
@@ -167,6 +168,16 @@ enum dbgen_result dbgen_select(const char *r, char out[DBGEN_PATH_MAX], void *s,
 enum dbgen_result dbgen_finish_publish(struct dbgen_publication *p) { (void)p; return DBGEN_OK; }
 static bool ui_candidate_stats_finish(void *b, size_t n) { (void)b; (void)n; return true; }
 static void ui_candidate_stats_release(void) {}
+/* p090-floor2/3: the settle before the pool, PLAY's request, the rebase */
+static bool ui_stats_restart;
+static bool ui_candidate_stats_settle(void) { return true; }
+static volatile bool ui_publish_cuttable, ui_play_req;
+static volatile bool ui_sleep_job, ui_sleep_cut;
+static int rebases_now;
+static void dbq_tc_rebase_now(void) { rebases_now++; }
+/* p090-artrelease: the publication wakes the art builder */
+static int art_wakes;
+static void artcache_library_published(void) { art_wakes++; }
 static void ui_publish_end(void) { ui_publishing = false; }
 static long rebuild_data = -1;
 static void queue_post(int *q, long id, intptr_t data)
@@ -200,7 +211,7 @@ static bool ui_candidate_stats_prepare(void)
 { stats_prepares++; ui_stats_prepared = prepare_ok; return prepare_ok; }
 static void load_ramcache(void) {}
 static int ram_yields;          /* P16: refused prepares that yield RAM */
-static void ui_candidate_ram_yield(void) { ram_yields++; }
+static void ui_candidate_ram_yield(bool play) { (void)play; ram_yields++; }
 static int tagcache_ui_count_ctx(struct tagcache_context *c) { (void)c; return 1; }
 static bool ui_precompute_event(void) { return false; }
 #define LIB_PRE_DONE 0
@@ -313,8 +324,10 @@ int main(void)
     ui_build->stat.ready = ui_build->stat.ramcache = true;
     ui_retry_later(UI_RETRY_PUBLISH, "x", -1);
     current_tick += 2 * HZ;
+    art_wakes = 0;
     assert(ui_candidate_publish() && ui_active == &ui_context_b);
     assert(!ui_retry[UI_RETRY_PUBLISH].delay && !ui_busy);
+    assert(art_wakes == 1);         /* p090-artrelease: the art pass woken */
 
     /* p081-floor: the generation a publication retires gives its RAM
      * cache back at once when nothing holds it ... */

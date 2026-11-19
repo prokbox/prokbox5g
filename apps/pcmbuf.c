@@ -20,6 +20,7 @@
  *
  ****************************************************************************/
 #include <stdio.h>
+#include <stdlib.h>
 #include "config.h"
 #include "system.h"
 #include "debug.h"
@@ -73,6 +74,46 @@ static unsigned int pcmbuf_bpf = 4;
 #define PCMBUF_SAMPLE_SIZE   (2 * 2)
 #endif
 
+#ifdef PCMBUF_FMT_SWITCH
+/* #214: a chunk's format word: the rate in Hz, FMT_S24 set for 8-byte
+   frames. pcmbuf_wfmt: the write side's (the DSP's output; the CPU sets
+   it, the COP's lease commit reads it). pcm_out_fmt: what the output
+   plays; the PCM callback stops at a chunk of any other (the CPU sets it
+   at each start and switch). Both uncached: the FIQ is the COP's in
+   layout A */
+#define FMT_S24             0x80000000u
+#define FMT_RATE(f)         ((unsigned long)((f) & ~FMT_S24))
+#define FMT_MAKE(r, bpf)    ((uint32_t)(r) | ((bpf) == 8 ? FMT_S24 : 0))
+static uint32_t pcmbuf_wfmt XCORE_BSS;
+static uint32_t pcm_out_fmt XCORE_BSS;
+/* the callback stopped at a chunk of another format (the CPU's tick asks
+   the audio thread to switch), and when (pcm_log_now_us()) */
+static volatile bool fmt_stop_seen XCORE_BSS;
+static unsigned long fmt_stop_us XCORE_BSS;
+/* the sample check: bytes the callback handed to the mixer and bytes
+   committed, both since the last reset of the buffer; at a switch every
+   byte written before the boundary, and none after, has been handed */
+static unsigned long pcm_handed XCORE_BSS;
+static unsigned long pcm_committed XCORE_BSS;
+/* the CPU's side: boundaries still in the buffer (oldest first) */
+#define FMT_BOUNDS_MAX      4
+static struct { uint32_t fmt; unsigned long at; int edge_pre, edge_post; }
+    fmt_bounds[FMT_BOUNDS_MAX];
+static unsigned int fmt_bounds_n;
+static volatile bool fmt_switch_posted; /* a Q_AUDIO_FMT_SWITCH queued */
+static bool fmt_switching;          /* the mixer's rate callback: leave the
+                                       DSP alone, it writes ahead */
+static unsigned long fmt_switch_count, fmt_check_fail_count;
+/* switches whose edge still stepped after the ramp (above ~-90 dBFS) */
+#define FMT_EDGE_QUIET      256
+static unsigned long fmt_hard_edge_count;
+/* the soft edge: the last frames before a boundary ramp down and the
+   first after it ramp up, so stopping and restarting the output for the
+   re-clock is no step (~1.5 ms at 44.1 kHz) */
+#define FMT_RAMP_FRAMES     64
+static void fmt_tick(void);
+#endif
+
 /* This is the target fill size of chunks on the pcm buffer
    Can be any number of samples but power of two sizes make for faster and
    smaller math - must be < 65536 bytes */
@@ -99,7 +140,14 @@ static unsigned int pcmbuf_bpf = 4;
 /* Return data level in 1/4-second increments */
 static inline unsigned int data_level(int quarter_secs)
 {
+#ifdef HAVE_PCM_24BIT_OUT
+    /* ProkBox 0.9.0 (B): bytes in quarter_secs/4 s at the frame's real
+       size (4 or 8 bytes, #268); upstream's form below counts 4-byte
+       frames, so a 24-bit track prefilled half the intended time */
+    return mixer_get_frequency() * PCMBUF_SAMPLE_SIZE / 4 * quarter_secs;
+#else
     return mixer_get_frequency() * quarter_secs;
+#endif
 }
 
 /* Number of bytes played per second */
@@ -140,6 +188,9 @@ struct chunkdesc
                                (undefined: 0, valid: 1..POSITION_KEY_MAX) */
     unsigned long  elapsed; /* Elapsed time to use */
     off_t          offset;  /* Offset to use */
+#ifdef PCMBUF_FMT_SWITCH
+    uint32_t       fmt;     /* #214: the format it was written at */
+#endif
 };
 
 #define POSITION_KEY_MAX    UINT16_MAX
@@ -346,6 +397,10 @@ extern void audio_pcmbuf_track_change_fiq(void);
 #endif
 extern bool audio_pcmbuf_may_play(void);
 extern void audio_pcmbuf_sync_position(void);
+#ifdef PCMBUF_FMT_SWITCH
+extern void audio_pcmbuf_fmt_switch_post(void);
+extern size_t audio_pcmbuf_size_byterate(void);
+#endif
 
 #ifdef HAVE_CORE_LAYOUT_A
 /* rc.6: the FIQ (on the COP) no longer writes the playing id3 or calls
@@ -519,6 +574,10 @@ static void commit_chunks(size_t threshold)
 
         /* Fill in the values in the new buffer chunk */
         desc->size = (uint16_t)size;
+#ifdef PCMBUF_FMT_SWITCH
+        desc->fmt = pcmbuf_wfmt;
+        pcm_committed += size;
+#endif
 
         /* Advance the current write chunk and make it available to the
            PCM callback */
@@ -819,6 +878,16 @@ void pcmbuf_write_complete(int count, unsigned long elapsed, off_t offset)
 static unsigned int get_next_required_pcmbuf_chunks(void)
 {
     size_t size = MIN_BUFFER_SIZE;
+#if defined(PCMBUF_FMT_SWITCH) && MEMORYSIZE > 2
+    /* #214: a seamless switch keeps this buffer, so it holds its seconds
+       at the largest standard format the output may switch to
+       (playback.c; 88.2/96 kHz only while the output is there), not
+       only at today's */
+    size_t max_br = audio_pcmbuf_size_byterate();
+
+    if (max_br > BYTERATE)
+        size = max_br * 3;
+#endif
 
 #ifdef HAVE_CROSSFADE
     if (crossfade_enable_request != CROSSFADE_ENABLE_OFF)
@@ -847,6 +916,20 @@ static void init_buffer_state(void)
 
     /* Clear change notification */
     chunk_transidx = INVALID_BUF_INDEX;
+#ifdef PCMBUF_FMT_SWITCH
+    /* #214: a flush keeps the write format (the codec goes on at it); a
+       chunk of it that differs from the output's is switched to at the
+       next start (pcmbuf_play_start()) */
+    pcm_handed = pcm_committed = 0;
+    fmt_bounds_n = 0;
+    fmt_stop_seen = false;
+    /* b16: a stop clears the audio thread's queue (Q_AUDIO_STOP) after
+       this; a switch request still queued goes with it, and a flag left
+       set would keep the tick and the next start from ever asking again:
+       the output would wait at the next boundary forever. A request that
+       survives finds nothing to do (pcmbuf_fmt_switch() checks) */
+    fmt_switch_posted = false;
+#endif
 }
 
 unsigned int pcmbuf_write_epoch(void)
@@ -1007,6 +1090,10 @@ static void lease_commit_chunks(size_t threshold)
         size_t size = MIN(lease.waiting, PCMBUF_CHUNK_SIZE);
         lease.waiting -= size;
         desc->size = (uint16_t)size;
+#ifdef PCMBUF_FMT_SWITCH
+        desc->fmt = pcmbuf_wfmt;
+        pcm_committed += size;
+#endif
         chunk_widx = index = index_next(index);
         desc = index_chunkdesc(index);
         desc->pos_key = 0;
@@ -1084,6 +1171,19 @@ size_t pcmbuf_init(void *bufend)
     pcmbuf_bpf = mixer_get_depth() > 16 ? 8 : 4;
     dsp_set_output_depth(dsp_get_config(CODEC_IDX_AUDIO),
                          pcmbuf_bpf == 8 ? 24 : 16);
+#endif
+#ifdef PCMBUF_FMT_SWITCH
+    /* #214: a remake starts both sides at the output's format */
+    pcmbuf_wfmt = pcm_out_fmt = FMT_MAKE(mixer_get_frequency(), pcmbuf_bpf);
+    {
+        static bool fmt_tick_on;
+
+        if (!fmt_tick_on)
+        {
+            fmt_tick_on = true;
+            tick_add_task(fmt_tick);
+        }
+    }
 #endif
 #if defined(HAVE_IPOD_UI) && defined(HAVE_DISK_STORAGE) && MEMORYSIZE > 2
     pcmbuf_prefill_qsecs = ata_disk_isssd() ? 1 : 4;    /* #79 */
@@ -1439,7 +1539,29 @@ static void pcmbuf_pcm_callback(const void **start, size_t *size)
     /*- Process the new one -*/
     if (index != chunk_widx && !fade_out_complete)
     {
-        current_desc = desc = index_chunkdesc(index);
+        desc = index_chunkdesc(index);
+#ifdef PCMBUF_FMT_SWITCH
+        if (desc->fmt != pcm_out_fmt)
+        {
+            /* #214: the next track's format starts here: the output
+               stops (no underrun) and the CPU re-clocks it and restarts
+               (pcmbuf_fmt_switch(), asked for by the tick) */
+            current_desc = NULL;
+            *size = 0;
+            if (!fmt_stop_seen)
+            {
+#ifdef USEC_TIMER
+                fmt_stop_us = USEC_TIMER;
+#else
+                fmt_stop_us = current_tick * (1000000 / HZ);
+#endif
+                fmt_stop_seen = true;
+            }
+            return;
+        }
+        pcm_handed += desc->size;
+#endif
+        current_desc = desc;
 
         *start = index_buffer(index);
         *size = desc->size;
@@ -1489,6 +1611,10 @@ static void pcmbuf_pcm_callback(const void **start, size_t *size)
 
 static void pcmbuf_sampr_callback(uint32_t sampr)
 {
+#ifdef PCMBUF_FMT_SWITCH
+    if (fmt_switching)
+        return;     /* #214: the DSP writes ahead, at the next track's */
+#endif
     struct dsp_config* dsp = dsp_get_config(CODEC_IDX_AUDIO);
     dsp_configure(dsp, DSP_SET_OUT_FREQUENCY, sampr);
 #ifdef HAVE_PCM_24BIT_OUT
@@ -1526,6 +1652,221 @@ static void log_pcm_start(void)
 }
 #endif
 
+#ifdef PCMBUF_FMT_SWITCH
+/* #214: the soft edge. Ramps the first (up) or last (down) frames of a
+   chunk in place, at most FMT_RAMP_FRAMES; returns the boundary frame's
+   larger channel before, *post after, in 24-bit units */
+static int fmt_peak(const void *frame, unsigned int bpf)
+{
+    if (bpf == 8)
+    {
+        const int32_t *f = frame;
+        return MAX(abs(f[0] >> 8), abs(f[1] >> 8));
+    }
+    const int16_t *f = frame;
+    return MAX(abs(f[0]), abs(f[1])) << 8;
+}
+
+static int fmt_ramp(void *buf, size_t bytes, unsigned int bpf, bool up,
+                    int *post)
+{
+    int frames = bytes / bpf;
+    int n = MIN(frames, FMT_RAMP_FRAMES);
+    char *edge, *p;
+    int pre, i;
+
+    if (frames <= 0)
+    {
+        *post = -1;
+        return -1;
+    }
+    /* the boundary frame: the first (up) or the last (down) */
+    edge = (char *)buf + (up ? 0 : (size_t)(frames - 1) * bpf);
+    pre = fmt_peak(edge, bpf);
+
+    p = (char *)buf + (up ? 0 : (size_t)(frames - n) * bpf);
+    for (i = 0; i < n; i++, p += bpf)
+    {
+        /* up: 0/n .. (n-1)/n; down: (n-1)/n .. 0/n */
+        int g = up ? i : n - 1 - i;
+
+        if (bpf == 8)
+        {
+            int32_t *f = (int32_t *)p;
+            f[0] = (int32_t)((int64_t)f[0] * g / n);
+            f[1] = (int32_t)((int64_t)f[1] * g / n);
+        }
+        else
+        {
+            int16_t *f = (int16_t *)p;
+            f[0] = (int16_t)(f[0] * g / n);
+            f[1] = (int16_t)(f[1] * g / n);
+        }
+    }
+#ifdef HAVE_CORE_LAYOUT_A
+    commit_dcache();    /* the COP's mix reads SDRAM */
+#endif
+    *post = fmt_peak(edge, bpf);
+    return pre;
+}
+
+void pcmbuf_set_write_format(unsigned long rate, int depth)
+{
+    unsigned int bpf = depth > 16 ? 8 : 4;
+    uint32_t fmt = FMT_MAKE(rate, bpf);
+    int pre = -1, post = -1;
+
+    LEASE_RECLAIM();
+    if (fmt == pcmbuf_wfmt)
+        return;
+
+    /* no chunk holds two formats (the track change committed it all) */
+    commit_if_needed(COMMIT_ALL_DATA);
+
+    /* the outgoing track's last chunk ramps down, unless it is playing */
+    if (chunk_ridx != chunk_widx)
+    {
+        size_t tail = index_chunk_offs(chunk_widx, -1);
+
+        if (tail != chunk_ridx)
+            pre = fmt_ramp(index_buffer(tail), index_chunkdesc(tail)->size,
+                           PCMBUF_SAMPLE_SIZE, false, &post);
+    }
+
+    if (fmt_bounds_n < FMT_BOUNDS_MAX)
+    {
+        fmt_bounds[fmt_bounds_n].fmt = fmt;
+        fmt_bounds[fmt_bounds_n].at = pcm_committed;
+        fmt_bounds[fmt_bounds_n].edge_pre = pre;
+        fmt_bounds[fmt_bounds_n].edge_post = post;
+        fmt_bounds_n++;
+    }
+
+    pcmbuf_wfmt = fmt;
+    pcmbuf_bpf = bpf;
+
+    struct dsp_config *dsp = dsp_get_config(CODEC_IDX_AUDIO);
+    dsp_configure(dsp, DSP_SET_OUT_FREQUENCY, rate);
+    dsp_set_output_depth(dsp, bpf == 8 ? 24 : 16);
+}
+
+unsigned long pcmbuf_write_format(int *depth)
+{
+    *depth = (pcmbuf_wfmt & FMT_S24) ? 24 : 16;
+    return FMT_RATE(pcmbuf_wfmt);
+}
+
+/* the CPU's tick: the callback stopped at a boundary (it can't post) */
+static void fmt_tick(void)
+{
+    if (fmt_stop_seen && !fmt_switch_posted)
+    {
+        fmt_switch_posted = true;
+        audio_pcmbuf_fmt_switch_post();
+    }
+}
+
+void pcmbuf_fmt_switch(void)
+{
+    bool stopped_at = fmt_stop_seen;
+    unsigned long stop_us = fmt_stop_us;
+
+    LEASE_RECLAIM();
+    fmt_switch_posted = false;
+    if (mixer_channel_status(PCM_MIXER_CHAN_PLAYBACK) != CHANNEL_STOPPED
+        || chunk_ridx == chunk_widx)
+        return;     /* not there yet: the tick asks again */
+
+    struct chunkdesc *desc = index_chunkdesc(chunk_ridx);
+    uint32_t fmt = desc->fmt;
+
+    if (fmt == pcm_out_fmt)
+    {
+        fmt_stop_seen = false;
+        start_audio_playback();
+        return;
+    }
+
+    bool s24 = (fmt & FMT_S24) != 0;
+    unsigned long t0 = pcm_log_now_us(), reclock_us;
+    int in_pre, in_post, out_pre = -1, out_post = -1;
+    const char *chk = "na";
+
+    /* the re-clock: the I2S and the codec (I2C), the PCM stopped */
+    fmt_switching = true;
+    mixer_set_depth(s24 ? 24 : 16);
+    mixer_set_frequency(FMT_RATE(fmt));
+    fmt_switching = false;
+    reclock_us = pcm_log_now_us() - t0;
+    pcm_out_fmt = fmt;
+
+    /* the incoming track's first chunk ramps up (it is not playing) */
+    in_pre = fmt_ramp(index_buffer(chunk_ridx), desc->size, s24 ? 8 : 4,
+                      true, &in_post);
+
+    /* every byte before the boundary was handed out, none after */
+    if (fmt_bounds_n && fmt_bounds[0].fmt == fmt)
+    {
+        if (fmt_bounds[0].at == pcm_handed)
+            chk = "ok";
+        else
+        {
+            chk = "FAIL";
+            fmt_check_fail_count++;
+        }
+        out_pre = fmt_bounds[0].edge_pre;
+        out_post = fmt_bounds[0].edge_post;
+        fmt_bounds_n--;
+        memmove(&fmt_bounds[0], &fmt_bounds[1],
+                fmt_bounds_n * sizeof(fmt_bounds[0]));
+    }
+
+    if (out_post > FMT_EDGE_QUIET || in_post > FMT_EDGE_QUIET)
+        fmt_hard_edge_count++;
+    fmt_switch_count++;
+    fmt_stop_seen = false;
+    start_audio_playback();
+
+    /* two lines (the log's width): the switch, then its checks: the
+       bytes handed out at the boundary, the edges (the boundary frame's
+       peak before/after the ramp, out then in, 24-bit units; -1: none) */
+    ui_log("pcm", "fsw n=%lu %lu/%d gap_us=%ld clk_us=%lu",
+           fmt_switch_count, FMT_RATE(fmt), s24 ? 24 : 16,
+           stopped_at ? (long)(pcm_log_now_us() - stop_us) : -1L,
+           reclock_us);
+    ui_log("pcm", "fsw chk=%s at=%lu edge=%d/%d,%d/%d", chk, pcm_handed,
+           out_pre, out_post, in_pre, in_post);
+    if (mixer_get_frequency() != FMT_RATE(fmt))
+        ui_log("pcm", "fsw rate refused: got %lu Hz",
+               (unsigned long)mixer_get_frequency());
+}
+
+unsigned long pcmbuf_fmt_switches(void)
+{
+    return fmt_switch_count;
+}
+
+unsigned long pcmbuf_fmt_check_fails(void)
+{
+    return fmt_check_fail_count;
+}
+
+unsigned long pcmbuf_fmt_hard_edges(void)
+{
+    return fmt_hard_edge_count;
+}
+
+unsigned long pcmbuf_dsp_out_frequency(void)
+{
+    /* b16 (b15 seam96, rs0): not the output's. Between tracks the codec
+       runs the next track while the output still plays the last one at
+       its own rate; the mixer's rate then made the DSP convert the new
+       track to the old rate and the chunks, tagged with the new one,
+       played too fast or too slow (96 kHz after 48 kHz: twice as fast) */
+    return FMT_RATE(pcmbuf_wfmt);
+}
+#endif /* PCMBUF_FMT_SWITCH */
+
 /* Force playback */
 void pcmbuf_play_start(void)
 {
@@ -1534,6 +1875,19 @@ void pcmbuf_play_start(void)
     if (mixer_channel_status(PCM_MIXER_CHAN_PLAYBACK) == CHANNEL_STOPPED &&
         chunk_widx != chunk_ridx)
     {
+#ifdef PCMBUF_FMT_SWITCH
+        if (index_chunkdesc(chunk_ridx)->fmt != pcm_out_fmt)
+        {
+            /* #214: the waiting audio is at another format: the audio
+               thread re-clocks first (it starts the channel after) */
+            if (!fmt_switch_posted)
+            {
+                fmt_switch_posted = true;
+                audio_pcmbuf_fmt_switch_post();
+            }
+            return;
+        }
+#endif
         current_desc = NULL;
         static const struct mixer_play_cbs cbs = {
             .get_more = pcmbuf_pcm_callback,

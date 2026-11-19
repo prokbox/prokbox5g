@@ -359,3 +359,38 @@ path (seek before the first frame), and the player thread at
 PRIORITY_VIDEO_FEED holding the codec thread that serves the COP's
 callbacks. The end state is unchanged: the video's sound goes to the
 VideoCore (stage 8b/9).
+
+**#283 (0.9.0, 2026-11-12): the soundtrack is bound to the COP again.**
+Code reading, ranked; nothing here has run on silicon yet.
+1. **A call storm at the start (most likely; the code shows it, the cost
+   is estimated).** `aac.c` parses the MP4's `moov` with `qtmovie_read()`,
+   and `libm4a/demux.c` reads its sample tables 4 bytes per
+   `read_filebuf()` (`stsz` one read per audio frame, ~25,800 for a
+   10-minute film; `stco` one per chunk; `stsc` two per entry). On the COP
+   each was a cross-core call, and 0.8.3's colocate kept `read_filebuf` a
+   call. At the ~127 µs per call measured from the Opus start
+   (changes-from-rockbox, `opusstart`), that is about 4–8 s before the
+   first sample of a 10-minute film, more for longer ones: 4gh's "no PCM
+   within play_from's 5 s" and S36's still clock both fit. `tests/codecplace`
+   (`test_small_reads`, the M4B and soundtrack arms) counts it: 2,124
+   calls besides the windows before #294's `in_read()`, 13 after; with
+   the guard still in, the soundtrack is not bound at all (red).
+2. **A call per audio chunk in steady state (proven by code; a cost,
+   not a stall).** Each chunk sits after the picture's samples, so
+   `aac.c` seeks forward (`m4a_check_sample_offset()`) at each one, and
+   every seek was a call that also published the window and dropped
+   pcmbuf's lease. Now a short forward seek inside the buffered bytes is
+   local (`in_seek()`); back or ≥ 64 KB still calls.
+3. **The codec's id3 shared through both caches (hypothesis; fixed by
+   #196 on 2026-11-07, after both sightings).** The video screen's resume
+   and seeks wrote `elapsed`/`offset` through the CPU's cache while the COP
+   read the uncached alias (quirk 90).
+4. **The feed thread holding the codec thread (ruled out by code).**
+   `PRIORITY_CODEC` 13 outranks `PRIORITY_VIDEO_FEED` 14 (`thread.h`), and
+   the feed blocks on its queue every turn (`vplayer.c`
+   `queue_wait_w_tmo`).
+The video reads the soundtrack's handle with `bufpeek_at()` from the
+handle's start, so the COP's lease (a stale `pos` only keeps more bytes)
+does not take its bytes away. To show on the device: `codec ... in rd=
+sk=` lines with `fall` near 0 and the start trace's `start in n=` in the
+tens, during a film.

@@ -96,6 +96,10 @@
 # The budget-reviewer agent is run separately by the orchestrator.
 set -u
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
+# shots.sh judges an ipodui-* script itself by default (check_trace, "# same:");
+# the gate does that per script below (and the UBSan pass not at all), so every
+# shots.sh this gate starts skips it.
+export SHOTS_CHECK=0
 cd "$ROOT"
 
 QUICK=0; CHANGED=0; RELEASE=0
@@ -2088,6 +2092,20 @@ if [ -d apps/ipodui ] && grep -rnI --include='*.c' -iE '"[^"]*rockbox[^"]*"' app
     bad "Rockbox string in apps/ipodui"
 else
     echo "none"
+fi
+
+step "shell languages (P20: Deutsch, Nederlands complete and drawable)"
+# every shell string translated, its printf conversions kept, every
+# character in ShellSans, Rockbox only in the credits (well under 1 s)
+# and, from the built shell, every translation in its .lng: updatelang
+# swaps English in for one it refuses and still exits 0
+if [ -f build/sim-ui/lang_enum.h ]; then
+    python3 scripts/check_shell_langs.py --lng build/sim-ui \
+        || bad "shell languages (scripts/check_shell_langs.py --lng)"
+else
+    python3 scripts/check_shell_langs.py \
+        || bad "shell languages (scripts/check_shell_langs.py)"
+    bad "shell languages: build/sim-ui not built, .lng check not run"
 fi
 
 step "UBSan risk pass (#38, docs/phase-nav-brief.md Revision 1)"

@@ -33,8 +33,17 @@ struct playlist_info {
     int max_playlist_size;
     unsigned long created_tick;
 };
+/* the fields of apps/playlist.h's, in its order: the fake release reads
+ * 'progress' as the real one does, so a caller that hands it an
+ * uninitialised context after a failed create is caught (tests/otg) */
 struct playlist_insert_context {
+    struct playlist_info *playlist;
+    int position;
+    bool queue;
+    bool progress;
+    bool initialized;
     int count;
+    int count_langid;
 };
 
 struct playlist_info *playlist_get_current(void);

@@ -71,10 +71,30 @@ unsigned long audiophile_pick_rate(unsigned long src_hz, int allowed);
 int audiophile_allowed_rates(bool on, int ok_mask, bool failed,
                              int battery_pct);
 
+/* p090-osr128: the per-rate self-test's pure parts (host-tested).  How
+ * long one rate plays (ms): High Sample Rate's test 600, Hi-Res 128x's
+ * 4000, the first AP_TEST_QUIET_MS of it a +-1 LSB signal, the rest exact
+ * silence; and its verdict: the drain rate measured (got_hz) within 3 %
+ * of hz and no gap between two DMA pieces of AP_TEST_GAP_FAIL_US or more
+ * (a clock that stopped; a late FIQ is under 1 ms, b16) */
+#define AP_TEST_QUIET_MS        2000
+#define AP_TEST_GAP_FAIL_US     20000
+unsigned long audiophile_test_ms(bool osr128);
+bool audiophile_rate_test_ok(unsigned long hz, unsigned long got_hz,
+                             unsigned long gap_us);
+
 /* The output depth for a source of bits (0: unknown) on this path: 24
- * when the source carries more than 16 bits and nothing in the chain
- * needs 16-bit frames (crossfade, another sink), else 16 (pure). */
-int audiophile_pick_depth(int src_bits, bool crossfade, bool builtin_sink);
+ * when the source carries more than 16 bits, or its decoder hands the DSP
+ * more than 16 bits (deep_codec: MP3 and AAC, #289), and nothing in the
+ * chain needs 16-bit frames (crossfade, another sink), else 16 (pure). */
+int audiophile_pick_depth(int src_bits, bool deep_codec, bool crossfade,
+                          bool builtin_sink);
+
+/* #214: the bytes a second of the largest output format this session may
+ * switch to without a remake (the high rates allowed, the depth rule),
+ * so the PCM buffer is sized for it (pure) */
+unsigned long audiophile_max_byterate(int allowed, bool crossfade,
+                                      bool builtin_sink);
 
 /* 0.8.3: the DAC precut (whole dB) for a 3D depth (0..15): 0/5/10/15 ->
  * 0/2/4/6; and the precut the codec applies with an EQ's own precut on
@@ -103,6 +123,23 @@ int audiophile_selftest(void);
 /* Turns native high-rate output on or off (saved).  Playing music moves
  * to the new output rate at once (a short gap) */
 void audiophile_set_hirate(bool on);
+
+/* 0.9.0 Hi-Res 128x (owner, 2026-11-13; Off by default): the DAC's 128x
+ * oversampling instead of 64x at 88.2/96 kHz output (so also for 176.4/
+ * 192 kHz sources converted down to them).  Its own self-test, as High
+ * Sample Rate's but with the DAC at 128x and longer (p090-osr128: 4 s a
+ * rate, ~9 s in all: 2 s of a +-1 LSB signal, then 2 s of exact silence;
+ * each rate also fails on a 20 ms gap between DMA pieces; the log line
+ * gives the longest gap and the FIQs that found the I2S FIFO empty):
+ * stores and returns AP_TESTED |
+ * the rates that passed in ipodui_osr128_ok, turns the setting off when
+ * none did.  128x then runs only at the rates that passed.  Simulator:
+ * both pass, unless PROKBOX_OSR128_FAULT is "test96" or "test".
+ * audiophile_set_osr128() saves the choice and applies it: at once when
+ * a high rate plays (a short soft-mute ramp, dac_ext.h), else at the
+ * next high rate.  Log: "hi-res 128x on|off", then "dac osr=128|64". */
+int audiophile_osr128_selftest(void);
+void audiophile_set_osr128(bool on);
 
 /* Stereo width, 0..3 (saved), applied at once */
 void audiophile_set_width(int level);

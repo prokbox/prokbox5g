@@ -110,7 +110,18 @@ static int32_t intern(int tag, const char *s)
         for (i = 1; i < nstrs[tag]; i++)
             if (!strcmp(strs[tag][i], s))
                 return i;
-    strs[tag][nstrs[tag]] = s;
+    {
+        /* 0.9.0 (#235): stored as tagcache stores it, "display NUL sort
+         * NUL"; a fixture may give "display|sort" */
+        size_t n = strlen(s);
+        char *c = calloc(1, n + 2), *bar;
+
+        memcpy(c, s, n);
+        bar = strchr(c, '|');
+        if (bar)
+            *bar = '\0';
+        strs[tag][nstrs[tag]] = c;
+    }
     return nstrs[tag]++;
 }
 
@@ -410,6 +421,7 @@ static struct playlist_info info = { 2000, 1 };
 int fake_pl_n;
 int fake_pl[40000];             /* master indices inserted, in order */
 int fake_pl_start = -1, fake_pl_shuffled;
+int fake_pl_create_fail, fake_pl_creates, fake_pl_splashes, fake_pl_garbage;
 unsigned long fake_pl_elapsed;
 
 struct playlist_info *playlist_get_current(void) { return &info; }
@@ -451,11 +463,17 @@ int playlist_insert_context_create(struct playlist_info *playlist,
                                    struct playlist_insert_context *c,
                                    int position, bool queue, bool progress)
 {
-    (void)playlist;
     (void)position;
     (void)queue;
-    if (progress)
+    fake_pl_creates++;
+    /* as apps/playlist.c: these two are set before anything can fail;
+     * the rest (progress too) only on success */
+    c->playlist = playlist;
+    c->initialized = false;
+    if (progress || fake_pl_create_fail)
         return -1;      /* the default context splashes: library must not */
+    c->progress = progress;
+    c->initialized = true;
     c->count = 0;
     return 0;
 }
@@ -472,7 +490,18 @@ int playlist_insert_context_add(struct playlist_insert_context *c,
 
 void playlist_insert_context_release(struct playlist_insert_context *c)
 {
-    (void)c;
+    /* the real release shows display_playlist_count()'s splash when
+     * 'progress' is set: on a context the create failed on, only an
+     * uninitialised field can set it. Read as its byte: a bool the
+     * compiler may test by its low bit alone, and tests/otg fills
+     * uninitialised locals with 0xFE/0xAA (even), so a garbage value is
+     * told apart from a written one (0 or 1) */
+    unsigned char raw;
+    memcpy(&raw, &c->progress, 1);
+    if (raw > 1)
+        fake_pl_garbage++;
+    else if (raw)
+        fake_pl_splashes++;
 }
 
 int playlist_shuffle(int seed, int start_index)
@@ -565,4 +594,29 @@ void stub_trace(const char *fmt, ...)
         va_end(ap);
         putchar('\n');
     }
+}
+
+/* 0.9.0 (#235): the glyph writer library.c calls at each precompute; the
+ * host has no fonts, so it writes nothing (as P0's stub) */
+#include "ipodui/libglyph.h"
+int fake_glyph_adds;
+enum libglyph_status libglyph_begin(struct libglyph_writer *w,
+                                    const char *dir,
+                                    const struct libglyph_stamp *stamp,
+                                    void *work, size_t len)
+{
+    (void)w; (void)dir; (void)stamp; (void)work;
+    return len >= LIBGLYPH_WORK_MIN ? LIBGLYPH_OK : LIBGLYPH_ERROR;
+}
+enum libglyph_status libglyph_add(struct libglyph_writer *w,
+                                  const char *utf8)
+{
+    (void)w; (void)utf8;
+    fake_glyph_adds++;
+    return LIBGLYPH_OK;
+}
+int libglyph_end(struct libglyph_writer *w, bool commit)
+{
+    (void)w; (void)commit;
+    return 0;
 }

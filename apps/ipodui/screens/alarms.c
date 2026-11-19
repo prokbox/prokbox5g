@@ -53,6 +53,7 @@
 #include "ipodui/preview.h"
 #include "ipodui/extras.h"           /* ui_x_alarms_panel(), _caption() */
 #include "ipodui/screens/screens.h"
+#include "ipodui/locale.h"
 
 /* Behaviour. The list: Create Alarm (while there is room), Sleep Timer,
  * then the alarms. SELECT opens the editor or the Sleep Timer values.
@@ -128,16 +129,13 @@ _Static_assert(sizeof(struct al_wk) <= 3072, "alarms: the module's work block");
 
 static void fmt_time(char *buf, size_t len, int h, int m)
 {
-    if (global_settings.timeformat)             /* 12 hour clock */
-        snprintf(buf, len, "%d:%02d %s", h % 12 ? h % 12 : 12, m,
-                 str(h < 12 ? LANG_IPODUI_AM : LANG_IPODUI_PM));
-    else
-        snprintf(buf, len, "%02d:%02d", h, m);
+    ui_fmt_time(buf, len, h, m);
 }
 
 static void fmt_date(char *buf, size_t len, const struct alarm *a)
 {
-    snprintf(buf, len, "%d/%d/%02d", a->mon, a->mday, a->year % 100);
+    ui_fmt_date(buf, len, LANG_IPODUI_DATE_SHORT, a->year, a->mon, a->mday,
+                -1, a->hour, a->min);
 }
 
 static uint32_t now_rtc(void)
@@ -309,7 +307,7 @@ static void field(struct ui_roller *r, int i, int min, int max, int v, int dg)
 static int picker_enter(struct ui_screen *s, const void *arg)
 {
     const struct alarm *a;
-    bool h12 = global_settings.timeformat != 0;
+    bool h12 = ui_clock_12h();
 
     if (!wk || !arg)
         return -1;
@@ -321,21 +319,27 @@ static int picker_enter(struct ui_screen *s, const void *arg)
     if (wk->rwhich == PK_DATE)
     {
         s->title = str(LANG_IPODUI_X_DATE);
-        wk->r.n = 3;                            /* US order: M / D / Y */
-        field(&wk->r, 0, 1, 12, a->mon, 2);
-        field(&wk->r, 1, 1, 31, a->mday, 2);
-        field(&wk->r, 2, 2000, 2099, a->year, 4);
+        int fd, fm, fy;
+
+        ui_date_slots(&fd, &fm, &fy);           /* the language's order */
+        wk->r.n = 3;
+        field(&wk->r, fm, 1, 12, a->mon, 2);
+        field(&wk->r, fd, 1, 31, a->mday, 2);
+        field(&wk->r, fy, 2000, 2099, a->year, 4);
     }
     else
     {
         s->title = str(LANG_IPODUI_X_TIME);
         if (h12)
         {
+            int fh, fi, fa;
+
+            ui_time_slots(&fh, &fi, &fa);
             wk->r.n = 3;
-            field(&wk->r, 0, 1, 12, a->hour % 12 ? a->hour % 12 : 12, 2);
-            field(&wk->r, 1, 0, 59, a->min, 2);
-            field(&wk->r, 2, 0, 1, a->hour >= 12, 2);
-            wk->r.f[2].text = true;
+            field(&wk->r, fh, 1, 12, a->hour % 12 ? a->hour % 12 : 12, 2);
+            field(&wk->r, fi, 0, 59, a->min, 2);
+            field(&wk->r, fa, 0, 1, a->hour >= 12, 2);
+            wk->r.f[fa].text = true;
             wk->r.txt[0] = str(LANG_IPODUI_AM);
             wk->r.txt[1] = str(LANG_IPODUI_PM);
         }
@@ -373,14 +377,24 @@ static void picker_apply(void)
 
     if (wk->rwhich == PK_DATE)
     {
-        a->mon = r->f[0].value;
-        a->year = r->f[2].value;
-        a->mday = MIN(r->f[1].value, days_in_month(a->mon, a->year));
+        int fd, fm, fy;
+
+        ui_date_slots(&fd, &fm, &fy);
+        a->mon = r->f[fm].value;
+        a->year = r->f[fy].value;
+        a->mday = MIN(r->f[fd].value, days_in_month(a->mon, a->year));
+    }
+    else if (r->n == 3)
+    {
+        int fh, fi, fa;
+
+        ui_time_slots(&fh, &fi, &fa);
+        a->hour = r->f[fh].value % 12 + 12 * r->f[fa].value;
+        a->min = r->f[fi].value;
     }
     else
     {
-        a->hour = r->n == 3 ? r->f[0].value % 12 + 12 * r->f[2].value
-                            : r->f[0].value;
+        a->hour = r->f[0].value;
         a->min = r->f[1].value;
     }
     wk->dirty = true;
@@ -429,9 +443,9 @@ static void days_refresh(void)
     wk->dmenu.title = str(LANG_IPODUI_X_REPEAT_CUSTOM);
     for (d = 0; d < 7; d++)
     {
-        snprintf(wk->dlbl[d], sizeof(wk->dlbl[0]), "%.14s%c%s",
-                 str(day_lang[d]), UI_VALUE_SEP,
-                 str((wk->ed.days >> d) & 1 ? LANG_ON : LANG_OFF));
+        locale_value_row(wk->dlbl[d], sizeof(wk->dlbl[0]), str(day_lang[d]),
+                         UI_VALUE_SEP,
+                         str((wk->ed.days >> d) & 1 ? LANG_ON : LANG_OFF));
         wk->ditem[d] = (struct ui_menu_item){ wk->dlbl[d], NULL, NULL, NULL,
             day_act[d], NULL, NULL };
     }
@@ -577,8 +591,8 @@ static void ed_refresh(void)
                 break;
         }
         if (v[0])
-            snprintf(wk->elbl[n], sizeof(wk->elbl[0]), "%.12s%c%.22s", str(name),
-                     UI_VALUE_SEP, v);
+            locale_value_row(wk->elbl[n], sizeof(wk->elbl[0]), str(name),
+                             UI_VALUE_SEP, v);
         else
             snprintf(wk->elbl[n], sizeof(wk->elbl[0]), "%s", str(name));
         wk->eitem[n] = (struct ui_menu_item){ wk->elbl[n], NULL, NULL, NULL, act,
@@ -941,17 +955,14 @@ static void fmt_in(char *buf, size_t len, uint32_t secs)
 }
 
 /* "Fri 13 Nov, 7:00 AM": the ring's weekday, day, month and time, in the
- * shell's 12/24-hour format */
+ * language's order (LANG_IPODUI_DATE_ALARM) and its 12/24-hour clock */
 static void fmt_when(char *buf, size_t len, uint32_t t)
 {
-    char hm[16];
     int y, mo, d, h, m, s;
 
     alarm_rtc_split(t, &y, &mo, &d, &h, &m, &s);
-    fmt_time(hm, sizeof(hm), h, m);
-    snprintf(buf, len, str(LANG_IPODUI_X_ALARM_PANEL_WHEN),
-             str(day_lang[alarm_rtc_wday(t) % 7]), d,
-             str(LANG_MONTH_JANUARY + (mo - 1) % 12), hm);
+    ui_fmt_date(buf, len, LANG_IPODUI_DATE_ALARM, y, mo, d,
+                alarm_rtc_wday(t) % 7, h, m);
 }
 
 /* The highlighted row's lines into l ("": none). Create Alarm: "Create

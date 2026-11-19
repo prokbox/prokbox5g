@@ -1,0 +1,60 @@
+# #180 on the BCM (P19 19-5): when another line waits its turn, the
+# PAN runs one lap and the shell wakes once at its end (no per-step
+# wakeups); the PAN stops on its rest frame ("why=turn"), the next line
+# goes up as its own strip and PAN (a new key), lap after lap.
+# long_all.mp3: title, joined artists and album all too wide.
+# The CPU path and the "..." rest: ipodui-180-np-lines-turns.
+#   SIM_BUILD=build/sim-ui-video scripts/shots.sh tests/ui/ipodui-p19-mq-lines.script
+# needs: music
+# needs: np
+# needs: video
+# timeout: 200
+# golden: skip
+# logbetween: start p0 np mq bcm start key=\S+ lap=\d+ w=1392 up=1
+# logbetween: p0 p1 np mq bcm stop why=turn phase=\d+ rc=0
+# logbetween: p0 p1 np mq line=1 from=0
+# logbetween: p0 p1 np mq bcm start key=\S+ lap=\d+ w=1392 up=1
+# logbetween: p1 p2 np mq line=2 from=1
+# nolog: np mq cpu why=
+# nolog: glass owned STALE
+# nolog: shot POISONED
+
+wait 3000
+bcm_drift on        # the developer switch: jobs (the model's auto: off)
+sim_clock 15:08
+clock_format 24
+repeat off
+wait_db 30000
+art_wait 60000
+mkdir /NPTest
+copy ../../build/np-fixtures/long_all.mp3 /NPTest/long_all.mp3
+play_files /NPTest/long_all.mp3
+wait 1000
+audio_pause on      # the track is 30 s: hold it while the turns go round
+np_pin 8000 50
+key SELECT          # Music (the menu re-reads "Now Playing" after a push/pop)
+wait 700
+key MENU
+wait 700
+wheel +10           # "Now Playing"
+wait 500
+key SELECT
+wait 1600           # past F2's first step: the title's PAN runs
+ab_mark p0
+wheel +1 100        # (input: the light stays on)
+wait 7000
+wheel -1 100
+wait 7000
+wheel +1 100
+ab_mark p1
+shot artist_pan
+wait 7000
+wheel -1 100
+wait 7000
+ab_mark p2
+shot album_pan
+key MENU
+wait 800
+audio_stop
+rm_file /NPTest/long_all.mp3
+quit

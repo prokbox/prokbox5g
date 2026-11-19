@@ -211,3 +211,18 @@ IPODUI_APP_OBJ := $(patsubst $(ROOTDIR)/%.c,$(BUILDDIR)/%.o, \
 	$(filter $(APPSDIR)/ipodui/%.c,$(SRC)))
 $(IPODUI_APP_OBJ): | $(BUILDDIR)/lang/lang.h $(BUILDDIR)/lang_enum.h \
 	$(BUILDDIR)/sysfont.h
+
+# jaglyph (p090-int4): the LANG ids a Class A shell module can draw, for
+# theme.c's Japanese glyph pin (gen_classa_lang.py). Every --ipodui build,
+# modules or not; regenerated when a module's sources, a manifest, the
+# helper list or the language enum change (written only on a change, so
+# theme.o rebuilds only when the list itself moves).
+IPODUI_CLASSA_LANG := $(BUILDDIR)/ipodui_classa_lang.h
+$(IPODUI_CLASSA_LANG): $(APPSDIR)/ipodui/modules/gen_classa_lang.py \
+	$(APPSDIR)/ipodui/modules/modules.make \
+	$(APPSDIR)/ipodui/modules/classa_helpers.txt \
+	$(wildcard $(APPSDIR)/ipodui/modules/*.mod $(APPSDIR)/ipodui/modules/*_mod.c \
+		$(APPSDIR)/ipodui/screens/*.c $(APPSDIR)/ipodui/*.c $(APPSDIR)/ipodui/*.h) \
+	$(BUILDDIR)/lang_enum.h
+	$(call PRINTS,GEN $(@F))python3 $< $(APPSDIR) $(BUILDDIR)/lang_enum.h $@
+$(BUILDDIR)/apps/ipodui/theme.o: $(IPODUI_CLASSA_LANG)

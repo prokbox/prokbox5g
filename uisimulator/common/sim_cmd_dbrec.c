@@ -152,7 +152,9 @@ static int manifest_read(int slot, unsigned char m[MANIFEST_BYTES])
     memset(m + 296, 0, 4);
     sum = ~crc_32r(m, MANIFEST_BYTES, ~0u);
     memcpy(m + 296, &saved, 4);
-    return magic == 0x47445049u && version == 1 && sum == saved && gen <= 3
+    /* 2: the library stamp's manifest (p090-upgpage); 1: before it */
+    return magic == 0x47445049u && (version == 1 || version == 2)
+           && sum == saved && gen <= 3
            ? (int)gen : -1;
 }
 
@@ -486,7 +488,7 @@ bool sim_cmd_dbrec(const char *cmd, char *argv[], int argc, int lineno)
             for (int i = 0; i < 2; i++)
             {
                 unsigned char m[MANIFEST_BYTES];
-                uint32_t version = 2, sum;
+                uint32_t version = 99, sum;    /* no firmware's */
                 ok = ok && manifest_read(i, m) >= 0;
                 memcpy(m + 4, &version, 4);
                 memset(m + 296, 0, 4);

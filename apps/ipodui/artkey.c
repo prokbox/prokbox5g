@@ -148,17 +148,16 @@ static void norm_into(struct sink *k, const char *s, size_t len)
     }
 }
 
-/* True if norm(s) is empty or equals norm("<Untagged>"). */
-static bool untagged(const char *s)
+/* True if norm(s[0..n)) is empty or equals norm("<Untagged>"). */
+static bool untagged(const char *s, size_t n)
 {
     static const char tag[] = ARTKEY_UNTAGGED;
-    size_t i = 0, n;
+    size_t i = 0;
 
     if (!s)
         return true;
-    while (is_ws((unsigned char)*s))
-        s++;
-    n = strlen(s);
+    while (n > 0 && is_ws((unsigned char)*s))
+        s++, n--;
     while (n > 0 && is_ws((unsigned char)s[n - 1]))
         n--;
     if (n == 0)
@@ -171,7 +170,13 @@ static bool untagged(const char *s)
     return true;
 }
 
-static artcache_key_t key_of(const char *albumartist, const char *artist,
+static size_t len_of(const char *s)
+{
+    return s ? strlen(s) : 0;
+}
+
+static artcache_key_t key_of(const char *albumartist, size_t aa_len,
+                             const char *artist, size_t a_len,
                              const char *album, const char *first_track_path,
                              bool ascii)
 {
@@ -183,7 +188,7 @@ static artcache_key_t key_of(const char *albumartist, const char *artist,
         k.ascii = true;
 #endif
 
-    if (untagged(album))
+    if (untagged(album, len_of(album)))
     {
         const char *slash;
 
@@ -197,11 +202,12 @@ static artcache_key_t key_of(const char *albumartist, const char *artist,
     }
     else
     {
-        const char *a = !untagged(albumartist) ? albumartist
-                      : !untagged(artist) ? artist : NULL;
+        bool aa = !untagged(albumartist, aa_len);
+        const char *a = aa ? albumartist
+                      : !untagged(artist, a_len) ? artist : NULL;
 
         if (a)
-            norm_into(&k, a, strlen(a));
+            norm_into(&k, a, aa ? aa_len : a_len);
         put(&k, ARTKEY_SEP);
         norm_into(&k, album, strlen(album));
     }
@@ -211,14 +217,25 @@ static artcache_key_t key_of(const char *albumartist, const char *artist,
 artcache_key_t artcache_key(const char *albumartist, const char *artist,
                             const char *album, const char *first_track_path)
 {
-    return key_of(albumartist, artist, album, first_track_path, false);
+    return key_of(albumartist, len_of(albumartist), artist, len_of(artist),
+                  album, first_track_path, false);
+}
+
+artcache_key_t artcache_key_n(const char *albumartist, size_t aa_len,
+                              const char *artist, size_t a_len,
+                              const char *album,
+                              const char *first_track_path, bool ascii)
+{
+    return key_of(albumartist, aa_len, artist, a_len, album,
+                  first_track_path, ascii);
 }
 
 artcache_key_t artcache_key_ascii(const char *albumartist, const char *artist,
                                   const char *album,
                                   const char *first_track_path)
 {
-    return key_of(albumartist, artist, album, first_track_path, true);
+    return key_of(albumartist, len_of(albumartist), artist, len_of(artist),
+                  album, first_track_path, true);
 }
 
 size_t artkey_norm(const char *s, char *out, size_t outsize)

@@ -9,6 +9,7 @@
  *                     \/            \/     \/    \/            \/
  *
  * Copyright (C) 2002, 2008 Daniel Stenberg
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -25,6 +26,12 @@ void lang_init(const unsigned char *builtin, unsigned char **dest, int count);
 
 /* load a given language file */
 int lang_core_load(const char *filename);
+#ifdef HAVE_IPOD_UI
+/* ProkBox (P20): Settings > Language while running (apps/language.c) */
+int lang_core_switch(const char *filename, int reserve);
+void lang_core_builtin(void);
+int lang_core_file_size(const char *filename);
+#endif
 
 int lang_load(const char *filename, const unsigned char *builtin, 
               unsigned char **dest, unsigned char *buffer, 

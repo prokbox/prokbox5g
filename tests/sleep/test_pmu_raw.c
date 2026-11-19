@@ -41,6 +41,16 @@ static unsigned char ctrl, addr, data[4], regs[256];
 static unsigned ptr;
 static int busy_left;           /* status reads still busy after a SEND */
 static int busy_each = 2;       /* per SEND; < 0 = held for ever */
+static int hold_from = -1;      /* b12: from this SEND (0-based) on, the
+                                 * bus stays busy; -1 never */
+static int hold_until = 1 << 30;/* ... up to this SEND (exclusive) */
+static int nsend;               /* SENDs since reset() */
+static uint32_t held_to;        /* a held SEND: busy until usec reaches
+                                 * this */
+static uint32_t hold_us;        /* a held SEND's length: by default just
+                                 * past one timed-out wait, over before the
+                                 * retry's */
+static bool held_ever;          /* or for ever */
 static uint32_t usec;
 struct tr { bool read; int len; unsigned char d[4]; };
 static struct tr log_[16];
@@ -50,6 +60,8 @@ unsigned char host_i2c_rd(unsigned off)
 {
     if (off == R_STATUS)
     {
+        if (held_ever || (int32_t)(held_to - usec) > 0)
+            return STATUS_BUSY;
         if (busy_left < 0)
             return STATUS_BUSY;
         if (busy_left > 0)
@@ -95,6 +107,14 @@ void host_i2c_wr(unsigned off, unsigned char v)
                     regs[data[0]] = data[1];
             }
             busy_left = busy_each;
+            if (hold_from >= 0 && nsend >= hold_from && nsend < hold_until)
+            {
+                if (hold_until == 1 << 30)
+                    held_ever = true;
+                else
+                    held_to = usec + hold_us;
+            }
+            nsend++;
         }
     }
 }
@@ -107,6 +127,12 @@ uint32_t host_usec(void)
 static void reset(int busy)
 {
     ntr = 0;
+    nsend = 0;
+    held_to = usec;
+    held_ever = false;
+    hold_us = PMU_RAW_WAIT_US + 500;
+    hold_from = -1;
+    hold_until = 1 << 30;
     busy_each = busy;
     busy_left = 0;
     ctrl = 0;
@@ -131,7 +157,107 @@ static void test_rtc(void)
     regs[0x0B] = 0x6A;          /* not BCD */
     reset(0);
     CHECK(!pmu_raw_rtc_seconds(&s), "bad BCD refused");
+    /* b12: tried twice (the retry), 3 transactions each */
+    CHECK(ntr == 6, "bad BCD: transactions %d want 6 (one retry)", ntr);
+#ifdef PMU_RAW_DIAG
+    CHECK(pmu_raw_rtc_last.tries == 2 &&
+          pmu_raw_rtc_last.step[0] == PMU_RAW_STEP_BCD &&
+          pmu_raw_rtc_last.step[1] == PMU_RAW_STEP_BCD,
+          "bad BCD: steps %u/%u tries %u", pmu_raw_rtc_last.step[0],
+          pmu_raw_rtc_last.step[1], pmu_raw_rtc_last.tries);
+    CHECK(pmu_raw_rtc_last.r[1][0] == 0x30 && pmu_raw_rtc_last.r[1][1] == 0x6A
+          && pmu_raw_rtc_last.r[1][6] == 0x26, "bad BCD: the bytes kept");
+    CHECK(!strcmp(pmu_raw_step_name(PMU_RAW_STEP_BCD), "bcd") &&
+          !strcmp(pmu_raw_step_name(PMU_RAW_STEP_READ1), "read1") &&
+          !strcmp(pmu_raw_step_name(9), "?"), "step names");
+#endif
     memcpy(regs + 0x0A, bcd, 7);
+}
+
+/* b12 round 2 (#255): a slow bus.  Each transaction busy for 6 ms (a
+ * 4-byte read at about 8 kHz) still reads in one try: the bound is
+ * Apple's 100 ms, not the old 2 ms (pinned: 100000) */
+static void test_rtc_slow_bus(void)
+{
+    static const unsigned char bcd[7] = { 0x30, 0x45, 0x13, 0x04, 0x22,
+                                          0x10, 0x26 };
+    uint32_t s = 0;
+
+    CHECK(PMU_RAW_WAIT_US == 100000, "the bound is Apple's 100 ms (%u)",
+          (unsigned)PMU_RAW_WAIT_US);
+    memcpy(regs + 0x0A, bcd, 7);
+    reset(2);
+    hold_from = 0;              /* every SEND busy for 6 ms */
+    hold_until = 1000;
+    hold_us = 6000;
+    CHECK(pmu_raw_rtc_seconds(&s), "slow bus: read");
+    CHECK(s == 845991930u, "slow bus: rtc %u", (unsigned)s);
+    CHECK(ntr == 3, "slow bus: one try, 3 transactions (%d)", ntr);
+#ifdef PMU_RAW_DIAG
+    CHECK(pmu_raw_rtc_last.tries == 1 &&
+          pmu_raw_rtc_last.wait_us[0] >= 6000 &&
+          pmu_raw_rtc_last.wait_us[0] < 7000,
+          "slow bus: tries %u wait %u", pmu_raw_rtc_last.tries,
+          (unsigned)pmu_raw_rtc_last.wait_us[0]);
+#endif
+}
+
+/* b12 (#255): the retry after ~1 ms, and the step each failure names */
+static void test_rtc_retry(void)
+{
+    static const unsigned char bcd[7] = { 0x30, 0x45, 0x13, 0x04, 0x22,
+                                          0x10, 0x26 };
+    uint32_t s = 0, t0;
+
+    memcpy(regs + 0x0A, bcd, 7);
+    /* the first try's address write held busy, the retry clean */
+    reset(2);
+    hold_from = 0;
+    hold_until = 1;
+    t0 = usec;
+    CHECK(pmu_raw_rtc_seconds(&s), "retry: second try reads");
+    CHECK(s == 845991930u, "retry: rtc %u", (unsigned)s);
+    CHECK(ntr == 4, "retry: transactions %d want 1 + 3", ntr);
+    CHECK(usec - t0 >= PMU_RAW_WAIT_US + 1000u, "retry: waited ~1 ms "
+          "after the timeout (%u us)", (unsigned)(usec - t0));
+    CHECK(usec - t0 < 3u * PMU_RAW_WAIT_US + 2000u, "retry: bounded (%u us)",
+          (unsigned)(usec - t0));
+#ifdef PMU_RAW_DIAG
+    CHECK(pmu_raw_rtc_last.tries == 2 &&
+          pmu_raw_rtc_last.step[0] == PMU_RAW_STEP_SEND &&
+          pmu_raw_rtc_last.step[1] == PMU_RAW_STEP_OK,
+          "retry: steps %u/%u tries %u", pmu_raw_rtc_last.step[0],
+          pmu_raw_rtc_last.step[1], pmu_raw_rtc_last.tries);
+    CHECK(pmu_raw_rtc_last.status[0] == STATUS_BUSY &&
+          pmu_raw_rtc_last.wait_us[0] == PMU_RAW_WAIT_US + 1,
+          "retry: try 1 status %#x wait %u", pmu_raw_rtc_last.status[0],
+          (unsigned)pmu_raw_rtc_last.wait_us[0]);
+    CHECK(pmu_raw_rtc_last.wait_us[1] > 0 &&
+          pmu_raw_rtc_last.wait_us[1] < PMU_RAW_WAIT_US,
+          "retry: try 2 wait %u", (unsigned)pmu_raw_rtc_last.wait_us[1]);
+#endif
+
+    /* the first block read held (both tries): read1 */
+    reset(2);
+    hold_from = 1;
+    hold_until = 2;
+    CHECK(pmu_raw_rtc_seconds(&s), "read1 held once: the retry reads");
+#ifdef PMU_RAW_DIAG
+    CHECK(pmu_raw_rtc_last.step[0] == PMU_RAW_STEP_READ1,
+          "read1: step %u", pmu_raw_rtc_last.step[0]);
+#endif
+    reset(2);
+    hold_from = 2;              /* the second block read, then for ever */
+    CHECK(!pmu_raw_rtc_seconds(&s), "read2 held: false");
+#ifdef PMU_RAW_DIAG
+    CHECK(pmu_raw_rtc_last.tries == 2 &&
+          pmu_raw_rtc_last.step[0] == PMU_RAW_STEP_READ2 &&
+          pmu_raw_rtc_last.step[1] == PMU_RAW_STEP_SEND,
+          "read2: steps %u/%u", pmu_raw_rtc_last.step[0],
+          pmu_raw_rtc_last.step[1]);
+    CHECK(pmu_raw_rtc_last.r[0][0] == 0x30 && pmu_raw_rtc_last.r[0][3] == 0x04
+          && pmu_raw_rtc_last.r[0][4] == 0, "read2: block 1 kept, 2 zero");
+#endif
 }
 
 static void test_battery(void)
@@ -167,7 +293,8 @@ static void test_stuck(void)
 
     reset(-1);                  /* idle at first, held after the SEND */
     CHECK(!pmu_raw_rtc_seconds(&s), "held after send: rtc false");
-    CHECK(ntr == 1, "held after send: one transaction (%d)", ntr);
+    CHECK(ntr == 1, "held after send: one transaction (%d), the retry "
+          "found it busy", ntr);
 }
 
 static void test_dates(void)
@@ -269,6 +396,8 @@ int main(void)
     test_quiet_packets();
     test_dates();
     test_rtc();
+    test_rtc_retry();
+    test_rtc_slow_bus();
     test_battery();
     test_stuck();
     printf("pmu_raw: %d checks, %d failed\n", checks, fails);

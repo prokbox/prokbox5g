@@ -1,0 +1,8 @@
+# gate mutant longline (p090-int3): a command line of more than 64 words is
+# refused ("bad command"), never cut short or split into two commands
+# golden: skip boot
+# reset: mainmenu
+wait 4000
+shot boot
+wait 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1
+quit

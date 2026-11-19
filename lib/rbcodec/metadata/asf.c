@@ -8,6 +8,7 @@
  *
  *
  * Copyright (C) 2007 Dave Chapman
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -440,6 +441,9 @@ static int asf_parse_header(int fd, struct mp3entry* id3,
                         eWM_TrackNumber, eWM_Genre, eWM_AlbumTitle,
                         eWM_AlbumArtist, eWM_Composer, eWM_Year,
                         eWM_MusicBrainz_Track_Id, eWM_Picture,
+#ifdef HAVE_IPOD_UI
+                        eWM_ArtistSort, eWM_AlbumSort, eWM_AlbumArtistSort,
+#endif
                         eWM_COUNT_TAG_COUNT
                     };
 
@@ -452,6 +456,12 @@ static int asf_parse_header(int fd, struct mp3entry* id3,
                       [eWM_Year] = "WM/Year",
                       [eWM_MusicBrainz_Track_Id]"MusicBrainz/Track Id",
                       [eWM_Picture]"WM/Picture",
+#ifdef HAVE_IPOD_UI
+                      /* 0.9.0 (#235): sort values */
+                      [eWM_ArtistSort] = "WM/ArtistSortOrder",
+                      [eWM_AlbumSort] = "WM/AlbumSortOrder",
+                      [eWM_AlbumArtistSort] = "WM/AlbumArtistSortOrder",
+#endif
                       [eWM_COUNT_TAG_COUNT] = NULL
                     };
 
@@ -506,6 +516,19 @@ static int asf_parse_header(int fd, struct mp3entry* id3,
                             } else {
                                 lseek(fd, length, SEEK_CUR);
                             }
+#ifdef HAVE_IPOD_UI
+                        } else if ((itag == eWM_ArtistSort
+                                    || itag == eWM_AlbumSort
+                                    || itag == eWM_AlbumArtistSort)
+                                   && type == 0) {
+                            char **f = itag == eWM_ArtistSort ? &id3->sortartist
+                                     : itag == eWM_AlbumSort ? &id3->sortalbum
+                                     : &id3->sortalbumartist;
+                            *f = id3buf;
+                            asf_utf16LEdecode(fd, length, &id3buf, &id3buf_remaining);
+                            if (!**f)
+                                *f = NULL;      /* empty: none */
+#endif
                         } else if (itag == eWM_MusicBrainz_Track_Id) {
                             id3->mb_track_id = id3buf;
                             asf_utf16LEdecode(fd, length, &id3buf, &id3buf_remaining);

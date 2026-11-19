@@ -87,6 +87,7 @@
 #include "ipodui/screens/panels.h"
 #include "ipodui/screens/screens.h"
 #include "ipodui/screens/clocks.h"
+#include "ipodui/locale.h"
 
 #if LCD_PIXELFORMAT != RGB565
 #error "clocks.c composes RGB565"
@@ -345,12 +346,7 @@ static void draw_band(const struct clocks *st, int i, int x, int y0,
     lcd_setfont(t->font_ui);
     text_left(x + TEXT_L, y0 + CITY_BASE, CITY_MAX_W,
               str(tzp_city_lang(st->city[i])));
-    if (global_settings.timeformat)             /* 12 hour clock */
-        snprintf(buf, sizeof(buf), "%d:%02d %s",
-                 tm.tm_hour % 12 ? tm.tm_hour % 12 : 12, tm.tm_min,
-                 str(tm.tm_hour < 12 ? LANG_IPODUI_AM : LANG_IPODUI_PM));
-    else
-        snprintf(buf, sizeof(buf), "%02d:%02d", tm.tm_hour, tm.tm_min);
+    ui_fmt_time(buf, sizeof(buf), tm.tm_hour, tm.tm_min);
     text_right(x + TEXT_R, y0 + TIME_BASE, TIME_MAX_W, buf);
 
     /* the day against the home clock's */

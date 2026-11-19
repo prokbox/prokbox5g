@@ -25,6 +25,7 @@
 #ifndef _IPODUI_ARTKEY_H_
 #define _IPODUI_ARTKEY_H_
 
+#include <stdbool.h>
 #include <stdint.h>
 #include <stddef.h>
 
@@ -74,6 +75,15 @@ artcache_key_t artcache_key(const char *albumartist, const char *artist,
 artcache_key_t artcache_key_ascii(const char *albumartist, const char *artist,
                                   const char *album,
                                   const char *first_track_path);
+
+/* artcache_key() (ascii: artcache_key_ascii()) over the first aa_len and
+ * a_len bytes of the two artists: #167, a playing track whose artist is
+ * several values joined for display keys by the primary (first) one, as
+ * the library stores it (metadata_primary_len()). */
+artcache_key_t artcache_key_n(const char *albumartist, size_t aa_len,
+                              const char *artist, size_t a_len,
+                              const char *album,
+                              const char *first_track_path, bool ascii);
 
 /* Per-chapter art (#39, docs/design/chapter-art.md): the key of chapter
  * 'chapter' (0-based, in metadata_read_chapters() order, i.e. sorted by

@@ -1,0 +1,197 @@
+# p090-playfix: selecting a row plays that row's song, Latin and CJK
+# titles mixed: the global Songs list (the first three rows, Latin; the
+# first kana row; the first Hangul row; the first kanji row; a later
+# kanji row; the last row) and two albums' song lists (Northern Songs,
+# Latin, and 叶惠美, hanzi; all three rows each). A bare disk with only the 24 songs
+# of tests/fixtures/cjk/make_cjk_library.py (about 32 s each), so the
+# title read 1.5 s after SELECT is the song the row started, on any
+# primed disk the gate has; expect_title <t> fails the run on any other.
+# The rows follow the list's sort (package F1's collation, ledger 3.11:
+# groups A-Z, kana, Hangul, kanji; kana in gojuon order, Hangul by jamo,
+# kanji by code point): Songs rows 0-2 Latin, 3-5 kana, 6-8 Hangul, 9-23
+# kanji; Artists Aurora Lane, ゆず, 아이유, 周杰伦, ... A sort change moves
+# them here.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-play-rows.script
+# needs: cjk
+# disk: bare
+# golden: skip
+# timeout: 300
+
+wait 4000
+mkdir /Music
+mkdir /Music/CJK
+copy ../../build/cjk-library/01.mp3 /Music/CJK/01.mp3
+copy ../../build/cjk-library/02.mp3 /Music/CJK/02.mp3
+copy ../../build/cjk-library/03.mp3 /Music/CJK/03.mp3
+copy ../../build/cjk-library/04.mp3 /Music/CJK/04.mp3
+copy ../../build/cjk-library/05.mp3 /Music/CJK/05.mp3
+copy ../../build/cjk-library/06.mp3 /Music/CJK/06.mp3
+copy ../../build/cjk-library/07.mp3 /Music/CJK/07.mp3
+copy ../../build/cjk-library/08.mp3 /Music/CJK/08.mp3
+copy ../../build/cjk-library/09.mp3 /Music/CJK/09.mp3
+copy ../../build/cjk-library/10.mp3 /Music/CJK/10.mp3
+copy ../../build/cjk-library/11.mp3 /Music/CJK/11.mp3
+copy ../../build/cjk-library/12.mp3 /Music/CJK/12.mp3
+copy ../../build/cjk-library/13.mp3 /Music/CJK/13.mp3
+copy ../../build/cjk-library/14.mp3 /Music/CJK/14.mp3
+copy ../../build/cjk-library/15.mp3 /Music/CJK/15.mp3
+copy ../../build/cjk-library/16.mp3 /Music/CJK/16.mp3
+copy ../../build/cjk-library/17.mp3 /Music/CJK/17.mp3
+copy ../../build/cjk-library/18.mp3 /Music/CJK/18.mp3
+copy ../../build/cjk-library/19.mp3 /Music/CJK/19.mp3
+copy ../../build/cjk-library/20.mp3 /Music/CJK/20.mp3
+copy ../../build/cjk-library/21.mp3 /Music/CJK/21.mp3
+copy ../../build/cjk-library/22.mp3 /Music/CJK/22.mp3
+copy ../../build/cjk-library/23.mp3 /Music/CJK/23.mp3
+copy ../../build/cjk-library/24.mp3 /Music/CJK/24.mp3
+update_db_wait 60000
+wait 3000
+
+key SELECT          # Music
+wait 800
+wheel +3 300        # Songs
+wait 600
+key SELECT
+wait 1500
+shot songs
+
+key SELECT          # row 0
+wait 1500
+expect_title Amber Sky
+key MENU
+wait 1000
+
+wheel +1 300        # row 1
+wait 800
+key SELECT
+wait 1500
+expect_title Glacier
+key MENU
+wait 1000
+
+wheel +1 300        # row 2
+wait 800
+key SELECT
+wait 1500
+expect_title Winter Light
+key MENU
+wait 1000
+
+wheel +1 300        # row 3
+wait 800
+key SELECT
+wait 1500
+expect_title あなた
+key MENU
+wait 1000
+
+wheel +3 300        # row 6, the first Hangul row
+wait 800
+key SELECT
+wait 1500
+expect_title 꽃
+key MENU
+wait 1000
+
+wheel +3 300        # row 9, the first kanji row
+wait 800
+key SELECT
+wait 1500
+expect_title 一千個傷心的理由
+key MENU
+wait 1000
+
+wheel +12 300       # row 21
+wait 800
+key SELECT
+wait 1500
+expect_title 福笑い
+key MENU
+wait 1000
+
+wheel +2 300        # row 23, the last
+wait 800
+key SELECT
+wait 1500
+expect_title 誓い
+key MENU
+wait 1000
+audio_stop
+wait 500
+
+key MENU            # the Music menu, on Songs
+wait 800
+wheel -2 300        # Artists
+wait 600
+key SELECT
+wait 1200
+key SELECT          # Aurora Lane's albums
+wait 1200
+wheel +1 300        # Northern Songs
+wait 600
+key SELECT
+wait 1200
+shot album_latin
+
+key SELECT          # row 0
+wait 1500
+expect_title Amber Sky
+key MENU
+wait 1000
+
+wheel +1 300        # row 1
+wait 600
+key SELECT
+wait 1500
+expect_title Glacier
+key MENU
+wait 1000
+
+wheel +1 300        # row 2
+wait 600
+key SELECT
+wait 1500
+expect_title Winter Light
+key MENU
+wait 1000
+audio_stop
+wait 500
+
+key MENU            # Aurora Lane's albums
+wait 800
+key MENU            # Artists, on Aurora Lane
+wait 800
+wheel +3 300        # 周杰伦 (after ゆず and 아이유)
+wait 600
+key SELECT
+wait 1200
+wheel +1 300        # 叶惠美
+wait 600
+key SELECT
+wait 1200
+shot album_hanzi
+
+key SELECT          # row 0
+wait 1500
+expect_title 晴天
+key MENU
+wait 1000
+
+wheel +1 300        # row 1
+wait 600
+key SELECT
+wait 1500
+expect_title 以父之名
+key MENU
+wait 1000
+
+wheel +1 300        # row 2
+wait 600
+key SELECT
+wait 1500
+expect_title 东风破
+key MENU
+wait 1000
+audio_stop
+wait 500
+quit

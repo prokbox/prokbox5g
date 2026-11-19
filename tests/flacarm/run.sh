@@ -29,8 +29,10 @@
 # writes its PCM.
 #
 #   1. bit-exactness: for every stream below (flac, ffmpeg and synth.py
-#      made, block sizes up to 65535), the output must be
-#      byte-identical to the reference decoder's (flac -d), and the streams
+#      made, block sizes up to 65535, 16 to 32 bits), the output must be
+#      byte-identical to the reference decoder's (flac -d); a stream wider
+#      than 29 bits (#318) also after flac_reduce_frame(), against
+#      tests/flacarm/dither.py applied to flac -d's samples; and the streams
 #      together must use every LPC order 1..32 on both filter paths (the
 #      32-bit one and the 64-bit "wide" one; the bound that picks between
 #      them, from both sides of its edge; the wide filter's order 2..4
@@ -167,7 +169,15 @@ syn24 24 96000 0 synth 1152 64
 syn16 16 44100 0 synth 1152 64
 syn24_4608 24 96000 0 synth 4608 12
 syn24_var 24 96000 0 synth 1152 120 var
-syn29 29 96000 0 synth 1152 24'
+syn29 29 96000 0 synth 1152 24
+f32_44 32 44100 1 music -8
+f32_96_l32 32 96000 0.5 music -8 --lax -l 32
+f32_96_noise 32 96000 0.5 noise -8
+f32_192 32 192000 0.5 music -8
+f32_192_m5 32 192000 0.5 music -5
+syn32 32 96000 0 synth 1152 64
+syn31 31 96000 0 synth 1152 24
+syn30 30 96000 0 synth 1152 24'
 [ -n "${ONLY:-}" ] && STREAMS=$(echo "$STREAMS" | grep "^$ONLY ")
 
 printf '%-14s %6s %8s %12s %9s %12s\n' stream frames samples "dec cycles" "cyc/samp" "cyc/4096fr"
@@ -208,7 +218,7 @@ echo "$STREAMS" | while read -r name bits rate secs kind opts; do
             || { bad "$name: reference decode"; continue; } ;;
     esac
     flac -s -f -a -o "$d/in.ana" "$d/in.flac" 2>/dev/null || { bad "$name: analyze"; continue; }
-    rm -f "$d/out.raw"
+    rm -f "$d/out.raw" "$d/out29.raw" "$d/ref29.raw"
     out=$(cd "$d" && timeout 300 qemu-system-arm -M versatilepb -cpu arm926 -nographic \
         -semihosting -plugin "$B/cyc.dylib,arg=exact=on,arg=prof=$([ "${PROFILE:-}" = pc ] && echo pc || echo on)" \
         -kernel "$B/flac.elf" </dev/null 2>&1)
@@ -220,6 +230,16 @@ echo "$STREAMS" | while read -r name bits rate secs kind opts; do
     if ! cmp -s "$d/out.raw" "$d/ref.raw"; then
         bad "$name: output differs from flac -d ($(cmp "$d/out.raw" "$d/ref.raw" 2>&1 | head -1))"
         continue
+    fi
+    if [ "$bits" -gt 29 ]; then
+        # #318: and what flac.c plays, reduced to 29 bits with dither: the
+        # reference's samples through dither.py's own copy of the arithmetic
+        python3 tests/flacarm/dither.py "$d/ref.raw" "$d/in.ana" "$bits" 2 "$d/ref29.raw" \
+            || { bad "$name: dither.py"; continue; }
+        if [ ! -s "$d/out29.raw" ] || ! cmp -s "$d/out29.raw" "$d/ref29.raw"; then
+            bad "$name: reduced output differs from dither.py ($(cmp "$d/out29.raw" "$d/ref29.raw" 2>&1 | head -1))"
+            continue
+        fi
     fi
     frames=$(echo "$out" | sed -n 's/.*FRAMES \([0-9]*\) SAMPLES.*/\1/p')
     samples=$(echo "$out" | sed -n 's/.*SAMPLES \([0-9]*\).*/\1/p')

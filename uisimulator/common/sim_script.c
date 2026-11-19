@@ -144,7 +144,8 @@
  *   reboot               end this boot here: scripts/shots.sh runs the
  *                        rest of the script in a new boot of the sim, on
  *                        the same disk (run directly, the sim just quits)
- *   expect_playing <ms>  watch audio_status() every 10 ms for 'ms': logs
+ *   expect_playing <ms>  watch audio_status() for 'ms' of the clock
+ *                        (current_tick; #511): logs
  *                        "expect_playing ok" if it was "playing" all along,
  *                        else "expect_playing failed" (a stop, even one the
  *                        audio thread resumes from, counts)
@@ -902,16 +903,33 @@ static void import_changelog(void)
             ok ? "done" : "nothing", (current_tick - start) * 1000 / HZ);
 }
 
-static void expect_playing(long ms, int lineno)
+/* #511: watch audio_status() for 'ms' of the clock, not for ms / 10 loop
+ * passes: sleep_ms(10) is sleep(1), and the kernel's sleep(n) blocks
+ * n + 1 ticks, so a pass-counted watch ran about twice its length. While
+ * the SDL sink played slow (55-64 %, before p090-simrate) that hid; at
+ * real speed a 40 s expect_playing watched ~75 s of audio. Returns the
+ * status that ended the watch ('want' if it held all along); *took is
+ * the ms watched. */
+static int watch_status(int want, long ms, long *took)
 {
-    long t;
+    long start = current_tick;
+    long end = start + (ms * HZ + 999) / 1000;
     int st = sim_audio_status();
 
-    for (t = 0; t < ms && st == 1; t += 10)
+    while (st == want && TIME_BEFORE(current_tick, end))
     {
         sleep_ms(10);
         st = sim_audio_status();
     }
+    *took = (current_tick - start) * 1000 / HZ;
+    return st;
+}
+
+static void expect_playing(long ms, int lineno)
+{
+    long t;
+    int st = watch_status(1, ms, &t);
+
     if (st == 1)
         fprintf(stderr, "sim_script: expect_playing ok (%ld ms)\n", ms);
     else
@@ -923,13 +941,8 @@ static void expect_playing(long ms, int lineno)
 static void expect_paused(long ms, int lineno)
 {
     long t;
-    int st = sim_audio_status();
+    int st = watch_status(3, ms, &t);
 
-    for (t = 0; t < ms && st == 3; t += 10)
-    {
-        sleep_ms(10);
-        st = sim_audio_status();
-    }
     if (st == 3)
         fprintf(stderr, "sim_script: expect_paused ok (%ld ms)\n", ms);
     else
@@ -1005,22 +1018,25 @@ static void rm_file(char *path, int lineno)
                 lineno, path);
 }
 
-#define SIM_SCRIPT_MAX_ARGS 24
+#define SIM_SCRIPT_MAX_ARGS 64
+#define SIM_SCRIPT_LINE_MAX 1024
 
 /* Returns false when the script asks to quit */
 static bool run_line(char *line, int lineno)
 {
-    /* 24 words: "bench_sim expect" takes a check a word (4 dropped all
-       but its first two checks; press_hold's fifth word, its lead) */
+    /* 64 words: "bench_sim expect" takes a check a word (24 dropped the
+       bench order lines' last ~20 checks, p090-int3; 4 dropped all but
+       the first two; press_hold's fifth word, its lead). More words than
+       that is refused, never cut short. */
     char *argv[SIM_SCRIPT_MAX_ARGS] = { NULL };
     int argc = 0;
-    char *save;
+    char *save, *tok;
 
     char *hash = strchr(line, '#');
     if (hash)
         *hash = '\0';
 
-    for (char *tok = strtok_r(line, " \t\r\n", &save);
+    for (tok = strtok_r(line, " \t\r\n", &save);
          tok && argc < SIM_SCRIPT_MAX_ARGS;
          tok = strtok_r(NULL, " \t\r\n", &save))
     {
@@ -1029,6 +1045,12 @@ static bool run_line(char *line, int lineno)
 
     if (argc == 0)
         return true;
+    if (tok)        /* the loop stopped at the cap with words left */
+    {
+        fprintf(stderr, "sim_script:%d: bad command (more than %d words)\n",
+                lineno, SIM_SCRIPT_MAX_ARGS);
+        return true;
+    }
 
     const char *cmd = argv[0];
 
@@ -1210,7 +1232,7 @@ static bool run_line(char *line, int lineno)
 
 static void script_thread(void)
 {
-    char line[256];
+    char line[SIM_SCRIPT_LINE_MAX];
     int lineno = 0;
     FILE *f = fopen(sim_script_file, "r");
 
@@ -1220,7 +1242,34 @@ static void script_thread(void)
     }
     else
     {
-        while (fgets(line, sizeof(line), f) && run_line(line, ++lineno));
+        while (fgets(line, sizeof(line), f))
+        {
+            ++lineno;
+            /* A line longer than the buffer: its tail used to be read as
+             * the next line and run as a command (p090-int3: a 330-char
+             * "# golden: skip" header ran "tg"). Drop the tail; a header
+             * comment still counts, anything else is refused loudly
+             * (shots.sh fails a run on "bad command"). */
+            if (!strchr(line, '\n') && !feof(f))
+            {
+                int ch;
+                const char *p = line;
+
+                while ((ch = fgetc(f)) != EOF && ch != '\n')
+                    ;
+                while (*p == ' ' || *p == '\t')
+                    p++;
+                if (*p != '#')
+                {
+                    fprintf(stderr, "sim_script:%d: bad command (line "
+                            "longer than %d characters)\n", lineno,
+                            (int)sizeof(line) - 2);
+                    continue;
+                }
+            }
+            if (!run_line(line, lineno))
+                break;
+        }
         fclose(f);
     }
 

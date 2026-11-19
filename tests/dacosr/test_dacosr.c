@@ -32,6 +32,10 @@
  * the self-test's 88.2 -> 96 -> back, the runtime fallback's return to a
  * rated rate, a rate set while soft-muted (applied at the unmute) and
  * while in DAC standby (applied at the wake, muted until then).
+ * 0.9.0 Hi-Res 128x (dac_set_osr128()): the rates in its mask run 128x
+ * instead; at once when that rate is set (a soft-mute ramp around the
+ * change while PCM runs), else at the next rate set; never a write while
+ * muted, standby keeps it muted until the wake.
  */
 #include <stdio.h>
 #include <string.h>
@@ -51,13 +55,17 @@ const unsigned long hw_freq_sampr[HW_NUM_FREQ] = {
 
 static int chip[0x40];
 static int r10_writes;
+static int r10_log[8];          /* the last R10 values, oldest first */
 static bool playing;
 
 void wmcodec_write(int reg, int data)
 {
     chip[reg & 0x3f] = data & 0x1ff;
-    if (reg == DACCTRL)
+    if (reg == DACCTRL) {
+        memmove(r10_log, r10_log + 1, sizeof(r10_log) - sizeof(int));
+        r10_log[7] = data & 0x1ff;
         r10_writes++;
+    }
 }
 
 void wmcodec_clocks_gate(bool gate)
@@ -191,7 +199,107 @@ int main(void)
     audiohw_set_frequency(HW_FREQ_96);
     expect_r10("restarted, 96k", 0);
 
-    if (checks < 40) {
+    /* ---- 0.9.0 Hi-Res 128x ---- */
+    struct dac_stats st;
+    unsigned int seq;
+    long t0;
+
+    dac_wake();
+    playing = false;
+    audiohw_set_frequency(HW_FREQ_96);
+    expect_r10("128x: off, 96k", 0);
+    /* on at 96k, PCM stopped: R10 at once, no ramp */
+    before = r10_writes;
+    dac_set_osr128(DAC_OSR128_88 | DAC_OSR128_96);
+    expect_r10("128x: on at 96k, stopped", R10_OSR128);
+    expect_stats("128x: on at 96k, stopped", 128, 96000);
+    checks++;
+    if (r10_writes != before + 1) {
+        printf("FAIL 128x: stopped switch wrote R10 %d times, want 1\n",
+               r10_writes - before);
+        fails++;
+    }
+    /* every rate with both on: 128x everywhere */
+    for (int f = 0; f < HW_NUM_FREQ; f++) {
+        audiohw_set_frequency(f);
+        snprintf(what, sizeof what, "128x: play %lu", hw_freq_sampr[f]);
+        expect_r10(what, R10_OSR128);
+        expect_stats(what, 128, hw_freq_sampr[f]);
+    }
+    /* only 88.2 passed its test: 96k keeps 64x */
+    dac_set_osr128(DAC_OSR128_88);
+    audiohw_set_frequency(HW_FREQ_96);
+    expect_r10("128x 88 only: 96k", 0);
+    audiohw_set_frequency(HW_FREQ_88);
+    expect_r10("128x 88 only: 88.2k", R10_OSR128);
+    dac_set_osr128(DAC_OSR128_96);
+    expect_r10("128x 96 only, set at 88.2k", 0);
+    expect_stats("128x 96 only, set at 88.2k", 64, 88200);
+    /* at a rated rate a change writes nothing and logs nothing */
+    audiohw_set_frequency(HW_FREQ_44);
+    dac_get_stats(&st);
+    seq = st.rate_seq;
+    before = r10_writes;
+    dac_set_osr128(0);
+    dac_set_osr128(DAC_OSR128_88 | DAC_OSR128_96);
+    dac_get_stats(&st);
+    checks++;
+    if (r10_writes != before || st.rate_seq != seq) {
+        printf("FAIL 128x at 44.1k: %d R10 writes, seq +%u\n",
+               r10_writes - before, st.rate_seq - seq);
+        fails++;
+    }
+    /* playing 96k with 128x, switched off: soft mute with 128x, the ramp
+       waited, 64x still muted, then unmuted at 64x */
+    audiohw_set_frequency(HW_FREQ_96);
+    playing = true;
+    before = r10_writes;
+    t0 = current_tick;
+    dac_set_osr128(0);
+    checks++;
+    if (r10_writes - before != 3 || r10_log[5] != (R10_MUTE | R10_OSR128)
+        || r10_log[6] != R10_MUTE || r10_log[7] != 0) {
+        printf("FAIL 128x live off: %d writes, last 0x%03x 0x%03x 0x%03x\n",
+               r10_writes - before, r10_log[5], r10_log[6], r10_log[7]);
+        fails++;
+    }
+    checks++;
+    if (current_tick - t0 < 2) {
+        printf("FAIL 128x live off: ramp wait %ld ticks\n",
+               current_tick - t0);
+        fails++;
+    }
+    expect_stats("128x live off", 64, 96000);
+    /* and on again, live: mute at 64x, 128x muted, unmuted at 128x */
+    before = r10_writes;
+    dac_set_osr128(DAC_OSR128_96);
+    checks++;
+    if (r10_writes - before != 3 || r10_log[5] != R10_MUTE
+        || r10_log[6] != (R10_MUTE | R10_OSR128)
+        || r10_log[7] != R10_OSR128) {
+        printf("FAIL 128x live on: %d writes, last 0x%03x 0x%03x 0x%03x\n",
+               r10_writes - before, r10_log[5], r10_log[6], r10_log[7]);
+        fails++;
+    }
+    expect_stats("128x live on", 128, 96000);
+    /* standby at 96k: muted; switched there, still muted; wake applies */
+    enter_standby();
+    dac_set_osr128(0);
+    expect_r10("128x off in standby", R10_MUTE);
+    dac_wake();
+    expect_r10("wake after 128x off in standby", 0);
+    /* muted (closed): no R10 write; the next unmute writes the choice */
+    audiohw_close();
+    before = r10_writes;
+    dac_set_osr128(DAC_OSR128_96);
+    checks++;
+    if (r10_writes != before) {
+        printf("FAIL 128x set while muted wrote R10\n");
+        fails++;
+    }
+    playing = false;
+
+    if (checks < 70) {
         printf("FAIL only %d checks ran\n", checks);
         return 1;
     }

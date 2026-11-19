@@ -31,9 +31,9 @@ Each file is a valid FLAC header (STREAMINFO: 44.1 kHz, 16-bit stereo,
 5 s; a Vorbis comment with title, artist, album and track number), so the
 library indexes it as a 5 s song, followed by zero bytes where the frames
 should be: the decoder fails on the first frame header and inserts no PCM.
-#285: wide{1,2,3}.flac are the same but 32-bit (STREAMINFO), which the
-codec refuses at open (flac.c: more bits than FLAC_OUTPUT_DEPTH), before
-reading any frame; the library still indexes them.
+#318: wide{1,2,3}.flac are 32-bit and play (until 0.9.0 the codec refused
+them at open, #285): 3 s of the same quiet tone in verbatim 32-bit frames
+(the frame header's 32-bit size code), album "Wide".
 
 #298 adds a mixed album, "Skip Gap": skipgap1.flac and skipgap3.flac play
 (3 s of a quiet 441 Hz tone in verbatim FLAC frames, the same rate and
@@ -81,18 +81,20 @@ def utf8_num(n):
             return bytes([mark | n] + out)
 
 
-def frames(total):
-    """verbatim stereo 16-bit frames of a quiet 441 Hz tone (100 periods
-    per second at 44.1 kHz: whole periods, the same bytes on every run)"""
+def frames(total, bps=16):
+    """verbatim stereo 16-bit (or 32-bit) frames of a quiet 441 Hz tone
+    (100 periods per second at 44.1 kHz: whole periods, the same bytes on
+    every run)"""
+    size = {16: 0x18, 32: 0x1E}[bps]    # independent stereo, size code 4/7
     out = b""
     fn = 0
     pos = 0
     while pos < total:
         n = min(BLOCK, total - pos)
         if n == BLOCK:
-            hdr = bytes([0xFF, 0xF8, 0xC9, 0x18]) + utf8_num(fn)
+            hdr = bytes([0xFF, 0xF8, 0xC9, size]) + utf8_num(fn)
         else:
-            hdr = bytes([0xFF, 0xF8, 0x79, 0x18]) + utf8_num(fn) \
+            hdr = bytes([0xFF, 0xF8, 0x79, size]) + utf8_num(fn) \
                 + struct.pack(">H", n - 1)
         hdr += bytes([crc8(hdr)])
         sub = b""
@@ -100,7 +102,7 @@ def frames(total):
             sub += bytes([0x02])                    # verbatim, no wasted bits
             for i in range(pos, pos + n):
                 v = int(round(2000 * math.sin(2 * math.pi * (i % 100) / 100)))
-                sub += struct.pack(">h", v)
+                sub += struct.pack(">h", v) if bps == 16 else struct.pack(">i", v << 16)
         frame = hdr + sub
         frame += struct.pack(">H", crc16(frame))
         out += frame
@@ -128,7 +130,7 @@ def flac(title, artist, album, track, bps=16, seconds=5, playable=False):
     out += bytes([0]) + len(si).to_bytes(3, "big") + si
     out += bytes([0x80 | 4]) + len(vc).to_bytes(3, "big") + vc
     if playable:
-        return out + frames(total)
+        return out + frames(total, bps)
     return out + bytes(64 * 1024)                    # no frame: unplayable
 
 
@@ -137,7 +139,8 @@ def main():
     os.makedirs(outdir, exist_ok=True)
     files = [(f"bad{i}.flac", flac(f"Silent {i}", "Nobody", "Unplayable", i))
              for i in (1, 2, 3)]
-    files += [(f"wide{i}.flac", flac(f"Wide {i}", "Nobody", "Too Wide", i, 32))
+    files += [(f"wide{i}.flac", flac(f"Wide {i}", "Nobody", "Wide", i, 32,
+                                     seconds=SKIP_SECONDS, playable=True))
               for i in (1, 2, 3)]
     for name, data in files:
         path = os.path.join(outdir, name)

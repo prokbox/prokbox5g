@@ -1,0 +1,94 @@
+# #352: the same as ipodui-eqtable-bypass, with a hand-made hi table in
+# the hidden system folder (tests/ui/fixtures/eqtable-hi.txt: a test
+# fixture, not a fit, never shipped; every band one frequency code below
+# the base table's). It is read once at boot, so the script reboots after
+# copying it: the boot logs it loaded, the 96 kHz track plays Bass
+# Booster from it (the codec's EQ on, its own level plan), and a 44.1 kHz
+# track goes back to the base table's Bass Booster (precut 6 dB).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-eqtable-loaded.script
+# Needs IPODUI_AUDIOPHILE (ipodvideo.h, 0.9.0 package A): pended until then.
+# needs: library
+# golden: skip
+# reset: mainmenu
+# timeout: 200
+# log: eq table family=hi missing
+# log: eq table family=hi loaded n=22
+# nolog: eq table family=hi refused
+# nolog: high rate fault
+# log: eq preset=2 enabled=0 precut=0
+# logafter: q2 eq preset=0 enabled=0 precut=0
+# nolog: preset bypassed
+# log: audiophile test mask=0x83 on=1
+# logbetween: q0 q1 output 96000 Hz
+# logbetween: q0 q1 eq rate family=hi preset=2
+# logbetween: q0 q1 eq level precut=6 loud=13 makeup=47
+# logbetween: q0 q1 eq dac family=hi hw=1 precut=6 makeup=47
+# logbetween: q1 q2 eq rate family=base preset=2
+# logbetween: q1 q2 eq dac family=base hw=1 precut=6 makeup=45
+
+wait 4000
+copy fixtures/rate96k.flac /Music/rate96k.flac
+copy fixtures/eqtable-hi.txt /.rockbox/eqtable-hi.txt
+wait 500
+
+wheel +3 300            # Settings
+wait 400
+key SELECT 50
+wait 1200
+wheel +11 300           # Audiophile
+wait 1000
+key SELECT 50
+wait 1200
+key SELECT 50           # High Sample Rate: the warning
+wait 1000
+wheel -1 300            # Continue
+wait 300
+key SELECT 50
+wait 3800
+key SELECT 50           # the result: OK, On
+wait 1500
+key MENU 50             # Settings, Audiophile highlighted
+wait 1500
+wheel -2 300            # EQ
+wait 1000
+key SELECT 50
+wait 1200
+wheel -30 100           # the top (Off), whatever was set
+wait 800
+wheel +2 300            # Bass Booster
+wait 800
+key SELECT 50
+wait 1500
+reboot                  # the table is read at boot
+wait 4000
+
+ab_mark q0
+play_files /Music/rate96k.flac
+wait 2500
+expect_playing 1000
+ab_mark q1
+shot playing_hi          # 96 kHz plays: nothing extra on screen
+audio_stop              # stop first: a straight 96 -> 44.1 kHz switch can trip #270s 50 ms stall check in the sim (reported)
+wait 800
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait 2500
+expect_playing 1000
+ab_mark q2
+audio_stop
+wait 800
+
+wheel +3 300            # Settings (leave the disk as found)
+wait 400
+key SELECT 50
+wait 1200
+wheel +9 300            # EQ
+wait 1000
+key SELECT 50
+wait 1200
+wheel -30 100           # Off
+wait 800
+key SELECT 50
+wait 1500
+rm_file /.rockbox/eqtable-hi.txt
+rm_file /Music/rate96k.flac
+quit

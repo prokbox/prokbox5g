@@ -24,6 +24,7 @@
 /* Host test: apps/ipodui/shuffle_core.c (library-backed shuffle, #27). */
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 #include "shuffle_core.h"
 #include "check.h"
 
@@ -102,6 +103,149 @@ static void test_quality(void)
     printf("   quality n=%u: %u positions equal across seeds, %u fixed "
            "points, %u ascending pairs\n", (unsigned)n, (unsigned)same_ab,
            (unsigned)fixed, (unsigned)ascending);
+}
+
+/* p090-shuffle: is every order equally likely? Over many seeds, in two
+ * families (1, 2, 3, ...: neighbouring seeds; and s * 2654435761, the
+ * step of lib_shuffle.c new_seed()'s tick term), the Pearson chi-square of
+ *  - the whole order, n = 2..7 (all n! orders, 24 expected each),
+ *  - the song at places 0, 1 and n/2, n = 9..64 and 100, 257, 2,000 (the
+ *    first song of Shuffle Songs must be any song with equal chance),
+ * against the 0.1% critical value (Wilson-Hilferty, z = 3.0902). The
+ * 1-bit minimum half that shipped until p090 fails it (n = 5..7 orders
+ * in family 0, chi up to 16x the critical value). */
+static double chi_crit(double dof)
+{
+    double a = 2.0 / (9.0 * dof);
+    double t = 1.0 - a + 3.0902 * sqrt(a);
+
+    return dof * t * t * t;
+}
+
+static int perm_rank(const uint32_t *a, int n)
+{
+    int i, j, r = 0;
+
+    for (i = 0; i < n; i++)
+    {
+        int c = 0;
+        for (j = i + 1; j < n; j++)
+            c += a[j] < a[i];
+        r = r * (n - i) + c;
+    }
+    return r;
+}
+
+static uint32_t uni_seed(int fam, int s)
+{
+    return fam ? (uint32_t)s * 2654435761u : (uint32_t)s;
+}
+
+static void test_uniform_fam(int fam, int *fails_out, double *worst_out,
+                             int *worst_n_out)
+{
+    static const uint32_t places_n[] = { 9, 12, 20, 33, 50, 64, 100, 257,
+                                         2000 };
+    int n, worst_n = 0, fails = 0;
+    double worst = 0;
+    size_t i;
+
+    for (n = 2; n <= 7; n++)
+    {
+        int f = 1, s, k, seeds;
+        long *cnt;
+        double e, chi = 0;
+
+        for (k = 2; k <= n; k++)
+            f *= k;
+        seeds = f * 24;
+        cnt = calloc((size_t)f, sizeof(long));
+        for (s = 1; s <= seeds; s++)
+        {
+            struct shuf_perm p;
+            uint32_t a[7];
+
+            shuf_perm_init(&p, (uint32_t)n, uni_seed(fam, s));
+            for (k = 0; k < n; k++)
+                a[k] = shuf_perm_at(&p, (uint32_t)k);
+            cnt[perm_rank(a, n)]++;
+        }
+        e = (double)seeds / f;
+        for (k = 0; k < f; k++)
+            chi += (cnt[k] - e) * (cnt[k] - e) / e;
+        free(cnt);
+        if (chi > chi_crit(f - 1))
+        {
+            fprintf(stderr, "orders not uniform: seeds %d n=%d chi=%.1f "
+                    "dof=%d crit=%.1f\n", fam, n, chi, f - 1,
+                    chi_crit(f - 1));
+            fails++;
+        }
+        if (chi / chi_crit(f - 1) > worst)
+        {
+            worst = chi / chi_crit(f - 1);
+            worst_n = n;
+        }
+    }
+    for (i = 0; i < sizeof(places_n) / sizeof(places_n[0]); i++)
+    {
+        uint32_t m = places_n[i], at[3] = { 0, 1, m / 2 }, q;
+        long *cnt = calloc(m * 3, sizeof(long));
+        int s, seeds = (int)m * 200;
+
+        for (s = 1; s <= seeds; s++)
+        {
+            struct shuf_perm p;
+
+            shuf_perm_init(&p, m, uni_seed(fam, s));
+            for (q = 0; q < 3; q++)
+                cnt[q * m + shuf_perm_at(&p, at[q])]++;
+        }
+        for (q = 0; q < 3; q++)
+        {
+            double e = (double)seeds / m, chi = 0;
+            uint32_t x;
+
+            for (x = 0; x < m; x++)
+            {
+                double d = cnt[q * m + x] - e;
+                chi += d * d / e;
+            }
+            if (chi > chi_crit(m - 1))
+            {
+                fprintf(stderr, "places not uniform: seeds %d n=%u place=%u "
+                        "chi=%.1f dof=%u crit=%.1f\n", fam, (unsigned)m,
+                        (unsigned)at[q], chi, (unsigned)(m - 1),
+                        chi_crit(m - 1));
+                fails++;
+            }
+            if (chi / chi_crit(m - 1) > worst)
+            {
+                worst = chi / chi_crit(m - 1);
+                worst_n = (int)m;
+            }
+        }
+        free(cnt);
+    }
+    *fails_out += fails;
+    if (worst > *worst_out)
+    {
+        *worst_out = worst;
+        *worst_n_out = worst_n;
+    }
+}
+
+static void test_uniform(void)
+{
+    int fails = 0, worst_n = 0;
+    double worst = 0;
+
+    test_uniform_fam(0, &fails, &worst, &worst_n);
+    test_uniform_fam(1, &fails, &worst, &worst_n);
+    check_fails += fails;
+    printf("   uniform: 2 seed families x (6 order tests, n 2-7, and 27 place "
+           "tests, n 9-2000): %d over the 0.1%% value; worst chi/crit %.2f "
+           "at n=%d\n", fails, worst, worst_n);
 }
 
 static void test_songs(void)
@@ -379,6 +523,7 @@ int main(void)
 {
     test_bijection();
     test_quality();
+    test_uniform();
     test_songs();
     test_albums();
     test_groups();

@@ -45,8 +45,16 @@ trap 'rm -rf "$TMP"' EXIT
 SRC="apps/ipodui/otg.c apps/ipodui/library.c apps/ipodui/sortkey.c"
 SRC="$SRC apps/ipodui/artkey.c apps/ipodui/artfmt.c apps/ipodui/search_core.c"
 SRC="$SRC apps/ipodui/safefile.c"
+# uninitialised locals filled with a pattern byte (0xFE gcc, 0xAA clang):
+# a context that a failed create hands to release() then shows a
+# "progress" byte that is neither 0 nor 1 on every run (B10, test_otg.c,
+# fake_tagcache.c); gcc 12+ and clang take the flag
+INIT="-ftrivial-auto-var-init=pattern"
+echo "int main(void){return 0;}" > "$TMP/flag.c"
+"$HOSTCC" $INIT -o "$TMP/flag" "$TMP/flag.c" 2>/dev/null \
+    || { echo "FAIL: $HOSTCC lacks $INIT"; exit 1; }
 # shellcheck disable=SC2086
-if ! "$HOSTCC" -std=gnu99 -O1 -g -Wall -Wextra -Werror ${EXTRA_CFLAGS:-} \
+if ! "$HOSTCC" -std=gnu99 -O1 -g -Wall -Wextra -Werror $INIT ${EXTRA_CFLAGS:-} \
         -I$T/stub -Itests/search/stub -Itests/ipodui/libstub -Itests/ipodui \
         -DARTFMT_HOST -DLIB_P11_HOST -DSAFEFILE_HOST -DOTG_PL_DIR='"pl"' -Iapps \
         -Iapps/ipodui -o "$TMP/test_otg" "$T/test_otg.c" \

@@ -14,6 +14,7 @@
  * Original file: linux/arch/armnommu/mach-ipod/pcf50605.c
  *
  * Copyright (c) 2003-2005 Bernard Leach (leachbj@bouncycastle.org)
+ * Modified for ProkBox5g (2026); see docs/changes-from-rockbox.md.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -99,7 +100,16 @@ void pcf50605_init(void)
      * sufficient. Defaults:
      * iPod Video = 0xf5 = 3.0V ON
      * iPod nano  = 0xef = 2.4V ON */
+#if defined (HAVE_IPOD_UI) && defined (IPOD_VIDEO)
+    /* ProkBox5g: Apple's own 3.0V (datasheet: line-out SNR 96 -> 100 dB,
+     * +1.6 dB headroom). Written here, in power_init(), long before the
+     * codec is enabled (audiohw_init), so the rail is settled before any
+     * codec register is touched: no pop. Nothing else may write a lower
+     * code (tests/pmucodec). Stock builds keep Rockbox's 2.5V below. */
+    pcf50605_write(PCF5060X_D1REGC1, 0xf5); /* 3.0V ON */
+#else
     pcf50605_write(PCF5060X_D1REGC1, 0xf0); /* 2.5V ON */
+#endif
     
     /* PCF5060X_D2REGC1 is set in accordance to the accessory power setting */
     

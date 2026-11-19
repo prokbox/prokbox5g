@@ -33,5 +33,5 @@
 #define HZ 100
 #define INIT_ATTR       /* buffering.h (0.8.3 colocate) */
 #define COP_LEASE_MODEL /* codec_cop.c: the lease calls, faked */
-#define HAVE_BCMFW_VIDEO /* codec_cop.c's video guard (0.8.3) */
+#define HAVE_BCMFW_VIDEO /* as the shell build: a guard on it is red (#283) */
 #endif

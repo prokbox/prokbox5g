@@ -26,7 +26,12 @@
 # First). Shuffle: the queue holds the music songs only (the queued count
 # below is the mini library's songs plus Audio Only; a video or podcast
 # would raise it), and no track change starts the video player.
-# log: shuf: start songs ok queued=6
+# log: shuf: start songs ok queued=4
+# (0.9.0 p090-shuffle: Shuffle Songs starts after 4 and backfills the
+# rest; how many videos each walk passes (skipped=) follows the shuffle
+# order, so only the songs' total is asserted: 6, never more)
+# log: src=songs queued=6
+# nolog: src=songs queued=7
 # log: shuf: mode albums ok src=albums
 # log: search screen q=5 n=4 pl=0
 # ("audio": the Search row, Audio Episode, the album and the song Audio

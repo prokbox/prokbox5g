@@ -1,0 +1,11 @@
+# Resident files (paths from apps/) whose strings a Class A shell module's
+# screen draws: gen_classa_lang.py adds their LANG ids to the modules' own,
+# and theme.c pins those glyphs while the shell is Japanese (jaglyph).
+# A module that starts drawing a resident helper's text adds the file here;
+# tests/ui/ipodui-p090-ja-modclass.script fails on a read it missed.
+ipodui/tzpick.c             # Clocks, Date & Time: the region and city pickers
+ipodui/tzcities.h           # the city names
+ipodui/locale.c             # dates and times (weekdays, months, AM/PM)
+ipodui/lock.c               # Screen Lock: the combination prompts
+ipodui/screens/newsw.c      # Stopwatch: New Timer
+ipodui/screens/setwidgets.c # value rows (On/Off and the like)

@@ -185,7 +185,7 @@
  * Apple's core layout; first 2026-10-18 on session 36's numbers, pinned
  * to the CPU 2026-10-24 to 11-07); the developer rows move it to the CPU
  * for A/B (apps/codec_cop.c place_mode). A video's soundtrack
- * still decodes on the CPU (fit2-brief section 12.1). The simulator has
+ * decodes on the COP too since 0.9.0 (#283). The simulator has
  * one core: the same code runs every job on the caller's thread and the
  * switch changes nothing. */
 #if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)

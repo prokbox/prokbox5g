@@ -30,9 +30,19 @@
  * shelf, 9 a high shelf, the rest peaks) and turns the EQ on; Off turns
  * it off. The choice is the ipodui_eq_preset setting (0 = Off).
  *
- * Precut (Rev 1 M-5): every preset also sets eq_precut to its largest
- * positive band gain (0.1 dB, computed at compile time below), so a boost
- * can never lift the output over the volume limit or clip.
+ * Precut (Rev 1 M-5): every software preset also sets eq_precut to its
+ * largest positive band gain (0.1 dB, computed at compile time below), so
+ * a boost can never lift the output over the volume limit or clip.
+ *
+ * Loudness (#203): a curve on the codec, preset or custom slot, gets its
+ * precut and its make-up from eqlab_level() on every change: the precut
+ * is the summed response's peak, the make-up gives back the K-weighted
+ * loudness the precut took, so turning a boost preset on no longer makes
+ * everything quieter. The make-up rides Sound Check's trim under the
+ * Volume Limit (dac_ext.h).
+ *
+ * Custom slots (#82, eq_custom.h): ipodui_eq_preset 23..25 after the 22
+ * presets, stored as text lines (eqlab_format()); always on the codec.
  *
  * Battery: Rockbox's EQ already skips zero-gain bands
  * (lib/rbcodec/dsp/eq.c dsp_set_eq_coefs(): a band with gain 0 leaves the
@@ -52,6 +62,7 @@
 
 #include "config.h"
 #include <stdio.h>
+#include <string.h>
 #include "system.h"
 #include "kernel.h"
 #include "lang.h"
@@ -65,6 +76,18 @@
 #include "ipodui/panelart.h"
 #include "ipodui/screens/panels.h"
 #include "ipodui/screens/screens.h"
+#include "ipodui/screens/eqedit.h"
+#include "ipodui/eqlab_core.h"
+#include "ipodui/eq_custom.h"
+#include "ipodui/eqtable_core.h"
+#ifdef HAVE_HIRATE_OUT
+#include "file.h"
+#include "core_alloc.h"
+#include "rbpaths.h"
+#include "pcm_mixer.h"
+#include "audio.h"
+#include "ipodui/uilog.h"
+#endif
 
 #ifndef IPODUI_HW_EQ
 /* On: device spike S1 (2026-10-11, owner) heard EQ3 (1.1 kHz) and EQ2
@@ -119,6 +142,10 @@ static const struct eq_preset presets[] = {
     EQP(VOCAL_BOOSTER,  -15, -30, -30,  15,  38,  38,  30,  15,   0, -15),
 };
 #define PRESETS ((int)ARRAYLEN(presets))
+#define EQ_VALUES (PRESETS + 1 + EQ_CUSTOM_SLOTS)   /* Off, presets, slots */
+_Static_assert(EQ_CUSTOM_FIRST == 22 + 1, "eq_custom.h: slots follow the presets");
+_Static_assert(sizeof(global_settings.ipodui_eq_custom1) == EQLAB_TEXT_LEN,
+               "settings.h: a slot's line is EQLAB_TEXT_LEN");
 _Static_assert(ARRAYLEN(presets) == 22, "COMP-2: Off + 22 presets");
 _Static_assert(ARRAYLEN(eq_hw_presets) == ARRAYLEN(presets),
                "eq_hw_presets.c is generated from presets[] (tools/eqfit)");
@@ -132,7 +159,180 @@ static const short eq_hz[10] = { 32, 64, 125, 250, 500, 1000, 2000, 4000,
 static int eq_get(void)
 {
     int v = global_settings.ipodui_eq_preset;
-    return (v >= 0 && v <= PRESETS) ? v : 0;
+    return (v >= 0 && v < EQ_VALUES) ? v : 0;
+}
+
+static bool eq_is_custom(int v)
+{
+    return v >= EQ_CUSTOM_FIRST && v < EQ_CUSTOM_FIRST + EQ_CUSTOM_SLOTS;
+}
+
+static unsigned char *eq_custom_text(int slot)
+{
+    switch (slot)
+    {
+    case 0:  return global_settings.ipodui_eq_custom1;
+    case 1:  return global_settings.ipodui_eq_custom2;
+    default: return global_settings.ipodui_eq_custom3;
+    }
+}
+
+void ui_eq_custom_get(int slot, struct dac_eq_band *b)
+{
+    if (slot < 0 || slot >= EQ_CUSTOM_SLOTS)
+        slot = 0;
+    if (!eqlab_parse((const char *)eq_custom_text(slot), b))
+    {
+        eqlab_flat(b);
+        UPDATE_TRACE("eq custom %d unreadable: flat", slot + 1);
+    }
+}
+
+/* -- #352: one preset table per output-rate family ------------------------
+ * (eqtable_core.h; owner, 2026-11-13). base (<= 48 kHz) is compiled in,
+ * eq_hw_presets[]; hi (88.2/96 kHz) is an optional file in the hidden
+ * system folder, read once at boot into a 330 B core_alloc'd block, or
+ * absent (0.9.0 ships none). An apply picks the table of the output
+ * rate's family; a family without one plays the preset flat (bypassed),
+ * the custom slots play at every rate (their editor shows the real
+ * corners). A rate change only re-picks: ui_eq_rate_poll() on the UI
+ * pass, no file I/O. Builds without the high rates have one family and
+ * none of this but the lookup. */
+#ifdef HAVE_HIRATE_OUT
+#define EQ_TABLE_HI_FILE    ROCKBOX_DIR "/eqtable-hi.txt"   /* never shown */
+static int eqt_hi_handle;       /* the hi table's block; 0: missing */
+static bool eqt_tried;          /* the boot load ran (once) */
+static int eq_family;           /* the family the last apply used */
+static bool eq_bypassed;        /* the selected preset plays flat */
+
+/* Boot, UI thread, before any playback (ui_eq_apply()'s first call): the
+ * hi table, or nothing. One open (a miss in 0.9.0), one read of the
+ * whole file, one block that keeps only the parsed table. Every refusal
+ * is logged and leaves the family without a table. */
+static void eq_table_load(void)
+{
+    struct dac_eq_band (*tab)[DAC_EQ_BANDS];
+    int fd, h, err, line = 0;
+    long size;
+    ssize_t got;
+
+    if (eqt_tried)
+        return;
+    eqt_tried = true;
+    fd = open(EQ_TABLE_HI_FILE, O_RDONLY);
+    if (fd < 0)
+    {
+        ui_log("eq", "table family=hi missing");
+        UPDATE_TRACE("eq table family=%s missing", "hi");
+        return;
+    }
+    size = ffilesize(fd);
+    if (size <= 0 || size > EQTABLE_FILE_MAX)
+    {
+        close(fd);
+        ui_log("eq", "table family=hi refused: size %ld", size);
+        UPDATE_TRACE("eq table family=hi refused: size %ld", size);
+        return;
+    }
+    /* the table first, the file image after it: shrunk to the table */
+    h = core_alloc(EQTABLE_BYTES + (size_t)size);
+    if (h <= 0)
+    {
+        close(fd);
+        ui_log("eq", "table family=hi refused: no memory");
+        UPDATE_TRACE("eq table family=hi refused: %s", "no memory");
+        return;
+    }
+    core_pin(h);                    /* read() fills it */
+    tab = core_get_data(h);
+    got = read(fd, (char *)tab + EQTABLE_BYTES, (size_t)size);
+    close(fd);
+    err = got == size ? eqtable_parse((const char *)tab + EQTABLE_BYTES,
+                                      (int)size, EQTABLE_HI, tab, &line)
+                      : EQT_SHORT;
+    core_unpin(h);
+    if (err != EQT_OK)
+    {
+        core_free(h);
+        ui_log("eq", "table family=hi refused: %s line=%d",
+               eqtable_err_name(err), line);
+        UPDATE_TRACE("eq table family=hi refused: %s line=%d",
+                     eqtable_err_name(err), line);
+        return;
+    }
+    core_shrink(h, core_get_data(h), EQTABLE_BYTES);
+    eqt_hi_handle = h;
+    ui_log("eq", "table family=hi loaded n=%d", EQTABLE_PRESETS);
+    UPDATE_TRACE("eq table family=hi loaded n=%d", EQTABLE_PRESETS);
+}
+
+/* the family of the output rate now (the mixer's: what the next or the
+ * playing track runs at) */
+static int eq_out_family(void)
+{
+    return eqtable_family_of(mixer_get_frequency());
+}
+#else
+#define eq_out_family() EQTABLE_BASE
+#endif
+
+/* preset p (1..22)'s row for family f; NULL: f has no table */
+static const struct dac_eq_band *eq_table_row(int f, int p,
+                                              struct dac_eq_band *buf)
+{
+    int i;
+
+#ifdef HAVE_HIRATE_OUT
+    if (f == EQTABLE_HI)
+    {
+        const struct dac_eq_band (*tab)[DAC_EQ_BANDS];
+
+        if (eqt_hi_handle <= 0)
+            return NULL;
+        tab = core_get_data(eqt_hi_handle);
+        return tab[p - 1];
+    }
+#else
+    (void)f;
+#endif
+    for (i = 0; i < DAC_EQ_BANDS; i++)
+    {
+        const struct eq_hw_band *h = &eq_hw_presets[p - 1].band[i];
+        buf[i].gain = h->gain;
+        buf[i].freq = h->freq;
+        buf[i].wide = h->wide;
+    }
+    return buf;
+}
+
+/* the codec bands of value v (a preset or a slot; v > 0) for family f;
+ * false: a preset whose family has no table (bypass) */
+static bool eq_bands(int v, int f, struct dac_eq_band *band)
+{
+    const struct dac_eq_band *row;
+
+    if (eq_is_custom(v))
+    {
+        ui_eq_custom_get(v - EQ_CUSTOM_FIRST, band);
+        return true;
+    }
+    row = eq_table_row(f, v, band);
+    if (!row)
+        return false;
+    if (row != band)
+        memcpy(band, row, sizeof(struct dac_eq_band) * DAC_EQ_BANDS);
+    return true;
+}
+
+/* one curve onto the codec, with its #203 level plan; "eq level" logs it */
+static void eq_hw_apply(const struct dac_eq_band *band)
+{
+    struct eqlab_level lv;
+
+    eqlab_level(band, &lv);
+    dac_eq_set(band, lv.precut_db, lv.makeup_db10);
+    UPDATE_TRACE("eq level precut=%d loud=%d makeup=%d", lv.precut_db,
+                 lv.loud_db10, lv.makeup_db10);
 }
 
 /* Preset v (0 = Off) runs on the codec's EQ? */
@@ -141,8 +341,8 @@ static bool eq_is_hw(int v)
 #if EQ_HW_MAXERR >= 255
     return IPODUI_HW_EQ && v > 0;   /* every preset on the codec (owner) */
 #else
-    return IPODUI_HW_EQ && v > 0 &&
-           eq_hw_presets[v - 1].maxerr <= EQ_HW_MAXERR;
+    return IPODUI_HW_EQ && v > 0 && (eq_is_custom(v) ||
+           eq_hw_presets[v - 1].maxerr <= EQ_HW_MAXERR);
 #endif
 }
 
@@ -150,13 +350,30 @@ static bool eq_is_hw(int v)
 static void eq_apply_preset(int v)
 {
     bool hw = eq_is_hw(v);
-    /* the software preset, if any (index clamped: v 0 never reads it) */
-    const struct eq_preset *sw = &presets[(v > 0 ? v : 1) - 1];
+    /* the software preset, if any (index clamped: Off and the custom
+     * slots never read it) */
+    const struct eq_preset *sw = &presets[(v > 0 && v <= PRESETS ? v : 1) - 1];
     int i;
-
 #if IPODUI_HW_EQ
-    if (!hw)
-        dac_eq_set(NULL, 0);    /* off first: never two EQs at once */
+    struct dac_eq_band band[DAC_EQ_BANDS];
+    int fam = eq_out_family();
+    /* #352: a preset whose rate family has no table plays flat; the
+     * software EQ stays off for it too (hw), so nothing plays it */
+    bool on = hw && eq_bands(v, fam, band);
+
+    if (!on)
+        dac_eq_set(NULL, 0, 0); /* off first: never two EQs at once */
+#ifdef HAVE_HIRATE_OUT
+    eq_family = fam;
+    eq_bypassed = hw && !on;
+    if (eq_bypassed)
+    {
+        ui_log("eq", "table family=%s missing: preset bypassed",
+               eqtable_family_name(fam));
+        UPDATE_TRACE("eq table family=%s missing: preset bypassed",
+                     eqtable_family_name(fam));
+    }
+#endif
 #endif
     for (i = 0; i < EQ_NUM_BANDS; i++)
     {
@@ -165,9 +382,9 @@ static void eq_apply_preset(int v)
         b->type = i == 0 ? EQ_FILTER_LOW_SHELF :
                   i == EQ_NUM_BANDS - 1 ? EQ_FILTER_HIGH_SHELF : EQ_FILTER_PEAK;
         b->cutoff = eq_hz[i];
-        b->gain = (v && !hw) ? sw->gain[i] : 0;
+        b->gain = (v && !hw && v <= PRESETS) ? sw->gain[i] : 0;
     }
-    global_settings.eq_enabled = v != 0 && !hw;
+    global_settings.eq_enabled = v != 0 && !hw && v <= PRESETS;
     global_settings.eq_precut = global_settings.eq_enabled ?
                                 sw->precut : 0;
     /* P19 ucop-fix2: the DSP's whole EQ set in one call on the CPU (the
@@ -175,19 +392,21 @@ static void eq_apply_preset(int v)
     ui_eq_dsp_set(global_settings.eq_band_settings, EQ_NUM_BANDS,
                   global_settings.eq_precut, global_settings.eq_enabled);
 #if IPODUI_HW_EQ
-    if (hw)
+    if (on)
+        eq_hw_apply(band);
+#ifdef HAVE_HIRATE_OUT
     {
-        const struct eq_hw_preset *h = &eq_hw_presets[v - 1];
-        struct dac_eq_band band[DAC_EQ_BANDS];
+        /* what the codec holds now: hw=0 is every band at its flat
+         * register default, no precut, no make-up (dac_eq_set(NULL)) */
+        struct dac_stats st;
 
-        for (i = 0; i < DAC_EQ_BANDS; i++)
-        {
-            band[i].gain = h->band[i].gain;
-            band[i].freq = h->band[i].freq;
-            band[i].wide = h->band[i].wide;
-        }
-        dac_eq_set(band, h->precut);
+        dac_get_stats(&st);
+        UPDATE_TRACE("eq dac family=%s hw=%d precut=%d makeup=%d",
+                     eqtable_family_name(fam), (int)st.hw_eq, st.precut_db,
+                     st.makeup_db10);
+        (void)st;
     }
+#endif
 #endif
 }
 
@@ -197,10 +416,14 @@ static void eq_apply_preset(int v)
 static void eq_trace_engine(int v)
 {
     bool hw = eq_is_hw(v);
-    int k = (v > 0 ? v : 1) - 1;    /* clamped: v 0 logs zeros */
-    int maxerr = v ? eq_hw_presets[k].maxerr : 0;
-    int precut = !v ? 0 : hw ? eq_hw_presets[k].precut :
-                 (presets[k].precut + 9) / 10;
+    int k = (v > 0 && v <= PRESETS ? v : 1) - 1;  /* clamped: Off logs
+                                                   * zeros, a slot 0 */
+    int maxerr = v && !eq_is_custom(v) ? eq_hw_presets[k].maxerr : 0;
+    struct dac_stats st;
+    int precut;
+
+    dac_get_stats(&st);
+    precut = !v ? 0 : hw ? st.precut_db : (presets[k].precut + 9) / 10;
 
     UPDATE_TRACE("eq engine=%s preset=%d maxerr=%d precut=%d",
                  hw ? "hw" : "sw", v, maxerr, precut);
@@ -212,8 +435,51 @@ void ui_eq_apply(void)
 {
     int v = eq_get();
 
+#ifdef HAVE_HIRATE_OUT
+    eq_table_load();                /* the first call only (boot) */
+#endif
     eq_apply_preset(v);
     eq_trace_engine(v);
+}
+
+/* #352: each UI pass, lit or dark (ui_main.c, beside np_hires_poll()).
+ * Only while a preset is selected and something plays or is paused (the
+ * output rate moves only when a track starts; a track change wakes this
+ * thread): one read of the mixer's rate, and at a family change one
+ * apply, which only picks the other table (a pointer) or the bypass. */
+void ui_eq_rate_poll(void)
+{
+#if defined(HAVE_HIRATE_OUT) && IPODUI_HW_EQ
+    int v = eq_get();
+    int fam;
+
+    if (v < 1 || v > PRESETS || !audio_status())
+        return;
+    fam = eq_out_family();
+    if (fam == eq_family)
+        return;
+    ui_log("eq", "rate family=%s preset=%d", eqtable_family_name(fam), v);
+    UPDATE_TRACE("eq rate family=%s preset=%d", eqtable_family_name(fam), v);
+    eq_apply_preset(v);
+    ui_panel_invalidate();          /* the Settings caption (#352) */
+#endif
+}
+
+/* #352: the presets play flat now: the output runs in a family without
+ * a table while something plays or is paused (the captions) */
+bool ui_eq_presets_paused(void)
+{
+#if defined(HAVE_HIRATE_OUT) && IPODUI_HW_EQ
+    int v = eq_get();
+
+    if (!audio_status())
+        return false;
+    if (v >= 1 && v <= PRESETS)
+        return eq_bypassed;         /* as the last apply left it */
+    return eq_out_family() == EQTABLE_HI && eqt_hi_handle <= 0;
+#else
+    return false;
+#endif
 }
 
 static int eq_set(int idx)
@@ -224,18 +490,66 @@ static int eq_set(int idx)
     UPDATE_TRACE("eq preset=%d enabled=%d precut=%u", idx,
                  (int)global_settings.eq_enabled, global_settings.eq_precut);
     eq_trace_engine(idx);
+    if (eq_is_custom(idx))
+    {
+        /* #82: a Custom row is the EQ in use and opens its editor; the
+         * list stays under it (Menu comes back to it) */
+        ui_eqedit_open(idx - EQ_CUSTOM_FIRST);
+        return 0;
+    }
     return 1;
 }
 
 static int eq_count(void)
 {
-    return PRESETS + 1;
+    return EQ_VALUES;
+}
+
+const char *ui_eq_custom_name(int slot)
+{
+    return str(LANG_IPODUI_EQ_CUSTOM_1 + (slot < 0 ? 0 : slot > 2 ? 2 : slot));
 }
 
 static const char *eq_label(int idx, char *buf, size_t len)
 {
     (void)buf; (void)len;
-    return str(idx ? presets[idx - 1].lang : LANG_OFF);
+    if (eq_is_custom(idx))
+        return ui_eq_custom_name(idx - EQ_CUSTOM_FIRST);
+    return str(idx > 0 && idx <= PRESETS ? presets[idx - 1].lang : LANG_OFF);
+}
+
+void ui_eq_custom_set(int slot, const struct dac_eq_band *b)
+{
+    if (slot < 0 || slot >= EQ_CUSTOM_SLOTS)
+        return;
+    eqlab_format(b, (char *)eq_custom_text(slot), EQLAB_TEXT_LEN);
+    UPDATE_TRACE("eq custom %d = %s", slot + 1,
+                 (const char *)eq_custom_text(slot));
+    if (eq_get() == EQ_CUSTOM_FIRST + slot)
+        eq_apply_preset(eq_get());
+    fe_settings_save();
+}
+
+void ui_eq_live(const struct dac_eq_band *b)
+{
+#if IPODUI_HW_EQ
+    if (b)
+    {
+        if (global_settings.eq_enabled)
+            eq_apply_preset(0);     /* never two EQs at once */
+        eq_hw_apply(b);
+        return;
+    }
+#else
+    (void)b;
+#endif
+    eq_apply_preset(eq_get());
+}
+
+void ui_eq_custom_select(int slot)
+{
+    if (slot >= 0 && slot < EQ_CUSTOM_SLOTS)
+        eq_set(EQ_CUSTOM_FIRST + slot);
 }
 
 const char *ui_eq_name(void)
@@ -243,8 +557,17 @@ const char *ui_eq_name(void)
     return eq_label(eq_get(), NULL, 0);
 }
 
+/* the tile's caption: the highlighted row's name, or for a preset while
+ * the presets pause at a high rate (#352), why it would play flat */
+static const char *eq_caption(int idx, char *buf, size_t len)
+{
+    if (idx >= 1 && idx <= PRESETS && ui_eq_presets_paused())
+        return str(LANG_IPODUI_EQ_HIRATE_PAUSE);
+    return eq_label(idx, buf, len);
+}
+
 static const struct ui_vlist eq_list = {
     LANG_IPODUI_EQ, PANELART_EQ, eq_count, eq_get, eq_set, eq_label,
-    eq_label };
+    eq_caption };
 
 UI_VLIST_SCREEN(ui_eq_screen, "eq", &eq_list);

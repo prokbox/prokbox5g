@@ -97,6 +97,7 @@ static void *const reset_vars[] = {
     &global_settings.keyclick_hardware,
 #endif
     &global_settings.timeformat,
+    &global_settings.ipodui_clock_set,      /* the clock follows the language again */
     &global_settings.ipodui_time_in_title,
     &global_settings.ipodui_sort_last,
     /* P12 Screen Lock (lock_core.h, review M12): Reset forgets its

@@ -29,6 +29,9 @@
 #include <string.h>
 #include "hostproto.h"
 #include "bcmjob-core.h"
+/* sitting b10: the ring at a timeout (bench builds); #257: the host code
+ * flush's record (every build) */
+#include "bcmjob_ring.h"
 
 #define LCD_CMD_WORD    0x1F8           /* the LCD contract's command word */
 #define LCD_FAULT       0xFA170000      /* our image's fault word there */
@@ -114,6 +117,8 @@ struct ovl
     uint8_t ph;
     uint32_t fseq, t0;
     uint32_t sent;              /* b.sent once OVERLAY was put */
+    uint32_t evicted;           /* the ops of the overlay this load evicted
+                                   (the hang's look, #257) */
     struct box *x;
 };
 enum { OVL_PH_IDLE = 0, OVL_PH_FENCE, OVL_PH_END };
@@ -159,6 +164,14 @@ static struct
     struct ovl ovl[BJC_OVL_N];  /* the overlays (bjc_ovl_*) */
     uint32_t region;            /* the image's overlay region (J_OVL's
                                    base; 0: it takes none) */
+    /* #257: the power-up (b.p->gen()) whose image has run code from its
+       region (an OVERLAY was put); 0: none.  A load into that region then
+       flushes the chip's caches from the host (host_code_flush) */
+    uint32_t ovl_ran_gen;
+    struct bjc_code_flush fl_drain, fl_code;    /* the last of each */
+    uint32_t hpcaps;            /* HP_CAPS read at discovery (#466:
+                                   HP_CAP_CORE_FLUSH) */
+    uint32_t fl_seq;            /* host code flushes this boot */
 #ifdef HAVE_BCMFW_DEVTEST
     /* bjc_inject_fail, per op: jobs still to send asking for a reply, and
      * those replies, on their way, to read as failed */
@@ -217,6 +230,24 @@ static struct
     uint32_t leaks;             /* bjc_leaks() */
 } BJC_OWN_LINES ac;
 
+#ifdef HAVE_BCMFW_DEVTEST
+/* Sitting b10: the last ring look (ring_look) and the looks still allowed;
+ * the owner's alone */
+static struct
+{
+    struct bjc_ring_look last;
+    uint32_t left;
+} lk;
+/* #257: the last overlay look (ovl_look) and the automatic looks left */
+#define OVL_LOOKS_MAX   2
+static struct
+{
+    struct bjc_ovl_look last;
+    uint32_t left;
+} ol;
+static void ovl_look(void);
+#endif
+
 /* P19 S0 (design MF-2): b above is the ring owner's alone.  Other threads
  * (and, after 19-9, the other core) reach it only through the request
  * record: the suspend requester's word and the backlight thread's dark
@@ -266,6 +297,12 @@ void bjc_init(const struct bjc_port *port, struct bjc_slot *slots,
     memset(&b, 0, sizeof(b));
     memset(&ac, 0, sizeof(ac));
     memset(&req0, 0, sizeof(req0));
+#ifdef HAVE_BCMFW_DEVTEST
+    memset(&lk, 0, sizeof(lk));
+    lk.left = BJR_LOOKS_MAX;
+    memset(&ol, 0, sizeof(ol));
+    ol.left = OVL_LOOKS_MAX;
+#endif
     r = &req0;
     own = NULL;
     b.p = port;
@@ -629,6 +666,7 @@ static uint8_t discover(void)
         trace("bcmjob cpu why=no jobs caps=%04lx", (unsigned long)h[1]);
         return ST_CPU;
     }
+    b.hpcaps = h[1];
     b.cmd_base = h[2];
     b.cmd_size = h[3];
     b.evt_base = h[4];
@@ -1090,11 +1128,103 @@ port:
     return -1;
 }
 
+#ifdef HAVE_BCMFW_DEVTEST
+/* Sitting b10 (bcmjob_ring.h): the ring as the image left it when a wait
+ * ran out, read before anything else touches the chip: no doorbell, the
+ * port lock held from the first read to the last, so no push, job or
+ * tick read comes between; then the same words after BJR_WINDOW_US.
+ * Read only; bounded (BJR_LOOKS_MAX a boot, plus the bench's arms) */
+static void look_rd(uint32_t a, uint32_t *v, uint32_t *bad)
+{
+    if (b.p->rd(a, v) < 0)
+    {
+        *v = 0;
+        (*bad)++;
+    }
+}
+
+static void ring_look(void)
+{
+    struct bjc_ring_look l;
+    uint32_t t0, d;
+    char line[112];             /* the lines fit 63 for real values */
+    int k;
+
+    if (!lk.left)
+        return;
+    lk.left--;
+    memset(&l, 0, sizeof(l));
+    l.host_wr = b.cmd_wr;
+    l.fence_want = b.fence_last;
+    l.sent = b.sent;
+    b.p->lock();
+    t0 = b.p->now_us();
+    look_rd(HP_CMD_WR, &l.cmd_wr, &l.bad);
+    look_rd(HP_CMD_RD, &l.cmd_rd, &l.bad);
+    if (HP_VALID(l.cmd_rd) && b.cmd_size)
+        look_rd(b.cmd_base + 4 * ((l.cmd_rd & 0xFFFF) & (b.cmd_size - 1)),
+                &l.next_hdr, &l.bad);
+    look_rd(b.block + J_FENCE, &l.fence, &l.bad);
+    look_rd(b.block + J_DONE, &d, &l.bad);
+    l.done = d - b.done_base;
+    look_rd(b.block + J_CUR_OP, &l.cur_op, &l.bad);
+    look_rd(HP_STATE, &l.beat0, &l.bad);
+    look_rd(BJR_MB_IDLE_TICKS, &l.ticks0, &l.bad);
+    look_rd(BJR_MB_INFO, &l.info, &l.bad);
+    look_rd(BJR_MB_IDLE_EN, &l.idle_en, &l.bad);
+    look_rd(LCD_CMD_WORD, &l.lcd_cmd, &l.bad);
+    while (b.p->now_us() - t0 < BJR_WINDOW_US)
+        b.p->yield();
+    look_rd(HP_STATE, &l.beat1, &l.bad);
+    look_rd(BJR_MB_IDLE_TICKS, &l.ticks1, &l.bad);
+    look_rd(BJR_MB_IDLE_BELLS, &l.bells, &l.bad);
+    look_rd(BJR_MB_IDLE_SLEEPS, &l.sleeps, &l.bad);
+    look_rd(HP_CMD_RD, &l.cmd_rd1, &l.bad);
+    look_rd(b.block + J_DONE, &d, &l.bad);
+    l.done1 = d - b.done_base;
+    l.window_us = b.p->now_us() - t0;
+    b.p->unlock();
+    if (b.p->lock_stats)
+    {
+        uint32_t st[4];
+
+        b.p->lock_stats(st);
+        l.lk_off = st[0];
+        l.lk_off_at = st[1];
+        l.lk_nest = st[2];
+        l.lk_nest_at = st[3];
+    }
+    l.seq = lk.last.seq + 1;
+    lk.last = l;
+    if (b.trace)
+        for (k = 0; k < BJR_LOG_LINES; k++)
+        {
+            bjr_fmt_log(line, sizeof(line), &l, k);
+            b.trace(line);
+        }
+}
+
+void bjc_ring_look_get(struct bjc_ring_look *out)
+{
+    *out = lk.last;
+}
+
+void bjc_ring_look_arm(void)
+{
+    if (!lk.left)
+        lk.left = 1;
+}
+#endif
+
 /* After a wait ran out with the BCM still powered: slow or dead */
 static int timed_out(void)
 {
     uint32_t done, op = 0, bit;
 
+#ifdef HAVE_BCMFW_DEVTEST
+    ring_look();                /* first: nothing has touched the chip */
+    ovl_look();                 /* an OVERLAY that never answered (#257) */
+#endif
     if (!alive())
     {
         chip_failed("dead");
@@ -1226,6 +1356,21 @@ void bjc_inject_forgive(uint32_t op)
     if (op < 0x20 || op >= 0x40)
         return;
     b.failed &= ~(1u << (op - 0x20));
+    b.fail_n[op - 0x20] = 0;
+}
+
+/* bcmjob-core.h: the bench's forgive (jobsx): the op's slow and failed
+ * marks go, so a bench row's next self-test runs at all */
+void bjc_dev_forgive(uint32_t op)
+{
+    uint32_t bit;
+
+    if (op < 0x20 || op >= 0x40)
+        return;
+    bit = 1u << (op - 0x20);
+    b.slow &= ~bit;
+    b.slow_once &= ~bit;
+    b.failed &= ~bit;
     b.fail_n[op - 0x20] = 0;
 }
 
@@ -1539,6 +1684,203 @@ int bcmjob_spectrum(uint32_t slot, uint32_t n, const uint16_t *edges, uint32_t n
     return BCMJOB_OK;
 }
 
+/* ---- #257: code at reused addresses (BCM quirks.md #59) ------------------
+ * Sitting b11: each overlay loaded and ran in a fresh region, but loading
+ * one over the other (the same region, 0x12B000) hung the merged image
+ * inside OVERLAY, both ways.  The image's own flush before it calls the
+ * new code (jobs_bcm.c hp_code_flush: @25a's form, a bit-30 request with
+ * bit 31 clear) is the form that failed to make a warm swap's new image
+ * run (quirks.md #56), and the old overlay's lines are what the
+ * instruction side then serves.  The form that worked on silicon carries
+ * an edge of bit 31: the cold start's 0xC000_0000.  So before a region
+ * that has run code since the image started is rewritten, and again
+ * before its OVERLAY, the PP makes that flush itself through the port,
+ * the word's other bits kept (bit 16: SDRAM up, #58):
+ *  1. keep = the word, bits 31:30 clear;
+ *  2. keep | 0xC000_0000 (the enable's edge and the request), asked again
+ *     while bit 0 reads 1 at once (the stale done of #41), at most
+ *     FLUSH_REQ_MAX times; bit 0 polled for at most FLUSH_POLL_US;
+ *  3. keep | 0x4000_0000 (@25a's request, the enable off), the same way:
+ *     whatever the core touched while the enable was set goes back;
+ *  4. keep.
+ * The first flush (before the rewrite) also writes back any data line the
+ * old overlay left dirty, so none can land on the new code (#257 H(b),
+ * which the silicon facts make unlikely: the core's stores reach the
+ * host at once).  vc2sim's line-store model (hello_test.Bench, 'edge31')
+ * hangs the swap without this and passes it with it, both ways
+ * (jobs_image_test.py t_ovl_swap_cache).  The image is unchanged.  Each
+ * flush is a few port accesses and runs only on a swap */
+#define BCM_CACHE_CTL   0x10000C00u
+#define FLUSH_REQ_MAX   15
+#define FLUSH_POLL_US   5000u
+
+static int host_code_flush(struct bjc_code_flush *f, const char *when,
+                           bool drain_only)
+{
+    static const uint32_t form[2] = { 0xC0000000u, 0x40000000u };
+    uint32_t w = 0, keep, t0, ts, i, k;
+    int rc = BCMJOB_OK;
+
+    memset(f, 0, sizeof(*f));
+    f->seq = ++b.fl_seq;
+    b.p->lock();
+    t0 = b.p->now_us();
+    if (b.p->rd(BCM_CACHE_CTL, &w) < 0)
+        rc = BCMJOB_OFF;
+    f->before = w;
+    keep = w & 0x3FFFFFFFu;
+    /* #466: drain_only, the request alone with the enable left off (step
+       3): no window of the cache on while the core runs */
+    for (i = drain_only ? 1 : 0; i < 2 && rc == BCMJOB_OK; i++)
+    {
+        for (k = 0; k < FLUSH_REQ_MAX; k++)
+        {
+            if (b.p->wr(BCM_CACHE_CTL, keep | form[i]) < 0 ||
+                b.p->rd(BCM_CACHE_CTL, &w) < 0)
+            {
+                rc = BCMJOB_OFF;
+                break;
+            }
+            if (!(w & 1))
+                break;
+            f->rq++;            /* done already: a stale bit 0, ask again */
+            b.p->wr(BCM_CACHE_CTL, keep);
+        }
+        ts = b.p->now_us();
+        while (rc == BCMJOB_OK && !(w & 1))
+        {
+            if (b.p->rd(BCM_CACHE_CTL, &w) < 0)
+                rc = BCMJOB_OFF;
+            f->polls++;
+            if (!(w & 1) && b.p->now_us() - ts > FLUSH_POLL_US)
+                rc = BCMJOB_TIMEOUT;
+        }
+    }
+    b.p->wr(BCM_CACHE_CTL, keep);
+    if (b.p->rd(BCM_CACHE_CTL, &f->after) < 0)
+        f->after = ~0u;
+    f->us = b.p->now_us() - t0;
+    b.p->unlock();
+    f->rc = rc;
+    trace("bcmjob ovl flush %s rc=%d w=%08lx>%08lx rq=%lu p=%lu us=%lu",
+          when, rc, (unsigned long)f->before, (unsigned long)f->after,
+          (unsigned long)f->rq, (unsigned long)f->polls, (unsigned long)f->us);
+    if (rc == BCMJOB_TIMEOUT)
+        trace("bcmjob FAULT ovl flush %s: no done in %lu us", when,
+              (unsigned long)FLUSH_POLL_US);
+    return rc;
+}
+
+/* The region has run code since the image started: a load flushes */
+static bool ovl_region_ran(void)
+{
+    return b.ovl_ran_gen && b.ovl_ran_gen == b.p->gen();
+}
+
+/* #466: the host flushes the chip's cache only for an image that doesn't
+ * flush at OVERLAY itself (HP_CAP_CORE_FLUSH, the cold form inside the
+ * op).  The host's flush toggles the cache word while the core runs, and
+ * on silicon that broke the executor's own state (quirks #60, b15, b17) */
+static bool host_flush_due(void)
+{
+    return !(b.hpcaps & HP_CAP_CORE_FLUSH) && ovl_region_ran();
+}
+
+#ifdef HAVE_BCMFW_DEVTEST
+/* #257: what the host can see of overlay k's load (bcmjob_ring.h struct
+ * bjc_ovl_look), read through the port, the lock held 2 KB at a time;
+ * bounded by the file's words.  Read only */
+static void ovl_look_take(int k, struct bjc_ovl_look *l)
+{
+    const struct ovl *o = &b.ovl[k];
+    uint32_t t0 = b.p->now_us(), a, v, i, h = 2166136261u;
+
+    memset(l, 0, sizeof(*l));
+    l->k = k;
+    l->base = o->base;
+    l->bytes = o->rec.bytes & ~3u;
+    l->fnv_want = o->rec.fnv;
+    l->evicted_ops = o->evicted;
+    l->drain = b.fl_drain;
+    l->code = b.fl_code;
+    b.p->lock();
+    look_rd(b.block + J_CUR_OP, &l->cur_op, &l->bad);
+    look_rd(b.block + J_OPS, &l->ops, &l->bad);
+    look_rd(b.block + J_CAPS, &l->caps, &l->bad);
+    look_rd(BCM_CACHE_CTL, &l->cache, &l->bad);
+    b.p->unlock();
+    if (!l->base)
+        l->bytes = 0;
+    for (a = 0; a < l->bytes; a += 4)
+    {
+        if (!(a & 2047))
+            b.p->lock();
+        look_rd(l->base + a, &v, &l->bad);
+        for (i = 0; i < 4; i++)
+            h = (h ^ (v >> (8 * i) & 0xFF)) * 16777619u;
+        if ((a & 2047) == 2044 || a + 4 >= l->bytes)
+            b.p->unlock();
+    }
+    l->fnv_read = h;
+    if (l->bad)
+        l->step = BJO_STEP_UNREAD;
+    else if (l->ops & o->want)
+        l->step = BJO_STEP_INIT_DONE;
+    else if (!HP_VALID(l->cur_op) || (l->cur_op & 0xFFFF) != J_OP_OVERLAY)
+        l->step = BJO_STEP_OTHER;
+    else if (l->ops & l->evicted_ops)
+        l->step = BJO_STEP_QUEUED;
+    else
+        l->step = BJO_STEP_DROPPED;
+    l->us = b.p->now_us() - t0;
+    l->seq = ol.last.seq + 1;
+}
+
+/* At a wait's timeout, after the ring look and before the restart: an
+ * OVERLAY whose reply never came gets its look, traced */
+static void ovl_look(void)
+{
+    char line[112];
+    int k, i;
+
+    for (k = 0; k < BJC_OVL_N; k++)
+        if (b.ovl[k].ph == OVL_PH_END)
+            break;
+    if (k == BJC_OVL_N || !ol.left)
+        return;
+    ol.left--;
+    ovl_look_take(k, &ol.last);
+    if (b.trace)
+        for (i = 0; i < BJO_LOG_LINES; i++)
+        {
+            bjo_fmt_log(line, sizeof(line), &ol.last, i);
+            b.trace(line);
+        }
+}
+
+uint32_t bjc_ovl_look_get(struct bjc_ovl_look *out)
+{
+    *out = ol.last;
+    return ol.last.seq;
+}
+
+int bjc_ovl_look_now(int k, struct bjc_ovl_look *out)
+{
+    if (k < 0 || k >= BJC_OVL_N || enter() != ST_JOBS)
+        return BCMJOB_OFF;
+    ovl_look_take(k, out);
+    ol.last = *out;
+    return BCMJOB_OK;
+}
+
+uint32_t bjc_ovl_flushes(struct bjc_code_flush *out)
+{
+    out[0] = b.fl_drain;
+    out[1] = b.fl_code;
+    return b.fl_seq;
+}
+#endif
+
 /* A load's posted wait given up: its reply box freed (a late reply is
  * drain()'s: an OK dropped, a failure counted as any job's) */
 static void ovl_idle(struct ovl *o)
@@ -1620,6 +1962,21 @@ static int ovl_fenced(int k, struct ovl *o)
         return BJC_OVL_AGAIN;
     }
     o->ph = OVL_PH_IDLE;
+    /* #257: the region ran code since the image started: the chip's
+       caches flushed before it is rewritten (no job queued now) */
+    if (ovl_region_ran())
+    {
+        /* #466: with the image's own flush, the drain alone (the old
+           overlay's data lines back before the rewrite, #257 H(b)); no
+           enable edge from the host on a running core */
+        bool core = (b.hpcaps & HP_CAP_CORE_FLUSH) != 0;
+        int r = host_code_flush(&b.fl_drain, core ? "drain-only" : "drain", core);
+
+        if (r == BCMJOB_OFF)
+            return BCMJOB_OFF;
+        if (r)
+            return ovl_refuse(o, "flush", false);
+    }
     o->words = o->rec.bytes / 4;
     trace("bcmjob overlay load k=%d bytes=%lu at=%08lx epoch=%lu", k,
           (unsigned long)o->rec.bytes, (unsigned long)o->base,
@@ -1676,6 +2033,7 @@ int bjc_ovl_begin(int k, const uint32_t *hdr, uint32_t bytes)
        visualizer share one region; visualizer.md 8.5).  Dropped here,
        before the FENCE below, so none of its ops is queued after the
        FENCE while the region is rewritten; a load of it under way ends */
+    o->evicted = 0;
     for (r = 0; r < BJC_OVL_N; r++)
         if (r != k)
         {
@@ -1683,6 +2041,7 @@ int bjc_ovl_begin(int k, const uint32_t *hdr, uint32_t bytes)
             b.ovl[r].words = 0;
             if (b.ovl[r].ops)
             {
+                o->evicted |= b.ovl[r].ops;
                 b.ops &= ~b.ovl[r].ops;
                 b.ovl[r].ops = 0;
                 b.ovl[r].epoch = 0;
@@ -1829,6 +2188,18 @@ int bjc_ovl_end(int k, uint32_t fnv, uint32_t a, uint32_t bb)
     o->words = 0;
     if (fnv != o->rec.fnv)
         return ovl_refuse(o, "file", true);
+    /* #257: the region ran code since the image started: the chip's
+       caches flushed again, now that it holds the new file, before the
+       image calls into it */
+    if (host_flush_due())
+    {
+        st = host_code_flush(&b.fl_code, "code", false);
+        if (st == BCMJOB_OFF)
+            return BCMJOB_OFF;
+        if (st)
+            return ovl_refuse(o, "flush", false);
+    }
+    b.ovl_ran_gen = b.p->gen();
     /* OVERLAY posted with a reply tag, its answer looked for at this and
        the next calls (BJC_OVL_AGAIN), never waited for inside one (the
        BCM's sums, init and start-up checks: about 30 ms at 27 MHz) */

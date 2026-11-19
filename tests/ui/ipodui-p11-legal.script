@@ -11,7 +11,7 @@ wheel +3             # Settings
 wait 400
 key SELECT
 wait 1500
-wheel +15            # Legal
+wheel +16            # Legal
 wait 400
 key SELECT
 wait 1500

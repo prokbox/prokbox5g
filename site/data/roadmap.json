@@ -1,5 +1,5 @@
 {
- "generated_for": "0.8.3",
+ "generated_for": "0.9.0",
  "source": "scripts/roadmap.py generate (do not edit by hand)",
  "statuses": [
   {
@@ -35,16 +35,6 @@
  ],
  "releases": [
   {
-   "name": "0.9.0",
-   "heading": "Release 0.9.0",
-   "anchor": "release-090",
-   "theme": "Sound and languages: better audio, menus in more languages, better song details, and fixes.",
-   "later": false,
-   "stands": "Under way",
-   "under_way": "11 of 20",
-   "aimed": ""
-  },
-  {
    "name": "0.9.1",
    "heading": "Release 0.9.1",
    "anchor": "release-091",
@@ -71,7 +61,7 @@
    "theme": "Video: more formats, a better video player, and fixes.",
    "later": false,
    "stands": "Under way",
-   "under_way": "5 of 14",
+   "under_way": "5 of 19",
    "aimed": ""
   },
   {
@@ -81,7 +71,7 @@
    "theme": "Your library and USB, and the second game kit, with a short role-playing game.",
    "later": false,
    "stands": "Under way",
-   "under_way": "1 of 13",
+   "under_way": "1 of 20",
    "aimed": ""
   },
   {
@@ -146,186 +136,6 @@
   }
  ],
  "items": [
-  {
-   "issue": 180,
-   "release": "0.9.0",
-   "status": "In testing",
-   "key": "testing",
-   "short": "Long artist names scroll on Now Playing",
-   "text": "On Now Playing, a long artist name scrolls so you can read all of it.",
-   "anchor": "item-long-artist-names-scroll-on-now-playing"
-  },
-  {
-   "issue": 163,
-   "release": "0.9.0",
-   "status": "In testing",
-   "key": "testing",
-   "short": "Newer numbered genres show correctly",
-   "text": "Files tagged with the newer numbered genres, such as Audiobook and Podcast, show the right genre.",
-   "anchor": "item-newer-numbered-genres-show-correctly"
-  },
-  {
-   "issue": 167,
-   "release": "0.9.0",
-   "status": "In testing",
-   "key": "testing",
-   "short": "Every artist on Now Playing",
-   "text": "Now Playing shows every artist on a song, not just the first. Browsing by artist still uses the first artist.",
-   "anchor": "item-every-artist-on-now-playing"
-  },
-  {
-   "issue": 270,
-   "release": "0.9.0",
-   "status": "In development",
-   "key": "development",
-   "short": "Optional 88.2 and 96 kHz output",
-   "text": "A new Settings › Audiophile menu with optional 88.2 and 96 kHz output. It is off by default. It runs the audio chip beyond its official range, so it comes with a warning. Your player tests itself first and offers only the rates that pass. If anything goes wrong, it drops back to a safe rate.",
-   "anchor": "item-optional-88-2-and-96-khz-output"
-  },
-  {
-   "issue": 277,
-   "release": "0.9.0",
-   "status": "In development",
-   "key": "development",
-   "short": "Format and sample rate page in Now Playing",
-   "text": "An extra info page in Now Playing shows a song's format, bit depth and sample rate, for example FLAC, 24-bit, 96 kHz.",
-   "anchor": "item-format-and-sample-rate-page-in-now-playing"
-  },
-  {
-   "issue": 266,
-   "release": "0.9.0",
-   "status": "In development",
-   "key": "development",
-   "short": "Menus in Japanese",
-   "text": "Menus in Japanese.",
-   "anchor": "item-menus-in-japanese"
-  },
-  {
-   "issue": 235,
-   "release": "0.9.0",
-   "status": "In development",
-   "key": "development",
-   "short": "Japanese and Korean characters in names",
-   "text": "Japanese and Korean characters show correctly in song, artist and album names.",
-   "anchor": "item-japanese-and-korean-characters-in-names"
-  },
-  {
-   "issue": 235,
-   "release": "0.9.0",
-   "status": "In development",
-   "key": "development",
-   "short": "Sorting by Sort Artist and other sort tags",
-   "text": "Lists sort by the sort-name tags, such as Sort Artist, when your files have them.",
-   "anchor": "item-sorting-by-sort-artist-and-other-sort-tags"
-  },
-  {
-   "issue": 203,
-   "release": "0.9.0",
-   "status": "In design",
-   "key": "design",
-   "short": "Equaliser presets keep the volume",
-   "text": "We are working on keeping the volume the same when you turn on an equaliser preset. Today presets make everything quieter.",
-   "anchor": "item-equaliser-presets-keep-the-volume"
-  },
-  {
-   "issue": 286,
-   "release": "0.9.0",
-   "status": "In design",
-   "key": "design",
-   "short": "Unplayable songs greyed out and skipped",
-   "text": "Songs the player cannot play stay in your library, greyed out with a sign, and are skipped instead of failing without explanation.",
-   "anchor": "item-unplayable-songs-greyed-out-and-skipped"
-  },
-  {
-   "issue": 283,
-   "release": "0.9.0",
-   "status": "In design",
-   "key": "design",
-   "short": "Video sound and clicks on the second core",
-   "text": "Video soundtracks and click sounds move to the second processor core too, like music.",
-   "anchor": "item-video-sound-and-clicks-on-the-second-core"
-  },
-  {
-   "issue": 289,
-   "release": "0.9.0",
-   "status": "Planned",
-   "key": "planned",
-   "short": "24-bit output for MP3 and AAC",
-   "text": "MP3 and AAC files use the 24-bit output too, keeping more of their detail.",
-   "anchor": "item-24-bit-output-for-mp3-and-aac"
-  },
-  {
-   "issue": 214,
-   "release": "0.9.0",
-   "status": "Planned",
-   "key": "planned",
-   "short": "Near-seamless sample rate changes",
-   "text": "We are working on switching between songs with different sample rates with at most a very short pause.",
-   "anchor": "item-near-seamless-sample-rate-changes"
-  },
-  {
-   "issue": 273,
-   "release": "0.9.0",
-   "status": "Planned",
-   "key": "planned",
-   "short": "Menus in Dutch and German",
-   "text": "Menus in Dutch and German.",
-   "anchor": "item-menus-in-dutch-and-german"
-  },
-  {
-   "issue": 292,
-   "release": "0.9.0",
-   "status": "Planned",
-   "key": "planned",
-   "short": "Better Opus support",
-   "text": "We are working on better Opus support: loudness tags for volume levelling, and Opus files that end in .ogg. We are also checking that gapless endings are clean.",
-   "anchor": "item-better-opus-support"
-  },
-  {
-   "issue": 318,
-   "release": "0.9.0",
-   "status": "Planned",
-   "key": "planned",
-   "short": "32-bit FLAC files play",
-   "text": "32-bit FLAC files play, instead of being skipped.",
-   "anchor": "item-32-bit-flac-files-play"
-  },
-  {
-   "issue": 317,
-   "release": "0.9.0",
-   "status": "Planned",
-   "key": "planned",
-   "short": "Guide page on adding audiobooks",
-   "text": "A new guide page on putting audiobooks on the player: which formats play, chapters, resume and speed, and why copy-protected books cannot play.",
-   "anchor": "item-guide-page-on-adding-audiobooks"
-  },
-  {
-   "issue": 170,
-   "release": "0.9.0",
-   "status": "Planned",
-   "key": "planned",
-   "short": "Music keeps playing when opening screens",
-   "text": "Opening some screens while music plays no longer stops the music.",
-   "anchor": "item-music-keeps-playing-when-opening-screens"
-  },
-  {
-   "issue": 82,
-   "release": "0.9.0",
-   "status": "Planned",
-   "key": "planned",
-   "short": "Your own equaliser settings",
-   "text": "Make up to three equaliser settings of your own, with a picture of each curve, alongside the built-in ones.",
-   "anchor": "item-your-own-equaliser-settings"
-  },
-  {
-   "issue": 327,
-   "release": "0.9.0",
-   "status": "Considering",
-   "key": "considering",
-   "short": "Quieter silence",
-   "text": "We are looking at letting the sound chip mute itself during silent stretches, to cut faint hiss in quiet passages and while paused.",
-   "anchor": "item-quieter-silence"
-  },
   {
    "issue": 182,
    "release": "0.9.1",
@@ -489,6 +299,15 @@
    "anchor": "item-mpeg-4-video-up-to-320-240"
   },
   {
+   "issue": 292,
+   "release": "0.9.3",
+   "status": "Planned",
+   "key": "planned",
+   "short": "Better Opus support",
+   "text": "We are working on better Opus support: loudness tags for volume levelling, and Opus files that end in .ogg. We are also checking that gapless endings are clean.",
+   "anchor": "item-better-opus-support"
+  },
+  {
    "issue": 188,
    "release": "0.9.3",
    "status": "Planned",
@@ -543,6 +362,33 @@
    "anchor": "item-photos"
   },
   {
+   "issue": 381,
+   "release": "0.9.3",
+   "status": "Planned",
+   "key": "planned",
+   "short": "Faster scrolling in long lists",
+   "text": "Scrolling speeds up the longer you turn the wheel, and more so in long lists.",
+   "anchor": "item-faster-scrolling-in-long-lists"
+  },
+  {
+   "issue": 503,
+   "release": "0.9.3",
+   "status": "Planned",
+   "key": "planned",
+   "short": "Full-quality HE-AAC",
+   "text": "High-efficiency AAC files play with their full, bright treble instead of a duller sound.",
+   "anchor": "item-full-quality-he-aac"
+  },
+  {
+   "issue": 504,
+   "release": "0.9.3",
+   "status": "Planned",
+   "key": "planned",
+   "short": "Night Mode",
+   "text": "Night Mode: a warm evening tint over the whole screen, on a schedule or by a switch.",
+   "anchor": "item-night-mode"
+  },
+  {
    "issue": 194,
    "release": "0.9.3",
    "status": "Considering",
@@ -568,6 +414,15 @@
    "short": "H.265 video, as an experiment",
    "text": "We are looking at H.265 (HEVC) video, as an experiment. It ships only if it works well, and is marked experimental if it does.",
    "anchor": "item-h-265-video-as-an-experiment"
+  },
+  {
+   "issue": 327,
+   "release": "0.9.3",
+   "status": "Considering",
+   "key": "considering",
+   "short": "Quieter silence",
+   "text": "We are looking at letting the sound chip mute itself during silent stretches, to cut faint hiss in quiet passages and while paused.",
+   "anchor": "item-quieter-silence"
   },
   {
    "issue": 247,
@@ -667,6 +522,69 @@
    "short": "Spoken menus",
    "text": "Spoken menus: the player can read out menu items and song, artist and album names.",
    "anchor": "item-spoken-menus"
+  },
+  {
+   "issue": 382,
+   "release": "0.9.4",
+   "status": "Planned",
+   "key": "planned",
+   "short": "Faster library updates",
+   "text": "Adding a few songs to a large library updates it faster.",
+   "anchor": "item-faster-library-updates"
+  },
+  {
+   "issue": 383,
+   "release": "0.9.4",
+   "status": "Planned",
+   "key": "planned",
+   "short": "Faster removal of many songs",
+   "text": "Removing many songs at once updates the library faster.",
+   "anchor": "item-faster-removal-of-many-songs"
+  },
+  {
+   "issue": 385,
+   "release": "0.9.4",
+   "status": "Planned",
+   "key": "planned",
+   "short": "Faster details for synced songs",
+   "text": "Songs copied by the old sync software show their details sooner, read from its own library.",
+   "anchor": "item-faster-details-for-synced-songs"
+  },
+  {
+   "issue": 492,
+   "release": "0.9.4",
+   "status": "Planned",
+   "key": "planned",
+   "short": "Last.fm play logging",
+   "text": "Songs you play can be logged on the player for Last.fm, ready to send when you connect it to your computer.",
+   "anchor": "item-last-fm-play-logging"
+  },
+  {
+   "issue": 493,
+   "release": "0.9.4",
+   "status": "Planned",
+   "key": "planned",
+   "short": "Recognised by your computer",
+   "text": "Your computer's music app recognises the player when you plug it in.",
+   "anchor": "item-recognised-by-your-computer"
+  },
+  {
+   "issue": 502,
+   "release": "0.9.4",
+   "status": "Planned",
+   "key": "planned",
+   "short": "Play counts and playlists sync back",
+   "text": "Play counts and On-The-Go playlists made on the player go back to your computer's music library at the next sync.",
+   "anchor": "item-play-counts-and-playlists-sync-back"
+  },
+  {
+   "issue": 508,
+   "release": "0.9.4",
+   "status": "Planned",
+   "key": "planned",
+   "short": "Smart playlists",
+   "text": "Smart playlists that fill themselves in: Favourites, Top Rated, Top 25 Most Played and Recently Added.",
+   "anchor": "item-smart-playlists"
   },
   {
    "issue": 139,

@@ -135,7 +135,8 @@ bool pmu_raw_core_voltage(uint8_t code); /* DCDC1 0xEC/0xEB, read back
                                          * and fallback raise) */
 #endif
 bool pmu_raw_rtc_seconds(uint32_t *s);  /* RTC 0x0A-0x10 (4 + 3 bytes),
-                                         * seconds since 2000 */
+                                         * seconds since 2000; one retry
+                                         * after ~1 ms (b12, #255) */
 
 /* button-clickwheel.c: the wheel controller's bring-up (opto_i2c_init()),
  * and the driver's state after a sleep: wheel position forgotten (no

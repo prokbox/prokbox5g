@@ -68,6 +68,9 @@
 # exactly the kind of non-determinism this exists to catch -- fix the
 # script's own cleanup/directives, don't retry until it happens to pass.
 set -u
+# Captures run many sims at once to prove pixels stable; shots.sh's trace
+# checks (frame timing) are the gate's job, not the capture's.
+export SHOTS_CHECK=0
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
 . scripts/simpool.sh

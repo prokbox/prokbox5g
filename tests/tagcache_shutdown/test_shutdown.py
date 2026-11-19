@@ -66,6 +66,7 @@ static bool queue_empty = true, block_worker;
 static int posted, syncs, compactions, ordinary_flushes, sleeps;
 static volatile bool ui_drain_force;
 static volatile bool ui_worker_usb_parked;     /* #118 */
+static volatile bool ui_publish_cuttable, ui_play_req;  /* p090-floor3 */
 static long peek_event;
 static bool usb_behind_stop;
 #define COMMAND_QUEUE_IS_EMPTY queue_empty
@@ -160,6 +161,14 @@ int main(void)
     peek_event = SYS_USB_CONNECTED; assert(ui_generation_cancel(NULL));
     peek_event = 0; current_tick = 100; assert(ui_generation_cancel(NULL));
     current_tick = 0; tagcache_usb_quiescing = true; assert(ui_generation_cancel(NULL));
+    /* p090-floor3: PLAY's request cancels only a publication's cuttable part */
+    tagcache_usb_quiescing = false; ui_shutdown_flushing = false;
+    ui_commit_cancel = false; peek_event = 0;
+    assert(!ui_generation_cancel(NULL));
+    ui_play_req = true; assert(!ui_generation_cancel(NULL));
+    ui_publish_cuttable = true; assert(ui_generation_cancel(NULL));
+    ui_play_req = false; assert(!ui_generation_cancel(NULL));
+    ui_publish_cuttable = false;
     puts("tagcache shutdown: actual-C event/cancellation/USB/deadline checks pass");
     return 0;
 }

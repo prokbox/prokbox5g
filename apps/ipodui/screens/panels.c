@@ -69,6 +69,7 @@
 #include "ipodui/extras.h"
 #include "ipodui/stopwatch.h"      /* ui_preview_x_stopwatch */
 #include "ipodui/material.h"
+#include "ipodui/locale.h"
 #include "ipodui/preview.h"     /* ui_panel_shadow_band (#329) */
 #undef panelart_wheel_a
 #undef panelart_wheel_rgb
@@ -586,7 +587,7 @@ const char *ui_fmt_gb(unsigned long kib, char *buf, size_t len)
     if (tenths >= 1000)
         snprintf(buf, len, "%lu", tenths / 10);
     else
-        snprintf(buf, len, "%lu.%lu", tenths / 10, tenths % 10);
+        ui_fmt_decimal(buf, len, tenths / 10, tenths % 10, 1);
     return buf;
 }
 
@@ -1031,9 +1032,7 @@ static int extras_draw(const struct ui_panel *p, const void *arg, long phase)
     ui_clock_hands(CV_AT(&c, cx, CLOCK_CY), c.stride, tm->tm_hour,
                    tm->tm_min, CLOCK_HOUR_L, CLOCK_MIN_L, CLOCK_HAND,
                    LCD_RGBPACK(0xe8, 0xe8, 0xec), UI_PANEL_W);
-    snprintf(line, sizeof(line), str(LANG_IPODUI_PANEL_DATE),
-             str(LANG_MONTH_JANUARY + tm->tm_mon), tm->tm_mday,
-             tm->tm_year + 1900);
+    ui_fmt_date_tm(line, sizeof(line), LANG_IPODUI_DATE_PANEL, tm);
     lcd_set_foreground(t->panel_fg);
     panel_text(t->font_ui, DATE_BASE, line);
     panel_end();
@@ -1144,15 +1143,10 @@ static int x_calendars_draw(const struct ui_panel *p, const void *arg,
                             long phase)
 {
     struct tm *tm = panel_time();
-    char now[16];
-    int h = tm->tm_hour, m = tm->tm_min;
+    char now[24];
 
     (void)arg; (void)phase;
-    if (global_settings.timeformat)             /* 12 hour clock */
-        snprintf(now, sizeof(now), "%d:%02d %s", h % 12 ? h % 12 : 12, m,
-                 str(h < 12 ? LANG_IPODUI_AM : LANG_IPODUI_PM));
-    else
-        snprintf(now, sizeof(now), "%02d:%02d", h, m);
+    ui_fmt_time(now, sizeof(now), tm->tm_hour, tm->tm_min);
     ui_panel_draw_tile(p, now, UI_TILE_CALENDAR,
                        str(LANG_IPODUI_SUNDAY + tm->tm_wday % 7));
     return (60 - MIN(tm->tm_sec, 59)) * HZ;

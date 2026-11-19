@@ -36,7 +36,9 @@
  *    itself), then the result with one OK; the setting follows the
  *    result (Off when neither rate passed). Keys pressed during the test
  *    are dropped for half a second after it, so a queued press cannot
- *    dismiss the result unseen.
+ *    dismiss the result unseen. Pushed with a non-NULL arg it is Hi-Res
+ *    128x's prompt (0.9.0): the same steps, its own texts and its own
+ *    test (audiophile_osr128_selftest(), ~9 s since p090-osr128).
  *
  *  - the fallback popup: when audiophile_fallback_pending() (a runtime
  *    fault at a high rate moved playback to 44.1/48 kHz), the main loop
@@ -75,12 +77,15 @@ static const short warn_seg[SEG_COUNT] = {
     LANG_IPODUI_AP_CONTINUE, LANG_CANCEL_0 };
 static const short ok_seg[1] = { LANG_IPODUI_OK };
 
-/* s->priv: bits 0-7 the segment, 8-11 the state, 16-23 the test's mask */
+/* s->priv: bits 0-7 the segment, 8-11 the state, bit 12 the mode (set:
+ * Hi-Res 128x's prompt, pushed with a non-NULL arg), 16-23 the test's
+ * mask; P_MAKE keeps the mode of v */
+#define P_OSR       0x1000
 #define P_SEG(v)    ((int)((v) & 0xff))
 #define P_ST(v)     ((int)(((v) >> 8) & 0xf))
 #define P_MASK(v)   ((int)(((v) >> 16) & 0xff))
-#define P_MAKE(seg, st, mask) \
-    ((void *)(intptr_t)((seg) | ((st) << 8) | ((mask) << 16)))
+#define P_MAKE(v, seg, st, mask) \
+    ((void *)(intptr_t)(((v) & P_OSR) | (seg) | ((st) << 8) | ((mask) << 16)))
 
 #define AP_QUIET_TICKS  (HZ / 2)    /* keys dropped after the test */
 
@@ -91,21 +96,30 @@ static intptr_t pv(const struct ui_screen *s)
     return (intptr_t)s->priv;
 }
 
-static int result_lang(int mask)
+static int result_lang(intptr_t v)
 {
-    int r = mask & (AP_RATE_88 | AP_RATE_96);
+    int r = P_MASK(v) & (AP_RATE_88 | AP_RATE_96);
 
+    if (v & P_OSR)
+        return r == (AP_RATE_88 | AP_RATE_96) ?
+                   LANG_IPODUI_AP_OSR128_RESULT_BOTH :
+               r == AP_RATE_88 ? LANG_IPODUI_AP_OSR128_RESULT_88 :
+               r == AP_RATE_96 ? LANG_IPODUI_AP_OSR128_RESULT_96 :
+                                 LANG_IPODUI_AP_OSR128_RESULT_NONE;
     return r == (AP_RATE_88 | AP_RATE_96) ? LANG_IPODUI_AP_RESULT_BOTH :
            r == AP_RATE_88 ? LANG_IPODUI_AP_RESULT_88 :
            r == AP_RATE_96 ? LANG_IPODUI_AP_RESULT_96 :
                              LANG_IPODUI_AP_RESULT_NONE;
 }
 
+/* arg: NULL High Sample Rate's prompt, non-NULL Hi-Res 128x's (the same
+ * steps; its own warning and results, its own test) */
 static int hirate_enter(struct ui_screen *s, const void *arg)
 {
-    (void)arg;
-    s->title = str(LANG_IPODUI_AP_HIRATE);
-    s->priv = P_MAKE(SEG_CANCEL, ST_WARN, 0);   /* Cancel preselected */
+    intptr_t mode = arg ? P_OSR : 0;
+
+    s->title = str(arg ? LANG_IPODUI_AP_OSR128 : LANG_IPODUI_AP_HIRATE);
+    s->priv = P_MAKE(mode, SEG_CANCEL, ST_WARN, 0); /* Cancel preselected */
     return 0;
 }
 
@@ -118,8 +132,10 @@ static void hirate_draw(struct ui_screen *s, unsigned dirty)
     case ST_WARN:
         if (dirty & UI_DIRTY_BODY)
         {
-            ui_prompt_draw_n(LANG_IPODUI_AP_WARN_HEAD,
-                             LANG_IPODUI_AP_WARN_BODY, 6);
+            ui_prompt_draw_n((v & P_OSR) ? LANG_IPODUI_AP_OSR128_WARN_HEAD
+                                         : LANG_IPODUI_AP_WARN_HEAD,
+                             (v & P_OSR) ? LANG_IPODUI_AP_OSR128_WARN_BODY
+                                         : LANG_IPODUI_AP_WARN_BODY, 6);
             ui_seg_draw(warn_seg, SEG_COUNT, P_SEG(v), true);
         }
         else if (dirty & UI_DIRTY_BAND)
@@ -134,7 +150,7 @@ static void hirate_draw(struct ui_screen *s, unsigned dirty)
         if (dirty & UI_DIRTY_BODY)
         {
             ui_prompt_draw_n(LANG_IPODUI_AP_RESULT_HEAD,
-                             result_lang(P_MASK(v)), 4);
+                             result_lang(v), 4);
             ui_seg_draw(ok_seg, 1, 0, true);
         }
         break;
@@ -174,7 +190,7 @@ static enum ui_result hirate_input(struct ui_screen *s,
                 return UI_HANDLED;
             if (seg != SEG_CONTINUE)
                 return UI_POP;          /* Cancel: stays Off */
-            s->priv = P_MAKE(0, ST_TESTING, 0);
+            s->priv = P_MAKE(v, 0, ST_TESTING, 0);
             ui_invalidate(UI_DIRTY_BODY);   /* drawn, then the tick tests */
             return UI_HANDLED;
         default:
@@ -183,7 +199,7 @@ static enum ui_result hirate_input(struct ui_screen *s,
     seg = MIN(MAX(seg + d, 0), SEG_COUNT - 1);
     if (seg != P_SEG(v))
     {
-        s->priv = P_MAKE(seg, ST_WARN, 0);
+        s->priv = P_MAKE(v, seg, ST_WARN, 0);
         ui_invalidate_band(UI_SEG_Y, UI_SEG_H);
     }
     return UI_HANDLED;
@@ -198,12 +214,23 @@ static int hirate_tick(struct ui_screen *s)
     if (P_ST(pv(s)) != ST_TESTING || (s->dirty & UI_DIRTY_BODY))
         return TIMEOUT_BLOCK;
     ui_anim_idle();                     /* no boost held through the wait */
-    mask = audiophile_selftest();
-    test_end = current_tick;
-    audiophile_set_hirate((mask & (AP_RATE_88 | AP_RATE_96)) != 0);
-    UPDATE_TRACE("audiophile test mask=0x%02x on=%d", mask,
-                 (int)global_settings.ipodui_hirate);
-    s->priv = P_MAKE(0, ST_RESULT, mask & 0xff);
+    if (pv(s) & P_OSR)
+    {
+        mask = audiophile_osr128_selftest();
+        test_end = current_tick;
+        audiophile_set_osr128((mask & (AP_RATE_88 | AP_RATE_96)) != 0);
+        UPDATE_TRACE("audiophile 128x test mask=0x%02x on=%d", mask,
+                     (int)global_settings.ipodui_osr128);
+    }
+    else
+    {
+        mask = audiophile_selftest();
+        test_end = current_tick;
+        audiophile_set_hirate((mask & (AP_RATE_88 | AP_RATE_96)) != 0);
+        UPDATE_TRACE("audiophile test mask=0x%02x on=%d", mask,
+                     (int)global_settings.ipodui_hirate);
+    }
+    s->priv = P_MAKE(pv(s), 0, ST_RESULT, mask & 0xff);
     ui_invalidate(UI_DIRTY_BODY);
     return TIMEOUT_BLOCK;
 }

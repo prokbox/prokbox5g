@@ -72,6 +72,9 @@
 #   sim_ubsan.sh --report    scan the logs + the sanitized host tests; prints FINDING: lines
 # With no argument it does all of them in turn, exactly as before.
 set -u
+# Sanitizer runs are slow: shots.sh's own trace and frame checks would judge
+# timing the instrumented build can't meet. This pass reports UBSan only.
+export SHOTS_CHECK=0
 MODE=all; JOB=""
 case "${1:-}" in
     "") ;;

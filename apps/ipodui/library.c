@@ -108,6 +108,7 @@
 #include "ipodui/maint.h"
 #include "ipodui/anim.h"
 #include "ipodui/sortkey.h"
+#include "ipodui/libglyph.h"   /* 0.9.0 (#235) */
 #include "ipodui/libfile.h"
 #include "ipodui/artkey.h"
 #include "ipodui/artcache.h"
@@ -350,13 +351,18 @@ void lib_generation_pool_abandon(struct tagcache_context *ctx)
     }
 }
 
+size_t lib_generation_pool_want(long n)
+{
+    return MAX(POOL_SPARE + (size_t)MAX(n, 0) * sizeof(struct rec),
+               (size_t)MAX(pool.size, 0));
+}
+
 bool lib_generation_pool_prepare(struct tagcache_context *ctx)
 {
     int n = tagcache_ui_count_ctx(ctx);
     if (n < 0)
         return false;
-    size_t want = MAX(POOL_SPARE + (size_t)n * sizeof(struct rec),
-                      (size_t)MAX(pool.size, 0));
+    size_t want = lib_generation_pool_want(n);
     struct future_pool *empty = NULL;
     for (unsigned i = 0; i < ARRAYLEN(future_pools); i++)
     {
@@ -634,8 +640,10 @@ static bool match_entry(struct tagcache_context *ctx, const struct match *m, int
 
 /* The sort keys (and lib_label() text) of an untagged artist / album row;
  * the screens show the language strings for them (library.h). */
-const char lib_unknown_artist[] = "Unknown Artist";
-const char lib_unknown_album[] = "Unknown Album";
+/* 0.9.0 (#235): with an empty sort value after them, as every label from
+ * the database has (ui_sort_of(), tagcache.c) */
+const char lib_unknown_artist[] = "Unknown Artist\0";
+const char lib_unknown_album[] = "Unknown Album\0";
 
 /* The label of a row: what the list shows and what it sorts by. */
 static const char *label_of(struct tagcache_context *ctx, int group, int idx)
@@ -679,7 +687,7 @@ static void key_prefix(const char *label, uint32_t *k1, uint32_t *k2)
     memset(key, 0, sizeof(key));
     /* 15 bytes always hold the first 8 bytes of the full key (truncation
      * drops at most a partial 4-byte character) */
-    ui_groupkey(label, (char *)key, sizeof(key));
+    ui_groupkey(ui_sort_of(label), (char *)key, sizeof(key));   /* #235 */
     *k1 = (uint32_t)key[0] << 24 | key[1] << 16 | key[2] << 8 | key[3];
     *k2 = (uint32_t)key[4] << 24 | key[5] << 16 | key[6] << 8 | key[7];
 }
@@ -692,14 +700,19 @@ static int cmp_groups(const char *a, const char *b)
     char ka[KEY_LEN], kb[KEY_LEN];
     int r;
 
-    ui_groupkey(a, ka, sizeof(ka));
-    ui_groupkey(b, kb, sizeof(kb));
+    /* 0.9.0 (#235): ui_sortcmp()'s levels: the sort value's group key and
+     * case-folded sort value, then the display name; one case-class has
+     * one sort value (tagcache.c ui_sort_refresh()), so names of one
+     * group still compare 0 */
+    ui_groupkey(ui_sort_of(a), ka, sizeof(ka));
+    ui_groupkey(ui_sort_of(b), kb, sizeof(kb));
     r = strcmp(ka, kb);
     if (r)
         return r;
     if (!a || !b)
         return (a != NULL) - (b != NULL);
-    return ui_casefold_cmp(a, b);
+    r = ui_casefold_cmp(ui_sort_of(a), ui_sort_of(b));
+    return r ? r : ui_casefold_cmp(a, b);
 }
 
 static int cmp_labels(const char *a, const char *b)
@@ -3036,12 +3049,18 @@ char lib_letter(int view, int idx)
     if (v->pinned && idx == 0)  /* #67: the pinned book has none */
         return 0;
     if (v->by_author)           /* #59: the author's letter */
-        return ui_sortletter(label_of(tagcache_context_active(), G_ARTIST, v->rows[idx]));
+        return ui_sortletter(ui_sort_of(label_of(tagcache_context_active(),
+                                                 G_ARTIST, v->rows[idx])));
 #ifdef HAVE_BCMFW_VIDEO
     if (v->group == G_SEASON)
         return 0;               /* a few numbered rows: no letters */
 #endif
-    return ui_sortletter(row_label(v, idx));
+#ifdef LIB_P11
+    if (v->cat == LIB_OTG)      /* a playlist name: no sort value */
+        return ui_sortletter(row_label(v, idx));
+#endif
+    /* 0.9.0 (#235): the letter of the sort value, as the list is sorted */
+    return ui_sortletter(ui_sort_of(row_label(v, idx)));
 }
 
 int lib_child_count(int view, int idx)
@@ -3331,7 +3350,10 @@ static void progress_compute(int h, int only)
             }
             /* no RAM cache pointer is used past stat_of() */
             e = i == np ? np_elapsed : stat_of(i, tag_lastelapsed);
-            if (shows && e <= 0 && i != np && i != ld)
+            /* #286: an episode that can't play is never "unplayed", so it
+             * gives its show no dot either */
+            if (shows && e <= 0 && i != np && i != ld
+                && !TAGCACHE_UI_UNPLAYABLE(flag))
                 unpl = stat_of(i, tag_playcount) <= 0;
             if (tagcache_ui_generation() != gen || tagcache_ui_count() < 0)
                 goto changed;
@@ -3410,7 +3432,8 @@ bool lib_unplayed(int view, int idx)
         if (idx < 0 || idx >= v->count || !view_fresh(v))
             return false;
         if (v->group == G_NONE)
-            return episode_unplayed(v->rows[idx], loaded_idx());
+            return !lib_row_unplayable(view, idx)
+                && episode_unplayed(v->rows[idx], loaded_idx());
         return v->group == G_ALBUM && v->off_unpl
             && ((uint8_t *)view_ext(v, v->off_unpl))[idx];
     }
@@ -3420,7 +3443,10 @@ bool lib_unplayed(int view, int idx)
         return false;
     if (v->group != G_NONE)             /* a show: computed at lib_open() */
         return v->off_unpl && ((uint8_t *)view_ext(v, v->off_unpl))[idx];
-    return episode_unplayed(v->rows[idx], loaded_idx());
+    /* #286 (orchestrator, 2026-11-13): a row that can't play (greyed)
+     * shows no unplayed mark; RAM flag word first, before stat_of() */
+    return !lib_row_unplayable(view, idx)
+        && episode_unplayed(v->rows[idx], loaded_idx());
 }
 
 static void lib_progress_refresh_held(int view)
@@ -3702,7 +3728,9 @@ static int play_view(int vh, int start, bool shuffle,
                      unsigned long elapsed, unsigned long offset,
                      struct book_ctx *bk)
 {
-    struct playlist_insert_context c;
+    /* zeroed: a failed create leaves "progress" unset and release(),
+     * which this function calls on that path too, splashes on it */
+    struct playlist_insert_context c = { 0 };
     struct view *v;
     unsigned long t0 UNUSED_ATTR = now_us();
     unsigned long c0 UNUSED_ATTR = cpu_us();
@@ -5658,7 +5686,7 @@ static int pre_key_cmp(struct tagcache_context *ctx, const struct rec *t,
         return t->k1 < k1 ? -1 : 1;
     if (t->k2 != k2)
         return t->k2 < k2 ? -1 : 1;
-    ui_groupkey(label_of(ctx, G_ARTIST, t->idx), kt, sizeof(kt));
+    ui_groupkey(ui_sort_of(label_of(ctx, G_ARTIST, t->idx)), kt, sizeof(kt));
     return strcmp(kt, key);
 }
 
@@ -5680,7 +5708,7 @@ static int pre_artist_of(struct tagcache_context *ctx, struct pre *p,
 
     if (!s)
         return -1;
-    ui_groupkey(label_of(ctx, G_ARTIST, rep), key, sizeof(key));
+    ui_groupkey(ui_sort_of(label_of(ctx, G_ARTIST, rep)), key, sizeof(key));
     key_prefix(label_of(ctx, G_ARTIST, rep), &k1, &k2);
     while (lo < hi)
     {
@@ -7339,6 +7367,59 @@ static bool pre_vstats_read(struct tagcache_context *ctx, int fd,
 #endif
 #endif /* LIB_P11 */
 
+/* 0.9.0 (#235, G's libglyph.h): the library glyph file, written at each
+ * commit's precompute beside LIBFILE_NAME (the generation's folder): every
+ * string a list can show (artist, album, title, genre, composer), so the
+ * theme loads only the CJK glyphs this library uses. The writer's work
+ * buffer is the precompute's own block, whose contents are on disk by
+ * then (no allocation: the precompute runs during playback in its
+ * reserved block); a block under LIBGLYPH_WORK_MIN writes no file
+ * (logged): the lists stay in the base glyph tier. */
+static void pre_glyphs(struct tagcache_context *ctx, int n, int gen,
+                       int h, size_t size)
+{
+    static const int8_t groups[] = { G_ARTIST, G_ALBUM, G_NONE, G_GENRE,
+                                     G_COMPOSER };
+    struct libglyph_writer w;
+    struct libglyph_stamp st;
+    int i, g, rc = -1;
+
+    if (h <= 0 || size < LIBGLYPH_WORK_MIN)
+    {
+        ui_log("lib", "glyphs skipped: block %ld B", (long)size);
+        return;
+    }
+    core_pin(h);
+    st.commitid = tagcache_ui_commitid_ctx(ctx);
+    st.entries = n;
+    if (libglyph_begin(&w, tagcache_ui_db_path_ctx(ctx), &st,
+                       core_get_data(h), LIBGLYPH_WORK_MIN) == LIBGLYPH_OK)
+    {
+        bool ok = true;
+
+        for (i = 0; ok && i < n; i++)
+        {
+            for (g = 0; ok && g < (int)sizeof(groups); g++)
+            {
+                const char *l = label_of(ctx, groups[g], i);
+
+                if (l && libglyph_add(&w, l) == LIBGLYPH_ERROR)
+                    ok = false;
+            }
+            if ((i & 255) == 0)
+            {
+                yield();
+                if (pre_stop()
+                    || tagcache_ui_generation_ctx(ctx) != gen)
+                    ok = false;
+            }
+        }
+        rc = libglyph_end(&w, ok && !pre_stop());
+    }
+    core_unpin(h);
+    ui_log("lib", "glyphs n=%d rc=%d", n, rc);
+}
+
 /* Whether the file on disk is the one for the database in RAM. Reads the
  * header into block 'hh' (at least LIBFILE_HDR_SIZE bytes). */
 static bool pre_current(struct tagcache_context *ctx, int hh)
@@ -7641,6 +7722,8 @@ int lib_precompute_ctx(struct tagcache_context *ctx, bool force, bool (*stop)(vo
      * load writes again */
     if (ok)
         ok = (remove(dst) == 0 || errno == ENOENT) && rename(tmp, dst) == 0;
+    if (ok)
+        pre_glyphs(ctx, n, p.c.gen, p.c.h, p.size);    /* 0.9.0 (#235) */
 #ifdef HAVE_BCMFW_VIDEO
     {
         int vrc = LIB_PRE_DONE;
@@ -8371,4 +8454,49 @@ void lib_book_resumed_idle(void)
 int lib_precompute(bool force, bool (*stop)(void))
 {
     return lib_precompute_ctx(tagcache_context_active(), force, stop);
+}
+
+/* #286: the entry whose flag word says whether row idx plays: a track
+ * row (songs, a book's tracks, episodes, movies, search song and episode
+ * rows, On-The-Go) its own; a book row its representative, the book's
+ * first file (a book is one file in practice: .aa / .aax are single
+ * files), in the Audiobooks list and among Search's book results alike
+ * (the same master index: search.c finds the one by the other with
+ * lib_find()). Other group rows: false. RAM flag word only: no I/O, no
+ * yield. */
+static bool noplay_flag(int view, int idx, int32_t *flag)
+{
+    struct view *v = get_view(view);
+    int t;
+
+    if (!v || idx < 0 || idx >= v->count || !view_fresh(v))
+        return false;
+    t = row_track(v, idx);
+    if (t < 0 && v->cls == C_BOOK && v->group == G_ALBUM)
+        t = v->rows[idx];
+#ifdef LIB_P11
+    if (t < 0 && v->cat == LIB_SEARCH
+        && SRCH_ROW_KIND((uint32_t)v->rows[idx]) == SRCH_BOOK)
+        t = SRCH_ROW_IDX((uint32_t)v->rows[idx]);
+#endif
+    return t >= 0 && tagcache_ui_seeks(t, flag);
+}
+
+/* #286: why row idx can't play (enum unplayable_reason), 0 if it plays */
+int lib_row_unplayable(int view, int idx)
+{
+    int32_t flag;
+
+    return noplay_flag(view, idx, &flag) ? TAGCACHE_UI_UNPLAYABLE(flag) : 0;
+}
+
+/* #286: the class bits of that same entry (the can't-play page's kind) */
+int lib_row_class(int view, int idx)
+{
+    int32_t flag;
+
+    if (!noplay_flag(view, idx, &flag))
+        return 0;
+    return flag & (TAGCACHE_UI_AUDIOBOOK | TAGCACHE_UI_PODCAST
+                   | TAGCACHE_UI_ANY_VIDEO);
 }

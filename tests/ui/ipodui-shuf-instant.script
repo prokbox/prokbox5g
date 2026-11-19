@@ -1,0 +1,108 @@
+# p090-shuffle (owner 2026-11-13, docs/design/shuffle.md "Instant start"):
+# Shuffle Songs queues a first batch of 4 and plays at once; the rest of
+# the 50-entry window follows from the UI pass once the first sound is out
+# ("shuf: backfill"), without touching the playing song.
+#  A  the start: "queued=4", then one backfill of +46 to 50;
+#  B  NEXT before the backfill lands (shuf_chunk_hold stops it after its
+#     first chunk: 4 + 5 queued): five NEXTs reach the 6th song, playback
+#     goes on, and the backfill then completes the window (+46 in all);
+#  C  Shuffle Songs again with a backfill open: the old one is dropped
+#     (never written), the new start is a fresh 4 + 46;
+#  D  a power-off with the backfill open: it settles at what it has
+#     ("shuf: settle"), and the next boot resumes the run ("boot record 0"),
+#     never restarts it.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-shuf-instant.script
+# needs: library
+# trace: shuf
+# logrange: 4 4 shuf: start songs ok queued=(\d+)
+# log: shuf: refill +4 -0
+# log: shuf: refill +46 -0
+# log: shuf: backfill ms=
+# log: shuf: chunk +5 total=5
+# log: np count 6 of 302 q=6/9
+# log: shuf: settle chunks=1 +5
+# log: shuf: boot record 0
+# log: shuf_expect_settled ok
+# nolog: shuf: boot record 1
+# nolog: shuf: boot record 2
+# nolog: shuf_expect_settled failed
+# nolog: bad command
+# fulls-extra: 8   (Now Playing's pushes and pops, the reboot)
+# golden: skip start next6
+# timeout: 300
+
+wait 1000
+wait_db 30000
+art_wait 120000
+sim_clock 15:08
+clock_format 24
+charger off
+repeat off
+
+# --- A: the start ------------------------------------------------------------
+wheel +4                # "Shuffle Songs"
+wait 500
+key SELECT              # plays at once; Now Playing is pushed
+wait 2500               # the backfill lands behind the first sound
+shot start
+expect_playing 1000
+shuf_expect_settled     # the window's record names the queue (50)
+
+# --- B: NEXT before the backfill lands ----------------------------------------
+key MENU                # the main menu, cursor on Shuffle Songs
+wait 700
+shuf_chunk_hold 1       # the next backfill stops after its first chunk
+key SELECT              # a new start: 4 queued, then 5 more
+wait 1200
+key PLAY                # paused: the 2 s tracks would advance on their own
+wait 300
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT
+wait 200
+key NEXT                # the 6th song: past the first batch
+wait 500
+shot next6
+shuf_chunk_hold 0       # the backfill completes the window
+wait 1500
+key PLAY
+wait 500
+expect_playing 1000
+shuf_expect_settled
+
+# --- C: Shuffle Songs again with a backfill open -----------------------------
+key MENU
+wait 700
+shuf_chunk_hold 1
+key SELECT              # start, one backfill chunk, then held
+wait 1500
+key MENU
+wait 700
+shuf_chunk_hold 0
+key SELECT              # again: the open backfill is dropped
+wait 2500
+expect_playing 1000
+shuf_expect_settled
+
+# --- D: a power-off with the backfill open -----------------------------------
+key MENU
+wait 700
+shuf_chunk_hold 1
+key SELECT
+wait 1500
+reboot                  # the clean power-off: the backfill settles first
+
+wait 3000
+wait_db 30000
+key PLAY                # the resume point plays: the boot check
+wait 3000
+key NEXT                # a track change (the check, if not yet)
+wait 2000
+shuf_expect_settled
+audio_stop
+wait 500
+quit

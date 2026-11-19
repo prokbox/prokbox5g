@@ -44,6 +44,7 @@
 #endif
 #include "ipodui/anim.h"
 #include "ipodui/uilog.h"
+#include "hang_watch.h"
 #include "ipodui/bootstamp.h"
 #include "ipodui/xindex.h"
 #ifdef IPODUI_MODULES
@@ -300,17 +301,45 @@ void boot_stamp_walk_started(void)
     walks++;
 }
 
+/* boot_window_run()'s hooks (bootstamp_core.c) */
+static int win_check(int *pm)
+{
+    return tagcache_boot_check(pm);
+}
+
+static bool win_event(void)
+{
+    return button_status() != BUTTON_NONE || usb_inserted();
+}
+
+static long win_now(void)
+{
+    return current_tick;
+}
+
+static void win_wait(long ticks)
+{
+    sleep(ticks);
+}
+
+static void win_beat(void)
+{
+    hang_beat(HANG_UI);         /* this runs on the shell's thread */
+}
+
 /* #87 (docs/phase16-brief.md 4.2, Q4): the boot screen stays up while the
  * library's boot check runs, boosted, at most BOOT_HOLD_MS. A walk that
  * the progress says cannot end inside the hold hands over at once (it
- * goes on in the background, the lists stay browsable: #85). */
+ * goes on in the background, the lists stay browsable: #85). Each pass
+ * of the hold tells the hang watch the shell is at work (#487). */
 void maint_boot_window(void)
 {
+    static const struct boot_window_ops ops = {
+        win_check, win_event, win_now, win_wait, win_beat };
     const long t0 = current_tick;
     const long end = t0 + BOOT_HOLD_MS * HZ / 1000;
-    const char *how = "done";
-    long ws = -1;                       /* the walk's first sight */
-    int st, pm;
+    enum boot_window_end how;
+    int st;
 
 #ifdef SIMULATOR
     /* tests/ui: scripts that need the device's order (the boot check
@@ -325,38 +354,7 @@ void maint_boot_window(void)
 #endif
     tagcache_boot_window();             /* now, not at the next timeout */
     cpu_boost(true);
-    for (;;)
-    {
-        long wel;
-
-        st = tagcache_boot_check(&pm);
-        if (st == 2)
-            break;
-        if (button_status() != BUTTON_NONE || usb_inserted())
-        {
-            how = "event";              /* a key held or USB: the user's */
-            break;
-        }
-        if (!TIME_BEFORE(current_tick, end))
-        {
-            how = "cap";
-            break;
-        }
-        /* a walk: hold on only if its projected end is inside the hold.
-         * Its rate counts from the walk's start, not the window's: the
-         * check's decision and the first build's count come before it,
-         * and a short walk that starts late is still inside the hold */
-        if (st == 1 && ws < 0)
-            ws = current_tick;
-        wel = st == 1 ? current_tick - ws : 0;
-        if (st == 1 && wel >= HZ / 2
-            && (pm <= 0 ? wel >= HZ : ws + wel * 1000 / pm > end))
-        {
-            how = "handover";
-            break;
-        }
-        sleep(HZ / 20);
-    }
+    how = boot_window_run(&ops, end, HZ, &st);
     /* #100: the panel-set rotation at a restart runs here (16-4; not built
      * yet). The art top-up starts after, from the art builder, as before. */
 #ifdef IPODUI_MODULES
@@ -365,8 +363,8 @@ void maint_boot_window(void)
     xindex_sync(XIDX_AT_BOOT);          /* P12: the sync-time indexes */
     cpu_boost(false);
     (void)how;                          /* the log only (release) */
-    BS_LOG("window ms=%ld %s st=%d", (current_tick - t0) * (1000 / HZ), how,
-           st);
+    BS_LOG("window ms=%ld %s st=%d", (current_tick - t0) * (1000 / HZ),
+           boot_window_end_name(how), st);
 }
 
 #ifdef SIMULATOR

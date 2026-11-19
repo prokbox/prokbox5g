@@ -90,3 +90,4 @@ int32_t get_slong(void* buf);
 uint32_t get_itunes_int32(char* value, int count);
 long parse_tag(const char* name, char* value, struct mp3entry* id3,
     char* buf, long buf_remaining, enum tagtype type);
+int metadata_join_values(char *s, int len, int cap, uint16_t *first);

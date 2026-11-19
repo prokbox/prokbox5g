@@ -35,6 +35,7 @@
 #include "tagcache.h"
 
 static long marked;
+static int stat_idx = -1;      /* stat_idx / stat_write */
 
 static void unesc(char *p)
 {
@@ -129,6 +130,42 @@ static void expect(const char *cmd, char *argv[], int argc, int lineno,
 
 bool sim_cmd_p9a(const char *cmd, char *argv[], int argc, int lineno)
 {
+    /* stat_idx <path>: remember the song's database index (looked up
+     * now, so stat_write needs no search: it can run while a publication
+     * holds searches off); stat_write <tag> <value>: a runtime statistic
+     * for it, as the shell's rating or play end queues one */
+    if (!strcmp(cmd, "stat_idx") && argc >= 2)
+    {
+        struct tagcache_search tcs;
+
+        unesc(argv[1]);
+        stat_idx = -1;
+        if (tagcache_find_index(&tcs, argv[1]))
+        {
+            stat_idx = tcs.idx_id;
+            tagcache_search_finish(&tcs);
+        }
+        fprintf(stderr, "sim_script: stat_idx %s = %d\n", argv[1], stat_idx);
+        if (stat_idx < 0)
+            fprintf(stderr, "sim_script:%d: stat_idx failed: %s not in the "
+                    "database\n", lineno, argv[1]);
+        return true;
+    }
+    if (!strcmp(cmd, "stat_write") && argc >= 3)
+    {
+        int tag = tag_of(argv[1]);
+
+        if (tag < 0 || stat_idx < 0)
+        {
+            fprintf(stderr, "sim_script:%d: stat_write failed: tag %s, "
+                    "index %d\n", lineno, argv[1], stat_idx);
+            return true;
+        }
+        tagcache_update_numeric(stat_idx, tag, atol(argv[2]));
+        fprintf(stderr, "sim_script: stat_write %d %s=%ld\n", stat_idx,
+                argv[1], atol(argv[2]));
+        return true;
+    }
     if (!strcmp(cmd, "stat_mark") && argc >= 3)
     {
         int tag = tag_of(argv[2]);

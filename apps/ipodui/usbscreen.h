@@ -59,6 +59,9 @@ struct ui_usb_state {
  * HID (L4): never calls get_hid_usb_action(); usb_hid is off by default
  * (hook H1b), and a developer who turns it on gets keys the shell ignores. */
 void ui_usb_screen_loop(bool early);
+/* #266: load the USB screen's glyphs into the fonts' RAM caches; called
+ * by apps/gui/usb_screen.c just before font_disable_all() */
+void ui_usb_prime_fonts(void);
 
 /* -- sustained transfers (#58, owner) ------------------------------------
  * The arrows spun almost all the time a Mac had the disk mounted: its

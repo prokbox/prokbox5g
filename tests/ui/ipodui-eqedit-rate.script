@@ -1,0 +1,64 @@
+# The custom EQ editor at 96 kHz (apps/ipodui/screens/eqedit.c, #82): the
+# codec runs its filters with the 48 kHz coefficients, so every corner is
+# 2x its nominal frequency. The simulator has no codec rate; the test
+# hook IPODUI_EQ_RATE (SIMULATOR builds only) stands in for it.
+#   Extras > Custom EQ > Custom 3: Bass labels read 160 / 210 / 270 / 350 Hz
+#   (nominal 80 / 105 / 135 / 175), Treble's 4.8k... become 10.6k .. 23.4k,
+#   the log says fs=96000, and the curve's corner sits at the doubled
+#   frequency. Nothing is saved (the slot is reset before leaving).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-eqedit-rate.script
+# golden: skip
+# timeout: 90
+# env: IPODUI_EQ_RATE=96000
+# log: eqedit s3 b1 f=105 g=+6 bw=- hy=89 m128=0 pc=6 fs=96000
+# nolog: eqedit saved
+# nolog: splash-pass
+
+rm_file /.rockbox/config.cfg
+rm_file /.rockbox/config.cfg.new
+rm_file /.rockbox/config.cfg.old
+reboot                # a clean settings file: every slot flat, no EQ in use
+wait 5000
+wheel +2             # Extras
+wait 400
+key SELECT
+wait 1500
+wheel +12 100        # Custom EQ, the last row
+wait 400
+key SELECT
+wait 1500
+wheel +12 100        # Custom 3
+wait 400
+key SELECT
+wait 1500
+shot open            # Presence at 2x: 4.8k, 6.2k ...
+wheel -3 300         # Bass
+wait 400
+key SELECT
+wait 400
+wheel -1 300         # first choice (160 Hz at 96 kHz)
+wait 600
+shot bass_freq
+wheel +1 300
+wait 300
+key SELECT
+wait 400
+wheel +6 300
+wait 600
+shot bass_6          # +6 dB: the handle at +6 dB (row 89) on the 210 Hz bar
+key SELECT
+wait 600
+wheel +4 300         # Treble
+wait 400
+key SELECT
+wait 400
+wheel +3 300         # the top choice: 23.4 kHz, still on the plot
+wait 600
+shot treble_top
+key MENU
+wait 400
+key SELECT 1200      # Hold Select: reset to flat, nothing to save
+wait 800
+key MENU
+wait 1000
+quit

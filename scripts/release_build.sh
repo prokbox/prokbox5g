@@ -67,7 +67,8 @@ export PROKBOX_VERSION
 unset VERSION
 . "$(dirname "$0")/release_flags.sh"
 COMMON="$RELEASE_SHAPE --compiler-prefix=arm-none-eabi-"
-JOBS=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
+# JOBS=N caps make -j (a shared machine); default: every CPU
+JOBS=${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}
 
 echo "toolchain: $(arm-none-eabi-gcc --version | head -1)"
 mkdir -p "$OUT"
@@ -105,7 +106,7 @@ for f in $RELEASE_REQUIRED; do
         exit 1
     fi
 done
-# No empty language file (a header-only .lng is 10 B: no on-screen text)
+# No empty language file (a header-only .lng is 14 B, 10 B in the old format: no on-screen text)
 if unzip -Z -l "$zipout" '.rockbox/langs/*.lng' | awk '$NF ~ /\.lng$/ && $4+0 < 1000 {bad=1; print "  " $NF " " $4 " B"} END {exit !bad}' >&2; then
     echo "an empty language file in the zip" >&2
     exit 1

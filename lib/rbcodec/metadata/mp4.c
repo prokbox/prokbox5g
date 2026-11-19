@@ -41,6 +41,12 @@
 
 #define MP4_3gp6 FOURCC('3', 'g', 'p', '6')
 #define MP4_aART FOURCC('a', 'A', 'R', 'T')
+#define MP4_soar FOURCC('s', 'o', 'a', 'r')
+#define MP4_soal FOURCC('s', 'o', 'a', 'l')
+#define MP4_soaa FOURCC('s', 'o', 'a', 'a')
+#define MP4_drms FOURCC('d', 'r', 'm', 's')
+#define MP4_enca FOURCC('e', 'n', 'c', 'a')
+#define MP4_aavd FOURCC('a', 'a', 'v', 'd')
 #define MP4_alac FOURCC('a', 'l', 'a', 'c')
 #define MP4_calb FOURCC(0xa9, 'a', 'l', 'b')
 #define MP4_cART FOURCC(0xa9, 'A', 'R', 'T')
@@ -180,40 +186,51 @@ static unsigned int read_mp4_tag_string(int fd, int size_left, char** buffer,
     return length;
 }
 
+/* Read an atom header.  Sets *size to the size of the atom's contents,
+ * clamped to its parent, of which size_left bytes were left, and returns
+ * what is left of the parent after the atom.  An atom too small for its
+ * own header ends the parent: *type 0, *size 0, 0 left. */
 static unsigned int read_mp4_atom(int fd, uint32_t* size,
                                   uint32_t* type, uint32_t size_left)
 {
+    uint32_t header = 8;
+
     read_uint32be(fd, size);
     read_uint32be(fd, type);
 
     if (*size == 1)
     {
-        /* FAT32 doesn't support files this big, so something seems to
-         * be wrong. (64-bit sizes should only be used when required.)
-         */
-        errno = EFBIG;
+        /* 64-bit size.  FAT32 doesn't support files over 4 GB, so only
+         * the low 32 bits can be non-zero. */
+        uint32_t high;
+
+        read_uint32be(fd, &high);
+        read_uint32be(fd, size);
+        header = 16;
+
+        if (high != 0)
+        {
+            errno = EFBIG;
+            *type = 0;
+            return 0;
+        }
+    }
+
+    /* 0 means up to the end of the parent */
+    if (*size == 0 || *size > size_left)
+    {
+        *size = size_left;
+    }
+
+    if (*size < header)
+    {
         *type = 0;
+        *size = 0;
         return 0;
     }
 
-    if (*size > 0)
-    {
-        if (*size > size_left)
-        {
-            size_left = 0;
-        }
-        else
-        {
-            size_left -= *size;
-        }
-
-        *size -= 8;
-    }
-    else
-    {
-        *size = size_left;
-        size_left = 0;
-    }
+    size_left -= *size;
+    *size -= header;
 
     return size_left;
 }
@@ -433,7 +450,10 @@ static bool read_mp4_tags(int fd, struct mp3entry* id3,
 
     do
     {
+        off_t end;
+
         size_left = read_mp4_atom(fd, &size, &type, size_left);
+        end = lseek(fd, 0, SEEK_CUR) + size;
 
         /* DEBUGF("Tag atom: '%c%c%c%c' (%d bytes left)\n", type >> 24 & 0xff,
             type >> 16 & 0xff, type >> 8 & 0xff, type & 0xff, size); */
@@ -459,6 +479,24 @@ static bool read_mp4_tags(int fd, struct mp3entry* id3,
             read_mp4_tag_string(fd, size, &buffer, &buffer_left,
                 &id3->grouping);
             break;
+
+#ifdef HAVE_IPOD_UI
+        /* 0.9.0 (#235): sort values (iTunes' Sorting tab, MusicBee) */
+        case MP4_soar:
+            read_mp4_tag_string(fd, size, &buffer, &buffer_left,
+                &id3->sortartist);
+            break;
+
+        case MP4_soal:
+            read_mp4_tag_string(fd, size, &buffer, &buffer_left,
+                &id3->sortalbum);
+            break;
+
+        case MP4_soaa:
+            read_mp4_tag_string(fd, size, &buffer, &buffer_left,
+                &id3->sortalbumartist);
+            break;
+#endif
 
         case MP4_calb:
             read_mp4_tag_string(fd, size, &buffer, &buffer_left,
@@ -684,9 +722,12 @@ static bool read_mp4_tags(int fd, struct mp3entry* id3,
             break;
 
         default:
-            lseek(fd, size, SEEK_CUR);
             break;
         }
+
+        /* the next atom starts where this one ends, however much of it
+           was read */
+        lseek(fd, end, SEEK_SET);
     }
     while ((size_left > 0) && (errno == 0));
 
@@ -759,6 +800,72 @@ static bool mp4v_still(int fd, off_t entry, off_t *at)
  * inside the atom and restores the file position. A chapter-image trak
  * ('jpeg', 'png ', or 'mp4v' with a still-picture decoder) is not a
  * video. */
+#ifdef HAVE_IPOD_UI
+/* 0.9.0 (#286): why a sound track can't play, from its first sample entry
+ * (stsd, after its version and count; 'size' bytes left): drms/enca are a
+ * store's encryption (.m4p), aavd Audible's (.aax/.aaxc), any entry other
+ * than mp4a/alac a codec we don't have (the rate comes from the entry, so
+ * the file is still listed with its length). The file position is kept. */
+static void mp4_soun_reason(int fd, struct mp3entry *id3, uint32_t size)
+{
+    uint8_t e[36];
+    off_t at = lseek(fd, 0, SEEK_CUR);
+    uint32_t type;
+
+    if (at < 0 || size < sizeof(e) || read(fd, e, sizeof(e)) != sizeof(e))
+    {
+        lseek(fd, at, SEEK_SET);
+        return;
+    }
+    lseek(fd, at, SEEK_SET);
+    type = (uint32_t)e[4] << 24 | e[5] << 16 | e[6] << 8 | e[7];
+    if (type == MP4_mp4a || type == MP4_alac)
+        return;
+    if (type == MP4_drms || type == MP4_enca)
+        METADATA_SET_UNPLAYABLE(id3, UNPLAYABLE_DRM);
+    else if (type == MP4_aavd)
+        METADATA_SET_UNPLAYABLE(id3, UNPLAYABLE_PROTECTED);
+    else
+    {
+        /* AudioSampleEntry: the rate is 16.16 at byte 32 */
+        METADATA_SET_UNPLAYABLE(id3, UNPLAYABLE_CODEC);
+        if (!id3->frequency)
+            id3->frequency = (uint32_t)e[32] << 8 | e[33];
+    }
+}
+#endif
+
+#ifdef HAVE_IPOD_UI
+/* 0.9.0 (#286): does the player take this avc1/avc3 sample entry (at
+ * 'entry', 'esize' bytes)? Its avcC must be Baseline (profile 66, or the
+ * constraint_set0 flag) with 4-byte NAL lengths: the open check of
+ * apps/video/vpcore.c load_params() and vpc_baseline_ok(), restated here
+ * because lib/rbcodec never includes apps/ (keep the two equal). The
+ * child boxes follow the 86-byte VisualSampleEntry header. */
+static bool mp4_avc_playable(int fd, off_t entry, uint32_t esize)
+{
+    uint32_t pos = 86;
+    int boxes = 0;
+
+    while (pos + 13 <= esize && ++boxes <= 8)
+    {
+        uint8_t b[13];
+        uint32_t bsz;
+
+        if (lseek(fd, entry + pos, SEEK_SET) < 0
+            || read(fd, b, sizeof(b)) != (ssize_t)sizeof(b))
+            return true;            /* unreadable: leave it to the player */
+        bsz = vide_be32(b);
+        if (vide_be32(b + 4) == FOURCC('a', 'v', 'c', 'C'))
+            return (b[9] == 66 || (b[10] & 0x80)) && (b[12] & 3) == 3;
+        if (bsz < 8)
+            break;
+        pos += bsz;
+    }
+    return false;                   /* no avcC: nothing to decode with */
+}
+#endif
+
 static void mp4_vide_entry(int fd, struct mp3entry *id3, uint32_t size)
 {
     uint8_t w[96];
@@ -816,6 +923,15 @@ static void mp4_vide_entry(int fd, struct mp3entry *id3, uint32_t size)
                 id3->is_video = true;
 #ifdef HAVE_BCMFW_VIDEO
                 id3->video_avc = fourcc == MP4_avc1 || fourcc == MP4_avc3;
+#endif
+#ifdef HAVE_IPOD_UI
+                /* 0.9.0 (#286): a picture the player refuses */
+                if (!(fourcc == FOURCC('a', 'v', 'c', '1')
+                      || fourcc == FOURCC('a', 'v', 'c', '3'))
+                    || !mp4_avc_playable(fd, start + (off_t)pos + 16,
+                                         vide_be32(a + 16)))
+                    METADATA_SET_UNPLAYABLE(id3, UNPLAYABLE_CODEC);
+                at = -1;            /* the position moved: seek back */
 #endif
             }
             break;
@@ -954,7 +1070,10 @@ static bool read_mp4_container(int fd, struct mp3entry* id3,
 
     do
     {
+        off_t end;
+
         size_left = read_mp4_atom(fd, &size, &type, size_left);
+        end = lseek(fd, 0, SEEK_CUR) + size;
 
         /* DEBUGF("Atom: '%c%c%c%c' (0x%08lx, %lu bytes left)\n",
             (int) ((type >> 24) & 0xff), (int) ((type >> 16) & 0xff),
@@ -1057,6 +1176,9 @@ static bool read_mp4_container(int fd, struct mp3entry* id3,
         case MP4_stsd:
             lseek(fd, 8, SEEK_CUR);
             size -= 8;
+#ifdef HAVE_IPOD_UI
+            mp4_soun_reason(fd, id3, size);     /* 0.9.0 (#286) */
+#endif
             rc = read_mp4_container(fd, id3, size MP4_SEEN_ARG);
             size = 0;
             break;
@@ -1080,6 +1202,12 @@ static bool read_mp4_container(int fd, struct mp3entry* id3,
                 lseek(fd, 4, SEEK_CUR);
                 read_uint32be(fd, &entries);
                 id3->samples = 0;
+
+                /* 8 bytes each, after version, flags and count */
+                if (size < 8)
+                    entries = 0;
+                else if (entries > (size - 8) / 8)
+                    entries = (size - 8) / 8;
 
                 for (i = 0; i < entries; i++)
                 {
@@ -1107,6 +1235,14 @@ static bool read_mp4_container(int fd, struct mp3entry* id3,
             }
             break;
 
+#ifdef HAVE_IPOD_UI
+        /* 0.9.0 (#286): an encrypted AAC entry has mp4a's layout (its
+         * esds gives the rate and length); it is only indexed, never
+         * decoded (mp4_soun_reason() set the reason) */
+        case MP4_drms:
+        case MP4_enca:
+        case MP4_aavd:
+#endif
         case MP4_mp4a:
             {
                 uint32_t subsize;
@@ -1230,10 +1366,11 @@ static bool read_mp4_container(int fd, struct mp3entry* id3,
             break;
         }
 
-        /* Skip final seek. */
+        /* The next atom starts where this one ends, however much of it
+           was read.  Skip the seek after the mdat that ends the walk. */
         if (!done)
         {
-            lseek(fd, size, SEEK_CUR);
+            lseek(fd, end, SEEK_SET);
         }
     } while (rc && (size_left > 0) && (errno == 0) && !done);
 
@@ -1256,7 +1393,12 @@ bool get_mp4_metadata(int fd, struct mp3entry* id3)
         && (id3->samples > 0) && (id3->frequency > 0)
         && (id3->filesize > 0))
     {
-        if (id3->codectype == AFMT_UNKNOWN)
+        if (id3->codectype == AFMT_UNKNOWN
+#ifdef HAVE_IPOD_UI
+            /* 0.9.0 (#286): listed, greyed; never decoded (below) */
+            && !METADATA_UNPLAYABLE(id3)
+#endif
+           )
         {
             logf("Not an ALAC or AAC file");
             return false;
@@ -1683,14 +1825,25 @@ static void chap_walk(int fd, struct mp4_chap_ctx *c, uint32_t pos,
          * unless held already (a container that fit was read whole) */
         win_hold(fd, c->win, pos, end - pos < 32 ? end - pos : 32);
 #endif
+        uint32_t hdr = 8;
+
         if (!CW_RD32_AT(pos, &size) || !CW_RD32(&type))
             return;
-        if (size == 0)
+        if (size == 1)
+        {
+            /* 64-bit size (ffmpeg's mdat): as read_mp4_atom(), only one
+             * that fits in 32 bits can be in a file on FAT32 */
+            uint32_t high;
+            if (!CW_RD32(&high) || high || !CW_RD32(&size))
+                return;
+            hdr = 16;
+        }
+        else if (size == 0)
             size = end - pos;               /* extends to end */
-        if (size < 8 || size > end - pos)
-            return;                         /* 64-bit or corrupt size */
+        if (size < hdr || size > end - pos)
+            return;                         /* corrupt size */
 
-        uint32_t body = pos + 8, bsize = size - 8;
+        uint32_t body = pos + hdr, bsize = size - hdr;
 
 #ifdef HAVE_METADATA_EXTRAS
         /* a container that fits the window: all of it in one read (its

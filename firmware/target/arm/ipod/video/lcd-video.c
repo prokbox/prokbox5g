@@ -841,10 +841,25 @@ void lcd_e2_enable(bool on)
     lcd_e2_on = on;
 }
 
+#ifdef HAVE_BCMFW_DEVTEST
+/* sitting b10 (bench builds): the mutex refused (no exclusion for that
+ * piece) and the return address of the last refusal (the locker's caller
+ * when this is inlined): bcmjob-dev.c's lock_stats */
+static uint32_t lcd_lock_off XCORE_BSS, lcd_lock_off_at XCORE_BSS;
+#endif
+
 static bool lcd_port_lock(void)
 {
     if (!lcd_port_ready || !irq_enabled())
+#ifdef HAVE_BCMFW_DEVTEST
+    {
+        lcd_lock_off++;
+        lcd_lock_off_at = (uint32_t)__builtin_return_address(0);
         return false;
+    }
+#else
+        return false;   /* (the release's text as before the counters) */
+#endif
     mutex_lock(&lcd_port_mtx);
     return true;
 }

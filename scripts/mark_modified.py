@@ -137,6 +137,20 @@ def plan_file(path, text):
             prefix = re.match(r"\s*(\*|#|//|;|--|dnl)?\s*", l).group(0)
         lines.insert(last + 1, prefix + want)
         return "header", "\n".join(lines)
+    # no copyright line, but a licence grant in the header comment (an
+    # upstream header that says "Written by ..."): the line goes inside
+    # that comment, just above the grant, so the header stays one block
+    # (a separate comment before it hid the grant from legal_audit.py
+    # check 1: aac_bsf.c, #483)
+    com = r"\s*(\*|#|//|;|--|dnl)"
+    for i, l in enumerate(lines[:HEADER_SCAN]):
+        if re.match(com + r"\s*\S", l) and \
+                re.search(r"free software|general public|licen[cs]e", l, re.I):
+            at = i
+            if at > 0 and re.fullmatch(com + r"\s*", lines[at - 1]):
+                at -= 1
+            lines.insert(at, re.match(com + r"\s*", l).group(0) + want)
+            return "header", "\n".join(lines)
     syn = syntax_for(path)
     if syn is None:
         return "manual", None

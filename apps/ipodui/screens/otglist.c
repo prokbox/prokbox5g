@@ -29,7 +29,11 @@
  * store once after a database commit, before our first draw).
  *   SELECT on a song      plays On-The-Go from it (otg_play(): a fresh
  *                         queue built from the store's paths; the store
- *                         itself is never the playlist, Rev 1 H-2)
+ *                         itself is never the playlist, Rev 1 H-2); the
+ *                         queue skips songs that can't play
+ *   a song that can't     drawn greyed with the can't-play glyph, as in
+ *   play (#286)           Songs; SELECT on it says why (ui_noplay_row())
+ *                         and plays nothing, as the library's lists do
  *   hold SELECT on a song the hold menu with Remove from On-The-Go
  *   Save Playlist         "New Playlist N" in /Playlists, the store
  *                         emptied (otg_save()); back to Playlists, which
@@ -118,6 +122,14 @@ static bool otg_mark(int row, void *data)
     return row < o->n && o->np.tc > 0 && lib_id(o->view, row) == o->np.tc - 1;
 }
 
+/* #286: a song that can't play (a resolved row's flag word; RAM) */
+static int otg_unplayable(int row, void *data)
+{
+    const struct otgl *o = data;
+
+    return row < o->n ? lib_row_unplayable(o->view, row) : 0;
+}
+
 /* Save Playlist / Clear Playlist: one line, centred in the two-line row */
 static void otg_extra(int row, void *data, int w, int h, bool sel)
 {
@@ -168,6 +180,7 @@ static int otg_enter(struct ui_screen *s, const void *arg)
     o->list.get_sublabel = otg_sublabel;
     o->list.draw_extra = otg_extra;
     o->list.has_mark = otg_mark;
+    o->list.unplayable = otg_unplayable;
     ui_npmark_get(&o->np, UI_NPMARK_TC);
     open_view(o);                       /* resolves before our first draw */
     return 0;
@@ -229,6 +242,13 @@ static enum ui_result otg_select(struct otgl *o)
     land(o);
     if (row < o->n)
     {
+        /* #286: a song that can't play says why; nothing plays */
+        rc = ui_noplay_row(o->view, row);
+        if (rc)
+        {
+            UPDATE_TRACE("otg list noplay select row=%d why=%d", row, rc);
+            return UI_HANDLED;
+        }
         if (ui_npmark_continue(&o->list, &o->np, UI_NPMARK_TC,
                                UI_NPMARK_ORIGIN_OTG, row))
             return UI_HANDLED;

@@ -27,16 +27,16 @@ wait 700
 wheel +10           # "Now Playing"
 wait 500
 key SELECT
-wait 1200
-expect_playing 1000
-expect_pos 1000 5000
+wait 300
+expect_playing 300  # #511: ~3.5 s in, so the pause and resume land in the
+expect_pos 1000 5000  # 5 s FLAC (with the 2x expect_playing they never did)
 key PLAY            # pause
 wait 1500
 expect_paused 1000
 key PLAY            # resume
 wait 1500
 expect_playing 1000
-wait 6000           # the FLAC ends: the boundary (a rate switch)
+wait_pos 3000 30000 Concert  # the FLAC ends: the boundary (a rate switch); tracks the audio clock, not the wall
 expect_playing 1000
 expect_pos 2000 12000  # into the next track (the FLAC is 5 s)
 key SELECT          # Scrubber
@@ -57,22 +57,22 @@ expect_playing 1000
 key RIGHT           # a manual skip: the next track from its start
 wait 2000
 expect_playing 1000
-expect_pos 0 3500
+expect_pos 0 5500      # from its start (~3 s: wait 2000 + expect_playing 1000; the "~2 s ahead" seen at the refit was expect_playing running twice its length, #511)
 key PLAY            # a pause longer than the DAC standby (DAC_IDLE_MS 5 s)
-wait 8000
+wait 4000
 expect_paused 1000
 key PLAY            # resume after the standby
 wait 2000
 expect_playing 1000
-expect_pos 3000 8000  # moved on 2 s, not the 8 s paused
+expect_pos 3000 10500 # moved on 2 s, not the 8 s paused (that would be 12 s+)
 key PLAY            # a long pause: past the COP's 1 s lease give-back, the
 wait 30000          # DAC standby and the fade tail; nothing may restart it
 expect_paused 1000
-expect_pos 3000 9500  # where it stopped: not a second further
+expect_pos 3000 10200 # where it stopped (about 9 s): not a second further
 key PLAY            # only Play resumes
 wait 2000
 expect_playing 1000
-expect_pos 3000 12000
+expect_pos 3000 16000
 usb_connect             # mid-track: playback stops for the USB session
 wait 3000
 expect_stopped

@@ -1,0 +1,129 @@
+# 0.9.0 Settings > Audiophile > Hi-Res 128x (owner, 2026-11-13): the DAC's
+# 128x oversampling at 88.2/96 kHz output instead of the default 64x
+# (p083-dacosr64).  The row is the menu's third, an inline On/Off; its
+# caption says "Needs Hi-Res on" while High Sample Rate is off, else the
+# filter in use.  The first turn-on runs its own warning and self-test
+# (the High Sample Rate prompt in 128x mode).  The choice keys on the
+# output rate, so a 192 kHz source played at 96 kHz gets it too.  Off
+# again while a high rate plays takes effect at once (the driver's
+# soft-mute ramp; here the simulator's model of R10, drivers/audio/sdl.c).
+# Fixtures: sh tests/fixtures/npinfo/make_npinfo_fixtures.sh (hires96.flac
+# 96 kHz, hires.flac 192 kHz, cd16.mp3 44.1 kHz), then
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-audiophile-128x.script
+# Each play is followed by a wheel touch, so the idle jump to Now Playing
+# never takes the Audiophile menu away.
+# needs: library
+# needs: npinfo
+# golden: skip
+# reset: mainmenu
+# timeout: 240
+# log: audiophile test mask=0x83 on=1
+# log: audiophile 128x test mask=0x83 on=1
+# log: hi-res 128x self-test: 88.2 pass, 96 pass
+# logbetween: m64 mon dac osr=64 rate=96000
+# logbetween: m64 mon no dac osr=128
+# logbetween: mon m44 hi-res 128x on
+# logbetween: mon m44 dac osr=128 rate=96000
+# logbetween: m44 m96 dac osr=128 rate=44100
+# logbetween: m96 m44b dac osr=128 rate=96000
+# logbetween: m96 m44b no dac osr=64
+# logbetween: m44b m192 dac osr=128 rate=44100
+# logbetween: m192 moff dac osr=128 rate=96000
+# logbetween: m192 moff output 96000 Hz 24-bit for 192000 Hz
+# logbetween: moff end hi-res 128x off
+# logbetween: moff end dac osr=64 rate=96000
+# nolog: cfg save failed
+wait 1000
+wait_db 30000
+repeat off
+mkdir /HIRES128
+copy ../../build/npinfo-fixtures/hires96.flac /HIRES128/hires96.flac
+copy ../../build/npinfo-fixtures/hires.flac /HIRES128/hires192.flac
+copy ../../build/npinfo-fixtures/cd16.mp3 /HIRES128/cd16.mp3
+wait 1000
+
+wheel +3 300            # Settings
+wait 400
+key SELECT 50
+wait 1200
+wheel +11 300           # Audiophile (row 11)
+wait 1000
+key SELECT 50
+wait 1500
+shot menu               # Hi-Res Off, Stereo Width, Hi-Res 128x Off
+wheel +2 300            # Hi-Res 128x
+wait 1500
+shot needs_hires        # caption: Needs Hi-Res on
+
+wheel -2 300            # Hi-Res: the warning, Continue, the test
+wait 800
+key SELECT 50
+wait 1200
+wheel -1 300
+wait 300
+key SELECT 50
+wait 3800
+key SELECT 50           # back, Hi-Res On
+wait 1500
+wheel +2 300            # Hi-Res 128x
+wait 1500
+shot std64              # caption: Standard 64x filter
+
+ab_mark m64             # Hi-Res on, 128x off: 96 kHz at 64x
+play_files /HIRES128/hires96.flac
+wait 3000
+ab_mark mon             # on while 96 kHz plays: 128x at once
+
+key SELECT 50           # Hi-Res 128x: its own warning
+wait 1200
+shot warn128            # Cancel preselected
+wheel -1 300            # Continue
+wait 300
+key SELECT 50
+wait 300
+shot testing128
+wait 3800
+shot result128          # both rates passed at 128x
+key SELECT 50           # back, Hi-Res 128x On
+wait 1500
+shot full128            # caption: Full 128x filter
+
+ab_mark m44             # 44.1 kHz: 128x as ever
+play_files /HIRES128/cd16.mp3
+wait 2500
+wheel -1 200            # a touch: no idle jump to Now Playing
+wait 300
+wheel +1 200
+wait 300
+ab_mark m96             # 96 kHz source: 128x
+play_files /HIRES128/hires96.flac
+wait 2500
+wheel -1 200            # a touch: no idle jump to Now Playing
+wait 300
+wheel +1 200
+wait 300
+ab_mark m44b
+play_files /HIRES128/cd16.mp3
+wait 2500
+wheel -1 200            # a touch: no idle jump to Now Playing
+wait 300
+wheel +1 200
+wait 300
+ab_mark m192            # 192 kHz source at 96 kHz output: 128x
+play_files /HIRES128/hires192.flac
+wait 2500
+wheel -1 200            # a touch: no idle jump to Now Playing
+wait 300
+wheel +1 200
+wait 300
+ab_mark moff
+key SELECT 50           # Off while 96 kHz plays: 64x at once
+wait 1500
+shot off_playing
+key PLAY 50             # pause
+wait 500
+wheel -2 300            # Hi-Res Off (leave the disk as found)
+wait 500
+key SELECT 50
+wait 1500
+quit

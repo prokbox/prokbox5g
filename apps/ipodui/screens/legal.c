@@ -28,9 +28,10 @@
  * opens as the first-boot notice does: the heading "This is not Apple
  * software" (LANG_IPODUI_NOTICE_HEAD, Bold 15) and the notice's first
  * paragraph (LANG_IPODUI_NOTICE_1 with the version string); then
- * LANG_IPODUI_LEGAL_1 .. _6 (the GPL notice of the base, the two type
- * licences, then the independence and trademark paragraphs of the long
- * disclaimer). Word-wrapped once at enter into a line table in the
+ * LANG_IPODUI_LEGAL_1 .. _4 and _7 (the GPL notice of the base, the three
+ * type licences: ShellSans, its DejaVu glyphs, the ShellCJK companions'
+ * Noto Sans CJK), then _5 and _6 (the independence and trademark
+ * paragraphs of the long disclaimer). Word-wrapped once at enter into a line table in the
  * screen arena; the wheel scrolls it a line per step. MENU returns.
  *
  * Notice mode (arg UI_LEGAL_NOTICE, notice.h): the first-boot notice. A
@@ -65,6 +66,7 @@
 #include "lang.h"
 #include "ipodui/prodver.h"
 #include "ipodui/anim.h"
+#include "ipodui/paint.h"
 #include "ipodui/theme.h"
 #include "ipodui/header.h"
 #include "ipodui/modclass.h"
@@ -72,7 +74,7 @@
 #include "ipodui/screen_stack.h"
 #include "ipodui/screens/screens.h"
 
-#define PARAS_MAX   8               /* Legal: heading, lead, LEGAL_1.._6 */
+#define PARAS_MAX   9               /* Legal: heading, lead, legal_ids[] */
 #define NOTICE_PARAS 7              /* heading, NOTICE_1 .. _6 */
 #define MARGIN      10
 #define TEXT_W      (LCD_WIDTH - 2 * MARGIN)
@@ -81,8 +83,10 @@
 #define PARA_GAP    7
 #define N_PITCH     14              /* notice: a little tighter, so the */
 #define N_GAP       5               /* English text fits one screen */
+#define N_GAP_TIGHT 3               /* a longer translation: tighter still */
+#define N_PITCH_TIGHT 13            /* (P20: Japanese, 245 -> 219 px) */
 #define TOP_PAD     8
-#define MAX_LINES   64
+#define MAX_LINES   80              /* German Legal: 7 paragraphs */
 #define LINE_MAX_B  120             /* bytes in one wrapped line */
 #define LEAD_B      256             /* NOTICE_1 with the version */
 #define URL_LINE_B  96              /* notice: "Licence ...: <url>" */
@@ -100,6 +104,7 @@ struct legal {
     int y0;                         /* the first line's top */
     int paras;
     bool notice;
+    uint8_t tight;                  /* notice: 1 gap 3 px, 2 also pitch 13 */
     long shown;                     /* notice: current_tick at enter */
     int wait_s;                     /* notice: countdown shown, 0 = done */
     int sel_y;                      /* notice: the Select line's top */
@@ -118,12 +123,13 @@ static int para_font(const struct legal *g, int p)
 
 static int line_pitch(const struct legal *g, int p)
 {
-    return p == 0 ? HEAD_PITCH : g->notice ? N_PITCH : LINE_PITCH;
+    return p == 0 ? HEAD_PITCH
+         : g->notice ? (g->tight > 1 ? N_PITCH_TIGHT : N_PITCH) : LINE_PITCH;
 }
 
 static int para_gap(const struct legal *g)
 {
-    return g->notice ? N_GAP : PARA_GAP;
+    return g->notice ? (g->tight ? N_GAP_TIGHT : N_GAP) : PARA_GAP;
 }
 
 static int text_w(const char *s, int len, int font)
@@ -137,6 +143,16 @@ static int text_w(const char *s, int len, int font)
     font_getstringsize((const unsigned char *)buf, &w, &h, font);
     return w;
 }
+
+/* Settings > Legal's paragraphs after the lead (docs/legal.md L8: the
+ * type licences credit exactly what ships; _7 is in package I's block at
+ * the end of the .lang files, so it is not LEGAL_1 + 6) */
+static const int legal_ids[] = {
+    LANG_IPODUI_LEGAL_1, LANG_IPODUI_LEGAL_2, LANG_IPODUI_LEGAL_3,
+    LANG_IPODUI_LEGAL_4, LANG_IPODUI_LEGAL_7, LANG_IPODUI_LEGAL_5,
+    LANG_IPODUI_LEGAL_6,
+};
+_Static_assert(2 + ARRAYLEN(legal_ids) <= PARAS_MAX, "legal: para bound");
 
 /* The paragraphs of either mode, in order (docs/legal.md section 2) */
 static void set_paras(struct legal *g)
@@ -159,8 +175,8 @@ static void set_paras(struct legal *g)
         g->para[n++] = str(LANG_IPODUI_NOTICE_6);
     }
     else
-        for (i = 0; i < 6; i++)
-            g->para[n++] = str(LANG_IPODUI_LEGAL_1 + i);
+        for (i = 0; i < (int)ARRAYLEN(legal_ids); i++)
+            g->para[n++] = str(legal_ids[i]);
     g->paras = n;
 }
 
@@ -184,11 +200,9 @@ static void wrap_all(struct legal *g)
             /* extend word by word while the line fits */
             while (end < n)
             {
-                int next = end;
-                while (next < n && s[next] == ' ')
-                    next++;
-                while (next < n && s[next] != ' ')
-                    next++;
+                int next = ui_wrap_next(s, end);  /* #266: CJK too */
+                if (next > n)
+                    next = n;
                 if (next - start > LINE_MAX_B
                     || text_w(s + start, next - start, font) > TEXT_W)
                     break;
@@ -243,10 +257,18 @@ static int legal_enter(struct ui_screen *s, const void *arg)
     g->rows = (area - TOP_PAD) / LINE_PITCH;
     g->top = 0;
     g->y0 = TOP_PAD;
-    if (g->notice && block_h(g) <= area - 2 * TOP_PAD)
-        g->y0 = (area - block_h(g)) / 2;
-    UPDATE_TRACE("legal lines=%d notice=%d h=%d", g->lines, (int)g->notice,
-                 block_h(g));
+    if (g->notice)
+    {
+        /* past the 224 px the English layout centres in, a translation
+         * closes its gaps, then its pitch; it centres on the whole
+         * screen while it fits, else starts at the top and scrolls */
+        while (g->tight < 2 && block_h(g) > area - 2 * TOP_PAD)
+            g->tight++;
+        if (block_h(g) <= area)
+            g->y0 = (area - block_h(g)) / 2;
+    }
+    UPDATE_TRACE("legal lines=%d notice=%d h=%d tight=%d y0=%d", g->lines,
+                 (int)g->notice, block_h(g), g->tight, g->y0);
     return 0;
 }
 
@@ -330,7 +352,7 @@ static enum ui_result legal_input(struct ui_screen *s,
     switch (in->key)
     {
         case UI_KEY_WHEEL:
-            if (g->notice && g->y0 > TOP_PAD)
+            if (g->notice && block_h(g) <= LCD_HEIGHT)
                 return UI_HANDLED;      /* it all fits: nothing to scroll */
             top = MIN(MAX(g->top + in->wheel_steps, 0),
                       MAX(g->lines - g->rows + g->paras / 2, 0));

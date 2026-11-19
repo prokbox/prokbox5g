@@ -853,6 +853,25 @@ static void print_mp3entry(const struct mp3entry *id3, FILE *f)
     if (id3->comment) fprintf(f, "Comment: %s\n", id3->comment);
     if (id3->albumartist) fprintf(f, "Album artist: %s\n", id3->albumartist);
     if (id3->grouping) fprintf(f, "Grouping: %s\n", id3->grouping);
+    /* ProkBox #167: what the library indexes (tagcache's
+     * metadata_keep_primary()), for a joined multi-value tag only */
+    if (id3->artist_len1 || id3->albumartist_len1 || id3->composer_len1)
+    {
+        static struct mp3entry key;
+        copy_mp3entry(&key, id3);
+        metadata_keep_primary(&key);
+        if (id3->artist_len1) fprintf(f, "Artist key: %s\n", key.artist);
+        if (id3->albumartist_len1) fprintf(f, "Album artist key: %s\n", key.albumartist);
+        if (id3->composer_len1) fprintf(f, "Composer key: %s\n", key.composer);
+    }
+#ifdef HAVE_IPOD_UI
+    /* ProkBox 0.9.0: the sort values (#235) and why a file can't play
+     * (#286), for tests/p090f1 */
+    if (id3->sortartist) fprintf(f, "Sort artist: %s\n", id3->sortartist);
+    if (id3->sortalbum) fprintf(f, "Sort album: %s\n", id3->sortalbum);
+    if (id3->sortalbumartist) fprintf(f, "Sort album artist: %s\n", id3->sortalbumartist);
+    fprintf(f, "Unplayable: %d\n", (int)id3->unplayable_reason);
+#endif
     if (id3->layer) fprintf(f, "Layer: %d\n", id3->layer);
     if (id3->id3version) fprintf(f, "ID3 version: %u\n", (int)id3->id3version);
     fprintf(f, "Codec: %s\n", audio_formats[id3->codectype].label);
@@ -870,7 +889,23 @@ static void print_mp3entry(const struct mp3entry *id3, FILE *f)
     if (id3->vbr) fprintf(f, "VBR: true\n");
     if (id3->has_toc) fprintf(f, "Has TOC: true\n");
     if (id3->needs_upsampling_correction) fprintf(f, "Needs upsampling correction: true\n");
-    /* TODO: replaygain; albumart; cuesheet */
+    /* ProkBox #292: ReplayGain levels (Q19.12 dB) and gains (Q7.24) */
+    if (id3->track_gain) fprintf(f, "Track gain: level=%ld gain=%ld\n", id3->track_level, id3->track_gain);
+    if (id3->album_gain) fprintf(f, "Album gain: level=%ld gain=%ld\n", id3->album_level, id3->album_gain);
+#ifdef HAVE_ALBUMART
+    /* ProkBox tests/upfix: the embedded picture found, where and how big
+     * (only with WARBLE_ART set, so whole-output goldens stay as they are) */
+    if (getenv("WARBLE_ART"))
+    {
+        if (id3->has_embedded_albumart)
+            fprintf(f, "Album art: type %d at %ld, %d bytes\n",
+                    (int)(id3->albumart.type & AA_CLEAR_FLAGS_MASK),
+                    (long)id3->albumart.pos, id3->albumart.size);
+        else
+            fprintf(f, "Album art: none\n");
+    }
+#endif
+    /* TODO: cuesheet */
     if (id3->mb_track_id) fprintf(f, "Musicbrainz track ID: %s\n", id3->mb_track_id);
 }
 

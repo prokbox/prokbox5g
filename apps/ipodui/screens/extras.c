@@ -43,6 +43,7 @@ VIS(games, XT_GAMES)
 VIS(notes, XT_NOTES)
 VIS(screenlock, XT_SCREENLOCK)
 VIS(stopwatch, XT_STOPWATCH)
+VIS(eq, XT_EQ)
 
 #define ROW(name) { NULL, NULL, NULL, vis_##name, extras_go_##name, NULL, NULL }
 static struct ui_menu_item rows[XT__N] = {
@@ -54,6 +55,7 @@ static struct ui_menu_item rows[XT__N] = {
     [XT_NOTES]      = ROW(notes),
     [XT_SCREENLOCK] = ROW(screenlock),
     [XT_STOPWATCH]  = ROW(stopwatch),
+    [XT_EQ]         = ROW(eq),
 };
 
 /* menu.c calls this on enter and before every full draw: the labels

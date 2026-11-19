@@ -302,7 +302,10 @@ int tagcache_ui_progress(int *permille);
 unsigned tagcache_ui_scans_ended(void);
 /* #237: the active library is missing (a first install, or one that must
  * be built again from nothing): 1; one exists (loaded or not): 0; not yet
- * known (the tagcache thread has not looked at the disk): -1 */
+ * known (the tagcache thread has not looked at the disk): -1.
+ * p090-upgpage: 2: the disk's library is another firmware's (its stamp,
+ * ipodui/libstamp.h: an upgrade, a downgrade, one from before 0.9.0) and
+ * cannot be shown: rebuilt as a first build is (callers test > 0) */
 int tagcache_ui_no_library(void);
 /* #237 (owner 2026-11-09): on battery below this percentage a first
  * build starts only on a charger; one under way stops cleanly when the
@@ -340,6 +343,24 @@ bool tagcache_ui_resumes(const struct mp3entry *id3);
  * neither Music nor Videos. Music excludes TAGCACHE_UI_ANY_VIDEO. */
 #define TAGCACHE_UI_VIDEO_OTHER 0x1000
 #define TAGCACHE_UI_ANY_VIDEO   (TAGCACHE_UI_VIDEO | TAGCACHE_UI_VIDEO_OTHER)
+/* 0.9.0 (#286, docs/changes-from-rockbox.md 3.3): why an entry can't
+ * play (enum unplayable_reason, metadata.h; 0 = it plays), stored at scan
+ * time in bits 16-19 of the same flag word. The low 16 bits are all taken;
+ * the high half reaches the master from the scan's temp entry (int32_t
+ * flag) and the RAM cache loads the whole word, while write_index() keeps
+ * the RAM copy's high half (statistics writes never change scan-time
+ * data). Bit 22 (0x400000) is RAM-only (FLAG_UI_STATS_REPLAYED, tagcache.c),
+ * so 16-19 are the free on-disk bits. Music, Audiobooks and Videos read
+ * the same field. A database from before SORTKEY_VERSION 3 has these bits
+ * 0 and is rebuilt once (the 0.9.0 format bump), so 0 never means "not
+ * checked". */
+#define TAGCACHE_UI_UNPLAYABLE_SHIFT 16
+#define TAGCACHE_UI_UNPLAYABLE_MASK  (0xfL << TAGCACHE_UI_UNPLAYABLE_SHIFT)
+#define TAGCACHE_UI_UNPLAYABLE_FLAG(reason) \
+    ((int32_t)((reason) & 0xf) << TAGCACHE_UI_UNPLAYABLE_SHIFT)
+#define TAGCACHE_UI_UNPLAYABLE(flag) \
+    ((int)(((flag) & TAGCACHE_UI_UNPLAYABLE_MASK) \
+           >> TAGCACHE_UI_UNPLAYABLE_SHIFT))
 /* Bytes per entry the shell's library view pool (library.c, struct rec)
  * takes once a reload makes the database bigger: a commit or reload while
  * audio runs must leave room for it too. */
@@ -420,6 +441,11 @@ void tagcache_ui_precompute_request(void);
 /* P19 19-1a: work is owed to the tagcache thread (any context): ends its
  * quiet wait at once; nothing if the thread is running or polling */
 void tagcache_quiet_kick(void);
+/* p090-floor3: PLAY from a stop, just before the audio buffer is sized
+ * (audio thread): when the room it would get is under the floor's slack,
+ * the library gives back what it can (an unpublished candidate's RAM
+ * cache, the retired library's), waited for 150 ms at most */
+void tagcache_ui_play_release(size_t room);
 /* Entries of the database on disk (master index header, plus a scan
  * waiting for its commit), read synchronously; -1 if there is none. Any
  * thread; for sizing the shell's reservations at start (library.c). */

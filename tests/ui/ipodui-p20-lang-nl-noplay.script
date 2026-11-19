@@ -1,0 +1,83 @@
+# P20 (0.9.0, int4): the can't-play pages (#286, screens/noplay.c) in the
+# Dutch shell, on the 286 fixture disk (tests/ui/ipodui-286-unplayable
+# has the English walk and the fixtures' list): a song in a format with
+# no decoder (why=3), a protected song (why=1), a protected audiobook
+# (why=2) and a podcast episode with no decoder (kind=episode). Every
+# heading and sentence must fit: a text cut with "..." is traced
+# ("ipodui: fit cut ...") and fails the script.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-p20-lang-nl-noplay.script
+# disk: bare
+# disk-file: tests/fixtures/f1/plain.m4a Music/plain.m4a
+# disk-file: tests/fixtures/f1/drm.m4p Music/drm.m4p
+# disk-file: tests/fixtures/f1/ac3.m4a Music/ac3.m4a
+# disk-file: tests/fixtures/plain.mp3 Music/plain.mp3
+# disk-file: tests/fixtures/f1/book.aax Audiobooks/book.aax
+# disk-file: tests/fixtures/f1/book.aa Audiobooks/book.aa
+# disk-file: tests/ui/fixtures/p146/type.m4b Audiobooks/type.m4b
+# disk-file: tests/fixtures/f1/ac3.m4a Podcasts/ac3.m4a
+# env: IPODUI_SIM_NOTICE=clear
+# golden: skip
+# timeout: 240
+# log: noplay page why=3 kind=song audio=0
+# log: noplay page why=1 kind=song audio=0
+# log: noplay page why=2 kind=book audio=0
+# log: noplay page why=3 kind=episode audio=0
+# nolog: ipodui: fit cut
+# nolog: splash-suppressed
+
+wait 1000
+wait_db 30000
+lang_set nederlands
+reboot
+wait 6000            # the notice in the new language, unacknowledged
+key SELECT
+wait 1500
+key SELECT           # Music
+wait 800
+wheel +3             # Songs
+wait 300
+key SELECT
+wait 2000
+shot songs           # AC3 selected (greyed)
+key SELECT
+wait 1500
+shot song_format     # Can't Play Song: format not supported
+key MENU
+wait 1200
+wheel +2             # the protected purchase (.m4p)
+wait 600
+key SELECT
+wait 1500
+shot song_protected  # Can't Play Song: protected file
+key SELECT           # OK
+wait 1200
+key MENU             # Music
+wait 700
+wheel +3             # Audiobooks (Songs + 3)
+wait 300
+key SELECT
+wait 2000
+wheel +1             # the protected .aax
+wait 600
+key SELECT
+wait 1500
+shot book_protected  # Can't Play Audiobook: protected file
+key MENU
+wait 1200
+key MENU             # Music
+wait 600
+key MENU             # main menu
+wait 600
+wheel +1 300         # Podcasts
+wait 400
+key SELECT
+wait 800
+key SELECT           # the show
+wait 1200
+key SELECT           # the episode
+wait 1500
+shot episode_page    # Can't Play Episode: format not supported
+key MENU
+wait 1200
+lang_set -
+quit

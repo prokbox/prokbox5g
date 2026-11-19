@@ -35,7 +35,10 @@
  *                               Browse Artist, Cancel
  *   Music (main menu)           Rebuild Cache, Build Artwork, Cancel
  * A book or a podcast episode never gets the Browse items (Rev 1 L-6), nor
- * a track whose database entry is gone (a rebuild since).
+ * a track whose database entry is gone (a rebuild since). A song, book or
+ * episode that can't play (#286: greyed in its list) never gets Add to
+ * On-The-Go: the item is left out, as for a video (the menu has no greyed
+ * items); what is left (Browse, Cancel) still works.
  *
  * The menu opens on the long press while SELECT is still down; the
  * release of that press is dropped (Rev 1 L-6), so it never acts on Add.
@@ -67,6 +70,7 @@
 #include "ipodui/ipodui.h"
 #include "ipodui/artcache.h"
 #include "ipodui/theme.h"
+#include "ipodui/paint.h"
 #include "ipodui/list.h"
 #include "ipodui/anim.h"
 #include "ipodui/otg.h"
@@ -255,6 +259,11 @@ static int hold_enter(struct ui_screen *s, const void *arg)
     if (seeks && (flag & TAGCACHE_UI_VIDEO))
         m &= ~BIT(UI_HOLD_ADD_OTG);
 #endif
+    /* #286: nothing that can't play is queued: the held row (a book row
+     * reads its representative) or the track */
+    if ((a.view > 0 && a.idx >= 0 && lib_row_unplayable(a.view, a.idx))
+        || (seeks && TAGCACHE_UI_UNPLAYABLE(flag)))
+        m &= ~BIT(UI_HOLD_ADD_OTG);
     for (i = 0; i < UI_HOLD_ITEMS; i++)
         if (m & BIT(i))
             h->item[n++] = i;
@@ -367,14 +376,14 @@ static void hold_draw(struct ui_screen *s, unsigned dirty)
         lcd_set_foreground(t->list_fg);
         font_getstringsize((const unsigned char *)step, &w, &fh, vp.font);
         y0 = vp.height / 2 - fh - 5;
-        lcd_putsxy((vp.width - w) / 2, y0, (const unsigned char *)step);
+        /* centred, cut with "..." (and traced, P20) if wider than the
+         * screen's margins */
+        ui_paint_text_centre(vp.width / 2, y0 + font_get(vp.font)->ascent,
+                             vp.width - 20, step);
         if (count[0])
-        {
-            font_getstringsize((const unsigned char *)count, &w, NULL,
-                               vp.font);
-            lcd_putsxy((vp.width - w) / 2, y0 + fh + 10,
-                       (const unsigned char *)count);
-        }
+            ui_paint_text_centre(vp.width / 2,
+                                 y0 + fh + 10 + font_get(vp.font)->ascent,
+                                 vp.width - 20, count);
         lcd_set_viewport(NULL);
         return;
     }

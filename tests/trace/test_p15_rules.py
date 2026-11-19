@@ -92,7 +92,12 @@ expect('eq two engines (hw + sw eq on)', True, 'e9', T('p15eq'),
 expect('eq no engine (Off logged with the sw eq on)', True, 'e10', T('p15eq'),
        [eqs(0, 1, 0), eqe('sw', 0, 0, 0)], 'engine')
 expect('eq preset out of range', True, 'e11', T('p15eq'),
-       [eqe('sw', 23, 0, 0)], 'outside 0..22')
+       [eqe('sw', 26, 0, 0)], 'outside 0..25')
+# #82: Custom 1-3 (23..25) run on the codec, maxerr 0
+expect('eq custom slot', False, 'e13', T('p15eq'),
+       [eqs(23, 0, 0), eqe('hw', 23, 0, 7)])
+expect('eq custom slot not hw', True, 'e14', T('p15eq'),
+       [eqe('sw', 24, 0, 0)], 'a custom slot must be hw')
 expect('eq pin mismatch', True, 'e12',
        T('p15eq', '# eq-engines: 2=sw'),
        [eqs(2, 0, 0), eqe('hw', 2, 9, 6)], 'want sw')

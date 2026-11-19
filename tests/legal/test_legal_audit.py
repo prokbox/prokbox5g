@@ -1,4 +1,28 @@
 #!/usr/bin/env python3
+#***************************************************************************
+#               __________                   __    __________
+#    Open       \______   \_______    ____  |  | __\______   \  ____  ___  ___
+#    Source      |     ___/\_  __ \  /  _ \ |  |/ / |    |  _/ /  _ \ \  \/  /
+#    Player      |    |     |  | \/ (  <_> )|    <  |    |   \(  <_> ) >    <
+#    Firmware    |____|     |__|     \____/ |__|_ \ |______  / \____/ /__/\_ \
+#                                                \/        \/               \/
+#
+# Custom firmware for the iPod Video, 5th generation (5G and 5.5G).
+# Not affiliated with or endorsed by Apple Inc.
+#
+# Self-test for scripts/legal_audit.py.
+#
+# Copyright (C) 2026 prokopto-dev
+#
+# This program is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation; either version 2
+# of the License, or (at your option) any later version.
+#
+# This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
+# KIND, either express or implied.
+#
+#***************************************************************************
 """Self-test for scripts/legal_audit.py: plants defects in a throwaway git
 repo under build/legal-fixture and checks each is caught (and the clean
 fixture passes).  usage: python3 tests/legal/test_legal_audit.py"""
@@ -8,8 +32,23 @@ REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 AUDIT = os.path.join(REPO, 'scripts/legal_audit.py')
 FX = os.path.join(REPO, 'build/legal-fixture')
 HDR = '/* Copyright (C) 2003 Alice Upstream\n * Licensed under the GNU General Public License v2\n * WITHOUT WARRANTY\n */\nint x;\n'
-PBX = '/* Custom firmware for the iPod Video, 5th generation\n * GNU General Public License */\nint y;\n'
-LEGAL = '## 5. Asset provenance\n\n| Path | Origin | Licence |\n|---|---|---|\n| `art/ok/*.png` | gen | GPL |\n\n## 6. x\n'
+BANNER = '/*\n * Custom firmware for the iPod Video, 5th generation (5G and 5.5G).\n *\n * Copyright (C) 2026 Owner\n *\n'
+GPL2P = (' * This program is free software; you can redistribute it and/or\n'
+         ' * modify it under the terms of the GNU General Public License\n'
+         ' * as published by the Free Software Foundation; either version 2\n'
+         ' * of the License, or (at your option) any later version.\n')
+DUAL = ' * SPDX-License-Identifier: MIT OR GPL-2.0-or-later\n *\n * You may use this file under either the MIT licence or the GPL.\n'
+GPL3P = GPL2P.replace('either version 2\n', 'either version 3\n')
+LGPL = (' * This file is free software; you can redistribute it and/or modify it\n'
+        ' * under the terms of the GNU Lesser General Public License as published by\n'
+        ' * the Free Software Foundation; either version 2.1 of the License, or (at\n'
+        ' * your option) any later version.\n')
+PBX = BANNER + GPL2P + ' */\nint y;\n'
+LIC_TABLE = ('<!-- audit3-licences-begin -->\n| Files | Licence | Why |\n|---|---|---|\n'
+             '| `src/sdk/*.h`, `src/sdk/one.c` | `MIT OR GPL-2.0-or-later` | test SDK |\n'
+             '| `src/ff/*.c` | `LGPL-2.1-or-later` | test third party |\n<!-- audit3-licences-end -->\n')
+LEGAL = ('## 4. Tree\n\n' + LIC_TABLE + '\n## 5. Asset provenance\n\n| Path | Origin | Licence |\n|---|---|---|\n'
+         '| `art/ok/*.png` | gen | GPL |\n\n## 6. x\n')
 LANG = '<phrase>\n  id: LANG_IPODUI_BAD\n  <dest>\n    *: none\n    ipodui: "Sync with iTunes"\n  </dest>\n</phrase>\n'
 
 
@@ -81,6 +120,36 @@ def main():
     write('src/nohdr.c', 'int main(void){return 0;}\n')
     res.append(expect('check 3 headerless new .c', 1, 'src/nohdr.c'))
     os.remove(os.path.join(FX, 'src/nohdr.c'))
+    # 3: the licence itself (#483).  Each red case is a file the audit
+    # must name; each green case must pass.
+    def c3(name, rel, text, rc_want):
+        write(rel, text)
+        ok = expect(name, rc_want, rel if rc_want else 'LEGAL PASSED')
+        os.remove(os.path.join(FX, rel)); sh('git', 'add', '-A')
+        return ok
+    res.append(c3('check 3 banner + GPL-3.0-or-later', 'src/wrong.c', BANNER + GPL3P + ' */\n', 1))
+    res.append(c3('check 3 banner + no licence', 'src/nolic.c', BANNER + ' */\n', 1))
+    res.append(c3('check 3 banner + short "GPL v2 or later"', 'src/short.c',
+                  BANNER + ' * GPL v2 or later.\n */\n', 1))
+    res.append(c3('check 3 banner only in code, no licence', 'src/code.py',
+                  'S = "Custom firmware for the iPod Video, 5th generation"\n', 1))
+    res.append(c3('check 3 dual outside the allowed set', 'src/dual.c', BANNER + DUAL + ' */\n', 1))
+    res.append(c3('check 3 dual and GPL-only grant together', 'src/sdk/both.h', BANNER + DUAL + GPL2P + ' */\n', 1))
+    res.append(c3('check 3 dual in the allowed set (glob)', 'src/sdk/ok.h', BANNER + DUAL + ' */\n', 0))
+    res.append(c3('check 3 dual in the allowed set (path)', 'src/sdk/one.c', BANNER + DUAL + ' */\n', 0))
+    res.append(c3('check 3 GPL file in the dual set', 'src/sdk/gpl.h', PBX, 0))
+    res.append(c3('check 3 listed LGPL file', 'src/ff/idct.c', '/* from FFmpeg\n *\n' + LGPL + ' */\n', 0))
+    res.append(c3('check 3 LGPL file not listed', 'src/lgpl.c', '/* from FFmpeg\n *\n' + LGPL + ' */\n', 1))
+    res.append(c3('check 3 banner + listed licence of another file', 'src/ff/b.c', BANNER + LGPL + ' */\n', 1))
+    res.append(c3('check 3 MIT-only file', 'src/mit.c', '/* Permission is hereby granted, free of charge */\n', 1))
+    res.append(c3('check 3 GPL-2.0-or-later without the banner', 'src/up.c', '/*\n * Copyright (C) 2003 X\n *\n' + GPL2P + ' */\n', 0))
+    res.append(c3('check 3 SPDX GPL-2.0-or-later', 'src/spdx.sh',
+                  '#!/bin/sh\n# Custom firmware for the iPod Video, 5th generation\n'
+                  '# SPDX-License-Identifier: GPL-2.0-or-later\n', 0))
+    # fail closed: no table in docs/legal.md
+    write('docs/legal.md', LEGAL.replace(LIC_TABLE, ''))
+    res.append(expect('check 3 licence table missing', 1, 'audit3-licences'))
+    write('docs/legal.md', LEGAL)
     # 5: missing licence file
     os.remove(os.path.join(FX, 'lib/foo/COPYING'))
     res.append(expect('check 5 missing lib licence', 1, 'lib/foo/COPYING'))

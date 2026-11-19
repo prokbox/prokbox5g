@@ -1,0 +1,193 @@
+# The custom EQ editor (apps/ipodui/screens/eqedit.c, #82): the curve is the
+# editor. Three boots:
+#   1. Settings > EQ: choosing Custom 1 makes it the EQ in use and opens the
+#      editor (Presence selected). Every band is edited (frequency, level,
+#      width), Compare (Play) flips to EQ off and back, Menu leaves: the
+#      slot is saved once ("eqedit saved slot=1 ...").
+#      Bass +4 dB and Treble +12 dB are shot for the drawing check: a
+#      shelf's handle sits at its full level on the corner's bar (hy=, the
+#      handle's row: +4 dB is row 98, +12 dB row 62; at the corner the
+#      curve is only half way up).
+#   2. Extras > Custom EQ lists the 3 slots; Custom 1 opens with the saved
+#      curve ("eqedit open slot=1 eq1 +4@80 ..."); Bass to -8 dB (its
+#      handle on row 150, the cut's floor); Hold Select resets it to flat,
+#      Menu leaves: saved flat.
+#   3. Custom 1 opens flat; Custom 2 (never edited) opens flat too.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-eqedit.script
+# golden: skip
+# timeout: 200
+# logbetween: start p1end eqedit open 1 \+0@105 \+0@300 \+0@850 \+0@2400 \+0@6900
+# log: eqedit s1 b1 f=80 g=+4 bw=- hy=98 m128=0
+# log: eqedit s1 b2 f=385 g=-3 bw=w hy=128 m128=0
+# log: eqedit s1 b4 f=3200 g=+12 bw=n hy=64 m128=1
+# log: eqedit s1 b5 f=11700 g=+12 bw=- hy=62 m128=1
+# log: eqedit s1 b1 f=80 g=-8 bw=- hy=150 m128=1
+# log: eqedit s1 b2 f=300 g=+0 bw=n hy=115 m128=0
+# log: eqedit cmp=off m128=0 pc=0
+# log: eqedit cmp=eq m128=1
+# logbetween: start p1end eqedit saved 1 \+4@80 -3@385w \+0@850 \+12@3200 \+12@11700
+# logbetween: p1end p2end eqedit open 1 \+4@80 -3@385w \+0@850 \+12@3200 \+12@11700
+# logbetween: p1end p2end eqedit saved 1 \+0@105 \+0@300 \+0@850 \+0@2400 \+0@6900
+# logbetween: p2end end eqedit open 1 \+0@105 \+0@300 \+0@850 \+0@2400 \+0@6900
+# logbetween: p2end end eqedit open 2 \+0@105 \+0@300 \+0@850 \+0@2400 \+0@6900
+# nolog: eqedit saved 2 
+# nolog: splash-pass
+# same: open open_redrawn
+# same: bass_4 bass_4_redrawn
+
+rm_file /.rockbox/config.cfg
+rm_file /.rockbox/config.cfg.new
+rm_file /.rockbox/config.cfg.old
+reboot                # a clean settings file: every slot flat, no EQ in use
+wait 5000
+wheel +3             # Settings
+wait 400
+key SELECT
+wait 1500
+wheel +9             # EQ
+wait 400
+key SELECT
+wait 1500
+wheel -30 40         # the top (the list opens on the EQ in use)
+wait 300
+wheel +23 60        # Custom 1 (after Off and the 22 presets)
+wait 600
+shot custom_list
+key SELECT           # the EQ in use, and its editor
+wait 1500
+shot open            # Presence selected, band step
+backlight_expire
+wait 3500
+key SELECT           # the first press only wakes: the editor repaints in full
+wait 800
+shot open_redrawn    # == open
+wheel -3 300         # Bass
+wait 600
+key SELECT           # frequency step
+wait 600
+wheel -1 300         # 80 Hz
+wait 600
+shot bass_freq       # rings and arrows, 80 Hz bold blue
+key SELECT           # level step
+wait 600
+wheel +4 300
+wait 600
+shot bass_level      # +4 dB: the arrows, the handle at +4 dB on the bar
+key SELECT           # done
+wait 800
+shot bass_4          # the handle at +4 dB (the plateau), on the 80 Hz bar
+backlight_expire
+wait 3500
+key SELECT
+wait 800
+shot bass_4_redrawn  # == bass_4
+wheel +1 300         # Low mid
+wait 400
+key SELECT
+wait 400
+wheel +1 300         # 385 Hz
+wait 400
+key SELECT
+wait 400
+wheel -3 300
+wait 400
+key SELECT 1200      # Hold Select: wide
+wait 800
+shot lowmid_wide_cut
+key SELECT           # done
+wait 600
+wheel +2 300         # Presence
+wait 400
+key SELECT
+wait 400
+wheel +1 300         # 3.2 kHz
+wait 400
+key SELECT
+wait 400
+wheel +12 100        # +12 dB (band 4: the full-rate DSP)
+wait 800
+shot presence_12
+key SELECT
+wait 600
+wheel +1 300         # Treble
+wait 400
+key SELECT
+wait 400
+wheel +2 300         # 11.7 kHz
+wait 400
+key SELECT
+wait 400
+wheel +12 100        # +12 dB shelf
+wait 800
+shot treble_12       # the handle at +12 dB, the plateau, on the 11.7k bar
+key SELECT
+wait 800
+shot all_bands
+key PLAY             # Compare: EQ off
+wait 800
+shot compare_off
+key PLAY             # back to the custom curve
+wait 800
+shot compare_on
+key MENU             # leave: saved; the list is still under it
+wait 1500
+shot list_back
+key MENU
+wait 1000
+ab_mark p1end
+reboot
+wait 5000
+wheel +2             # Extras
+wait 400
+key SELECT
+wait 1500
+wheel +12 100        # Custom EQ, the last row (the list stops there)
+wait 400
+shot extras_row
+key SELECT
+wait 1500
+shot slots           # Custom 1, Custom 2, Custom 3
+key SELECT
+wait 1500
+shot persisted       # the saved curve after the reboot
+wheel -3 300         # Bass
+wait 400
+key SELECT
+wait 400
+key SELECT           # level step
+wait 400
+wheel -12 100        # +4 to -8 dB
+wait 800
+shot bass_minus8     # the handle at -8 dB on the 80 Hz bar
+key SELECT           # done (the band step)
+wait 800
+key SELECT 1200      # Hold Select: reset to flat
+wait 1000
+shot reset
+key MENU
+wait 1500
+shot list_back2
+ab_mark p2end
+reboot
+wait 5000
+wheel +2
+wait 400
+key SELECT
+wait 1500
+wheel +12 100
+wait 400
+key SELECT
+wait 1500
+key SELECT
+wait 1500
+shot flat_again      # Custom 1 is flat
+key MENU
+wait 1000
+wheel +1 300
+wait 400
+key SELECT
+wait 1500
+shot slot2           # Custom 2 was never edited
+key MENU
+wait 800
+quit

@@ -42,10 +42,19 @@ reader's 25 bits a read; the wide filter with a 16-bit stream (the
 remodulation pass); fixed orders 0..4; verbatim and constant subframes;
 wasted bits; escaped Rice partitions; both Rice codings; partition orders 0
 and above; all four channel assignments; block sizes 4096, 16384 and 65535.
+#318, 32-bit streams: 33-bit side channels (no wasted bits: the 64-bit
+subframe decoder) of every type, constant, verbatim, fixed and LPC, and with
+wasted bits; every fixed order 0..4 on them; all three side assignments;
+and frame headers with the 32-bit size code (7) and with STREAMINFO's (0).
+30- and 31-bit streams too.  And from the decoded samples (DIR/ref.raw):
+side channels that really leave 32 bits (|left - right| >= 2^31) in each
+side assignment, and in an LPC subframe (decode_subframe_33's 64-bit
+history after its 32-bit fast path).
 Prints what it counted; exits 1 when anything is missing or nothing was
 read.
 """
 import re
+import struct
 import sys
 
 
@@ -62,6 +71,9 @@ def main():
     porders, wide16, wasted, escapes, subframes = set(), 0, 0, 0, 0
     bound_only, edges, winrest, w3q = 0, set(), set(), set()
     wide_esc = set()
+    s33, s33fixed, s33assign, s33wasted, code32 = set(), set(), set(), 0, set()
+    widths = set()
+    big_modes, big_lpc = set(), 0
     pending = None
 
     def lpc_done(p):
@@ -70,6 +82,8 @@ def main():
         if len(coef) != o:
             raise SystemExit("FAIL coverage: %d coefficients for order %d"
                              % (len(coef), o))
+        if cb > 32:     # #318: 33-bit samples, decode_subframe_33's filter
+            return
         a = sum(abs(c) for c in coef)
         if a == (1 << (32 - cb)) - 1:
             edges.add(("below", sbps))
@@ -90,6 +104,9 @@ def main():
 
     for ana in sys.argv[1:]:
         bps = streaminfo_bps(ana[:-4] + ".flac")
+        widths.add(bps)
+        raw = open(ana[:-4] + ".flac", "rb").read() if bps == 32 else b""
+        frames32 = []           # [blocksize, assignment, side subframe type]
         for line in open(ana):
             if pending and not line.startswith("\t\tqlp_coeff["):
                 lpc_done(pending)
@@ -100,6 +117,11 @@ def main():
                 bs = int(m.group(1))
                 bsz.add(bs)
                 assigns.add(m.group(2))
+                mode = m.group(2)
+                frames32.append([bs, mode, None])
+                if raw:
+                    off = int(re.search(r"offset=(\d+)", line).group(1))
+                    code32.add((raw[off + 3] >> 1) & 7)
                 side = {"LEFT_SIDE": 1, "RIGHT_SIDE": 0,
                         "MID_SIDE": 1}.get(m.group(2), -1)
                 continue
@@ -116,6 +138,16 @@ def main():
                 if "residual_type" in f:
                     rice.add(f["residual_type"])
                     porders.add(int(f["partition_order"]) > 0)
+                if bps == 32 and int(f["subframe"]) == side:
+                    if not int(f["wasted_bits"]):
+                        frames32[-1][2] = f["type"]
+                    if int(f["wasted_bits"]):
+                        s33wasted += 1
+                    else:
+                        s33.add(f["type"])
+                        s33assign.add(mode)
+                        if f["type"] == "FIXED":
+                            s33fixed.add(int(f["order"]))
                 if f["type"] == "FIXED":
                     fixed.add(int(f["order"]))
                 elif f["type"] == "LPC":
@@ -131,6 +163,20 @@ def main():
         if pending:
             lpc_done(pending)
             pending = None
+        if bps == 32:
+            pcm = open(ana[:-6] + "ref.raw", "rb").read()
+            v = struct.unpack("<%di" % (len(pcm) // 4), pcm)
+            at = 0
+            for bs, mode, kind in frames32:
+                if mode != "INDEPENDENT" and any(
+                        abs(v[2 * i] - v[2 * i + 1]) >= 1 << 31
+                        for i in range(at, at + bs)):
+                    big_modes.add(mode)
+                    big_lpc += kind == "LPC"
+                at += bs
+            if at * 8 != len(pcm):
+                raise SystemExit("FAIL coverage: %s: %d samples in ref.raw, "
+                                 "%d in the frames" % (ana, len(pcm) // 8, at))
     missing = []
     need = [
         ("wide LPC orders", set(range(1, 33)) - wide),
@@ -147,6 +193,15 @@ def main():
          - edges),
         ("order-3 window shifts", set(range(16)) - w3q),
         ("escaped partitions of 26..31 bits", set(range(26, 32)) - wide_esc),
+        ("33-bit side subframe types",
+         {"CONSTANT", "VERBATIM", "FIXED", "LPC"} - s33),
+        ("33-bit side fixed orders", set(range(5)) - s33fixed),
+        ("33-bit side assignments",
+         {"LEFT_SIDE", "RIGHT_SIDE", "MID_SIDE"} - s33assign),
+        ("32-bit frame size codes", {0, 7} - code32),
+        ("side channels beyond 32 bits",
+         {"LEFT_SIDE", "RIGHT_SIDE", "MID_SIDE"} - big_modes),
+        ("stream widths", {16, 24, 29, 30, 31, 32} - widths),
         ("window leftovers (order, outputs % order)",
          {(o, r) for o in (2, 3, 4) for r in range(o)} - winrest),
     ]
@@ -156,16 +211,20 @@ def main():
     for what, n in (("16-bit wide-LPC subframes", wide16),
                     ("wasted-bits subframes", wasted),
                     ("escaped partitions", escapes),
+                    ("33-bit side subframes with wasted bits", s33wasted),
+                    ("LPC side subframes beyond 32 bits", big_lpc),
                     ("32-bit by the bound only", bound_only)):
         if not n:
             missing.append(what)
     print("coverage: %d streams, %d subframes; wide orders %d/32, 32-bit "
           "orders %d/12, 16-bit wide %d, wasted %d, escapes %d, 32-bit by "
           "the bound only %d, bound edges %d/4, window leftovers %d/9, order-3 "
-          "window shifts %d/16, %s, %s"
+          "window shifts %d/16, 33-bit side %s (+%d wasted, %d LPC beyond "
+          "32 bits), %s, %s"
           % (len(sys.argv) - 1, subframes, len(wide & set(range(1, 33))),
              len(narrow & set(range(1, 13))), wide16, wasted, escapes,
              bound_only, len(edges), len(winrest), len(w3q),
+             "/".join(sorted(s33)) or "none", s33wasted, big_lpc,
              "/".join(sorted(kinds)), "/".join(sorted(assigns))))
     if not subframes or missing:
         print("FAIL coverage: missing " + ("; ".join(missing) or "everything"))

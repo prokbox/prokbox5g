@@ -36,13 +36,48 @@
 /* These defines must match the initial bytes in the binary lang file */
 /* See tools/genlang (TODO: Use common include for both) */
 #define LANGUAGE_COOKIE   0x1a
-#define LANGUAGE_VERSION  0x06
 
 #define LANGUAGE_FLAG_RTL         0x01
 #define LANGUAGE_FLAG_UNITS_FIRST 0x02
 
-#define HEADER_SIZE 4
 #define SUBHEADER_SIZE 6
+
+#ifdef HAVE_IPOD_UI
+/* ProkBox (0.9.0): a shell build's .lng header carries, after the 4 bytes
+   above, the hash of the string table it was numbered against
+   (tools/genlang), and lang.h this build's. A .lng built from another
+   english.lang (a copy left over from an older build) would load with
+   every string shifted; it is refused like a bad header, logged, and the
+   strings in use stay. Old (version 6) files fail the version check. */
+#ifndef LANG_IDTABLE_HASH
+/* genlang ran without the ipodui feature: fail the compile (not an #error,
+   which the dependency pass, run before lang.h exists, would print) */
+#define LANG_IDTABLE_HASH lang_h_lacks_LANG_IDTABLE_HASH
+#endif
+#include "ipodui/uilog.h"
+#define LANGUAGE_VERSION  0x87
+#define HEADER_SIZE 8
+#define LANG_HASH_OF(h) (((unsigned long)(h)[4] << 24) | \
+                         ((unsigned long)(h)[5] << 16) | ((h)[6] << 8) | (h)[7])
+
+/* 0 if this build can load a file with header 'h', else why not (logged) */
+static const char *lang_header_refusal(const unsigned char *h)
+{
+    if (h[0] != LANGUAGE_COOKIE || h[1] != LANGUAGE_VERSION ||
+        h[2] != TARGET_ID)
+        return "not this build's";
+    if (LANG_HASH_OF(h) != LANG_IDTABLE_HASH)
+        return "other table";
+    return NULL;
+}
+#define LANG_HEADER_OK(h) (lang_header_refusal(h) == NULL)
+#else
+#define LANGUAGE_VERSION  0x06
+#define HEADER_SIZE 4
+#define LANG_HEADER_OK(h) ((h)[0] == LANGUAGE_COOKIE && \
+                           (h)[1] == LANGUAGE_VERSION && \
+                           (h)[2] == TARGET_ID)
+#endif
 
 #ifdef IPODUI_TRIM_MISC
 /* Phase 9 (brief 3.3.2, R4): no static sized to the largest language. The
@@ -75,7 +110,11 @@ int lang_load(const char *filename, const unsigned char *builtin,
     int lang_size;
     int fd = open(filename, O_RDONLY);
     int retcode=0;
+#ifdef HAVE_IPOD_UI
+    unsigned char lang_header[HEADER_SIZE] = { 0 }; /* a short file: logged */
+#else
     unsigned char lang_header[HEADER_SIZE];
+#endif
     unsigned char sub_header[SUBHEADER_SIZE];
     unsigned int id, foffset;
 
@@ -83,9 +122,7 @@ int lang_load(const char *filename, const unsigned char *builtin,
         return 1;
 
     if(read(fd, lang_header, HEADER_SIZE) == HEADER_SIZE &&
-       ((lang_header[0] == LANGUAGE_COOKIE) &&
-       (lang_header[1] == LANGUAGE_VERSION) &&
-       (lang_header[2] == TARGET_ID))) {
+       LANG_HEADER_OK(lang_header)) {
         /* jump to the proper entry in the table of subheaders */
         lseek(fd, user_num * SUBHEADER_SIZE, SEEK_CUR);
         if (read(fd, sub_header, SUBHEADER_SIZE) != SUBHEADER_SIZE)
@@ -130,6 +167,10 @@ int lang_load(const char *filename, const unsigned char *builtin,
     }
     else {
         DEBUGF("Illegal language file\n");
+#ifdef HAVE_IPOD_UI
+        ui_log("lang", "refused (%s) %s",
+               lang_header_refusal(lang_header) ?: "short file", filename);
+#endif
         retcode = 3;
     }
     close(fd);
@@ -137,26 +178,36 @@ int lang_load(const char *filename, const unsigned char *builtin,
     return retcode;
 }
 
-#ifdef IPODUI_TRIM_MISC
-/* lang_size of the core language (subheader 0), or < 0 */
-static int lang_core_size(const char *filename)
+#if defined(IPODUI_TRIM_MISC) || defined(HAVE_IPOD_UI)
+/* lang_size of the core language (subheader 0), or < 0 (ProkBox P20: the
+   Language screen sizes its block with it, lang_core_file_size). 'log':
+   say why a file is refused (a load does; a size query doesn't) */
+static int lang_core_size(const char *filename, bool log)
 {
-    unsigned char hdr[HEADER_SIZE + SUBHEADER_SIZE];
+    unsigned char hdr[HEADER_SIZE + SUBHEADER_SIZE] = { 0 };
     int size = -1;
     int fd = open(filename, O_RDONLY);
     if (fd < 0)
         return -1;
     if (read(fd, hdr, sizeof hdr) == (ssize_t)sizeof hdr &&
-        hdr[0] == LANGUAGE_COOKIE && hdr[1] == LANGUAGE_VERSION &&
-        hdr[2] == TARGET_ID)
+        LANG_HEADER_OK(hdr))
         size = (hdr[HEADER_SIZE + 2] << 8) | hdr[HEADER_SIZE + 3];
+#ifdef HAVE_IPOD_UI
+    else if (log)
+        ui_log("lang", "refused (%s) %s",
+               lang_header_refusal(hdr) ?: "short file", filename);
+#else
+    (void)log;
+#endif
     close(fd);
     return size;
 }
+#endif
 
+#ifdef IPODUI_TRIM_MISC
 int lang_core_load(const char *filename)
 {
-    int size = lang_core_size(filename);
+    int size = lang_core_size(filename, true);
     bool fresh = false;
     int ret;
 
@@ -190,12 +241,82 @@ int lang_core_load(const char *filename)
     }
     return ret;
 }
+
+#ifdef HAVE_IPOD_UI
+/* ProkBox (P20, Settings > Language): switch languages while running.
+   A file that fits the current block loads in place. A larger one gets a
+   new pinned block of at least 'reserve' bytes (the caller passes the
+   largest language it offers, so one session needs at most one more); the
+   old block is kept, never freed, because a screen may still hold a str()
+   pointer into it (it goes at the next boot). Returns lang_load()'s
+   codes; on any failure the strings in use stay as they were. */
+int lang_core_switch(const char *filename, int reserve)
+{
+    int size = lang_core_size(filename, true);
+    int old = lang_handle, old_size = lang_alloc_size;
+    int ret;
+
+    if (size <= 0)
+        return 3;
+    if (size > lang_alloc_size && lang_handle > 0) {
+        int h = core_alloc(MAX(size, reserve));
+        if (h <= 0) {
+            DEBUGF("p20 lang alloc %d failed\n", MAX(size, reserve));
+            return 2;
+        }
+        core_pin(h);
+        lang_handle = h;
+        lang_alloc_size = MAX(size, reserve);
+    } else if (lang_handle <= 0 && reserve > size) {
+        lang_handle = core_alloc(reserve);
+        if (lang_handle <= 0) {
+            lang_handle = 0;
+            return 2;
+        }
+        core_pin(lang_handle);
+        lang_alloc_size = reserve;
+    }
+    ret = lang_core_load(filename);
+    if (ret && lang_handle != old) {
+        /* the file was refused: back to the old block, untouched */
+        core_free(lang_handle);
+        lang_handle = old;
+        lang_alloc_size = old_size;
+    }
+    return ret;
+}
+#endif
 #else
 int lang_core_load(const char *filename)
 {
     return lang_load(filename, core_language_builtin, language_strings,
                      language_buffer, 0, MAX_LANGUAGE_SIZE,
                      LANG_LAST_INDEX_IN_ARRAY);
+}
+#ifdef HAVE_IPOD_UI
+int lang_core_switch(const char *filename, int reserve)
+{
+    (void)reserve;      /* the static holds the largest language */
+    return lang_core_load(filename);
+}
+#endif
+#endif
+
+#ifdef HAVE_IPOD_UI
+/* ProkBox (P20): back to the built-in English while running; a loaded
+   block stays allocated (see lang_core_switch) */
+void lang_core_builtin(void)
+{
+    lang_init(core_language_builtin, language_strings,
+              LANG_LAST_INDEX_IN_ARRAY);
+    lang_options = 0;
+}
+
+/* the core strings' size in a .lng (subheader 0), or < 0: what
+   lang_core_switch() would allocate for it */
+int lang_core_file_size(const char *filename)
+{
+    return lang_core_size(filename, false);
 }
 #endif
 

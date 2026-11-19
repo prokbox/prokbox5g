@@ -1,0 +1,86 @@
+# #352 (owner, 2026-11-13): EQ presets come from a table per output-rate
+# family; 0.9.0 ships only the base one (<= 48 kHz). With High Sample Rate
+# On and Bass Booster selected, fixtures/rate96k.flac plays at 96 kHz: no
+# hi table, so the preset is bypassed (the codec's EQ off: every band at
+# its flat register default, no precut, no make-up) and the Settings EQ
+# caption says the presets pause. A 44.1 kHz track then brings the preset
+# back (the base table: precut 6 dB, the codec's EQ on).
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-eqtable-bypass.script
+# Needs IPODUI_AUDIOPHILE (ipodvideo.h, 0.9.0 package A): pended until then.
+# needs: library
+# golden: skip
+# reset: mainmenu
+# timeout: 180
+# log: eq table family=hi missing
+# nolog: eq table family=hi loaded
+# nolog: eq table family=hi refused
+# nolog: high rate fault
+# log: eq preset=2 enabled=0 precut=0
+# logafter: p2 eq preset=0 enabled=0 precut=0
+# log: audiophile test mask=0x83 on=1
+# logbetween: p0 p1 output 96000 Hz
+# logbetween: p0 p1 eq rate family=hi preset=2
+# logbetween: p0 p1 eq table family=hi missing: preset bypassed
+# logbetween: p0 p1 eq dac family=hi hw=0 precut=0 makeup=0
+# logbetween: p1 p2 eq rate family=base preset=2
+# logbetween: p1 p2 eq dac family=base hw=1 precut=6 makeup=45
+# logbetween: p1 p2 no eq table family=hi missing: preset bypassed
+
+wait 4000
+copy fixtures/rate96k.flac /Music/rate96k.flac
+wait 500
+
+wheel +3 300            # Settings
+wait 400
+key SELECT 50
+wait 1200
+wheel +11 300           # Audiophile
+wait 1000
+key SELECT 50
+wait 1200
+key SELECT 50           # High Sample Rate: the warning
+wait 1000
+wheel -1 300            # Continue
+wait 300
+key SELECT 50
+wait 3800
+key SELECT 50           # the result: OK, On
+wait 1500
+key MENU 50             # Settings, Audiophile highlighted
+wait 1500
+wheel -2 300            # EQ
+wait 1000
+key SELECT 50
+wait 1200
+wheel -30 100           # the top (Off), whatever was set
+wait 800
+wheel +2 300            # Bass Booster
+wait 800
+key SELECT 50           # applied, back in Settings
+wait 1500
+shot caption_preset     # "Bass Booster"
+
+ab_mark p0
+play_files /Music/rate96k.flac
+wait 2500
+expect_playing 1000
+ab_mark p1
+shot caption_paused     # "Presets are paused for 88.2 kHz and up"
+audio_stop              # stop first: a straight 96 -> 44.1 kHz switch can trip #270s 50 ms stall check in the sim (reported)
+wait 800
+play_files /Music/Tone%20Collective/Sine%20Studies/01%20Concert%20A.mp3
+wait 2500
+expect_playing 1000
+ab_mark p2
+shot caption_back       # "Bass Booster" again
+audio_stop
+wait 800
+
+key SELECT 50           # EQ
+wait 1200
+wheel -30 100           # Off (leave the disk as found)
+wait 800
+key SELECT 50
+wait 1500
+rm_file /Music/rate96k.flac
+quit

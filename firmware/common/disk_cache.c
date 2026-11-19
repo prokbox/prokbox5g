@@ -26,6 +26,9 @@
 #include "fs_defines.h"
 #include "bitarray.h"
 #include "xcore.h"        /* ProkBox p19-copfileio: the CPU-only check */
+#if defined(HAVE_IPOD_UI_DEVMODE) && !defined(BOOTLOADER)
+#include "panic.h"        /* ProkBox int4-dcache: dc_dirty_buf()'s check */
+#endif
 
 /* Cache: LRU cache with separately-chained hashtable
  *
@@ -105,12 +108,65 @@ struct mutex disk_cache_mutex SHAREDBSS_ATTR;
 #define DCE_NEXT(fce)  ((struct disk_cache_entry *)(fce)->node.next)
 #define NODE_DCE(node) ((struct disk_cache_entry *)(node))
 
-/* get the cache index from a pointer to a buffer */
+/* get the cache index from a pointer anywhere inside a buffer.
+ * ProkBox (#355): from the byte offset.  The upstream form subtracted
+ * pointers to DC_CACHE_BUFSIZE-byte arrays, which C defines only for a
+ * pointer to a buffer's start; GCC took the byte distance to be a whole
+ * number of buffers and folded the callers' range check into "offset <=
+ * (DC_NUM_ENTRIES - 1) * DC_CACHE_BUFSIZE", so a directory entry inside
+ * the last buffer was never marked dirty and its change was lost.
+ * Unsigned: a pointer below the cache also fails the range check. */
 #define DCIDX_FROM_BUF(buf) \
-    ((uint8_t (*)[DC_CACHE_BUFSIZE])(buf) - cache_buffer)
+    ((unsigned int)(((uintptr_t)(buf) - (uintptr_t)cache_buffer) \
+                    / DC_CACHE_BUFSIZE))
+
+#if defined(HAVE_IPOD_UI_DEVMODE) && !defined(BOOTLOADER)
+#include "panic.h"
+/* developer builds: a buffer that is not the cache's, or a slot in the
+ * wrong state, is a caller's bug; the panic record names the caller */
+static void NORETURN_ATTR dc_bad_buf(const char *what, const void *buf,
+                                     void *lr)
+{
+    panicf("dc %s buf=%08lx lr=%08lx", what, (unsigned long)buf,
+           (unsigned long)lr);
+}
+#define DC_CHECK_BUF(ok, what, buf) \
+    do { if (!(ok)) dc_bad_buf((what), (buf), \
+                               __builtin_return_address(0)); } while (0)
+#else
+#define DC_CHECK_BUF(ok, what, buf) do { } while (0)
+#endif
 
 #define DCIDX_FROM_DCE(dce) \
     ((dce) - cache_entry)
+
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+/* ProkBox (int4-dcache, #355): references the cache's own invariants rule
+ * out, counted.  A map bit naming an entry that is not a cached sector
+ * (free, or handed out by dc_get_buffer()) is a lost bitmap clear, the
+ * shape a stale cache-line write-back leaves (pp5022-reference quirks.md
+ * #88); a dirty mark for a buffer outside the cache, or for an entry not
+ * in use, is a client writing through a pointer it no longer owns.  The
+ * probe and the peek pass such an entry by; developer builds also panic
+ * in dc_dirty_buf() */
+volatile unsigned int dc_bad_refs;
+
+/* the entry caches this sector: in use as a cached sector, not handed out
+ * as a general buffer */
+static inline bool dce_holds(const struct disk_cache_entry *dce,
+                             sector_t sector)
+{
+    if (dce->sector != sector)
+        return false;
+    if ((dce->flags & (DCE_INUSE | DCE_BUF)) != DCE_INUSE)
+    {
+        dc_bad_refs++;
+        DEBUGF("dc: map bit for a free entry\n");
+        return false;
+    }
+    return true;
+}
+#endif /* HAVE_IPOD_UI && !BOOTLOADER */
 
 /* set the in-use bit in the map */
 static inline void cache_bitmap_set_bit(int volume, unsigned int mapnum,
@@ -214,7 +270,11 @@ void * dc_cache_probe(IF_MV(int volume,) sector_t sector,
     {
         struct disk_cache_entry *dce = &cache_entry[index];
 
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+        if (dce_holds(dce, sector))
+#else
         if (dce->sector == sector)
+#endif
         {
             *flagsp = DCE_INUSE;
             touch_cache_entry(dce);
@@ -274,7 +334,7 @@ void * dc_peek(IF_MV(int volume,) sector_t sector)
     {
         struct disk_cache_entry *dce = &cache_entry[index];
 
-        if (dce->sector == sector && (dce->flags & DCE_INUSE))
+        if (dce_holds(dce, sector))
             return cache_buffer[index];
     }
 
@@ -285,13 +345,37 @@ void * dc_peek(IF_MV(int volume,) sector_t sector)
 /* mark in-use cache entry as dirty by buffer */
 void dc_dirty_buf(void *buf)
 {
+#if defined(HAVE_IPOD_UI) && !defined(BOOTLOADER)
+    /* ProkBox (int4-dcache): the index from the byte offset (the array
+     * pointer difference above is undefined for a pointer that is not on
+     * an entry's start).  A pointer inside an entry is fine: fat.c marks
+     * a directory entry's or FSInfo's sector dirty through a pointer into
+     * it.  An entry not in use was freed or handed out under the caller */
+    uintptr_t off = (uintptr_t)buf - (uintptr_t)cache_buffer;
+    unsigned int index = off / DC_CACHE_BUFSIZE;
+
+    if (off >= sizeof (cache_buffer) ||
+        !(cache_entry[index].flags & DCE_INUSE))
+    {
+        dc_bad_refs++;
+#ifdef HAVE_IPOD_UI_DEVMODE
+        panicf("dc_dirty_buf: bad buffer %p from %p", buf,
+               __builtin_return_address(0));
+#endif
+        DEBUGF("dc_dirty_buf: bad buffer %p\n", buf);
+        return;
+    }
+#else
     unsigned int index = DCIDX_FROM_BUF(buf);
 
+    DC_CHECK_BUF(index < DC_NUM_ENTRIES, "dirty", buf);
     if (index >= DC_NUM_ENTRIES)
         return;
+#endif
 
     /* dirt remains, sticky until flushed */
     struct disk_cache_entry *fce = &cache_entry[index];
+    DC_CHECK_BUF(fce->flags & DCE_INUSE, "dirty !inuse", buf);
     if (fce->flags & DCE_INUSE)
         fce->flags |= DCE_DIRTY;
 }
@@ -301,10 +385,12 @@ void dc_discard_buf(void *buf)
 {
     unsigned int index = DCIDX_FROM_BUF(buf);
 
+    DC_CHECK_BUF(index < DC_NUM_ENTRIES, "discard", buf);
     if (index >= DC_NUM_ENTRIES)
         return;
 
     struct disk_cache_entry *dce = &cache_entry[index];
+    DC_CHECK_BUF(dce->flags & DCE_INUSE, "discard !inuse", buf);
     if (dce->flags & DCE_INUSE)
         cache_discard_entry(dce, index);
 }
@@ -383,12 +469,14 @@ void dc_release_buffer(void *buf)
 {
     unsigned int index = DCIDX_FROM_BUF(buf);
 
+    DC_CHECK_BUF(index < DC_NUM_ENTRIES, "release", buf);
     if (index >= DC_NUM_ENTRIES)
         return;
 
     dc_lock_cache();
 
     struct disk_cache_entry *dce = &cache_entry[index];
+    DC_CHECK_BUF(dce->flags & DCE_BUF, "release !buf", buf);
 
     if (dce->flags & DCE_BUF)
     {

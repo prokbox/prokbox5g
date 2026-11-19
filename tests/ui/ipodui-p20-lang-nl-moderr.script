@@ -1,0 +1,32 @@
+# P20 (0.9.0, p090-locale): the module error page in Dutch. Its heading,
+# "Dit scherm kan niet worden geopend" (285 px), ran 1 px off the
+# screen, uncut and untraced; it wraps to a second line now and the body
+# moves down under it. The language tour can't reach this page: only a
+# modules build has a loader to fail (ipodui-p16-moderr).
+#   SIM_BUILD=build/sim-ui-mod scripts/shots.sh tests/ui/ipodui-p20-lang-nl-moderr.script
+# needs: modules
+# needs: library
+# golden: skip
+# env: IPODUI_SIM_NOTICE=clear
+# nolog: ipodui: fit cut
+
+wait 4000
+lang_set nederlands
+reboot
+wait 6000            # the notice in Dutch
+key SELECT
+wait 1500
+mod_delay -1
+wheel +2             # Extras (the notice loaded the Settings module:
+wait 400             # Alarms' module is the one not yet in)
+key SELECT
+wait 1000
+wheel +3             # Alarms
+wait 600
+key SELECT
+wait 1500
+shot error
+key MENU
+wait 1200
+lang_set -
+quit

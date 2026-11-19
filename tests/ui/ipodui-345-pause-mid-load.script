@@ -3,8 +3,10 @@
 # release builds) -> audio_pause(), a synchronous queue send: the ui
 # thread waited until the audio thread finished its load (2.3-5.9 s on
 # the emulator). Now the press is posted (audio_pause_post()) and the
-# header draws the wish at once (fe_audio_status()); the pause itself is
-# taken when the audio thread reaches it.
+# header draws the wish at once (fe_audio_status()); the audio thread
+# takes its state when it reaches it (since #362 the PCM is held at the
+# press: ipodui-362-pause-during-fill), so expect_audio waits for that
+# before expect_paused reads it.
 # load_hold makes every track load wait 4 s first, so a load is under way
 # whenever PLAY is pressed. Checked: the icon within 150 ms of the
 # release, the PCM really paused after the load, a quick resume-then-pause
@@ -25,7 +27,8 @@ wait_pos 300 30000  # playing; the next track's load is under way
 expect_shown playing 2000
 key PLAY            # pause, mid-load
 expect_shown paused 150
-expect_pcm paused 10000     # taken once the load is done
+expect_pcm paused 10000     # held at the press (#362)
+expect_audio paused 10000   # the thread's state, once the load is done
 expect_paused 1000
 wait 300
 key PLAY            # resume, then pause again at once (a load under way)
@@ -33,6 +36,7 @@ expect_shown playing 150
 key PLAY
 expect_shown paused 150
 expect_pcm paused 10000
+expect_audio paused 10000
 expect_paused 1000
 wait 500
 expect_pcm paused 100       # stays paused: the resume did not win late

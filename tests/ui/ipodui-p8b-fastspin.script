@@ -13,13 +13,13 @@ wheel +3 40
 wait 600
 key SELECT
 wait 1500
-wheel +16 40         # fast spin to Reset Settings (row 17)
+wheel +17 40         # fast spin to Reset Settings (row 17)
 wait 900
 shot settings_spin   # Reset Settings' tile, not a stale row's
-wheel -16 40         # fast back to About
+wheel -17 40         # fast back to About
 wait 900
 shot settings_back   # the capacity panel
-wheel +12 40         # Date & Time
+wheel +13 40         # Date & Time
 wait 900
 shot date_time       # the calendar page
 key SELECT

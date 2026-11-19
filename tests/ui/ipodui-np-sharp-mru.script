@@ -42,16 +42,25 @@ backlight_expire    # dark on the charger: renders may run
 play_files /NPSharp/art_big.mp3
 wait 2500
 disk_active 4000
+backlight_expire        # the idle edge wakes the builder (the play lit the
+                        # screen; at real time the 2 s 'played' queue can
+                        # land before the disk is busy, with no other wake)
 wait 3000
 ab_mark m1
 play_files /NPSharp/art_23.mp3
 wait 2500
 disk_active 4000
+backlight_expire        # the idle edge wakes the builder (the play lit the
+                        # screen; at real time the 2 s 'played' queue can
+                        # land before the disk is busy, with no other wake)
 wait 3000
 ab_mark m2
 play_files /NPSharp/art_small.mp3
 wait 2500
 disk_active 4000
+backlight_expire        # the idle edge wakes the builder (the play lit the
+                        # screen; at real time the 2 s 'played' queue can
+                        # land before the disk is busy, with no other wake)
 wait 3000
 ab_mark m3
 charger off         # on battery, lit: nothing renders

@@ -1,0 +1,38 @@
+# #318: 32-bit FLAC plays. Until 0.9.0 the codec refused it at open (#285:
+# logged "flac 32-bit not supported", skipped as unplayable); now it decodes
+# at 32 bits and reduces to the DSP chain's depth with TPDF dither. The
+# album "Wide" (three 3 s songs of a quiet tone, verbatim 32-bit frames,
+# tests/fixtures/unplayable/make_unplayable.py) plays from its first song:
+# the codec opens it as a 32-bit stream for the 24-bit chain (its "codec
+# trk" line), the PCM runs, and nothing is refused or skipped.
+#   SIM_BUILD=build/sim-ui scripts/shots.sh tests/ui/ipodui-flac32-plays.script
+# disk: bare
+# needs: unplayable
+# disk-file: build/unplayable-fixtures/wide1.flac Music/wide1.flac
+# disk-file: build/unplayable-fixtures/wide2.flac Music/wide2.flac
+# disk-file: build/unplayable-fixtures/wide3.flac Music/wide3.flac
+# log: codec trk FLAC 32/44100>24/44100
+# nolog: not supported
+# nolog: too slow
+# nolog: audio unplayable
+# golden: skip albums album playing
+# timeout: 90
+
+wait 1000
+wait_db 30000
+key SELECT          # Music
+wait 800
+wheel +2            # Albums
+wait 300
+key SELECT
+wait 800
+shot albums         # "Wide" is listed like any album
+key SELECT          # "Wide"
+wait 800
+shot album          # its three songs
+key SELECT          # its first song: the album plays from it
+expect_pcm playing 10000
+wait 2000
+expect_pcm playing 2000
+shot playing        # Now Playing, still playing
+quit

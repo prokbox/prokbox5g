@@ -20,8 +20,9 @@ Choose **Settings** on the main menu. Turn the wheel to pick a row; the right si
 | **Backlight** | How long the screen stays lit: Off, 2, 5, 10, 20 or 30 seconds, or Always On. |
 | **Brightness** | Turn the wheel to make the screen brighter or dimmer. |
 | **Audiobooks** | Playback speed: Slower, Normal or Faster. |
-| **EQ** | Choose a sound preset. |
+| **EQ** | Choose a sound preset, or one of your own: **Custom 1** to **Custom 3**. To shape your own, open **Extras › Custom EQ**. While music plays at 88.2 kHz or higher, the presets pause. |
 | **Sound Check** | Evens out loudness between songs. |
+| **Audiophile** | **Hi-Res** plays 88.2 and 96 kHz music at its own rate, after asking first and testing your player; **Hi-Res 128x** goes one step further at those rates, after its own test; **Stereo Width** makes the sound wider. Hi-Res and Hi-Res 128x are off until you turn them on. |
 | **Clicker** | The small tick you feel and hear as you scroll. On or Off. |
 | **Date & Time** | Set the clock. |
 | **Sort By** | How lists such as artists and albums are ordered. |

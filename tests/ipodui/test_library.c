@@ -1753,6 +1753,38 @@ static void test_book_pin(void)
     fake_pin_gen = 0;
 }
 
+/* 0.9.0 (#235): lists sort by the sort value stored behind the display
+ * name ("display|sort" in a fixture: fake_tagcache.c stores it as tagcache
+ * does). Kanji code-point order (中 < 安 < 椎) disagrees with the readings
+ * (し < な), so a list keyed on the display names fails. */
+static void test_sort_values(void)
+{
+    static struct fake_entry e[] = {
+        E("Song A", "中島みゆき|なかじまみゆき", "Album N|あるばむ", NULL, "Pop", NULL, 1, 1, 1000),
+        E("Song B", "椎名林檎|しいなりんご", "Album S|ん", NULL, "Pop", NULL, 1, 1, 1000),
+        E("Song C", "Zebra", "Album Z", NULL, "Pop", NULL, 1, 1, 1000),
+        E("Song D", "安室奈美恵", "Album A", NULL, "Pop", NULL, 1, 1, 1000),
+        E("Song E", "The Beatles|Beatles, The", "Abbey Road|Zzz", NULL, "Rock", NULL, 1, 1, 1000),
+    };
+    static const char *const artists[] = {
+        "The Beatles", "Zebra", "椎名林檎", "中島みゆき", "安室奈美恵",
+    };
+    static const char *const albums[] = {
+        "Album A", "Album Z", "Abbey Road", "Album N", "Album S",
+    };
+    int v;
+
+    fake_db_load(e, (int)(sizeof(e) / sizeof(e[0])));
+    v = lib_open(LIB_ARTISTS, &any);
+    expect_list(v, "sort-value artists", artists, 5);
+    CHECK(lib_letter(v, 0) == 'B', "letter of The Beatles: %c, want B",
+          lib_letter(v, 0));
+    lib_close(v);
+    v = lib_open(LIB_ALBUMS, &any);
+    expect_list(v, "sort-value albums", albums, 5);
+    lib_close(v);
+}
+
 int main(int argc, char **argv)
 {
     if (argc > 1)
@@ -1775,6 +1807,11 @@ int main(int argc, char **argv)
     test_panels();
     test_book_order();
     test_book_pin();
+    test_sort_values();
+    {
+        extern int fake_glyph_adds;     /* 0.9.0 (#235): pre_glyphs() ran */
+        CHECK(fake_glyph_adds > 0, "no glyph rows written at a precompute");
+    }
     CHECK(fake_boost == 0, "cpu_boost unbalanced: %d", fake_boost);
     /* a stopped precompute reserves its block (kept for good, as at
      * shell start): free it, then only the pool (one block) may stay */

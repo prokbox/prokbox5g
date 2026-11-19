@@ -22,7 +22,8 @@
  * the shell's first main-loop pass (before anything can play) and never
  * freed, at the fixed offsets of np_layout.h; this screen's own state is
  * in the block's spare bytes after NP_BLK_END. The strip, claimed only
- * as UI_STRIP_OWNER_NP, holds the title's marquee image, the two row
+ * as UI_STRIP_OWNER_NP, holds the moving line's marquee image (the
+ * title, artist or album, one at a time: #180), the two row
  * captures of a mode slide and the lyrics. Nothing is allocated after
  * shell start; statics are a handle and two flags.
  *
@@ -120,6 +121,7 @@ NP_STATIC_ASSERT(sizeof(fb_data) == sizeof(np_px));
 #define STARS_BAND_H    12
 #define COUNT_CAP_TOP   146
 #define LINE_BAND_H     18              /* a Bold 12 line incl. descenders */
+#define ARTIST_BAND_Y   (ARTIST_CAP_TOP - 4)    /* y 87-104 */
 #define ALBUM_BAND_Y    (ALBUM_CAP_TOP - 4)     /* y 105-122 */
 #define COUNT_BAND_Y    (COUNT_CAP_TOP - 4)     /* y 142-159 */
 #define INFO_Y          BODY_Y
@@ -248,8 +250,12 @@ struct np_scr {
     artcache_key_t art_want;
     bool art_pending;           /* PENDING: re-read on a commit */
     int  art_commit;
-    /* title marquee */
+    /* the marquee (#180): one of the title, artist and album lines
+     * at a time, title -> artist -> album, a lap each, skipping lines
+     * that fit; the others rest (the title clipped or with "...") */
     int  title_w;
+    int  artist_w, album_w;
+    uint8_t mq_line;            /* enum mq_line_id: the one that moves */
     int  mq_x;
     long mq_next;
     bool mq_ok;                 /* strip image matches the title */
@@ -789,6 +795,8 @@ static void layout_track(struct np_mem *m)
                                        sc->bar_w, m->ticks);
 }
 
+static void mq_album_changed(struct np_mem *m);
+
 /* Chapter now, title refresh at a change. Returns true if it changed. */
 static bool chapter_update(struct np_mem *m, unsigned long pos)
 {
@@ -803,6 +811,7 @@ static bool chapter_update(struct np_mem *m, unsigned long pos)
     sc->chapter = ch;
     if (!np_pb_chapter_title(m->t->seq, ch, m->t->album, NP_TXT))
         logf("np: no chapter title %d", ch);
+    mq_album_changed(m);
     return true;
 }
 
@@ -1033,24 +1042,117 @@ static void draw_art(struct np_mem *m)
 
 /* ---- the info block ----------------------------------------------------- */
 
+/* ---- the marquee lines (#180) ------------------------------------------
+ * The title, artist and album lines take turns: the one at sc->mq_line
+ * moves (F2, the BCM's PAN), one lap, then the next line that does not
+ * fit takes over after the rest pause. The 2.0.5 photos (eight stills of
+ * one long title) only ever caught the title moving, with the artist and
+ * album ending in "..."; the turn-taking is ours (changes-from-7g.md 2.56). */
+enum mq_line_id { MQL_TITLE, MQL_ARTIST, MQL_ALBUM, MQL_N };
+
+struct mq_spec
+{
+    const char *text;
+    const char *band;           /* its push's name */
+    int font;
+    unsigned fg;
+    int band_y, cap_top, cap;
+    int w;                      /* the text's width */
+    bool over;                  /* too wide: it may move */
+};
+
+static void mq_spec_of(struct np_mem *m, int line, struct mq_spec *s)
+{
+    struct np_scr *sc = m->sc;
+
+    if (line == MQL_ARTIST || line == MQL_ALBUM)
+    {
+        bool ar = line == MQL_ARTIST;
+        s->text = ar ? m->t->artist : m->t->album;
+        s->band = ar ? "np:artist" : "np:album";
+        s->font = font_bold12();
+        s->fg = C_DIM;
+        s->band_y = ar ? ARTIST_BAND_Y : ALBUM_BAND_Y;
+        s->cap_top = ar ? ARTIST_CAP_TOP : ALBUM_CAP_TOP;
+        s->cap = CAP_SMALL;
+        s->w = ar ? sc->artist_w : sc->album_w;
+        s->over = s->w > TXT_W;     /* put_fit()'s cut */
+        return;
+    }
+    s->text = m->t->title;
+    s->band = "np:title";
+    s->font = ui_theme->font_ui;
+    s->fg = C_TITLE;
+    s->band_y = TITLE_BAND_Y;
+    s->cap_top = TITLE_CAP_TOP;
+    s->cap = CAP_UI;
+    s->w = sc->title_w;
+    s->over = s->w > MQ_WIN;
+}
+
+static bool mq_over(struct np_mem *m, int line)
+{
+    struct mq_spec s;
+
+    mq_spec_of(m, line, &s);
+    return s.over;
+}
+
+/* The next line that does not fit after 'from' (from itself last, or
+ * first with 'incl'); 'from' if none does */
+static int mq_pick(struct np_mem *m, int from, bool incl)
+{
+    int i;
+
+    for (i = incl ? 0 : 1; i <= MQL_N; i++)
+        if (mq_over(m, (from + i) % MQL_N))
+            return (from + i) % MQL_N;
+    return from;
+}
+
+static int text_w(const char *text, int font)
+{
+    int w = 0;
+
+    font_getstringsize((const unsigned char *)text, &w, NULL, font);
+    return w;
+}
+
+/* One line into the framebuffer, its band cleared: the moving line at
+ * sc->mq_x through the window, the others at rest (a line that does not
+ * fit ends in "...") */
+static void draw_line_plain(struct np_mem *m, int line)
+{
+    struct np_canvas cv = lcd_canvas();
+    struct viewport vp;
+    struct mq_spec s;
+    bool moving;
+    int y;
+
+    mq_spec_of(m, line, &s);
+    moving = s.over && line == m->sc->mq_line;
+    np_fill(&cv, TXT_X, s.band_y, TXT_W, LINE_BAND_H, C_BG);
+    text_vp(&vp, s.font, s.fg, TXT_X, s.band_y, moving ? MQ_WIN : TXT_W,
+            LINE_BAND_H);
+    lcd_set_viewport(&vp);
+    y = cell_y(s.font, s.cap_top, s.cap) - s.band_y;
+    if (moving)
+    {
+        lcd_putsxy(-m->sc->mq_x, y, (const unsigned char *)s.text);
+        lcd_putsxy(s.w + MQ_GAP - m->sc->mq_x, y,
+                   (const unsigned char *)s.text);
+    }
+    else
+        put_fit(0, y, TXT_W, s.text, s.font);
+    lcd_set_viewport(NULL);
+}
+
+/* The title band and, if another line moves, its band (NPD_TITLE) */
 static void draw_title_plain(struct np_mem *m)
 {
-    struct viewport vp;
-    int font = ui_theme->font_ui;
-
-    text_vp(&vp, font, C_TITLE, TXT_X, TITLE_BAND_Y,
-            m->sc->title_w > MQ_WIN ? MQ_WIN : TXT_W, TITLE_BAND_H);
-    lcd_set_viewport(&vp);
-    lcd_set_drawmode(DRMODE_SOLID | DRMODE_INVERSEVID);
-    lcd_fillrect(0, 0, vp.width, vp.height);
-    lcd_set_drawmode(DRMODE_FG);
-    lcd_putsxy(-m->sc->mq_x, cell_y(font, TITLE_CAP_TOP, CAP_UI)
-               - TITLE_BAND_Y, (const unsigned char *)m->t->title);
-    if (m->sc->title_w > MQ_WIN)
-        lcd_putsxy(m->sc->title_w + MQ_GAP - m->sc->mq_x,
-                   cell_y(font, TITLE_CAP_TOP, CAP_UI) - TITLE_BAND_Y,
-                   (const unsigned char *)m->t->title);
-    lcd_set_viewport(NULL);
+    draw_line_plain(m, MQL_TITLE);
+    if (m->sc->mq_line != MQL_TITLE)
+        draw_line_plain(m, m->sc->mq_line);
 }
 
 static void draw_stars_small(int stars)
@@ -1109,10 +1211,9 @@ static void draw_chapter_lines(struct np_mem *m, bool clear)
         np_fill(&cv, TXT_X, ALBUM_BAND_Y, TXT_W, LINE_BAND_H, C_BG);
         np_fill(&cv, TXT_X, COUNT_BAND_Y, TXT_W, LINE_BAND_H, C_BG);
     }
+    draw_line_plain(m, MQL_ALBUM);
     text_vp(&vp, font, C_DIM, TXT_X, BODY_Y, TXT_W, INFO_H);
     lcd_set_viewport(&vp);
-    put_fit(0, cell_y(font, ALBUM_CAP_TOP, CAP_SMALL) - BODY_Y, TXT_W,
-            t->album, font);
     if (book_on(m))
     {
         /* the whole book (Rev 2): entry N of the book's M */
@@ -1143,20 +1244,12 @@ static void draw_chapter_lines(struct np_mem *m, bool clear)
 
 static void draw_info(struct np_mem *m)
 {
-    struct np_track *t = m->t;
     struct np_canvas cv = lcd_canvas();
-    struct viewport vp;
-    int font = font_bold12();
 
     np_fill(&cv, TXT_X, BODY_Y, LCD_WIDTH - TXT_X, INFO_H, C_BG);
     draw_state_glyphs(m);
-    draw_title_plain(m);
-
-    text_vp(&vp, font, C_DIM, TXT_X, BODY_Y, TXT_W, INFO_H);
-    lcd_set_viewport(&vp);
-    put_fit(0, cell_y(font, ARTIST_CAP_TOP, CAP_SMALL) - BODY_Y, TXT_W,
-            t->artist, font);
-    lcd_set_viewport(NULL);
+    draw_line_plain(m, MQL_TITLE);
+    draw_line_plain(m, MQL_ARTIST);
     draw_chapter_lines(m, false);
     draw_stars_small(shown_stars(m));
 }
@@ -1954,7 +2047,6 @@ static void draw_body(struct np_mem *m)
 static void marquee_reset(struct np_mem *m)
 {
     struct np_scr *sc = m->sc;
-    int w = 0;
 
 #ifdef HAVE_MQ_JOBS
     if (sc->mq_bcm)
@@ -1964,9 +2056,10 @@ static void marquee_reset(struct np_mem *m)
     }
 #endif
 
-    font_getstringsize((const unsigned char *)m->t->title, &w, NULL,
-                       ui_theme->font_ui);
-    sc->title_w = w;
+    sc->title_w = text_w(m->t->title, ui_theme->font_ui);
+    sc->artist_w = text_w(m->t->artist, font_bold12());
+    sc->album_w = text_w(m->t->album, font_bold12());
+    sc->mq_line = mq_pick(m, MQL_TITLE, true);
     sc->mq_x = 0;
     sc->mq_ok = false;
     sc->mq_next = current_tick + MQ_DELAY;
@@ -1977,15 +2070,17 @@ static void marquee_render(struct np_mem *m, fb_data *strip)
     struct np_scr *sc = m->sc;
     struct frame_buffer_t fb;
     struct viewport vp;
-    int font = ui_theme->font_ui;
-    int w = MIN(sc->title_w, MQ_CAP);
-    int y = cell_y(font, TITLE_CAP_TOP, CAP_UI) - TITLE_BAND_Y;
+    struct mq_spec s;
+    int w, y;
 
+    mq_spec_of(m, sc->mq_line, &s);
+    w = MIN(s.w, MQ_CAP);
+    y = cell_y(s.font, s.cap_top, s.cap) - s.band_y;
     memset(&fb, 0, sizeof(fb));
     fb.fb_ptr = strip + NP_STRIP_MARQUEE_OFF / sizeof(fb_data);
     fb.stride = STRIDE_MAIN(NP_MARQUEE_W, NP_MARQUEE_H);
     fb.elems = LCD_NBELEMS(NP_MARQUEE_W, NP_MARQUEE_H);
-    text_vp(&vp, font, C_TITLE, 0, 0, NP_MARQUEE_W, NP_MARQUEE_H);
+    text_vp(&vp, s.font, s.fg, 0, 0, NP_MARQUEE_W, NP_MARQUEE_H);
     vp.buffer = &fb;
     boost(true);
     lcd_set_viewport(&vp);
@@ -1995,28 +2090,29 @@ static void marquee_render(struct np_mem *m, fb_data *strip)
     /* past the cap the text is cut where the gap starts */
     vp.width = w;
     lcd_set_viewport(&vp);
-    lcd_putsxy(0, y, (const unsigned char *)m->t->title);
+    lcd_putsxy(0, y, (const unsigned char *)s.text);
     vp.x = w + MQ_GAP;
     vp.width = MQ_WIN;
     lcd_set_viewport(&vp);
-    lcd_putsxy(-(vp.x - w - MQ_GAP), y, (const unsigned char *)m->t->title);
+    lcd_putsxy(-(vp.x - w - MQ_GAP), y, (const unsigned char *)s.text);
     lcd_set_viewport(NULL);
     boost(false);
     sc->mq_ok = true;
-    UPDATE_TRACE("np mq render w=%d", w);
+    UPDATE_TRACE("np mq render w=%d line=%d", w, sc->mq_line);
 }
 
 /* The window at sc->mq_x from the strip into the framebuffer (no push) */
 static void marquee_show(struct np_mem *m)
 {
     struct np_scr *sc = m->sc;
+    struct mq_spec s;
     fb_data *strip;
     bool kept;
 
     strip = ui_strip_claim(UI_STRIP_OWNER_NP, &kept);
     if (!strip)
     {
-        draw_title_plain(m);
+        draw_line_plain(m, sc->mq_line);
         return;
     }
     if (!kept)
@@ -2026,11 +2122,39 @@ static void marquee_show(struct np_mem *m)
     }
     if (!sc->mq_ok)
         marquee_render(m, strip);
+    mq_spec_of(m, sc->mq_line, &s);
     lcd_set_viewport(NULL);
     lcd_bitmap_part(strip + NP_STRIP_MARQUEE_OFF / sizeof(fb_data),
                     sc->mq_x, 0, STRIDE_MAIN(NP_MARQUEE_W, NP_MARQUEE_H),
-                    TXT_X, TITLE_BAND_Y, MQ_WIN, NP_MARQUEE_H);
+                    TXT_X, s.band_y, MQ_WIN, NP_MARQUEE_H);
     ui_strip_put();
+}
+
+/* The moving line's band pushed (full width) */
+static void mq_push(struct np_mem *m, int line)
+{
+    struct mq_spec s;
+
+    mq_spec_of(m, line, &s);
+    ui_lcd_push(s.band, 0, s.band_y, LCD_WIDTH, LINE_BAND_H);
+}
+
+/* A lap done: the next line that does not fit moves, after the rest
+ * pause; the one that moved goes back to rest. Both bands pushed. */
+static void mq_rotate(struct np_mem *m, int line, long now)
+{
+    struct np_scr *sc = m->sc;
+    int old = sc->mq_line;
+
+    sc->mq_line = (uint8_t)line;
+    sc->mq_x = 0;
+    sc->mq_ok = false;              /* the strip holds the old line */
+    sc->mq_next = now + MQ_PAUSE;
+    draw_line_plain(m, old);
+    draw_line_plain(m, line);
+    mq_push(m, old);
+    mq_push(m, line);
+    UPDATE_TRACE("np mq line=%d from=%d", line, old);
 }
 
 #ifdef HAVE_MQ_JOBS
@@ -2086,13 +2210,16 @@ static void mq_settle(long phase)
     mem_put();
 }
 
-/* The strip's content key: the title, its width, the font (the colours
- * are fixed: C_TITLE on the body) */
+/* The strip's content key: the moving line's text, its width, the font
+ * and the line (its colour: C_TITLE or C_DIM on the body) */
 static uint64_t mq_key(struct np_mem *m)
 {
-    return (uint64_t)artkey_fnv32(m->t->title) << 32
-           | (uint32_t)(m->sc->title_w & 0xFFFF) << 16
-           | (uint32_t)(ui_theme->font_ui & 0xFF) << 8 | 0x4D;
+    struct mq_spec s;
+
+    mq_spec_of(m, m->sc->mq_line, &s);
+    return (uint64_t)artkey_fnv32(s.text) << 32
+           | (uint32_t)(s.w & 0xFFFF) << 16
+           | (uint32_t)(s.font & 0xFF) << 8 | (0x4D + m->sc->mq_line);
 }
 
 /* At F2's first step (mq_x 0, due): the strip up and the PAN sent with
@@ -2100,6 +2227,7 @@ static uint64_t mq_key(struct np_mem *m)
 static bool mq_bcm_begin(struct np_mem *m, int lap)
 {
     struct np_scr *sc = m->sc;
+    struct mq_spec s;
     const char *why;
     fb_data *strip;
     bool kept, ok;
@@ -2122,11 +2250,12 @@ static bool mq_bcm_begin(struct np_mem *m, int lap)
     }
     if (!sc->mq_ok)
         marquee_render(m, strip);
+    mq_spec_of(m, sc->mq_line, &s);
     /* pinned while claimed: the upload yields */
     ok = mqj_start((const uint16_t *)strip
                    + NP_STRIP_MARQUEE_OFF / sizeof(fb_data),
                    NP_MARQUEE_W, NP_MARQUEE_H, mq_key(m), lap, MQ_WIN,
-                   TXT_X, TITLE_BAND_Y, MQJ_PAUSE_MS, mq_settle);
+                   TXT_X, s.band_y, MQJ_PAUSE_MS, mq_settle);
     ui_strip_put();
     sc->mq_bcm = ok;
     return ok;
@@ -2146,6 +2275,7 @@ static bool mq_bcm_begin(struct np_mem *m, int lap)
 static int mq_parity(struct np_mem *m)
 {
     struct np_scr *sc = m->sc;
+    struct mq_spec s;
     int wait_ms = 0;
     unsigned long d;
     long t0 = current_tick;
@@ -2157,8 +2287,9 @@ static int mq_parity(struct np_mem *m)
                                        model's frame for it may follow in
                                        the same tick; look a tick later */
     marquee_show(m);
-    ui_lcd_push("np:title", 0, TITLE_BAND_Y, LCD_WIDTH, TITLE_BAND_H);
-    d = bcmjob_model_diff(TXT_X, TITLE_BAND_Y, MQ_WIN, NP_MARQUEE_H);
+    mq_push(m, sc->mq_line);
+    mq_spec_of(m, sc->mq_line, &s);
+    d = bcmjob_model_diff(TXT_X, s.band_y, MQ_WIN, NP_MARQUEE_H);
     if (current_tick != t0)
     {
         UPDATE_TRACE("np mq parity skip x=%d ticks=%ld diff=%lu", sc->mq_x,
@@ -2171,13 +2302,44 @@ static int mq_parity(struct np_mem *m)
 #endif
 #endif /* HAVE_MQ_JOBS */
 
+#ifdef HAVE_MQ_JOBS
+/* While the PAN runs and another line waits its turn: past the lap's
+ * end (the phase back in the rest pause) the PAN stops on its rest frame
+ * and the turn passes; else the ticks until then */
+static int mq_bcm_turn(struct np_mem *m, int lap, long now)
+{
+    struct np_scr *sc = m->sc;
+    int next = mq_pick(m, sc->mq_line, false);
+    long u, lap_ms;
+
+    if (next == sc->mq_line)
+        return TIMEOUT_BLOCK;
+    u = mqj_phase();
+    if (u < 0)
+        return TIMEOUT_BLOCK;
+    if (u < MQJ_PAUSE_MS)
+    {
+        mq_bcm_end(m, "turn");
+        mq_rotate(m, next, now);
+        return MAX(sc->mq_next - now, 1);
+    }
+    /* mqj_start()'s lap: the pause and K - 1 steps */
+    lap_ms = MQJ_PAUSE_MS
+             + (long)((lap + MQJ_STEP_PX - 1) / MQJ_STEP_PX - 1) * MQJ_STEP_MS;
+    return (int)(((lap_ms - u) * HZ + 999) / 1000) + 1;
+}
+#endif
+
 /* One step: blit the window. Returns ticks until the next step. */
 static int marquee_step(struct np_mem *m, long now)
 {
     struct np_scr *sc = m->sc;
-    int lap = MIN(sc->title_w, MQ_CAP) + MQ_GAP;
+    struct mq_spec s;
+    int lap, next;
 
-    if (sc->title_w <= MQ_WIN || m->st->mode == NP_LYRICS)
+    mq_spec_of(m, sc->mq_line, &s);
+    lap = MIN(s.w, MQ_CAP) + MQ_GAP;
+    if (!s.over || m->st->mode == NP_LYRICS)
     {
 #ifdef HAVE_MQ_JOBS
         mq_bcm_end(m, "mode");
@@ -2189,17 +2351,24 @@ static int marquee_step(struct np_mem *m, long now)
     {
         if (mqj_running())
         {
+            int turn = mq_bcm_turn(m, lap, now);
+            if (!sc->mq_bcm)
+                return turn;        /* the turn passed: F2's line now */
 #ifdef HAVE_BCM_JOBS_MODEL
             if (bcmjob_drift_mode() == BCMJOB_DRIFT_PARITY)
-                return mq_parity(m);
+            {
+                int par = mq_parity(m);
+                return turn == TIMEOUT_BLOCK ? par : MIN(par, turn);
+            }
 #endif
-            return TIMEOUT_BLOCK;   /* the BCM steps it: no wakeups */
+            return turn;            /* the BCM steps it: no wakeups but
+                                       the turn's */
         }
         /* gone with an epoch (the restart showed the framebuffer, the
-         * title at rest): F2 from the phase, drawn now */
+         * line at rest): F2 from the phase, drawn now */
         mq_bcm_end(m, "epoch");
         marquee_show(m);
-        ui_lcd_push("np:title", 0, TITLE_BAND_Y, LCD_WIDTH, TITLE_BAND_H);
+        mq_push(m, sc->mq_line);
         return MAX(sc->mq_next - now, 1);
     }
 #endif
@@ -2212,7 +2381,7 @@ static int marquee_step(struct np_mem *m, long now)
         if (bcmjob_drift_mode() == BCMJOB_DRIFT_PARITY)
             return mq_parity(m);
 #endif
-        return TIMEOUT_BLOCK;
+        return mq_bcm_turn(m, lap, now);
     }
 #endif
     sc->mq_x += MQ_STEP_PX;
@@ -2220,13 +2389,39 @@ static int marquee_step(struct np_mem *m, long now)
     {
         sc->mq_x = 0;
         sc->mq_next = now + MQ_PAUSE;
+        next = mq_pick(m, sc->mq_line, false);
+        if (next != sc->mq_line)
+        {
+            mq_rotate(m, next, now);
+            return sc->mq_next - now;
+        }
     }
     else
         sc->mq_next = now + MQ_STEP_TICKS;
 
     marquee_show(m);
-    ui_lcd_push("np:title", 0, TITLE_BAND_Y, LCD_WIDTH, TITLE_BAND_H);
+    mq_push(m, sc->mq_line);
     return sc->mq_next - now;
+}
+
+/* The album line's text changed (a book's chapter): if it was the moving
+ * line, the turn starts again from the title, at rest, the full delay
+ * first; if nothing moved, it may now */
+static void mq_album_changed(struct np_mem *m)
+{
+    struct np_scr *sc = m->sc;
+
+    sc->album_w = text_w(m->t->album, font_bold12());
+    if (sc->mq_line != MQL_ALBUM && mq_over(m, sc->mq_line))
+        return;
+#ifdef HAVE_MQ_JOBS
+    mq_bcm_end(m, "album");
+#endif
+    sc->mq_line = mq_pick(m, MQL_TITLE, true);
+    sc->mq_x = 0;
+    sc->mq_ok = false;
+    sc->mq_next = current_tick + MQ_DELAY;
+    sc->dirty |= NPD_TITLE;
 }
 
 /* ---- slides -------------------------------------------------------------- */
@@ -2721,7 +2916,7 @@ static int np_enter(struct ui_screen *s, const void *arg)
         build_atlas(&m);
         m.sc->ready = true;
     }
-    s->title = str(LANG_NOW_PLAYING);
+    s->title = str(LANG_IPODUI_NOW_PLAYING);    /* as the menu row (P20) */
 #ifdef SIMULATOR
     sim_slow_pass = file_exists(ROCKBOX_DIR "/.sim_np_slowpass");
 #endif
@@ -2970,7 +3165,9 @@ static enum ui_result np_input(struct ui_screen *s, const struct ui_input *in)
 static void flush(struct np_mem *m, unsigned drew)
 {
 #ifdef HAVE_MQ_JOBS
-    if (m->sc->mq_bcm && (drew & (NPD_BODY | NPD_INFO | NPD_ART | NPD_TITLE)))
+    if (m->sc->mq_bcm
+        && ((drew & (NPD_BODY | NPD_INFO | NPD_ART | NPD_TITLE))
+            || ((drew & NPD_CHAPTER) && m->sc->mq_line == MQL_ALBUM)))
     {
         /* a band over the title: the PAN stops first (its FENCE: a push
          * and the ring aren't ordered), and the band carries the phase's
@@ -2997,8 +3194,12 @@ static void flush(struct np_mem *m, unsigned drew)
             ui_lcd_push("np:glyphs", 0, GLYPH_BAND_Y, LCD_WIDTH,
                         GLYPH_BAND_H);
         if (drew & NPD_TITLE)
+        {
             ui_lcd_push("np:title", 0, TITLE_BAND_Y, LCD_WIDTH,
                         TITLE_BAND_H);
+            if (m->sc->mq_line != MQL_TITLE)
+                mq_push(m, m->sc->mq_line);
+        }
         if (drew & NPD_STARS)
             ui_lcd_push("np:stars", 0, STARS_BAND_Y, LCD_WIDTH,
                         STARS_BAND_H);

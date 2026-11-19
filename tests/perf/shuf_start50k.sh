@@ -31,7 +31,7 @@
 # on an APFS clone of build/sim-50k's disk (keyed by ensure50k.sh,
 # settled by settle50k.sh), and prints each start's "shuf: start songs
 # ok ... us= cpu=" line (host microseconds) and the medians. Exit 1 when
-# fewer than 5 starts were traced.
+# fewer than 5 starts were traced, or when the script's own checks fail.
 set -u
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 BIN=${1:-$ROOT/build/sim-ui}
@@ -49,6 +49,7 @@ OUT=$ROOT/out/shots/$NAME
 SIM_BUILD=$DIR/sb SHOTS_TIMEOUT=${SHOTS_TIMEOUT:-1800} \
     "$ROOT/scripts/shots.sh" "$ROOT/tests/perf/shuf-start-50k.script" "$OUT" \
     >"$DIR/shots.out" 2>&1
+cp "$DIR/shots.out" "$OUT/shots.out" 2>/dev/null
 LINES=$(grep -o 'shuf: start songs ok.*' "$OUT/sim.log")
 N=$(printf '%s\n' "$LINES" | grep -c 'us=')
 printf '%s\n' "$LINES"
@@ -58,3 +59,14 @@ med() {
 }
 echo "shuf_start50k: starts=$N median us=$(med us) cpu=$(med cpu) ($BIN)"
 [ "$N" -ge 5 ] || { echo "shuf_start50k: FAIL $N starts traced, want 5 ($OUT/sim.log)" >&2; exit 1; }
+# p090-shuffle: the script's own checks (# logrange: the first batch, its
+# reads, the backfill, the sound) decide too. shots.sh judges only ipodui-*
+# scripts (and exits 1 here: the script takes no shot), so the harness runs
+# the same checker on the log itself.
+if ! CT=$("$ROOT/scripts/check_trace.py" "$OUT/sim.log" \
+          "$ROOT/tests/perf/shuf-start-50k.script" 2>&1); then
+    printf '%s\n' "$CT" | tail -15 >&2
+    echo "shuf_start50k: FAIL the script's checks ($OUT/sim.log)" >&2
+    exit 1
+fi
+printf '%s\n' "$CT" | grep -i 'logrange\|shuf' | tail -8

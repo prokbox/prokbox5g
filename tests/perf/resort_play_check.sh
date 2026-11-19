@@ -33,7 +33,9 @@
 # follows at once (wait_commit), and PLAY also comes during the re-sort's
 # publication (commit_hold 100). Pass: each candidate gives its RAM cache
 # back while audio plays ("db cand ram yield", three times; the one in
-# the publication with its prepared lookup, "stats=1"), publishes at the
+# the publication with its prepared lookup, "stats=1"; where the buffer
+# would be short, at the PLAY itself, before the buffer is sized,
+# p090-floor3), publishes at the
 # stop ("db resort done ok=1", generations 2 and 3), and the audio buffer
 # stays >= the floor (7,500,000 / 39,000,000 B) throughout.
 #
@@ -69,7 +71,9 @@ for RAM in ${*:-32 64}; do
     y=$(grep -c "db cand ram yield" "$L" 2>/dev/null)
     d=$(grep -c "db resort done ok=1" "$L" 2>/dev/null)
     g=$(grep -c "db gen 3 " "$L" 2>/dev/null)
-    p=$(sed -n '/commit_release/,$p' "$L" 2>/dev/null | grep -c "db cand ram yield .* stats=1")
+    # the publication's yield: from the held publication on (at the PLAY
+    # when the buffer would be short, p090-floor3; else at its refusal)
+    p=$(sed -n '/commit_hold_wait ok/,$p' "$L" 2>/dev/null | grep -c "db cand ram yield .* stats=1")
     lo=$(grep -c "expect_floor failed" "$L" 2>/dev/null)
     grep -q "^sim: ram $RAM MB" "$L" 2>/dev/null || lo="$lo (not a ${RAM} MB run)"
     min=$(grep "expect_floor ok min over all_cases" "$L" 2>/dev/null | tail -1)
